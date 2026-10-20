@@ -45,7 +45,13 @@ const code = ts.transpileModule(source.replace(/^import .*;\r?\n/gm, ""), { comp
   .replace("export default ", "this.handler = ").replace("export const config", "const config");
 async function invoke({ signedIn = false, pending = false, method = "GET", path = "/integrations/atlassian/connect?request=opaque_-state", destination = "document", workspaceHost = null, invalidWorkspace = false, primary = false, originHost = "vaettir.skaldandstone.com" } = {}) {
   const events = [];
-  const session = { isAuthenticated: signedIn, sessionStatus: pending ? "pending" : signedIn ? "active" : null, redirectToSignIn: options => { events.push(["redirect", options]); return "redirected"; } };
+  const session = { isAuthenticated: signedIn, sessionStatus: pending ? "pending" : signedIn ? "active" : null, redirectToSignIn: options => {
+    events.push(["redirect", options]);
+    // The real SDK throws here, then creates the response outside our callback.
+    const cause = new Error("Synthetic Clerk sign-in redirect");
+    cause.syntheticClerkRedirect = new Response(null, { status: 307, headers: { Location: "https://app.vaettir.app/sign-in?redirect_url=" + encodeURIComponent(options.returnBackUrl) } });
+    throw cause;
+  } };
   const auth = Object.assign(async () => session, { protect: async () => { events.push(["protect"]); } });
   const sandbox = { authReturnUrl, isBrowserDocument, LEGACY_APPLICATION_ORIGIN, NextRequest, Headers, URL, Response, isWorkspaceAuthHost, workspaceRedirectOrigins,
     verifiedWorkspaceWebHost: async () => { if (invalidWorkspace) throw new Error("Invalid workspace ingress"); return workspaceHost; },
@@ -61,7 +67,11 @@ async function invoke({ signedIn = false, pending = false, method = "GET", path 
         assert.equal(configured.isSatellite, false);
         assert.equal(configured.signInUrl, "https://app.vaettir.app/sign-in");
       }
-      return handler(auth, request);
+      try { return await handler(auth, request); }
+      catch (cause) {
+        if (cause.syntheticClerkRedirect instanceof Response) return cause.syntheticClerkRedirect;
+        throw cause;
+      }
     },
     createRouteMatcher: routes => { assert.deepEqual([...routes], ["/", "/sign-in(.*)", "/sign-up(.*)", "/share(.*)", "/beta-guide(.*)"]); return req => ["/", "/sign-in", "/sign-up", "/share", "/beta-guide"].some(route => req.nextUrl.pathname === route || (route !== "/" && req.nextUrl.pathname.startsWith(route + "/"))); },
   };
@@ -69,7 +79,13 @@ async function invoke({ signedIn = false, pending = false, method = "GET", path 
   const response = await sandbox.handler(new NextRequest(new URL(path, "http://internal:3000"), { method,
     headers: new Headers({ "sec-fetch-dest": destination, host: originHost, "x-forwarded-host": "attacker.invalid", "x-forwarded-proto": "http" }),
   }), {});
-  if (response instanceof Response) events.push(["response", response.status, response.headers.get("location"), response.headers.get("cache-control")]);
+  if (response instanceof Response) {
+    if (events.some(event => event[0] === "redirect")) {
+      assert.equal(response.status, 307);
+      assert.equal(response.headers.get("cache-control"), "no-store");
+      assert.equal(response.headers.get("referrer-policy"), "no-referrer");
+    } else events.push(["response", response.status, response.headers.get("location"), response.headers.get("cache-control")]);
+  }
   return events;
 }
 test("actual signed-out document handler chooses HTTPS without reflecting forwarded headers", async () => {

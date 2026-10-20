@@ -60,7 +60,15 @@ export default async function middleware(request: NextRequest, event: NextFetchE
       return new Response("Invalid sign-in return.", { status: 400, headers: { "Cache-Control": "no-store" } });
     }
   }
-  return handleClerk(clerkRequest, event);
+  const response = await handleClerk(clerkRequest, event);
+  // Clerk materializes thrown sign-in redirects outside the auth callback.
+  // Opaque setup returns need these controls even on the retired proxy host.
+  if (response && isBrowserDocument(request) && !/^\/(api|trpc)(\/|$)/.test(request.nextUrl.pathname)
+      && response.status >= 300 && response.status < 400) {
+    response.headers.set("Cache-Control", "no-store");
+    response.headers.set("Referrer-Policy", "no-referrer");
+  }
+  return response;
 }
 
 export const config = {
