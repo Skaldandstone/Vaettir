@@ -67,7 +67,7 @@ async function invoke({ signedIn = false, pending = false, method = "GET", path 
   };
   vm.createContext(sandbox); vm.runInContext(domainCode, sandbox); vm.runInContext(normalizerCode, sandbox); vm.runInContext(code, sandbox);
   const response = await sandbox.handler(new NextRequest(new URL(path, "http://internal:3000"), { method,
-    headers: new Headers({ "sec-fetch-dest": destination, "x-forwarded-host": "attacker.invalid", "x-forwarded-proto": "http" }),
+    headers: new Headers({ "sec-fetch-dest": destination, host: "vaettir.skaldandstone.com", "x-forwarded-host": "attacker.invalid", "x-forwarded-proto": "http" }),
   }), {});
   if (response instanceof Response) events.push(["response", response.status, response.headers.get("location"), response.headers.get("cache-control")]);
   return events;

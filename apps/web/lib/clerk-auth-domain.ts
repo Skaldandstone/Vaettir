@@ -37,6 +37,12 @@ export function legacyAuthDocumentDestination(
   if (!(destination === "document" || destination === "iframe"
       || (!destination && (request.headers.get("accept") ?? "").includes("text/html")))) return null;
   const url = new URL(request.url);
+  const legacyHost = new URL(LEGACY_APPLICATION_ORIGIN).hostname;
+  const host = request.headers.get("host");
+  // Only the actual retired application enters compatibility routing. Public
+  // cold-start checks and other hosts must still render their own public page.
+  // A forwarding header cannot opt a request into this redirect.
+  if (url.hostname !== legacyHost && host !== legacyHost && host !== `${legacyHost}:443`) return null;
   if (!/^\/(?:$|(?:projects|dashboard|onboarding|settings|account|sign-in|sign-up|share|beta-guide)(?:\/|$)|integrations\/atlassian\/connect(?:\/|$))/.test(url.pathname)) return null;
   const result = new URL(authReturnUrl(url, PRIMARY_AUTH_ORIGIN));
   if (/^\/sign-(?:in|up)(?:\/|$)/.test(url.pathname)) {

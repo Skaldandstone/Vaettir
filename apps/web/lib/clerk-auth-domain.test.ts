@@ -31,6 +31,11 @@ describe("coordinated primary authentication migration", () => {
     expect(legacyAuthDocumentDestination(request("/projects/a", "GET", { authorization: "Bearer synthetic" }), null)).toBeNull();
     expect(legacyAuthDocumentDestination(request("/projects/a", "GET", { "sec-fetch-dest": "empty" }), null)).toBeNull();
   });
+  it("keeps the offline public startup route and unrelated hosts out of legacy routing", () => {
+    for (const origin of ["http://127.0.0.1:3000", "http://localhost:3000", primary, "https://other.example"])
+      expect(legacyAuthDocumentDestination({ ...request("/"), url: origin + "/", headers: new Headers({ accept: "text/html", "x-forwarded-host": "vaettir.skaldandstone.com" }) }, null)).toBeNull();
+    expect(legacyAuthDocumentDestination({ ...request("/projects/a"), url: "http://internal:3000/projects/a", headers: new Headers({ accept: "text/html", host: "vaettir.skaldandstone.com" }) }, null)).toBe(primary + "/projects/a");
+  });
   it("rejects external, credentialed, insecure and ambiguous sign-in returns", () => {
     for (const back of ["https://evil.test/a", "http://app.vaettir.app/a", "https://user:synthetic@app.vaettir.app/a", "//evil.test/a", "https://unknown.vaettir.app/a"])
       expect(() => legacyAuthDocumentDestination(request("/sign-in?redirect_url=" + encodeURIComponent(back)), null, "synthetic")).toThrow();
