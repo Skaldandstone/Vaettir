@@ -7,12 +7,16 @@ import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 const web = path.resolve(fileURLToPath(new URL("../../", import.meta.url)));
 const require = createRequire(path.join(web, "package.json"));
 const viteRequire = createRequire(createRequire(require.resolve("vitest")).resolve("vite"));
 const { build } = viteRequire("esbuild"), { chromium } = require("@playwright/test");
 const output = path.join(web, "../../.local/google-sheets-import-20261021/ui");
 await mkdir(output, { recursive: true });
+const inputs = ["components/MigrationWizard.tsx", "components/GoogleSheetsImportSource.tsx", "lib/google-sheets-import.ts", "../api/src/services/csvFieldMapping.ts", "app/globals.css", "app/workbench.css", "e2e/google-sheets/fixture.jsx", "e2e/google-sheets/boundary.jsx", "e2e/google-sheets/run.mjs", "../../pnpm-lock.yaml"];
+const hashes = async () => Object.fromEntries(await Promise.all(inputs.map(async file => [file, createHash("sha256").update(await readFile(path.join(web, file))).digest("hex")])));
+const sourceHashes = await hashes();
 const result = await build({
   entryPoints: [path.join(web, "e2e/google-sheets/fixture.jsx")], outfile: "fixture.js", bundle: true, write: false, jsx: "automatic", platform: "browser", nodePaths: [path.join(web, "node_modules")], alias: { "@": web },
   plugins: [{ name: "synthetic-transport", setup(builder) { builder.onResolve({ filter: /\/trpcReact$/ }, () => ({ path: path.join(web, "e2e/google-sheets/boundary.jsx") })); } }],
@@ -124,7 +128,8 @@ try {
   await page.getByText(/awaiting administrator setup/).waitFor();
   assert.equal(await page.getByRole("button", { name: "Load Google connection", exact: true }).count(), 0);
   assert.deepEqual(errors, []);
-  const evidence = { actualComponents: true, realGoogleAuthorization: false, hostedAcceptance: false, checks: ["two-tab picker, select/deselect", "actual parser auto-mapping and row preview", "zero writes before explicit import", "one multi-tab commit payload without provider credential", "zero AI analysis calls", "back navigation retains mapping", "light, dark and 390px layout", "OAuth cancel fails closed without writes", "cancel during delayed API preview prevents further tabs and late mappings", "missing title blocks both mixed and all-unmapped selections until explicit repair or deselection", "unconfigured provider fails closed"], errors, network };
+  assert.deepEqual(await hashes(), sourceHashes, "Source inputs stayed unchanged during fixture verification");
+  const evidence = { at: new Date().toISOString(), sourceHashes, bundleSha256: createHash("sha256").update(result.outputFiles[0].text).digest("hex"), actualComponents: true, realGoogleAuthorization: false, hostedAcceptance: false, checks: ["two-tab picker, select/deselect", "actual parser auto-mapping and row preview", "zero writes before explicit import", "one multi-tab commit payload without provider credential", "zero AI analysis calls", "back navigation retains mapping", "light, dark and 390px layout", "OAuth cancel fails closed without writes", "cancel during delayed API preview prevents further tabs and late mappings", "missing title blocks both mixed and all-unmapped selections until explicit repair or deselection", "unconfigured provider fails closed"], errors, network };
   await writeFile(path.join(output, "evidence.json"), JSON.stringify(evidence, null, 2)); console.log(JSON.stringify(evidence));
 } catch (error) { await page.screenshot({ path: path.join(output, "failure.png"), fullPage: true }); console.error(await page.locator("body").innerText()); throw error; }
 finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }
