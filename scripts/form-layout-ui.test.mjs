@@ -37,7 +37,7 @@ const scripts={
  '/styles.css':read('apps/web/app/globals.css').replace(/^@import.*$/m,'')+'\n'+read('apps/web/app/workbench.css'),
 };
 const html=`<!doctype html><html data-theme="dark"><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/styles.css"></head><body><div id="root"></div><script src="/react.js"></script><script src="/react-dom.js"></script><script type="module">
-const {useState,useEffect,useLayoutEffect,useRef}=React;const createPortal=ReactDOM.createPortal;
+const {useState,useEffect,useLayoutEffect,useRef,useSyncExternalStore}=React;const createPortal=ReactDOM.createPortal;
 ${compile(read('apps/web/components/ui/ReadableSelect.tsx'))}
 ${compile(read('apps/web/components/ui/DialogFrame.tsx'))}
 ${compile(read('apps/web/lib/report-templates.ts'))}

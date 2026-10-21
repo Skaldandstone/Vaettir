@@ -60,7 +60,7 @@ const css = readFileSync(
 const screenshots = process.env.VAETTIR_DELETION_SCREENSHOT_DIR;
 if (screenshots) mkdirSync(screenshots, { recursive: true });
 const boot = `
-const {useState,useEffect,useLayoutEffect,useRef,useId}=React,{createPortal}=ReactDOM;
+const {useState,useEffect,useLayoutEffect,useRef,useId,useSyncExternalStore}=React,{createPortal}=ReactDOM;
 const Link=({href,children,...props})=>React.createElement("a",{href,...props},children);
 window.submissions=[];window.deleted=0;window.cancelCount=0;window.mode="ok";
 window.preview={id:"synthetic-project",organizationId:"synthetic-org",name:"Synthetic project",fingerprint:"a".repeat(64),hasContents:true,blocked:false,rows:[
