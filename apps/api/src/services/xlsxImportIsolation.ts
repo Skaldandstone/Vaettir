@@ -37,11 +37,12 @@ export async function parseXlsxWorkbookIsolated(
   signal?: AbortSignal,
   cacheScope?: string,
   onProgress?: (sequence: number) => void,
+  purpose: "cases" | "results" = "cases",
 ): Promise<ParsedWorkbookSheet[]> {
   if (buffer.byteLength > XLSX_MAX_UPLOAD_BYTES)
     throw new Error("Excel file exceeds the current 32 MB upload capacity");
   if (signal?.aborted) throw new Error("Excel processing was cancelled.");
-  const cacheKey = cacheScope ? createHash("sha256").update(JSON.stringify([cacheScope, createHash("sha256").update(buffer).digest("hex")])).digest("hex") : undefined;
+  const cacheKey = cacheScope ? createHash("sha256").update(JSON.stringify([cacheScope, purpose, createHash("sha256").update(buffer).digest("hex")])).digest("hex") : undefined;
   if (cached && cached.expiresAt <= Date.now()) cached = undefined;
   if (cacheKey && cached?.key === cacheKey) return structuredClone(cached.sheets);
   if (activeWorkers >= MAX_ACTIVE_WORKERS)
@@ -60,6 +61,7 @@ export async function parseXlsxWorkbookIsolated(
       workerData: {
         moduleUrl: new URL(`./xlsxImportWorker.${extension}`, import.meta.url).href,
         bytes: Uint8Array.from(buffer),
+        purpose,
       },
       resourceLimits: {
         maxOldGenerationSizeMb: 128,

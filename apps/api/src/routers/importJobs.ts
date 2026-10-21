@@ -159,12 +159,12 @@ export const importJobsRouter = router({
       const { project } = await requireProjectAccess(ctx, input.projectId, "EDITOR");
       let sheets: Awaited<ReturnType<typeof parseXlsxWorkbookIsolated>>;
       try { sheets = await parseXlsxWorkbookIsolated(Buffer.from(input.fileBase64, "base64"), signal,
-        JSON.stringify([ctx.authenticatedClerkSubject, ctx.user.id, project.organizationId, project.id])); }
+        JSON.stringify([ctx.authenticatedClerkSubject, ctx.user.id, project.organizationId, project.id]), undefined, "results"); }
       catch (error) { throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Could not read the workbook. Export its results tab as CSV." }); }
       await requireFreshXlsxAccess(ctx, input.projectId, "EDITOR");
       if (sheets.length > 20 || sheets.reduce((n, sheet) => n + Buffer.byteLength(sheet.csvText ?? "", "utf8"), 0) > 1024 * 1024)
         throw new TRPCError({ code: "BAD_REQUEST", message: "Choose a workbook with at most 20 tabs and 1 MiB of converted content, or export the results tab as CSV." });
-      return { sheets: sheets.map(sheet => ({ name: sheet.name, csvText: sheet.csvText, headers: sheet.headers, rowCount: sheet.rowCount, warning: sheet.warning })) };
+      return { sheets: sheets.map(sheet => ({ name: sheet.name, csvText: sheet.csvText, headers: sheet.headers, rowCount: sheet.rowCount, warning: sheet.warning, originalRowNumbers: sheet.originalRowNumbers })) };
     }),
 
   googleSheetsConfig: protectedProcedure

@@ -27,7 +27,7 @@ export const trpcReact = {
       // access and transaction behavior have separate API/DB tests.
       const table = splitCsvRows(input.csvText, true), headers = table.shift();
       const rows = table.map((cells, index) => { const rawStatus = cells[headers.indexOf(input.mapping.result)] ?? ""; const key = cells[headers.indexOf(input.mapping.caseId)] ?? "";
-        return { rowNumber: index + 2, key, title: "", rawStatus, status: rawStatus === "" ? "IGNORE" : input.statusMap[rawStatus] ?? null,
+        return { rowNumber: index + 2, originalWorksheetRow: input.sourceRowNumbers?.[index+1] ?? null, key, title: "", rawStatus, status: rawStatus === "" ? "IGNORE" : input.statusMap[rawStatus] ?? null,
           date: input.runDate, caseId: "synthetic-case", caseTitle: "Synthetic case", note: "", candidates: [], issues: input.statusMap[rawStatus] || rawStatus === "" ? [] : ["Choose how to handle this result value."] };
       });
       return { rows, matchedCount: rows.filter(r => r.status && r.status !== "IGNORE" && !r.issues.length).length, ignoredCount: rows.filter(r => r.status === "IGNORE").length, blockedCount: rows.filter(r => r.issues.length).length, runCount: 1, fingerprint: "a".repeat(64) };
@@ -35,7 +35,7 @@ export const trpcReact = {
     commitHistorical: mutation(input => { window.sheetFixture.commits.push(input); return { importedCount: 2, replayedCount: 0, runs: [{ id: "synthetic-run", date: input.runDate, results: 2, replayed: false }] }; }),
   },
   importJobs: {
-    historicalWorkbook: mutation(() => ({ sheets: [{ name: "Old results", csvText: "ID,Result\nold-1,pass", headers: ["ID", "Result"], rowCount: 1 }] })),
+    historicalWorkbook: mutation(() => ({ sheets: [{ name: "Old results", csvText: "ID,Result\nold-1,pass", headers: ["ID", "Result"], rowCount: 1, originalRowNumbers: [5,9] }] })),
     ...endpoints, previewCsv: mutation(preview), previewWithMapping: mutation(preview),
     googleSheetsConfig: { useQuery: () => ({ data: new URLSearchParams(location.search).has("unconfigured") ? null : { clientId: "synthetic-client", apiKey: "synthetic-public-key", appId: "123456789" }, isLoading: false, error: null }) },
     commitGoogleSheets: mutation(input => { window.sheetFixture.commits.push(input); return { importJobId: "synthetic-job", createdCount: 2, updatedCount: 0, skipped: [] }; }),

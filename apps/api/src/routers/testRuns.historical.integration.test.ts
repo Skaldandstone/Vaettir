@@ -37,7 +37,7 @@ describe("historical results real PostgreSQL atomicity", () => {
     expect(runs.map(r => r.startedAt.toISOString().slice(0, 10))).toEqual(["2025-01-01", "2025-01-02"]);
     expect(runs.every(r => r.finishedAt === null && r.ciProvider === "historical-import")).toBe(true);
     expect(runs[0]!.executionContext).toMatchObject({ historicalImport: { datePrecision: "day", timeUnknown: true, originalDate: "2025-01-01", recordedBy: userId } });
-    expect(runs[1]!.results[0]).toMatchObject({ testCaseId: b, status: "FAIL", durationMs: null, observations: { historicalImport: { procedureNotReverified: true } } });
+    expect(runs[1]!.results[0]).toMatchObject({ testCaseId: b, status: "FAIL", durationMs: null, observations: { historicalImport: { procedureNotReverified: true, recordedResultValue: "fail", sourceCaseReference: b } } });
     expect(await prisma.testCase.findMany({ where: { projectId }, orderBy: { id: "asc" } })).toEqual(before);
     expect(await prisma.auditLog.count({ where: { projectId, entityType: "TestRun" } })).toBe(2);
   });
@@ -67,5 +67,19 @@ describe("historical results real PostgreSQL atomicity", () => {
     await prisma.membership.updateMany({ where: { organizationId: orgId, userId }, data: { role: "VIEWER" } });
     try { await expect(c.testRuns.commitHistorical(input)).rejects.toThrow(/access changed/); expect(await prisma.testRun.count({ where: { projectId } })).toBe(count); }
     finally { await prisma.membership.updateMany({ where: { organizationId: orgId, userId }, data: { role: "EDITOR" } }); }
+  });
+  it("retains physical worksheet rows separately from normalized import-table rows", async () => {
+    const c = await caller(), input = { ...source("Sparse worksheet", `ID,Result,Date,Notes\n${a},pass,2023-01-01,Original row nine`), sourceRowNumbers: [5, 9] };
+    const review = await c.testRuns.previewHistorical(input);
+    const saved = await c.testRuns.commitHistorical({ ...input, expectedDigest: review.fingerprint, acknowledgeHistoricalObservation: true });
+    const record = await prisma.testResult.findFirstOrThrow({ where: { testRunId: saved.runs[0]!.id } });
+    expect(record.observations).toMatchObject({ historicalImport: { importTableRow: 2, originalWorksheetRow: 9 } });
+  });
+  it("does not resolve another project's reserved prefix even in the same organization", async () => {
+    const other = await prisma.project.create({ data: { organizationId: orgId, name: "Other synthetic project", slug: `${marker}-other` } });
+    const native = await prisma.testCase.findUniqueOrThrow({ where: { id: a } });
+    const c = await caller();
+    const review = await c.testRuns.previewHistorical(source("Foreign alias", `ID,Result,Date,Notes\n${other.caseKey}-${String(native.caseNumber).padStart(2, "0")},pass,2023-01-01,Wrong project prefix`));
+    expect(review.rows[0]!.caseId).toBeNull(); expect(review.blockedCount).toBe(1);
   });
 });

@@ -182,6 +182,13 @@ try {
   await page.getByLabel("Historical worksheet", { exact: true }).selectOption("Old results");
   assert.equal(await page.getByLabel("Original historical run date", { exact: true }).inputValue(), "");
   assert.equal(await page.evaluate(() => window.sheetFixture.commits.length), 0);
+  await page.getByLabel("Original historical run date", { exact: true }).fill("2025-01-02");
+  await page.getByRole("button", { name: "Review historical results", exact: true }).click();
+  await page.getByText("Worksheet row 9", { exact: true }).waitFor();
+  await page.getByRole("checkbox", { name: /I confirm these dates/ }).check();
+  await page.getByRole("button", { name: "Import reviewed historical results", exact: true }).click();
+  await page.getByRole("heading", { name: "Historical results recorded", exact: true }).waitFor();
+  assert.deepEqual(await page.evaluate(() => window.sheetFixture.commits[0].sourceRowNumbers), [5, 9]);
   await page.goto(`${origin}/historical`);
   await page.getByRole("radio", { name: "Google Sheets", exact: true }).check();
   await page.getByRole("checkbox", { name: /I approve reading/ }).check();

@@ -8,7 +8,7 @@ try {
   const sheets = parseXlsxWorkbook(Buffer.from(workerData.bytes as Uint8Array), () => {
     // Real parser checkpoints, never an interval that could hide a stuck parse.
     parentPort!.postMessage({ kind: "progress", sequence: ++sequence });
-  });
+  }, workerData.purpose === "results" ? "results" : "cases");
   parentPort.postMessage({ ok: true, sheets });
 } catch {
   // Never return parser internals, file contents, or third-party error text.

@@ -5,6 +5,7 @@ import type { PrismaClient, Prisma } from "@vaettir/db";
 import { splitCsvRows } from "./csvFieldMapping.js";
 import { lockMappingProject } from "./externalTestMapping.js";
 import { recordAudit } from "./auditLog.js";
+import { liveCaseDisplayId, parseCaseReference } from "./projectCaseKeys.js";
 
 export const historicalStatusSchema = z.enum(["PASS", "FAIL", "SKIP", "BLOCKED", "FLAKY", "IGNORE"]);
 export const historicalReviewSchema = z.object({
@@ -13,7 +14,8 @@ export const historicalReviewSchema = z.object({
   mapping: z.object({ caseId: z.string().optional(), title: z.string().optional(), result: z.string().min(1), date: z.string().optional(), note: z.string().optional() }).strict(),
   dateFormat: z.enum(["iso", "mdy", "dmy", "excel1900"]).default("iso"), runDate: z.string().default(""),
   statusMap: z.record(z.string().max(1000), historicalStatusSchema).default({}),
-  caseSelections: z.record(z.string().regex(/^\d+$/), z.string().max(200)).default({}),
+  caseSelections: z.record(z.string().regex(/^\d+$/), z.string().max(200)).refine(value => Object.keys(value).length <= 2500, "Choose at most 2,500 row matches.").default({}),
+  sourceRowNumbers: z.array(z.number().int().min(1).max(1048576)).max(2501).optional(),
 }).strict();
 export type HistoricalInput = z.infer<typeof historicalReviewSchema>;
 type Db = PrismaClient | Prisma.TransactionClient;
@@ -54,11 +56,31 @@ export function historicalDate(raw: string, format: HistoricalInput["dateFormat"
 }
 export async function previewHistoricalResults(db: Db, input: HistoricalInput) {
   const table = historicalTable(input.csvText);
+  if (input.sourceRowNumbers && (input.sourceRowNumbers.length !== table.rows.length + 1 || input.sourceRowNumbers.some((value, index, all) => index > 0 && value <= all[index - 1]!))) throw new Error("Worksheet row references changed. Choose the original worksheet again.");
   if (!input.mapping.caseId && !input.mapping.title) throw new Error("Choose a case ID or case title column.");
   for (const column of Object.values(input.mapping).filter(Boolean)) if (!table.headers.includes(column!)) throw new Error("A selected column is missing. Review the column mappings again.");
-  const cases = await db.testCase.findMany({ where: { projectId: input.projectId }, select: { id: true, displayId: true, title: true, source: { select: { externalTestId: true } } }, orderBy: { id: "asc" }, take: 10001 });
+  const project = await db.project.findUniqueOrThrow({ where: { id: input.projectId }, select: { organizationId: true, caseKey: true } });
+  const references = [...table.rows.map(row => input.mapping.caseId ? row[table.headers.indexOf(input.mapping.caseId)] ?? "" : ""), ...Object.values(input.caseSelections)];
+  const prefixCandidates = [...new Set(references.map(value => parseCaseReference(value)?.caseKey).filter((value): value is string => Boolean(value)))];
+  const keyAliases = await db.projectCaseKeyAlias.findMany({ where: { projectId: input.projectId, organizationId: project.organizationId, caseKey: { in: prefixCandidates } }, select: { caseKey: true }, take: prefixCandidates.length + 1 });
+  const prefixes = new Set([project.caseKey, ...keyAliases.map(alias => alias.caseKey)]);
+  const cases = await db.testCase.findMany({ where: { projectId: input.projectId }, select: { id: true, displayId: true, caseNumber: true, title: true, source: { select: { externalTestId: true } } }, orderBy: { id: "asc" }, take: 10001 });
   if (cases.length > 10000) throw new Error("This project exceeds the historical matching limit. Split the project scope before using this importer.");
   const byId = new Map(cases.map(c => [c.id, c]));
+  type Case = typeof cases[number];
+  const byNumber = new Map(cases.map(c => [c.caseNumber, c]));
+  const storedLabels = new Map<string, Case[]>(), sourceKeys = new Map<string, Case[]>(), titles = new Map<string, Case[]>();
+  const add = (map: Map<string, Case[]>, key: string, value: Case) => { if (!key) return; const entries = map.get(key); if (entries) entries.push(value); else map.set(key, [value]); };
+  for (const c of cases) {
+    add(storedLabels, c.displayId, c); add(titles, c.title.trim().toLowerCase(), c);
+    const external = c.source?.externalTestId;
+    if (external) {
+      add(sourceKeys, external, c);
+      // Index source namespaces once, instead of scanning 10,000 cases again
+      // for every uploaded row. Matching still never crosses this project.
+      for (let colon = external.indexOf(":"); colon >= 0; colon = external.indexOf(":", colon + 1)) add(sourceKeys, external.slice(colon + 1), c);
+    }
+  }
   const cell = (row: string[], column?: string) => column ? (row[table.headers.indexOf(column)] ?? "").trim() : "";
   const rows = table.rows.map((row, index) => {
     const rowNumber = index + 2, rawStatus = cell(row, input.mapping.result), key = cell(row, input.mapping.caseId), title = cell(row, input.mapping.title);
@@ -67,10 +89,12 @@ export async function previewHistoricalResults(db: Db, input: HistoricalInput) {
     const issues: string[] = [];
     if (!status) issues.push("Choose how to handle this result value.");
     const id = key.replace(/^VAE-/, "");
-    const candidatesById = key ? cases.filter(c => c.id === id || (c.displayId !== "" && c.displayId === key) || c.source?.externalTestId === key || c.source?.externalTestId?.endsWith(":" + key)) : [];
-    const candidates = key ? candidatesById : title ? cases.filter(c => c.title.trim().toLowerCase() === title.toLowerCase()) : [];
+    const reference = parseCaseReference(key);
+    const candidatesById = key ? [...new Map([byId.get(id), ...(storedLabels.get(key) ?? []), reference && prefixes.has(reference.caseKey) ? byNumber.get(reference.caseNumber) : undefined, ...(sourceKeys.get(key) ?? [])].filter((c): c is Case => Boolean(c)).map(c => [c.id, c])).values()] : [];
+    const candidates = key ? candidatesById : titles.get(title.toLowerCase()) ?? [];
     const selected = input.caseSelections[String(rowNumber)];
-    const match = selected ? byId.get(selected) : candidates.length === 1 ? candidates[0] : undefined;
+    const selectedReference = selected ? parseCaseReference(selected) : null;
+    const match = selected ? byId.get(selected.replace(/^VAE-/, "")) ?? (selectedReference && prefixes.has(selectedReference.caseKey) ? byNumber.get(selectedReference.caseNumber) : undefined) : candidates.length === 1 ? candidates[0] : undefined;
     let date = "";
     if (status !== "IGNORE") {
       if (!match) issues.push(selected ? "That case is not in this project." : candidates.length ? "Several cases match. Choose the exact Vaettir case ID." : "No case matches. Import the case definitions first, or choose its Vaettir case ID.");
@@ -79,8 +103,8 @@ export async function previewHistoricalResults(db: Db, input: HistoricalInput) {
     }
     const note = cell(row, input.mapping.note);
     if (note.length > 10000) issues.push("The result note exceeds 10,000 characters.");
-    return { rowNumber, key, title, rawStatus, status: status ?? null, date, caseId: match?.id ?? null, caseTitle: match?.title ?? null, note,
-      candidates: candidates.slice(0, 10).map(c => ({ id: c.id, title: c.title })), issues };
+    return { rowNumber, originalWorksheetRow: input.sourceRowNumbers?.[index + 1] ?? null, key, title, rawStatus, status: status ?? null, date, caseId: match?.id ?? null, caseTitle: match?.title ?? null, note,
+      candidates: candidates.slice(0, 10).map(c => ({ id: c.id, displayId: liveCaseDisplayId(project.caseKey, c.caseNumber), title: c.title })), issues };
   });
   const seen = new Map<string, typeof rows[number]>();
   for (const row of rows) if (row.status && row.status !== "IGNORE" && row.caseId && row.date) {
@@ -95,7 +119,7 @@ export async function previewHistoricalResults(db: Db, input: HistoricalInput) {
   const canonical = selected.map(row => ({ caseId: row.caseId, status: row.status, date: row.date, note: row.note })).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
   return { rows, matchedCount: selected.filter(row => row.caseId && !row.issues.length).length, ignoredCount: rows.filter(row => row.status === "IGNORE").length,
     blockedCount: rows.filter(row => row.issues.length).length, runCount: dates.length,
-    fingerprint: digest({ sourceRef: input.sourceRef, runLabel: input.runLabel, resultColumn: input.mapping.result, canonical }) };
+    fingerprint: digest({ projectId: input.projectId, sourceRef: input.sourceRef, runLabel: input.runLabel, mapping: input.mapping, dateFormat: input.dateFormat, runDate: input.runDate, statusMap: input.statusMap, caseSelections: input.caseSelections, sourceSnapshot: digest(input.csvText), sourceRowNumbers: input.sourceRowNumbers ?? null, canonical }) };
 }
 export async function commitHistoricalResults(prisma: PrismaClient, input: HistoricalInput & { expectedDigest: string }, authority: { actorId: string; organizationId: string }) {
   return prisma.$transaction(async tx => {
@@ -129,7 +153,7 @@ export async function commitHistoricalResults(prisma: PrismaClient, input: Histo
         status: group.rows.some(r => r.status === "FAIL") ? "FAILED" : group.rows.some(r => ["BLOCKED", "SKIP", "FLAKY"].includes(r.status!)) ? "PARTIAL" : "PASSED",
         startedById: authority.actorId, executionContext: { historicalImport },
         results: { create: group.rows.map(r => ({ testCaseId: r.caseId!, externalTestId: "VAE-" + r.caseId, status: r.status as "PASS" | "FAIL" | "BLOCKED" | "SKIP" | "FLAKY", note: r.note || null, durationMs: null,
-          observations: { historicalImport: { sourceRow: r.rowNumber, originalDate: group.date, datePrecision: "day", procedureNotReverified: true } } })) },
+          observations: { historicalImport: { importTableRow: r.rowNumber, originalWorksheetRow: r.originalWorksheetRow, sourceCaseReference: r.key || r.title, recordedResultValue: r.rawStatus, originalDate: group.date, datePrecision: "day", procedureNotReverified: true } } })) },
       }, select: { id: true } });
       await recordAudit(tx as unknown as PrismaClient, { organizationId: authority.organizationId, projectId: input.projectId, actorId: authority.actorId, entityType: "TestRun", entityId: run.id, action: "CREATE", summary: `Imported ${group.rows.length} historical observations for ${group.date}`, metadata: { historical: true, date: group.date, resultCount: group.rows.length } });
       runs.push({ id: run.id, date: group.date, results: group.rows.length, replayed: false });

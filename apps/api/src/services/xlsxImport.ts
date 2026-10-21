@@ -64,6 +64,9 @@ export interface ParsedWorkbookSheet {
   rowCount: number;
   suggestedMapping: Partial<Record<TargetField, string>>;
   warning?: string;
+  /** Historical-result mode only: physical worksheet row for each CSV record,
+   * including the header. Sparse worksheet gaps are never silently renumbered. */
+  originalRowNumbers?: number[];
 }
 
 function arrayOf<T>(value: T | T[] | undefined): T[] {
@@ -158,11 +161,17 @@ function normalizeTarget(target: string): string {
   return clean.startsWith("xl/") ? clean : `xl/${clean.replace(/^\.\.\//, "")}`;
 }
 
-function findHeaderRow(rows: CellValue[][]): number | null {
+function findHeaderRow(rows: CellValue[][], purpose: "cases" | "results" = "cases"): number | null {
   let best: { index: number; score: number } | null = null;
   for (const [index, row] of rows.slice(0, 25).entries()) {
     const headers = row.map((value) => String(value ?? "").trim());
     const mapping = suggestCsvMapping(headers);
+    if (purpose === "results") {
+      // Results need identity plus execution columns, not a case procedure.
+      // The customer still explicitly maps the result/date columns in review.
+      if ((mapping.externalId || mapping.title) && headers.filter(Boolean).length >= 2 && new Set(headers).size === headers.length) return index;
+      continue;
+    }
     const score =
       Object.keys(mapping).length +
       (mapping.title ? 4 : 0) +
@@ -189,7 +198,7 @@ function findHeaderRow(rows: CellValue[][]): number | null {
   return best?.index ?? null;
 }
 
-export function parseXlsxWorkbook(buffer: Buffer, onProgress?: () => void): ParsedWorkbookSheet[] {
+export function parseXlsxWorkbook(buffer: Buffer, onProgress?: () => void, purpose: "cases" | "results" = "cases"): ParsedWorkbookSheet[] {
   if (buffer.byteLength > XLSX_MAX_UPLOAD_BYTES)
     throw new Error("Excel file exceeds the current 32 MB upload capacity");
   if (buffer.subarray(0, 2).toString("hex") !== "504b")
@@ -256,7 +265,15 @@ export function parseXlsxWorkbook(buffer: Buffer, onProgress?: () => void): Pars
       totalRows += sourceRows.length;
       if (sourceRows.length > MAX_ROWS_PER_SHEET || totalRows > MAX_WORKBOOK_ROWS)
         throw new Error("Excel workbook exceeds the supported row limit");
-      const rows = sourceRows.map((rowValue) => {
+      let previousRow = 0;
+      const originalRowNumbers = purpose === "results" ? sourceRows.map(rowValue => {
+        const row = recordOf(rowValue), first = recordOf(arrayOf(row.c)[0]);
+        const cellReference = String(first["@_r"] ?? "");
+        const number = Number(row["@_r"] ?? (/^[A-Z]+([1-9]\d*)$/i.exec(cellReference)?.[1] ?? previousRow + 1));
+        if (!Number.isInteger(number) || number <= previousRow || number > 1048576) throw new Error("Excel worksheet row references are invalid.");
+        previousRow = number; return number;
+      }) : undefined;
+      const rows = sourceRows.map((rowValue, rowIndex) => {
         const row = recordOf(rowValue);
         const cells: CellValue[] = [];
         const sourceCells = arrayOf(row.c);
@@ -266,6 +283,8 @@ export function parseXlsxWorkbook(buffer: Buffer, onProgress?: () => void): Pars
         for (const cellValue of sourceCells) {
           const cell = recordOf(cellValue);
           const index = columnIndex(String(cell["@_r"] ?? "A1"));
+          if (purpose === "results" && cell["@_r"] !== undefined && Number(String(cell["@_r"]).replace(/^[A-Z]+/i, "")) !== originalRowNumbers![rowIndex])
+            throw new Error("Excel cell and worksheet row references disagree.");
           const type = cell["@_t"];
           const inlineString = recordOf(cell.is);
           const raw = cell.v ?? inlineString.t ?? inlineString.r;
@@ -279,7 +298,7 @@ export function parseXlsxWorkbook(buffer: Buffer, onProgress?: () => void): Pars
         return cells;
       });
 
-      const headerIndex = findHeaderRow(rows);
+      const headerIndex = findHeaderRow(rows, purpose);
       if (headerIndex === null) {
         return {
           name,
@@ -288,7 +307,7 @@ export function parseXlsxWorkbook(buffer: Buffer, onProgress?: () => void): Pars
           headers: [],
           rowCount: 0,
           suggestedMapping: {},
-          warning: "No recognizable test-case header row found",
+          warning: purpose === "results" ? "No results header found. Use a case ID or title column and a result column, or export the results table as CSV." : "No recognizable test-case header row found",
         };
       }
       const width = Math.max(
@@ -314,7 +333,8 @@ export function parseXlsxWorkbook(buffer: Buffer, onProgress?: () => void): Pars
       ).length;
       return {
         name,
-        headerRow: headerIndex + 1,
+        headerRow: originalRowNumbers?.[headerIndex] ?? headerIndex + 1,
+        ...(originalRowNumbers ? { originalRowNumbers: originalRowNumbers.slice(headerIndex) } : {}),
         csvText,
         headers,
         rowCount,
