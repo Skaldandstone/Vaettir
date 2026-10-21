@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { MigrationWizard } from "../../components/MigrationWizard";
-window.sheetFixture = { commits: [], ai: 0, tokens: 0 };
+window.sheetFixture = { commits: [], ai: 0, tokens: 0, previews: [] };
 window.gapi = { load: (_name, options) => options.callback() };
 window.google = {
   accounts: { oauth2: { initTokenClient: config => ({ requestAccessToken() {

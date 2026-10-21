@@ -571,16 +571,23 @@ export function MigrationWizard({
     setError(null);
   }
 
-  async function loadGoogleSheets(snapshots: GoogleSheetSnapshot[]) {
+  async function loadGoogleSheets(snapshots: GoogleSheetSnapshot[], selectionSignal: AbortSignal) {
     activeFileRead.current?.abort();
     const controller = new AbortController();
     activeFileRead.current = controller;
+    const cancelSelection = () => {
+      controller.abort();
+      if (activeFileRead.current === controller) setLoading(false);
+    };
+    selectionSignal.addEventListener("abort", cancelSelection, { once: true });
+    if (selectionSignal.aborted) { cancelSelection(); return; }
     setError(null); setLoading(true); setCsvPreview(null); setXlsxPreview(null);
     setRawContent(""); setGoogleSnapshots([]); setMapping({});
     setCsvPreviewRows([]); setCsvRowOverrides({}); setTypeReview(null);
     try {
       const sheets = [];
       for (const snapshot of snapshots) {
+        if (controller.signal.aborted || activeFileRead.current !== controller) return;
         const res = await previewCsvMutation.mutateAsync({ projectId, csvText: snapshot.csvText });
         if (controller.signal.aborted || activeFileRead.current !== controller) return;
         sheets.push({ name: snapshot.label, headerRow: 1, ...res, skippedCount: res.previewSkipped.length });
@@ -591,7 +598,7 @@ export function MigrationWizard({
       setXlsxMappings(Object.fromEntries(sheets.map(sheet => [sheet.name, sheet.suggestedMapping])));
       setXlsxRowOverrides(Object.fromEntries(sheets.map(sheet => [sheet.name, rowRecord(sheet.incompleteRows)])));
     } catch (error) { if (!controller.signal.aborted) setError(importErrorMessage(error)); }
-    finally { if (activeFileRead.current === controller) setLoading(false); }
+    finally { selectionSignal.removeEventListener("abort", cancelSelection); if (activeFileRead.current === controller) setLoading(false); }
   }
 
   async function loadFile(file: File) {
@@ -796,8 +803,10 @@ export function MigrationWizard({
     setXlsxMappings((current) => ({ ...current, [sheetName]: nextMapping }));
     setXlsxPreview(current => current ? { sheets: current.sheets.map(sheet => sheet.name === sheetName ? { ...sheet, previewRows: [] } : sheet) } : current);
     setError(null);
-    if (!nextMapping.title) setSelectedSheets(current => { const next = new Set(current); next.delete(sheetName); return next; });
-    else if (!previousMapping.title) setSelectedSheets(current => new Set(current).add(sheetName));
+    if (importMethod !== "google-sheets") {
+      if (!nextMapping.title) setSelectedSheets(current => { const next = new Set(current); next.delete(sheetName); return next; });
+      else if (!previousMapping.title) setSelectedSheets(current => new Set(current).add(sheetName));
+    }
     if (!nextMapping.title) return;
     setLoading(true);
     setError(null);
@@ -864,6 +873,8 @@ export function MigrationWizard({
       let res: FileCommitResult;
       if (source === "csv") {
         if (xlsxPreview) {
+          if (importMethod === "google-sheets" && [...selectedSheets].some(name => !xlsxMappings[name]?.title))
+            throw new Error("Map a title column for every selected tab, or deselect the tab before importing.");
           const sheets = [...selectedSheets]
             .map((name) => ({
               name,
@@ -960,6 +971,7 @@ export function MigrationWizard({
     ),
   );
   const missingGoogleIds = importMethod === "google-sheets" && [...selectedSheets].some(name => !xlsxMappings[name]?.externalId);
+  const missingGoogleTitles = importMethod === "google-sheets" && [...selectedSheets].some(name => !xlsxMappings[name]?.title);
 
   return (
     <div className={`panel${importMethod === "google-sheets" ? " google-sheets-migration" : ""}`} style={{ marginBottom: 20 }}>
@@ -1243,7 +1255,7 @@ export function MigrationWizard({
                       <input
                         type="checkbox"
                         checked={selected}
-                        disabled={!sheetMapping.title}
+                        disabled={importMethod !== "google-sheets" && !sheetMapping.title}
                         onChange={(event) =>
                           setSelectedSheets((current) => {
                             const next = new Set(current);
@@ -1379,11 +1391,13 @@ export function MigrationWizard({
               selectedSheets.size === 0 ||
               unresolvedXlsxRows.length > 0
               || missingGoogleIds
+              || missingGoogleTitles
             }
           >
             Review import scope
           </button>
           {missingGoogleIds && <p role="status" className="xlsx-sheet-note">Map a Case ID or External ID column for each selected tab. Every case needs a unique, stable ID so repeating an import updates the same case safely.</p>}
+          {missingGoogleTitles && <p role="status" className="xlsx-sheet-note">Map a title column for every selected tab, or deselect that tab. Selected tabs are never silently left out.</p>}
           {unresolvedXlsxRows.length > 0 && (
             <p className="xlsx-sheet-note" role="status">
               Complete {unresolvedXlsxRows.length} required title field(s) to
@@ -1565,7 +1579,7 @@ export function MigrationWizard({
             </button>
             <button
               onClick={commit}
-              disabled={committing || typeReviewBlocked || selectedSheets.size === 0 || missingGoogleIds}
+              disabled={committing || typeReviewBlocked || selectedSheets.size === 0 || missingGoogleIds || missingGoogleTitles}
             >
               {committing ? "Importing…" : "Import selected worksheets"}
             </button>

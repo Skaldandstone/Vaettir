@@ -43,7 +43,7 @@ function loadGoogle() {
 }
 
 export function GoogleSheetsImportSource({ projectId, disabled, onSnapshots }: {
-  projectId: string; disabled: boolean; onSnapshots(snapshots: GoogleSheetSnapshot[]): Promise<void>;
+  projectId: string; disabled: boolean; onSnapshots(snapshots: GoogleSheetSnapshot[], signal: AbortSignal): Promise<void>;
 }) {
   const config = trpcReact.importJobs.googleSheetsConfig.useQuery({ projectId }, { refetchOnWindowFocus: false });
   const [ready, setReady] = useState(false);
@@ -56,11 +56,14 @@ export function GoogleSheetsImportSource({ projectId, disabled, onSnapshots }: {
   const credential = useRef<{ token: string; expires: number } | null>(null);
   const picker = useRef<Picker | null>(null);
   const expiry = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  function clearAccess() {
-    current.current?.abort(); current.current = null;
+  function discardCredential() {
     credential.current = null;
     clearTimeout(expiry.current);
     picker.current?.dispose(); picker.current = null;
+  }
+  function clearAccess() {
+    current.current?.abort(); current.current = null;
+    discardCredential();
   }
   useEffect(() => () => { clearAccess(); }, [projectId]);
   function cancel() {
@@ -132,11 +135,13 @@ export function GoogleSheetsImportSource({ projectId, disabled, onSnapshots }: {
         snapshots.push(snapshot);
       }
       // Discard provider access before sending the selected content for mapping.
-      clearAccess(); setBook(null); setSelected([]); setApproved(false);
-      await onSnapshots(snapshots);
+      // Keep cancellation alive across Vaettir's preview requests after dropping
+      // the provider credential. Cancel must also invalidate the parent draft.
+      discardCredential(); setBook(null); setSelected([]); setApproved(false);
+      await onSnapshots(snapshots, operation.signal);
     } catch (failure) {
       if (!operation.signal.aborted) { clearAccess(); setBook(null); setError(failure instanceof Error ? failure.message : "The selected sheets could not be read."); }
-    } finally { if (current.current === operation || current.current === null) setBusy(false); }
+    } finally { if (current.current === operation) { clearAccess(); setBusy(false); } }
   }
   return <section aria-label="Import from Google Sheets" style={{ marginTop: 12 }}>
     <h3>Import from Google Sheets</h3>
