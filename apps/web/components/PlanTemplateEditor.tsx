@@ -66,8 +66,11 @@ export function PlanTemplateEditor({ projectId, testPlanId, organizationId, onCh
     <Modal open={editor.open} onClose={editor.close} title="Plan cases & configurations" size="wide" keepMounted>
       {!editor.readable ? <p role="status">{editor.reads.query.error ? "Unable to load this plan. Check your access and try again." : "Loading your plan…"}</p> : <>
         {editor.reads.fresh?.editBlockedReason && <p role="alert">{editor.reads.fresh.editBlockedReason}</p>}
-        {editor.pending ? <section role="status"><p>The save needs confirmation. Your reviewed selection is retained.</p>
-          <button type="button" disabled={editor.busy} onClick={() => void editor.commit()}>Retry save</button></section> : draft ? <>
+        {editor.pending ? <section role="status" aria-busy={editor.busy}>
+          {editor.busy || !editor.pending.uncertain ? <p>Saving plan…</p> : <>
+            <p>The save needs confirmation. Your reviewed selection is retained.</p>
+            <button type="button" disabled={editor.busy} onClick={() => void editor.commit()}>Retry save</button>
+          </>}</section> : draft ? <>
           <div className="plan-selection-grid">
             <section><h3>Available tests</h3>
               <label className="field-label">Search tests<input value={search} maxLength={200} placeholder="Test ID or summary" onChange={e => { setCursor(undefined); setSearch(e.target.value); }} /></label>

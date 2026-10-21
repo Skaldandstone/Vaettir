@@ -4,14 +4,14 @@ import { trpcReact } from "@/lib/trpcReact";
 import { useCaseFieldAccess } from "@/lib/use-case-field-access";
 import { repositoryDisplayName } from "@/lib/repository-display";
 
-export function RepositoryReleaseDiscovery({projectId}:{projectId:string}) {
-  return <RepositoryReleaseWorkspace key={projectId} projectId={projectId}/>;
+export function RepositoryReleaseDiscovery({projectId, embedded = false}:{projectId:string; embedded?:boolean}) {
+  return <RepositoryReleaseWorkspace key={projectId} projectId={projectId} embedded={embedded}/>;
 }
-function RepositoryReleaseWorkspace({projectId}:{projectId:string}) {
+function RepositoryReleaseWorkspace({projectId, embedded}:{projectId:string; embedded:boolean}) {
   const [offset,setOffset]=useState(0);
   const [selected,setSelected]=useState<{id:string;label:string}|null>(null);
-  return <section className="panel" aria-label="Repository releases" style={{minWidth:0}}>
-    <h2>Repository releases</h2>
+  return <section className={embedded ? undefined : "panel"} aria-label="Repository releases" style={{minWidth:0}}>
+    {!embedded && <h2>Repository releases</h2>}
     {selected ? <>
       <button type="button" className="btn-secondary" onClick={()=>setSelected(null)}>Back to project releases</button>
       <ReleaseList key={projectId+":"+selected.id} projectId={projectId} repositoryId={selected.id} label={selected.label}/>
@@ -43,7 +43,7 @@ function ProjectReleaseBatch({projectId,offset,onOffsetChange,onBrowse}:{project
         <button type="button" className="btn-secondary" disabled={query.data.nextOffset===null||query.data.nextOffset>1000} onClick={()=>{if(current()&&query.data.nextOffset!==null&&query.data.nextOffset<=1000)onOffsetChange(query.data.nextOffset);}}>Next repositories</button>
       </div>
     </>}
-    <button type="button" className="btn-secondary" disabled={!access.readable||!access.canEdit||query.isFetching||query.isPaused} onClick={()=>{if(access.origin&&access.owns(access.origin,"edit"))void query.refetch();}}>Refresh repository releases</button>
+    <div className="workspace-toolbar"><button type="button" className="btn-secondary" disabled={!access.readable||!access.canEdit||query.isFetching||query.isPaused} onClick={()=>{if(access.origin&&access.owns(access.origin,"edit"))void query.refetch();}}>Refresh repository releases</button></div>
   </div>;
 }
 function ReleaseList({projectId,repositoryId,label}:{projectId:string;repositoryId:string;label:string}) {

@@ -124,7 +124,7 @@ export default function ProjectOverviewPage() {
       { id: "context", title: "Testing context", content: <QualityExperienceSummary projectId={projectId} /> },
       { id: "repositories", title: "Repositories", content: <ProjectRepositorySummary projectId={projectId} /> },
       { id: "signals", title: "Production signals", content: <div className="project-connection-chips" id="project-connections" aria-label="Production signal routing"><ProductionSignalChips projectId={projectId} /></div> },
-      { id: "releases", title: "Repository releases", wide: true, content: <RepositoryReleaseDiscovery projectId={projectId} /> },
+      { id: "releases", title: "Repository releases", wide: true, content: <RepositoryReleaseDiscovery projectId={projectId} embedded /> },
       ]} />
 
       {testCaseCount === 0 && (

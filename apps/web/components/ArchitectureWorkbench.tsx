@@ -490,10 +490,12 @@ export function ArchitectureWorkbench({
               <h2>Existing-test mappings</h2>
               {current.canSpend && <section className="architecture-link-editor" style={panel}>
                 <header><h3>Link an existing test</h3><small>Manual traceability · No AI credits</small></header>
-                {heldDecision ? <div role="status">
-                  <p>A link save needs confirmation. Retry the same request before making another change.</p>
-                  <button type="button" disabled={decision.isPending || busy || heldDecision.expectedScopeHash !== current.scopeHash}
-                    onClick={() => void decide(heldDecision.caseId, heldDecision.elementId, heldDecision.decision)}>Retry link save</button>
+                {heldDecision ? <div role="status" aria-busy={decision.isPending}>
+                  {decision.isPending ? <p>Saving test link…</p> : <>
+                    <p>A link save needs confirmation. Retry the same request before making another change.</p>
+                    <button type="button" disabled={decision.isPending || busy || heldDecision.expectedScopeHash !== current.scopeHash}
+                      onClick={() => void decide(heldDecision.caseId, heldDecision.elementId, heldDecision.decision)}>Retry link save</button>
+                  </>}
                 </div> : <form className="manual-architecture-mapping" onSubmit={event => { event.preventDefault(); if (manualCase && manualElement) void decide(manualCase, manualElement, "CONFIRMED"); }}>
                   <label>Find a test<input value={caseSearch} onChange={e => setCaseSearch(e.target.value)} placeholder="Search by ID or summary" /></label>
                   <label>Test case<ReadableSelect aria-label="Test case" required value={manualCase} onChange={e => setManualCase(e.target.value)}>

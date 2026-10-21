@@ -10,6 +10,25 @@ const cases = [
 ];
 let template = {}, revision = "a".repeat(64), saveCount = 0, decisions = [], savedSource = false;
 const savedRequests = new Map();
+const sentRequests = [], responseListeners = new Set();
+let pendingResponse = null;
+const controlled = new URLSearchParams(location.search).has("controlled");
+function respondLater(value) {
+  if (!controlled) return value;
+  return new Promise((resolve, reject) => {
+    pendingResponse = { resolve: () => resolve(value), reject: () => reject(Error("Synthetic lost response")) };
+    responseListeners.forEach(notify => notify());
+  });
+}
+export function ResponseControls() {
+  const [, refresh] = useState(0);
+  React.useEffect(() => { const notify = () => refresh(v => v + 1); responseListeners.add(notify); return () => responseListeners.delete(notify); }, []);
+  function settle(action) { const response = pendingResponse; pendingResponse = null; response?.[action](); refresh(v => v + 1); }
+  return controlled && <div className="workspace-toolbar" aria-label="Synthetic response controls">
+    <button disabled={!pendingResponse} onClick={() => settle("resolve")}>Deliver synthetic response</button>
+    <button disabled={!pendingResponse} onClick={() => settle("reject")}>Lose synthetic response</button>
+  </div>;
+}
 const reject = () => { throw Error("Provider calls and unrelated writes are forbidden in this fixture"); };
 export const useAuth = () => ({ userId: scope.actorClerkUserId, sessionId: "synthetic-session", isLoaded: true, isSignedIn: true });
 export const useRouter = () => ({ push: reject });
@@ -19,7 +38,7 @@ function query(resolve) {
   return { useQuery(input) {
     const [refresh, setRefresh] = useState(0);
     const data = useMemo(() => resolve(input), [JSON.stringify(input), refresh]);
-    return { data, isFetchedAfterMount: true, isFetching: false, isPaused: false, isLoading: false, error: null, refetch: async () => { setRefresh(value => value + 1); return { data: resolve(input) }; } };
+    return { data, isSuccess: true, isFetchedAfterMount: true, isFetching: false, isPaused: false, isLoading: false, error: null, refetch: async () => { setRefresh(value => value + 1); return { data: resolve(input) }; } };
   } };
 }
 function mutation(resolve) {
@@ -54,13 +73,14 @@ export const trpcReact = {
   testPlanGovernance: {
     preview: query(preview),
     saveExecutionTemplate: mutation(async input => {
-      if (savedRequests.has(input.requestId)) return { ...savedRequests.get(input.requestId), replayed: true };
+      sentRequests.push(structuredClone(input));
+      if (savedRequests.has(input.requestId)) return respondLater({ ...savedRequests.get(input.requestId), replayed: true });
       if (input.expectedPlanRevision !== revision) throw Error("Plan changed");
       const before = revision;
       template = structuredClone(input.template); revision = "b".repeat(64); saveCount++;
       const ack = { scope, requestId: input.requestId, requestHash: await planGovernanceRequestHash("SAVE_EXECUTION_TEMPLATE", input), operation: "SAVE_EXECUTION_TEMPLATE", testPlanId: "synthetic-plan", criterionId: null, releaseId: null, beforeRevision: before, afterRevision: revision, versionId: "version-2", versionNumber: 2, replayed: false };
       savedRequests.set(input.requestId, ack);
-      return ack;
+      return respondLater(ack);
     }),
   },
   planExecutionReads: { page: query(input => ({
@@ -80,6 +100,10 @@ export const trpcReact = {
     ]),
     create: mutation(reject), update: mutation(reject), delete: mutation(reject),
   },
+  caseFields: { get: query(() => ({ projectId: scope.projectId, caseId: null, readScope: scope, canEdit: true })) },
+  repositoryIntelligence: {
+    projectReleases: query(input => ({ projectId: input.projectId, offset: input.offset, repositories: [], nextOffset: null })),
+  },
   architecture: {
     documents: query(() => savedSource ? [{ ...document, savedAt: "2026-10-20T12:00:00Z" }] : []),
     preview: mutation(architecturePreview),
@@ -87,13 +111,17 @@ export const trpcReact = {
     saveDocument: mutation(() => { savedSource = true; return { saved: true }; }),
     analyzeBatch: mutation(reject), saveDraft: mutation(reject),
     decide: mutation(input => {
+      sentRequests.push(structuredClone(input));
+      if (savedRequests.has(input.requestId)) return respondLater(savedRequests.get(input.requestId));
       savedSource = true;
       decisions = [...decisions.filter(d => d.caseId !== input.caseId || d.elementId !== input.elementId), { ...input, revision: decisions.length + 1, createdAt: "2026-10-20T12:00:00Z" }];
-      return { saved: true };
+      const ack = { saved: true };
+      savedRequests.set(input.requestId, ack);
+      return respondLater(ack);
     }),
   },
 };
 export function Evidence() {
   const [, refresh] = useState(0);
-  return <details><summary onClick={() => refresh(v => v + 1)}>Synthetic transport evidence</summary><pre data-testid="transport-evidence">{JSON.stringify({ template, saveCount, decisions, savedSource })}</pre></details>;
+  return <details><summary onClick={() => refresh(v => v + 1)}>Synthetic transport evidence</summary><pre data-testid="transport-evidence">{JSON.stringify({ template, saveCount, decisions, savedSource, sentRequests })}</pre></details>;
 }
