@@ -1,6 +1,8 @@
 import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { MigrationWizard } from "../../components/MigrationWizard";
+import { GoogleSheetsPrivacyNotice } from "../../components/GoogleSheetsPrivacyNotice";
+import { HistoricalResultsImport } from "../../components/HistoricalResultsImport";
 window.sheetFixture = { commits: [], ai: 0, tokens: 0, previews: [] };
 window.gapi = { load: (_name, options) => options.callback() };
 window.google = {
@@ -21,6 +23,8 @@ window.google = {
 };
 function App() {
   const [theme, setTheme] = useState("dark");
+  if (window.location.pathname === "/google-sheets-privacy") return <main><GoogleSheetsPrivacyNotice /></main>;
+  if (window.location.pathname === "/historical") return <main style={{ maxWidth: 1100, padding: 16, margin: "auto" }}><button onClick={() => { const next = theme === "dark" ? "light" : "dark"; document.documentElement.dataset.theme = next; setTheme(next); }}>Switch theme</button><HistoricalResultsImport projectId="synthetic-project" /></main>;
   return <main style={{ maxWidth: 1100, padding: 16, margin: "auto" }}><button onClick={() => { const next = theme === "dark" ? "light" : "dark"; document.documentElement.dataset.theme = next; setTheme(next); }}>Switch theme</button><h1>Import cases · Synthetic sandbox</h1><p>Local component fixture. Google authorization and the API are simulated.</p><MigrationWizard projectId="synthetic-project" onCommitted={() => {}} /></main>;
 }
 createRoot(document.getElementById("root")).render(<App />);

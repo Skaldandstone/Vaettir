@@ -73,7 +73,7 @@ async function invoke({ signedIn = false, pending = false, method = "GET", path 
         throw cause;
       }
     },
-    createRouteMatcher: routes => { assert.deepEqual([...routes], ["/", "/sign-in(.*)", "/sign-up(.*)", "/share(.*)", "/beta-guide(.*)"]); return req => ["/", "/sign-in", "/sign-up", "/share", "/beta-guide"].some(route => req.nextUrl.pathname === route || (route !== "/" && req.nextUrl.pathname.startsWith(route + "/"))); },
+    createRouteMatcher: routes => { assert.deepEqual([...routes], ["/", "/sign-in(.*)", "/sign-up(.*)", "/share(.*)", "/beta-guide(.*)", "/google-sheets-privacy"]); return req => req.nextUrl.pathname === "/google-sheets-privacy" || ["/", "/sign-in", "/sign-up", "/share", "/beta-guide"].some(route => req.nextUrl.pathname === route || (route !== "/" && req.nextUrl.pathname.startsWith(route + "/"))); },
   };
   vm.createContext(sandbox); vm.runInContext(domainCode, sandbox); vm.runInContext(normalizerCode, sandbox); vm.runInContext(code, sandbox);
   const response = await sandbox.handler(new NextRequest(new URL(path, "http://internal:3000"), { method,
@@ -99,6 +99,14 @@ test("actual handler preserves a verified customer return origin and fails close
 test("actual handler retains auth.protect for signed-in, pending tasks and APIs; public pages remain public", async () => {
   for (const options of [{ signedIn: true }, { pending: true }, { method: "POST" }, { destination: "empty" }, { path: "/api/private" }, { path: "/trpc/private" }]) assert.equal((await invoke(options))[0][0], "protect");
   assert.deepEqual(await invoke({ path: "/beta-guide" }), []);
+});
+test("Google data notice is public only at its exact path; project and API access stays protected", async () => {
+  assert.deepEqual(await invoke({ path: "/google-sheets-privacy" }), []);
+  assert.deepEqual(await invoke({ primary: true, workspaceHost: "synthetic.vaettir.app", path: "/google-sheets-privacy" }), []);
+  for (const path of ["/google-sheets-privacy/private", "/google-sheets-privacy-extra", "/projects/synthetic", "/api/google-sheets-privacy", "/trpc/importJobs.commitGoogleSheets"]) {
+    const events = await invoke({ path });
+    assert.ok(events.some(event => ["redirect", "protect"].includes(event[0])), path);
+  }
 });
 test("primary cutover redirects legacy documents before Clerk while preserving opaque setup query and protecting APIs", async () => {
   assert.deepEqual(await invoke({ primary: true }), [["response", 307, "https://app.vaettir.app/integrations/atlassian/connect?request=opaque_-state", "no-store"]]);

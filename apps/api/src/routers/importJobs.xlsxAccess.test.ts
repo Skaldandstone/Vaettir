@@ -38,6 +38,14 @@ function fixture() {
 beforeEach(() => { mocks.parse.mockReset(); mocks.commit.mockReset(); });
 
 describe("Excel post-parse access", () => {
+  it("returns historical result columns without importing or analyzing cases, and rechecks Editor access after parsing", async () => {
+    const f = fixture();
+    mocks.parse.mockResolvedValue([{ ...sheet, csvText: "ID,Title,May result\r\nTC-1,Login,pass", headers: ["ID", "Title", "May result"] }]);
+    expect((await f.caller.historicalWorkbook({ projectId: "synthetic-project", fileBase64: "dGVzdA==" })).sheets[0]?.headers).toContain("May result");
+    f.afterParse({ id: "synthetic-user", memberships: [{ organizationId: "synthetic-org", role: "VIEWER", seatType: "FULL" }] });
+    await expect(f.caller.historicalWorkbook({ projectId: "synthetic-project", fileBase64: "dGVzdA==" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(mocks.commit).not.toHaveBeenCalled();
+  });
   it("keeps mixed-layout suggestions editable and uses the same reviewed roles at commit", async () => {
     const f = fixture();
     const mapping = { externalId: "Test Case ID", tags: "Test Module/Scenario", title: "Scenario Description/Test Case", given: "Pre-conditions", when: "Test Steps", then: "Expected" };

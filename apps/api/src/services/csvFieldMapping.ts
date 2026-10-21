@@ -203,7 +203,7 @@ export function recommendTestCaseType(input: {
 // Same RFC 4180 splitter as testCaseCsvImport.ts, duplicated rather than
 // imported -- it's a tiny, self-contained parsing primitive, not worth a
 // cross-service dependency for four lines of behavior.
-function splitCsvRows(text: string): string[][] {
+export function splitCsvRows(text: string, preserveBlankRows = false): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
   let field = "";
@@ -240,7 +240,7 @@ function splitCsvRows(text: string): string[][] {
     row.push(field);
     rows.push(row);
   }
-  return rows.filter((r) => r.some((f) => f.trim().length > 0));
+  return preserveBlankRows ? rows : rows.filter((r) => r.some((f) => f.trim().length > 0));
 }
 
 function splitMultiValue(cell: string | undefined): string[] {

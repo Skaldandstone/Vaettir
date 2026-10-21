@@ -282,6 +282,7 @@ export function Sidebar() {
   if (
     pathname.startsWith("/share") ||
     pathname.startsWith("/beta-guide") ||
+    pathname === "/google-sheets-privacy" ||
     pathname.startsWith("/sign-in") ||
     pathname.startsWith("/sign-up") ||
     pathname.startsWith("/onboarding")

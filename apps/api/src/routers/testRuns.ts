@@ -1,3 +1,4 @@
+import { historicalReviewSchema, previewHistoricalResults, commitHistoricalResults } from "../services/historicalResultsImport.js";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
@@ -39,6 +40,17 @@ import {
 // systems can emit or convert to, so this is the highest-leverage first
 // ingestion path rather than building a framework-specific one first.
 export const testRunsRouter = router({
+  previewHistorical: protectedProcedure.input(historicalReviewSchema).mutation(async ({ ctx, input }) => {
+    await requireProjectAccess(ctx, input.projectId, "EDITOR");
+    try { return await previewHistoricalResults(ctx.prisma, input); }
+    catch (error) { throw error instanceof TRPCError ? error : new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Review the source worksheet." }); }
+  }),
+  commitHistorical: protectedProcedure.input(historicalReviewSchema.extend({ expectedDigest: z.string().regex(/^[a-f0-9]{64}$/), acknowledgeHistoricalObservation: z.literal(true) }).strict()).mutation(async ({ ctx, input }) => {
+    const { project } = await requireProjectAccess(ctx, input.projectId, "EDITOR");
+    try { return await commitHistoricalResults(ctx.prisma, input, { actorId: ctx.user.id, organizationId: project.organizationId }); }
+    catch (error) { throw error instanceof TRPCError ? error : new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Historical results were not imported." }); }
+  }),
+
   // Authenticated the same way as every other mutation -- a CI service
   // token (an ApiKey-backed User, see apps/api/src/trpc.ts) works here with
   // no separate auth path, since it's a real Membership like a human's.

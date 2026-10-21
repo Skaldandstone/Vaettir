@@ -76,6 +76,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
               </main>
             </div>
             <footer className="app-footer">
+              <p><Link href="/google-sheets-privacy">Google Sheets privacy</Link></p>
               <p>© 2026 Skald and Stone LLC</p>
               <details>
                 <summary style={{ cursor: "pointer", paddingBlock: 12 }}>About copyright</summary>

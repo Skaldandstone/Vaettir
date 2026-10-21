@@ -154,6 +154,19 @@ function toFilePreviewRow(
 }
 
 export const importJobsRouter = router({
+  historicalWorkbook: protectedProcedure.input(z.object({ projectId: z.string(), fileBase64: xlsxContentSchema }).strict())
+    .mutation(async ({ ctx, input, signal }) => {
+      const { project } = await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      let sheets: Awaited<ReturnType<typeof parseXlsxWorkbookIsolated>>;
+      try { sheets = await parseXlsxWorkbookIsolated(Buffer.from(input.fileBase64, "base64"), signal,
+        JSON.stringify([ctx.authenticatedClerkSubject, ctx.user.id, project.organizationId, project.id])); }
+      catch (error) { throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Could not read the workbook. Export its results tab as CSV." }); }
+      await requireFreshXlsxAccess(ctx, input.projectId, "EDITOR");
+      if (sheets.length > 20 || sheets.reduce((n, sheet) => n + Buffer.byteLength(sheet.csvText ?? "", "utf8"), 0) > 1024 * 1024)
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Choose a workbook with at most 20 tabs and 1 MiB of converted content, or export the results tab as CSV." });
+      return { sheets: sheets.map(sheet => ({ name: sheet.name, csvText: sheet.csvText, headers: sheet.headers, rowCount: sheet.rowCount, warning: sheet.warning })) };
+    }),
+
   googleSheetsConfig: protectedProcedure
     .input(z.object({ projectId: z.string() }))
     .output(z.object({ clientId: z.string(), apiKey: z.string(), appId: z.string() }).nullable())

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { MigrationWizard } from "@/components/MigrationWizard";
+import { HistoricalResultsImport } from "@/components/HistoricalResultsImport";
 import { useProjectPermissions } from "@/lib/use-project-permissions";
 
 function readFileAsText(file: File): Promise<string> {
@@ -49,7 +50,7 @@ function BackfillSection({ projectId, defaultBranch }: { projectId: string; defa
       Array.from(fileList).map(async (file, i) => ({
         fileName: file.name,
         junitXml: await readFileAsText(file),
-        date: new Date().toISOString().slice(0, 10),
+        date: "",
         commitSha: `backfill-${Date.now()}-${i}`,
         status: "pending" as const,
       })),
@@ -66,6 +67,7 @@ function BackfillSection({ projectId, defaultBranch }: { projectId: string; defa
   }
 
   async function runBackfill() {
+    if (files.some(file => !/^\d{4}-\d{2}-\d{2}$/.test(file.date) || !Number.isFinite(Date.parse(file.date)) || new Date(file.date + "T12:00:00Z").toISOString().slice(0, 10) !== file.date || file.date < "1900-01-01" || file.date > new Date().toISOString().slice(0, 10))) { setError("Choose the real historical date for every report before importing."); return; }
     setRunning(true);
     setError(null);
     for (let i = 0; i < files.length; i++) {
@@ -95,7 +97,7 @@ function BackfillSection({ projectId, defaultBranch }: { projectId: string; defa
 
   return (
     <div className="panel" style={{ marginBottom: 20 }}>
-      <h2 style={{ marginTop: 0 }}>Backfill historical test run results</h2>
+      <h2 style={{ marginTop: 0 }}>Import automated report history</h2>
       <p className="text-muted" style={{ fontSize: 13 }}>
         Import past JUnit XML reports with their real original dates - not the date you import them - so pass-rate
         trends, flaky-test detection, and release-to-release charts have real history instead of starting empty.
@@ -218,7 +220,8 @@ export default function ImportPage() {
         <p>{loaded ? "A full-seat Owner, Admin, or Editor can import cases and CI results." : "Checking project access…"}</p>
       )}
       {canEdit && <MigrationWizard projectId={projectId} onCommitted={() => void utils.importJobs.list.invalidate({ projectId })} />}
-      {canEdit && <BackfillSection projectId={projectId} defaultBranch={defaultBranch} />}
+      {canEdit && <HistoricalResultsImport projectId={projectId} />}
+      {canEdit && <details className="panel"><summary>Automated JUnit XML reports</summary><BackfillSection projectId={projectId} defaultBranch={defaultBranch} /></details>}
 
       {jobs.length > 0 && (
         <div style={{ marginTop: 24 }}>

@@ -265,14 +265,15 @@ export function CiRunDetail({
           >
             <CiOutcomeBadge status={page.header.status} />{" "}
             <code>{page.header.id}</code>
+            {page.header.ciProvider === "historical-import" && <p>Imported historical observations. The original day is known; execution time, step evidence and the procedure used were not reconstructed. These results do not reverify the current case procedure.</p>}
             <dl style={{ ...layout, marginBottom: 0 }}>
               <CiStoredText
                 label="CI provider"
                 value={page.header.ciProvider}
               />
               <CiStoredText label="Branch" value={page.header.branch} />
-              <CiStoredText label="Commit" value={page.header.commitSha} />
-              <CiStoredText label="Started UTC" value={page.header.startedAt} />
+              <CiStoredText label={page.header.ciProvider === "historical-import" ? "Import identity (not a source commit)" : "Commit"} value={page.header.commitSha} />
+              <CiStoredText label={page.header.ciProvider === "historical-import" ? "Original run day" : "Started UTC"} value={page.header.ciProvider === "historical-import" ? page.header.startedAt?.slice(0, 10) ?? null : page.header.startedAt} />
               <CiStoredText
                 label="Finished UTC"
                 value={page.header.finishedAt}

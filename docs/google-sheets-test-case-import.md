@@ -98,3 +98,20 @@ References: [Google token model](https://developers.google.com/identity/oauth2/w
 [Sheets scopes](https://developers.google.com/workspace/sheets/api/scopes),
 [Picker setup](https://developers.google.com/workspace/drive/picker/guides/web-picker-sample),
 [Sheets values GET](https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.values/get).
+
+## Published data notice
+
+`/google-sheets-privacy` is an exact public notice route; project, child and API routes remain protected. The import disclosure opens the notice in a separate tab so reading it does not discard the draft. The footer also links it. Owner-approved wording describes selected worksheet metadata/content, browser-only tokens, explicit commit, retained history, revocation versus deletion, and separate AI-sharing authority. Provider configuration must use the live notice URL only after hosted verification.
+
+
+## Historical result columns
+
+The backfill panel accepts an original Google Sheets tab, Excel workbook tab or CSV export. It explains how to find results in old plan columns and how to export a Google Docs/Word table to a worksheet. It does not request Google Docs access or recover unmapped columns from saved case definitions.
+
+Choose one result column per import, map native/display/source case IDs or exact case titles, and explicitly resolve ambiguous matches. A supplied but unknown ID never falls back silently to title matching. Every selected case must belong to the current project. Custom result labels need explicit meanings; blank, Not run and Pending cells are left out. Dates are required, never prefilled, and use an explicit ISO, month/day, day/month or Excel 1900 interpretation. Duplicate case/date observations block review.
+
+After review, the customer confirms the case matches, real dates and historical nature of the observations. The server locks the project, refreshes Editor authority, recomputes matches and verifies the reviewed fingerprint. Every selected date, result and audit entry commits in one transaction. Exact same-source/label/column/date retries reuse existing runs, including concurrent retries; changed prior observations conflict without overwriting history. Changing the source reference or run label denotes a different import identity, not a global duplicate detector.
+
+Runs retain source reference, result column, original day, importing actor and row provenance. Because the schema requires a timestamp, noon UTC is an explicitly marked date-only anchor; finish time, duration and execution-step evidence remain unknown. The run detail explains that historical observations do not reverify current procedures. No case definition, procedure, AI grant, healing action or model analysis is changed by this importer. No schema migration is required.
+
+Additional validation: `src/services/historicalResultsImport.test.ts`, `src/routers/testRuns.historical.test.ts`, `src/routers/testRuns.historical.integration.test.ts` and the historical browser flow in `apps/web/e2e/google-sheets/run.mjs`. Real PostgreSQL tests cover read-only preview, concurrent replay, all-date conflict preflight, later-write rollback including audits, stale digest and revoked authority. The browser fixture uses synthetic transport and does not establish live Google or hosted acceptance.
