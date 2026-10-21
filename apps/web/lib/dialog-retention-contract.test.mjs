@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 const source = readFileSync(new URL('../components/ui/DialogFrame.tsx', import.meta.url), 'utf8');
 test('retained dialogs publish native inert before focus and preserve opt-in mounting', () => {
   assert.match(source, /keepMounted = false/);
-  assert.match(source, /useLayoutEffect\(\(\) => \{[\s\S]*?dialog\.inert = !open;[\s\S]*?\}, \[open, keepMounted\]\)/);
+  assert.match(source, /useLayoutEffect\(\(\) => \{[\s\S]*?dialog\.inert = !open;[\s\S]*?\}, \[open, keepMounted, clientMounted\]\)/);
   assert.match(source, /if \(\(!open && !keepMounted\) \|\| typeof document === "undefined"\) return null/);
   assert.match(source, /style=\{!open \? \{ \.\.\.style, display: "none" \} : style\}/);
   assert.match(source, /hidden=\{!open\}/);

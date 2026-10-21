@@ -1,7 +1,11 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, type ReactNode, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useRef, useSyncExternalStore, type ReactNode, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
+
+const subscribeToClientMount = () => () => undefined;
+const clientMountedSnapshot = () => true;
+const serverMountedSnapshot = () => false;
 
 /** Native modality keeps background controls inert and contains keyboard focus. */
 export function DialogFrame({
@@ -25,13 +29,16 @@ export function DialogFrame({
   style?: CSSProperties;
   keepMounted?: boolean;
 }) {
+  // The server and initial hydration must both omit the portal. Retained
+  // children mount after hydration, then keep the same owner across closes.
+  const clientMounted = useSyncExternalStore(subscribeToClientMount, clientMountedSnapshot, serverMountedSnapshot);
   const ref = useRef<HTMLDialogElement>(null);
   useLayoutEffect(() => {
     // React 18 treats the JSX inert boolean as an unknown attribute and omits
     // it. Set the native property at commit, before retained content can focus.
     const dialog = ref.current;
     if (dialog) dialog.inert = !open;
-  }, [open, keepMounted]);
+  }, [open, keepMounted, clientMounted]);
   useEffect(() => {
     const dialog = ref.current;
     if (!open || !dialog) return;
@@ -45,8 +52,9 @@ export function DialogFrame({
       dialog.close();
       if (opener?.isConnected) opener.focus({ preventScroll: true });
     };
-  }, [open]);
+  }, [open, clientMounted]);
 
+  if (!clientMounted) return null;
   if ((!open && !keepMounted) || typeof document === "undefined") return null;
   return createPortal(
     <dialog
