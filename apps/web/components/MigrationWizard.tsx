@@ -5,7 +5,7 @@ import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { readWorkbookPreview } from "@/lib/read-workbook-preview";
 import { reassignImportColumn, remainingNonCaseRows } from "@/lib/reassign-import-column";
 import { importReviewRows, typeReviewCase, typeReviewLabel, type TypeReviewCase } from "@/lib/import-type-review";
-import { GoogleSheetsImportSource } from "@/components/GoogleSheetsImportSource";
+import { GoogleSheetsImportSource, GoogleSheetsAccessDisclosure } from "@/components/GoogleSheetsImportSource";
 import type { GoogleSheetSnapshot } from "@/lib/google-sheets-import";
 
 // P11-10: "Migration assistant" wizard. Every backend piece this orchestrates
@@ -971,6 +971,8 @@ export function MigrationWizard({
     ),
   );
   const missingGoogleIds = importMethod === "google-sheets" && [...selectedSheets].some(name => !xlsxMappings[name]?.externalId);
+  const ScopeDetails = importMethod === "google-sheets" ? "details" : "div";
+  const selectedCaseCount = xlsxPreview?.sheets.filter(sheet => selectedSheets.has(sheet.name)).reduce((sum, sheet) => sum + sheet.rowCount - remainingNonCaseRows(sheet.nonCaseRows, xlsxRowOverrides[sheet.name] ?? {}).length, 0) ?? 0;
   const missingGoogleTitles = importMethod === "google-sheets" && [...selectedSheets].some(name => !xlsxMappings[name]?.title);
 
   return (
@@ -1126,8 +1128,10 @@ export function MigrationWizard({
         )}
 
       {step === "upload" && importMethod === "google-sheets" && <>
-        <GoogleSheetsImportSource key={projectId} projectId={projectId} disabled={loading} onSnapshots={loadGoogleSheets} />
-        {googleSnapshots.length > 0 && <p role="status">Loaded {googleSnapshots.length} worksheets. Review the mappings below. No cases have been saved.</p>}
+        {googleSnapshots.length > 0 ? <section aria-label="Selected Google Sheets source">
+          <div className="workspace-toolbar"><strong>Google Sheets · {googleSnapshots.length} tabs loaded</strong><button type="button" className="btn-secondary" onClick={() => { activeFileRead.current?.abort(); setGoogleSnapshots([]); setXlsxPreview(null); setSelectedSheets(new Set()); setXlsxMappings({}); setXlsxRowOverrides({}); setError(null); }}>Change source</button></div>
+          <GoogleSheetsAccessDisclosure />
+        </section> : <GoogleSheetsImportSource key={projectId} projectId={projectId} disabled={loading} onSnapshots={loadGoogleSheets} />}
         {loading && <p role="status">Preparing your selected worksheet for review…</p>}
       </>}
 
@@ -1384,6 +1388,7 @@ export function MigrationWizard({
             })}
           </div>
           <button
+            className={importMethod === "google-sheets" ? "btn-primary" : undefined}
             onClick={() => setStep("review")}
             disabled={
               loading ||
@@ -1553,6 +1558,9 @@ export function MigrationWizard({
       {step === "review" && source === "csv" && xlsxPreview && (
         <div>
           <h3 style={{ marginTop: 0 }}>Ready to import — {fileName}</h3>
+          {importMethod === "google-sheets" && <p className="text-muted">{selectedSheets.size} tabs · {selectedCaseCount} cases. Review your selection, then import.</p>}
+          <ScopeDetails>
+            {importMethod === "google-sheets" && <summary>Import details and safeguards</summary>}
           <p className="text-muted" style={{ fontSize: 13 }}>
             {selectedSheets.size} worksheet(s),{" "}
             {xlsxPreview.sheets
@@ -1563,6 +1571,7 @@ export function MigrationWizard({
             Each worksheet becomes a suite; proposed sections and notes are preserved on its cases. Suggestions remain For review after import. Stable source IDs are
             preserved for safe re-imports. Nothing is written until you confirm.
           </p>
+          </ScopeDetails>
           <div className="xlsx-review-list">
             {xlsxPreview.sheets
               .filter((sheet) => selectedSheets.has(sheet.name))
@@ -1578,6 +1587,7 @@ export function MigrationWizard({
               Back to mapping
             </button>
             <button
+              className={importMethod === "google-sheets" ? "btn-primary" : undefined}
               onClick={commit}
               disabled={committing || typeReviewBlocked || selectedSheets.size === 0 || missingGoogleIds || missingGoogleTitles}
             >

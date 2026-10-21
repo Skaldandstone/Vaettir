@@ -42,6 +42,10 @@ function loadGoogle() {
   return libraries;
 }
 
+export function GoogleSheetsAccessDisclosure() {
+  return <details><summary>Google access and import privacy</summary><p className="text-muted">Google’s selected-file permission allows viewing and managing files chosen for this app. Vaettir uses it only to read your selection. The temporary token stays in this browser and is discarded after the read; Google’s app permission remains until you revoke it in your Google account. This is a manual import, without automatic sync or AI analysis.</p><p>Use column names in the first row. Each case needs a unique ID column, such as Case ID, so repeating an import updates the same cases safely. Keep these IDs unchanged. Reloading this page discards the preview and temporary connection.</p></details>;
+}
+
 export function GoogleSheetsImportSource({ projectId, disabled, onSnapshots }: {
   projectId: string; disabled: boolean; onSnapshots(snapshots: GoogleSheetSnapshot[], signal: AbortSignal): Promise<void>;
 }) {
@@ -146,18 +150,18 @@ export function GoogleSheetsImportSource({ projectId, disabled, onSnapshots }: {
   return <section aria-label="Import from Google Sheets" style={{ marginTop: 12 }}>
     <h3>Import from Google Sheets</h3>
     <p>Connect Google, choose a spreadsheet and up to 20 tabs, then review the automatically mapped fields. Nothing is saved until you confirm the import.</p>
-    <details><summary>Google access and import privacy</summary><p className="text-muted">Google’s selected-file permission allows viewing and managing files chosen for this app. Vaettir uses it only to read your selection. The temporary token stays in this browser and is discarded after the read; Google’s app permission remains until you revoke it in your Google account. This is a manual import, without automatic sync or AI analysis.</p><p>Use column names in the first row. Each case needs a unique ID column, such as Case ID, so repeating an import updates the same cases safely. Keep these IDs unchanged. Reloading this page discards the preview and temporary connection.</p></details>
+    <GoogleSheetsAccessDisclosure />
     {config.isLoading ? <p role="status">Checking Google Sheets availability…</p> : config.error ? <p role="alert">Could not check Google Sheets availability. Try reloading this page.</p> : !config.data ? <p role="status">Google Sheets connection is awaiting administrator setup. You can download your sheet as CSV or Excel and use “Upload an export” now.</p> : <>
       <label><input type="checkbox" checked={approved} disabled={busy || disabled} onChange={event => setApproved(event.target.checked)} /> I approve reading the spreadsheet I select and sending the selected worksheet to this Vaettir project for import review.</label>
       <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-        {!ready ? <button type="button" disabled={!approved || busy || disabled} onClick={() => void prepare()}>Load Google connection</button> : !book ? <button type="button" disabled={!approved || busy || disabled} onClick={authorize}>Authorize Google and choose a spreadsheet</button> : null}
+        {!ready ? <button type="button" className="btn-primary" disabled={!approved || busy || disabled} onClick={() => void prepare()}>Load Google connection</button> : !book ? <button type="button" className="btn-primary" disabled={!approved || busy || disabled} onClick={authorize}>Authorize Google and choose a spreadsheet</button> : null}
         {(busy || book) && <button type="button" className="btn-secondary" onClick={cancel}>Cancel Google selection</button>}
       </div>
       {busy && <p role="status">Waiting for Google or reading your selection…</p>}
       {book && <div style={{ marginTop: 12, overflowWrap: "anywhere" }}><strong>{book.title}</strong>
         <div style={{ display: "flex", gap: 8, margin: "8px 0" }}><button type="button" className="btn-secondary" disabled={busy || disabled} onClick={() => setSelected(book.tabs.slice(0, 20).map(tab => tab.id))}>Select {book.tabs.length > 20 ? "first 20" : "all"}</button><button type="button" className="btn-secondary" disabled={busy || disabled} onClick={() => setSelected([])}>Deselect all</button></div>
         <fieldset disabled={busy || disabled} style={{ maxHeight: 250, overflowY: "auto" }}><legend>Worksheets · {selected.length} selected</legend>{book.tabs.map(tab => <label key={tab.id} style={{ display: "block", margin: "8px 0" }}><input type="checkbox" checked={selected.includes(tab.id)} disabled={!selected.includes(tab.id) && selected.length >= 20} onChange={event => setSelected(current => event.target.checked ? [...current, tab.id] : current.filter(id => id !== tab.id))} /> {tab.title} <small className="text-muted">{tab.rows.toLocaleString()} allocated rows</small></label>)}</fieldset>
-        <button type="button" disabled={busy || disabled || !approved || !selected.length} onClick={() => void preview()}>Read selected tabs and preview</button></div>}
+        <button type="button" className="btn-primary" disabled={busy || disabled || !approved || !selected.length} onClick={() => void preview()}>Read selected tabs and preview</button></div>}
     </>}
     {error && <p role="alert">{error}</p>}
   </section>;
