@@ -165,6 +165,7 @@ jobs:
           node --test scripts/example-workspace-ui.test.mjs scripts/project-deletion-ui.test.mjs
           node apps/web/e2e/ui-workbench/run.mjs
           node apps/web/e2e/ui-plan-mapping/run.mjs
+          node apps/web/e2e/google-sheets/run.mjs
           node apps/web/e2e/dialog-hydration/run.mjs
           node --test integrations/domain-edge/marketing.test.mjs
 

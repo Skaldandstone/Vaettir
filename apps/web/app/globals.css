@@ -1771,6 +1771,35 @@ main.app-main {
   gap: 16px;
   margin-top: 18px;
 }
+.google-sheets-migration .xlsx-mapping-workspace,
+.google-sheets-migration .xlsx-sheet-list,
+.google-sheets-migration .xlsx-sheet-card,
+.google-sheets-migration .xlsx-sheet-heading > label,
+.google-sheets-migration .xlsx-sheet-heading > label > span {
+  min-width: 0;
+  max-width: 100%;
+}
+.google-sheets-migration .xlsx-sheet-heading strong,
+.google-sheets-migration .xlsx-review-list strong {
+  overflow-wrap: anywhere;
+}
+.google-sheets-migration .xlsx-workbook-heading,
+.google-sheets-migration .xlsx-sheet-heading {
+  flex-wrap: wrap;
+}
+.google-sheets-migration .xlsx-field-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
+}
+.google-sheets-migration .table-scroll {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.google-sheets-migration .import-repair-panel {
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  max-width: 100%;
+}
 .xlsx-workbook-heading,
 .xlsx-sheet-heading {
   display: flex;

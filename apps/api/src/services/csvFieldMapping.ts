@@ -101,6 +101,8 @@ const HEADER_ALIASES: Record<TargetField, string[]> = {
     "execution mode",
   ],
   externalId: [
+    "case id",
+    "external id",
     "id",
     "test id",
     "test case id",

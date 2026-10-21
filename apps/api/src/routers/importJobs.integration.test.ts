@@ -23,6 +23,44 @@ const MAPPING = {
   tags: "Labels",
 };
 
+// Real PostgreSQL coverage of the Google-specific identity entering the shared
+// atomic importer, including retries and preservation of intervening edits.
+describe("Google Sheets reviewed snapshot imports", () => {
+  const selection = () => ({ projectId, sourceLabel: "Synthetic Google Sheets", sheets: [0, 1].map(sheetId => ({
+    source: { spreadsheetId: "synthetic_google_import", sheetId }, name: `Synthetic tab ${sheetId}`,
+    csvText: `Case ID,Title,Steps,Expected\nshared-id,Sheets case ${sheetId},Synthetic action,Synthetic result`,
+    mapping: { externalId: "Case ID", title: "Title", when: "Steps", then: "Expected" },
+  })) });
+  it("creates both tabs once, retries without duplicates and preserves human edits", async () => {
+    const c = await caller();
+    const first = await c.importJobs.commitGoogleSheets(selection());
+    expect(first).toMatchObject({ createdCount: 2, updatedCount: 0 });
+    const again = await c.importJobs.commitGoogleSheets(selection());
+    expect(again).toMatchObject({ createdCount: 0, updatedCount: 0 });
+    const keys = [0, 1].map(id => `google-sheets:synthetic_google_import:${projectId}:${id}:shared-id`);
+    const sources = await prisma.testCaseSource.findMany({ where: { externalTestId: { in: keys } } });
+    expect(sources).toHaveLength(2);
+    const editedId = sources[0]!.testCaseId;
+    await prisma.testCase.update({ where: { id: editedId }, data: { title: "Human edited Sheets case" } });
+    const result = await c.importJobs.commitGoogleSheets(selection());
+    expect(result).toMatchObject({ createdCount: 0, updatedCount: 0 });
+    expect(result.skipped.some(row => row.reason.includes("Case changed since its last import"))).toBe(true);
+    expect((await prisma.testCase.findUniqueOrThrow({ where: { id: editedId } })).title).toBe("Human edited Sheets case");
+  });
+  it("leaves no partial cases or import history if a later tab is invalid", async () => {
+    const c = await caller();
+    const before = await prisma.testCase.count({ where: { projectId } });
+    const jobs = await prisma.importJob.count({ where: { projectId } });
+    const input = selection();
+    input.sheets[0]!.source.spreadsheetId = "invalid_later_tab";
+    input.sheets[1]!.source.spreadsheetId = "invalid_later_tab";
+    input.sheets[1]!.csvText = "Case ID,Title,Steps,Expected\n,Missing stable ID,Action,Result";
+    await expect(c.importJobs.commitGoogleSheets(input)).rejects.toThrow(/case ID/);
+    expect(await prisma.testCase.count({ where: { projectId } })).toBe(before);
+    expect(await prisma.importJob.count({ where: { projectId } })).toBe(jobs);
+  });
+});
+
 let orgId: string;
 let projectId: string;
 let userId: string;

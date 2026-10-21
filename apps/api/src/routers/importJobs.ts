@@ -19,6 +19,7 @@ import { XLSX_MAX_BASE64_CHARACTERS } from "../services/xlsxImportLimits.js";
 import { workbookReads, workbookPreview } from "../services/xlsxWorkbookReads.js";
 import { importTypeCaseSchema, importTypeRecommendationSchema } from "@vaettir/ai-agent";
 import { importTypeAnalysis } from "../services/importTypeAnalysis.js";
+import { googleSheetsImportConfig, googleSheetSourceSchema, prepareGoogleSheetsImport } from "../services/googleSheetsImport.js";
 
 const fieldMappingSchema = z
   .record(z.enum(TARGET_FIELDS), z.string())
@@ -153,6 +154,14 @@ function toFilePreviewRow(
 }
 
 export const importJobsRouter = router({
+  googleSheetsConfig: protectedProcedure
+    .input(z.object({ projectId: z.string() }))
+    .output(z.object({ clientId: z.string(), apiKey: z.string(), appId: z.string() }).nullable())
+    .query(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      // Browser-public OAuth client/Picker configuration only, never a secret.
+      return googleSheetsImportConfig();
+    }),
   startTypeAnalysis: protectedProcedure
     .input(xlsxReadIdentity.extend({ cases: z.array(importTypeCaseSchema).min(1).max(15_000) }))
     .output(z.object({ requestId: z.string().uuid() }))
@@ -556,6 +565,30 @@ export const importJobsRouter = router({
         keyPrefix: "csv",
         framework: "csv",
         testPlanId: input.testPlanId,
+      });
+    }),
+
+  commitGoogleSheets: protectedProcedure
+    .input(z.object({
+      projectId: z.string(), sourceLabel: z.string().max(2000),
+      sheets: z.array(z.object({
+        source: googleSheetSourceSchema, name: z.string().min(1).max(1000),
+        csvText: z.string().min(1).max(1024 * 1024),
+        mapping: fieldMappingSchema, overrides: z.array(rowOverrideSchema).max(2500).default([]),
+      }).strict()).min(1).max(20),
+    }).strict())
+    .output(z.object({ importJobId: z.string(), createdCount: z.number(), updatedCount: z.number(), skipped: z.array(z.object({ rowNumber: z.number(), reason: z.string() })) }))
+    .mutation(async ({ ctx, input }) => {
+      const { project } = await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      let prepared;
+      try { prepared = prepareGoogleSheetsImport(input.sheets); }
+      catch (error) { throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Review the selected worksheets before importing." }); }
+      // One existing atomic transaction for all selected tabs. This route has no
+      // provider token or AI analysis input; only the customer's reviewed snapshot.
+      return commitImportedTestCases(ctx.prisma, {
+        ...prepared, rows: prepared.rows.map(row => ({ ...row, reviewRequired: Boolean(row.reviewReasons?.length) })),
+        projectId: project.id, organizationId: project.organizationId, actorId: ctx.user.id,
+        source: "CSV", sourceLabel: input.sourceLabel,
       });
     }),
 

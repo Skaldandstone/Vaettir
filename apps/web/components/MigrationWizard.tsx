@@ -5,6 +5,8 @@ import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { readWorkbookPreview } from "@/lib/read-workbook-preview";
 import { reassignImportColumn, remainingNonCaseRows } from "@/lib/reassign-import-column";
 import { importReviewRows, typeReviewCase, typeReviewLabel, type TypeReviewCase } from "@/lib/import-type-review";
+import { GoogleSheetsImportSource } from "@/components/GoogleSheetsImportSource";
+import type { GoogleSheetSnapshot } from "@/lib/google-sheets-import";
 
 // P11-10: "Migration assistant" wizard. Every backend piece this orchestrates
 // already existed and worked (P11-01/02's CSV mapping+preview, P11-03's
@@ -21,7 +23,7 @@ import { importReviewRows, typeReviewCase, typeReviewLabel, type TypeReviewCase 
 
 type Source = "csv" | "testrail" | "xray" | "qtest" | "zephyr";
 type Step = "source" | "upload" | "review" | "done";
-type ImportMethod = "api" | "webhook" | "file";
+type ImportMethod = "api" | "webhook" | "file" | "google-sheets";
 
 const TARGET_FIELDS = [
   "title",
@@ -213,16 +215,17 @@ function RowMappingReview({ suggestions, overrides, onChange }: {
   </details>;
 }
 
-function ImportRecommendations({ rows, overrides, onChange, analysis }: {
+function ImportRecommendations({ rows, overrides, onChange, analysis, manualOnly = false }: {
+  manualOnly?: boolean;
   rows: EditableImportRow[] | undefined;
   overrides: Record<number, EditableImportRow>;
   onChange: (row: EditableImportRow) => void;
   analysis?: Record<number, RouterOutputs["importJobs"]["typeAnalysisStatus"]["results"][number]>;
 }) {
   if (!rows?.length) return null;
-  return <details className="import-repair-panel" open>
+  return <details className="import-repair-panel" open={manualOnly ? undefined : true}>
     <summary>{rows.length} cases with automatic suggestions · For review</summary>
-    <p className="text-muted">Already applied, no detection button needed. Free AI review reads each complete case definition and recommends its primary testing objective with supporting excerpts. Missing or uncertain classifications stay Unclassified and For review, not Functional by default. You can change any recommendation. Priority and automation use Medium and Manual defaults if unspecified; those defaults are not verified source facts. No missing steps are invented.</p>
+    <p className="text-muted">{manualOnly ? "Review the mapped source fields and choose a test type where needed. Unspecified types stay Unclassified and For review. Sheets imports do not use AI analysis. Priority and automation default to Medium and Manual when absent." : "Already applied, no detection button needed. Free AI review reads each complete case definition and recommends its primary testing objective with supporting excerpts. Missing or uncertain classifications stay Unclassified and For review, not Functional by default. You can change any recommendation. Priority and automation use Medium and Manual defaults if unspecified; those defaults are not verified source facts. No missing steps are invented."}</p>
     <div className="table-scroll" style={{ maxHeight: 320 }}><table className="workspace-table">
       <thead><tr><th>Row</th><th>Case name</th><th>Section within suite</th><th>Test type</th><th>Why / status</th><th>Details</th></tr></thead>
       <tbody>{rows.map(proposed => {
@@ -236,7 +239,7 @@ function ImportRecommendations({ rows, overrides, onChange, analysis }: {
             {["UNIT", "FUNCTIONAL", "CONTRACT", "INSTRUMENTATION", "SMOKE", "SANITY", "REGRESSION", "E2E", "PERFORMANCE", "SECURITY", "ACCESSIBILITY", "EXPLORATORY", "COMPLIANCE", "OTHER"].map(type => <option key={type} value={type}>{type === "OTHER" && row.typeOrigin === "UNCLASSIFIED" && !recommendation?.testType ? "Unclassified · For review" : typeReviewLabel(type)}</option>)}
           </select></td>
           <td><span className="status-pill status-warning">For review{recommendation ? ` · ${recommendation.confidence.toLowerCase()} confidence` : ""}</span>
-            {recommendation ? <><p><strong>{recommendation.objective}</strong></p><p>{recommendation.reason}</p>{recommendation.evidence.map((quote, i) => <blockquote key={i} style={{ margin: "4px 0", fontSize: 12 }}>{quote}</blockquote>)}</> : <p>{row.typeOrigin === "REVIEWER" ? "Reviewer-selected type." : proposed.typeRecommendation || proposed.reviewReasons?.join(" ")}</p>}</td>
+            {recommendation ? <><p><strong>{recommendation.objective}</strong></p><p>{recommendation.reason}</p>{recommendation.evidence.map((quote, i) => <blockquote key={i} style={{ margin: "4px 0", fontSize: 12 }}>{quote}</blockquote>)}</> : <p>{row.typeOrigin === "REVIEWER" ? "Reviewer-selected type." : manualOnly && row.typeOrigin === "UNCLASSIFIED" ? "Unclassified: choose a test type if needed. No AI analysis is used for Sheets imports." : proposed.typeRecommendation || proposed.reviewReasons?.join(" ")}</p>}</td>
           <td><button className="btn-secondary" onClick={() => onChange(row)}>Edit details</button></td>
         </tr>;
       })}</tbody>
@@ -403,6 +406,8 @@ export function MigrationWizard({
   const [source, setSource] = useState<Source | null>(null);
   const [fileName, setFileName] = useState("");
   const [rawContent, setRawContent] = useState("");
+  const [googleSnapshots, setGoogleSnapshots] = useState<GoogleSheetSnapshot[]>([]);
+  const [expandedGoogleSheet, setExpandedGoogleSheet] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [workbookCheckpoints, setWorkbookCheckpoints] = useState<number | null>(null);
@@ -435,7 +440,7 @@ export function MigrationWizard({
   const [typeReview, setTypeReview] = useState<{ input: string; requestId?: string; state?: TypeAnalysis; error?: string } | null>(null);
   const [typeRetry, setTypeRetry] = useState(0);
   const typeJob = useRef<string | null>(null);
-  const typeCases: TypeReviewCase[] = source !== "csv" || step === "done" ? [] : xlsxPreview ? xlsxPreview.sheets
+  const typeCases: TypeReviewCase[] = source !== "csv" || importMethod === "google-sheets" || step === "done" ? [] : xlsxPreview ? xlsxPreview.sheets
     .filter(sheet => selectedSheets.has(sheet.name) && xlsxMappings[sheet.name]?.title)
     .flatMap(sheet => importReviewRows(sheet.recommendations, xlsxRowOverrides[sheet.name] ?? {})
       .filter(row => row.title && row.typeOrigin !== "SOURCE" && row.typeOrigin !== "REVIEWER")
@@ -510,6 +515,7 @@ export function MigrationWizard({
   const [zephyrProjectKey, setZephyrProjectKey] = useState("");
 
   const commitCsvMutation = trpcReact.importJobs.commitCsv.useMutation();
+  const commitGoogleSheetsMutation = trpcReact.importJobs.commitGoogleSheets.useMutation();
   const commitXlsxMutation = trpcReact.importJobs.commitXlsx.useMutation();
   const commitXrayMutation = trpcReact.importJobs.commitXray.useMutation();
   const commitTestRailMutation =
@@ -538,6 +544,7 @@ export function MigrationWizard({
     setSource(null);
     setFileName("");
     setRawContent("");
+    setGoogleSnapshots([]);
     setError(null);
     setCsvPreview(null);
     setMapping({});
@@ -562,6 +569,29 @@ export function MigrationWizard({
     setSource(s);
     setStep("upload");
     setError(null);
+  }
+
+  async function loadGoogleSheets(snapshots: GoogleSheetSnapshot[]) {
+    activeFileRead.current?.abort();
+    const controller = new AbortController();
+    activeFileRead.current = controller;
+    setError(null); setLoading(true); setCsvPreview(null); setXlsxPreview(null);
+    setRawContent(""); setGoogleSnapshots([]); setMapping({});
+    setCsvPreviewRows([]); setCsvRowOverrides({}); setTypeReview(null);
+    try {
+      const sheets = [];
+      for (const snapshot of snapshots) {
+        const res = await previewCsvMutation.mutateAsync({ projectId, csvText: snapshot.csvText });
+        if (controller.signal.aborted || activeFileRead.current !== controller) return;
+        sheets.push({ name: snapshot.label, headerRow: 1, ...res, skippedCount: res.previewSkipped.length });
+      }
+      setFileName("Google Sheets selection"); setGoogleSnapshots(snapshots); setExpandedGoogleSheet(sheets[0]?.name ?? null);
+      setXlsxPreview({ sheets }); setXlsxBase64("");
+      setSelectedSheets(new Set(sheets.map(sheet => sheet.name)));
+      setXlsxMappings(Object.fromEntries(sheets.map(sheet => [sheet.name, sheet.suggestedMapping])));
+      setXlsxRowOverrides(Object.fromEntries(sheets.map(sheet => [sheet.name, rowRecord(sheet.incompleteRows)])));
+    } catch (error) { if (!controller.signal.aborted) setError(importErrorMessage(error)); }
+    finally { if (activeFileRead.current === controller) setLoading(false); }
   }
 
   async function loadFile(file: File) {
@@ -772,13 +802,10 @@ export function MigrationWizard({
     setLoading(true);
     setError(null);
     try {
-      const res = await previewXlsxSheetMutation.mutateAsync({
-        projectId,
-        fileBase64: xlsxBase64,
-        sheetName,
-        mapping: nextMapping as Record<TargetField, string>,
-        overrides: Object.values(xlsxRowOverrides[sheetName] ?? {}),
-      });
+      const googleSnapshot = googleSnapshots.find(snapshot => snapshot.label === sheetName);
+      const res = importMethod === "google-sheets" && googleSnapshot
+        ? await previewWithMappingMutation.mutateAsync({ projectId, csvText: googleSnapshot.csvText, mapping: nextMapping as Record<TargetField, string>, overrides: Object.values(xlsxRowOverrides[sheetName] ?? {}) }).then(result => ({ ...result, skippedCount: result.previewSkipped.length }))
+        : await previewXlsxSheetMutation.mutateAsync({ projectId, fileBase64: xlsxBase64, sheetName, mapping: nextMapping as Record<TargetField, string>, overrides: Object.values(xlsxRowOverrides[sheetName] ?? {}) });
       setXlsxPreview((current) =>
         current
           ? {
@@ -853,13 +880,15 @@ export function MigrationWizard({
               } => Boolean(sheet.mapping?.title),
             );
           if (sheets.length === 0) return;
-          res = await commitXlsxMutation.mutateAsync({
-            projectId,
-            fileBase64: xlsxBase64,
-            sourceLabel: fileName,
-            typeAnalysisRequestId: currentTypeReview?.requestId,
-            sheets,
-          });
+          if (importMethod === "google-sheets") {
+            res = await commitGoogleSheetsMutation.mutateAsync({ projectId, sourceLabel: fileName, sheets: sheets.map(sheet => {
+              const snapshot = googleSnapshots.find(snapshot => snapshot.label === sheet.name);
+              if (!snapshot || !sheet.mapping.externalId) throw new Error(`${sheet.name}: map a stable case ID column so re-imports update the same cases safely.`);
+              return { source: snapshot.source, name: sheet.name, csvText: snapshot.csvText, mapping: sheet.mapping, overrides: sheet.overrides };
+            }) });
+          } else {
+            res = await commitXlsxMutation.mutateAsync({ projectId, fileBase64: xlsxBase64, sourceLabel: fileName, typeAnalysisRequestId: currentTypeReview?.requestId, sheets });
+          }
         } else {
           if (!mapping.title) return;
           res = await commitCsvMutation.mutateAsync({
@@ -868,7 +897,7 @@ export function MigrationWizard({
             mapping: mapping as Record<TargetField, string>,
             overrides: Object.values(csvRowOverrides),
             sourceLabel: fileName || undefined,
-            typeAnalysisRequestId: currentTypeReview?.requestId,
+            typeAnalysisRequestId: importMethod === "google-sheets" ? undefined : currentTypeReview?.requestId,
           });
         }
       } else if (source === "xray") {
@@ -914,7 +943,7 @@ export function MigrationWizard({
   }
 
   const committing =
-    commitCsvMutation.isPending ||
+    commitCsvMutation.isPending || commitGoogleSheetsMutation.isPending ||
     commitXlsxMutation.isPending ||
     commitXrayMutation.isPending ||
     commitTestRailMutation.isPending ||
@@ -930,9 +959,10 @@ export function MigrationWizard({
       (row) => !row.title.trim(),
     ),
   );
+  const missingGoogleIds = importMethod === "google-sheets" && [...selectedSheets].some(name => !xlsxMappings[name]?.externalId);
 
   return (
-    <div className="panel" style={{ marginBottom: 20 }}>
+    <div className={`panel${importMethod === "google-sheets" ? " google-sheets-migration" : ""}`} style={{ marginBottom: 20 }}>
       <div
         style={{
           display: "flex",
@@ -964,6 +994,11 @@ export function MigrationWizard({
             {(
               [
                 [
+                  "google-sheets",
+                  "Google Sheets",
+                  "Choose a spreadsheet with Google authorization, then map and review a worksheet.",
+                ],
+                [
                   "api",
                   "Connect an API",
                   "Pull cases directly from the source system and preview them before import.",
@@ -986,7 +1021,8 @@ export function MigrationWizard({
                 className={`import-method-card${importMethod === value ? " selected" : ""}`}
                 onClick={() => {
                   setImportMethod(value);
-                  setSource(null);
+                  setSource(value === "google-sheets" ? "csv" : null);
+                  if (value === "google-sheets") setStep("upload");
                 }}
               >
                 <span className="import-method-icon" aria-hidden="true">
@@ -1053,6 +1089,7 @@ export function MigrationWizard({
 
       {step === "upload" &&
         source &&
+        importMethod !== "google-sheets" &&
         source !== "qtest" &&
         source !== "zephyr" && (
           <>
@@ -1075,6 +1112,12 @@ export function MigrationWizard({
             </div>}
           </>
         )}
+
+      {step === "upload" && importMethod === "google-sheets" && <>
+        <GoogleSheetsImportSource key={projectId} projectId={projectId} disabled={loading} onSnapshots={loadGoogleSheets} />
+        {googleSnapshots.length > 0 && <p role="status">Loaded {googleSnapshots.length} worksheets. Review the mappings below. No cases have been saved.</p>}
+        {loading && <p role="status">Preparing your selected worksheet for review…</p>}
+      </>}
 
       {step === "upload" && source === "qtest" && (
         <div style={{ display: "grid", gap: 8, maxWidth: 420 }}>
@@ -1226,13 +1269,14 @@ export function MigrationWizard({
                       </span>
                     )}
                   </div>
-                  {sheet.headers.length > 0 && (
+                  {importMethod === "google-sheets" && <button type="button" className="btn-secondary" aria-expanded={expandedGoogleSheet === sheet.name} onClick={() => setExpandedGoogleSheet(current => current === sheet.name ? null : sheet.name)}>{expandedGoogleSheet === sheet.name ? "Collapse fields" : "Review fields"}<span className="sr-only"> for {sheet.name}</span></button>}
+                  {sheet.headers.length > 0 && (importMethod !== "google-sheets" || expandedGoogleSheet === sheet.name) && (
                     <>
                       <div className="xlsx-field-grid">
                         {TARGET_FIELDS.map((field) => (
                           <label key={field}>
                             {FIELD_LABELS[field]}
-                            {field === "title" && (
+                            {(field === "title" || (field === "externalId" && importMethod === "google-sheets")) && (
                               <span className="text-error"> *</span>
                             )}
                             <select
@@ -1246,7 +1290,7 @@ export function MigrationWizard({
                                 )
                               }
                             >
-                              <option value="">{field === "title" ? "Choose a title column" : field === "testType" ? "Recommend from case text" : field === "priority" ? "Default: Medium" : field === "automationStatus" ? "Default: Manual" : "Not imported"}</option>
+                              <option value="">{field === "title" ? "Choose a title column" : field === "testType" ? (importMethod === "google-sheets" ? "Unclassified · For review" : "Recommend from case text") : field === "priority" ? "Default: Medium" : field === "automationStatus" ? "Default: Manual" : "Not imported"}</option>
                               {[...new Set(sheet.headers.filter(header => header.trim()))].map((header) => (
                                 <option key={header} value={header}>
                                   {header}
@@ -1315,7 +1359,7 @@ export function MigrationWizard({
                         </details>
                       )}
                       <RowMappingReview suggestions={sheet.rowMappingSuggestions} overrides={xlsxRowOverrides[sheet.name] ?? {}} onChange={row => updateXlsxRepair(sheet.name, row)} />
-                      <ImportRecommendations rows={importReviewRows(sheet.recommendations, xlsxRowOverrides[sheet.name] ?? {})} overrides={xlsxRowOverrides[sheet.name] ?? {}} analysis={sheetTypeResults(sheet.name)} onChange={row => updateXlsxRepair(sheet.name, row)} />
+                      <ImportRecommendations manualOnly={importMethod === "google-sheets"} rows={importReviewRows(sheet.recommendations, xlsxRowOverrides[sheet.name] ?? {})} overrides={xlsxRowOverrides[sheet.name] ?? {}} analysis={sheetTypeResults(sheet.name)} onChange={row => updateXlsxRepair(sheet.name, row)} />
                       <NonCaseRowsReview
                         rows={sheet.nonCaseRows}
                         overrides={xlsxRowOverrides[sheet.name] ?? {}}
@@ -1334,10 +1378,12 @@ export function MigrationWizard({
               Boolean(error) ||
               selectedSheets.size === 0 ||
               unresolvedXlsxRows.length > 0
+              || missingGoogleIds
             }
           >
             Review import scope
           </button>
+          {missingGoogleIds && <p role="status" className="xlsx-sheet-note">Map a Case ID or External ID column for each selected tab. Every case needs a unique, stable ID so repeating an import updates the same case safely.</p>}
           {unresolvedXlsxRows.length > 0 && (
             <p className="xlsx-sheet-note" role="status">
               Complete {unresolvedXlsxRows.length} required title field(s) to
@@ -1385,7 +1431,7 @@ export function MigrationWizard({
                   onChange={(e) => void updateMapping(field, e.target.value)}
                   style={{ width: "100%" }}
                 >
-                  <option value="">{field === "title" ? "Choose a title column" : field === "testType" ? "Recommend from case text" : field === "priority" ? "Default: Medium" : field === "automationStatus" ? "Default: Manual" : "Not imported"}</option>
+                  <option value="">{field === "title" ? "Choose a title column" : field === "testType" ? (importMethod === "google-sheets" ? "Unclassified · For review" : "Recommend from case text") : field === "priority" ? "Default: Medium" : field === "automationStatus" ? "Default: Manual" : "Not imported"}</option>
                   {[...new Set(csvPreview.headers.filter(header => header.trim()))].map((h) => (
                     <option key={h} value={h}>
                       {h}
@@ -1499,6 +1545,7 @@ export function MigrationWizard({
               .filter((sheet) => selectedSheets.has(sheet.name))
               .reduce((sum, sheet) => sum + sheet.rowCount - remainingNonCaseRows(sheet.nonCaseRows, xlsxRowOverrides[sheet.name] ?? {}).length, 0)}{" "}
             test cases. {xlsxPreview.sheets.filter(sheet => selectedSheets.has(sheet.name)).reduce((sum, sheet) => sum + remainingNonCaseRows(sheet.nonCaseRows, xlsxRowOverrides[sheet.name] ?? {}).length, 0)} context rows or placeholders are not standalone cases.
+            {importMethod === "google-sheets" && <>Re-imports match the same spreadsheet, tab and case ID. Human edits are preserved; conflicts are skipped and listed in the result. No source rows are deleted. </>}
             Each worksheet becomes a suite; proposed sections and notes are preserved on its cases. Suggestions remain For review after import. Stable source IDs are
             preserved for safe re-imports. Nothing is written until you confirm.
           </p>
@@ -1518,7 +1565,7 @@ export function MigrationWizard({
             </button>
             <button
               onClick={commit}
-              disabled={committing || typeReviewBlocked || selectedSheets.size === 0}
+              disabled={committing || typeReviewBlocked || selectedSheets.size === 0 || missingGoogleIds}
             >
               {committing ? "Importing…" : "Import selected worksheets"}
             </button>
