@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { trpcReact } from "@/lib/trpcReact";
 import { GOOGLE_SHEETS_SCOPE, GOOGLE_SHEET_MIME, readSheetBook, readSheetSnapshot, sheetId, validSheetToken, type GoogleSheetSnapshot, type SheetBook } from "@/lib/google-sheets-import";
 
@@ -56,16 +56,16 @@ export function GoogleSheetsImportSource({ projectId, disabled, onSnapshots }: {
   const credential = useRef<{ token: string; expires: number } | null>(null);
   const picker = useRef<Picker | null>(null);
   const expiry = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  function discardCredential() {
+  const discardCredential = useCallback(() => {
     credential.current = null;
     clearTimeout(expiry.current);
     picker.current?.dispose(); picker.current = null;
-  }
-  function clearAccess() {
+  }, []);
+  const clearAccess = useCallback(() => {
     current.current?.abort(); current.current = null;
     discardCredential();
-  }
-  useEffect(() => () => { clearAccess(); }, [projectId]);
+  }, [discardCredential]);
+  useEffect(() => () => { clearAccess(); }, [projectId, clearAccess]);
   function cancel() {
     clearAccess(); setBook(null); setSelected([]); setBusy(false); setApproved(false); setError(null);
   }

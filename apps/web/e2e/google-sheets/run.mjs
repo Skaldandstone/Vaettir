@@ -91,7 +91,7 @@ try {
   await page.getByRole("button", { name: "Read selected tabs and preview", exact: true }).click();
   await page.waitForFunction(() => typeof window.sheetFixture.resolvePreview === "function");
   await page.getByRole("button", { name: "Cancel Google selection", exact: true }).click();
-  await page.evaluate(async () => { window.sheetFixture.resolvePreview(); await new Promise(requestAnimationFrame); await new Promise(requestAnimationFrame); });
+  await page.evaluate(async () => { window.sheetFixture.resolvePreview(); await new Promise(resolve => window.requestAnimationFrame(resolve)); await new Promise(resolve => window.requestAnimationFrame(resolve)); });
   assert.equal(await page.evaluate(() => window.sheetFixture.previews.length), 1, "No later tab requests after cancel");
   assert.equal(await page.locator(".xlsx-sheet-card").count(), 0, "No late mapping after cancel");
   assert.equal(await page.evaluate(() => window.sheetFixture.commits.length), 0);
