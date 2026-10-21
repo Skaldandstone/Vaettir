@@ -12,7 +12,11 @@ type Status = "PASS" | "FAIL" | "SKIP" | "BLOCKED" | "FLAKY" | "IGNORE";
 const known: Record<string, Status> = { pass: "PASS", passed: "PASS", success: "PASS", fail: "FAIL", failed: "FAIL", failure: "FAIL", skip: "SKIP", skipped: "SKIP", blocked: "BLOCKED", flaky: "FLAKY", "not run": "IGNORE", "not executed": "IGNORE", untested: "IGNORE", pending: "IGNORE", "": "IGNORE" };
 const alias = (values: string[], names: string[]) => values.find(value => names.includes(value.trim().toLowerCase().replace(/[_-]+/g, " ")) ) ?? "";
 
-export function HistoricalResultsImport({ projectId }: { projectId: string }) {
+export function HistoricalResultsImport({ projectId, actorScope = "" }: { projectId: string; actorScope?: string }) {
+  return <HistoricalResultsImportDraft key={JSON.stringify([projectId, actorScope])} projectId={projectId} />;
+}
+
+function HistoricalResultsImportDraft({ projectId }: { projectId: string }) {
   const [method, setMethod] = useState<"file" | "google">("file");
   const [sheets, setSheets] = useState<Sheet[]>([]), [sheetName, setSheetName] = useState("");
   const [csv, setCsv] = useState(""), [sourceRef, setSourceRef] = useState(""), [headers, setHeaders] = useState<string[]>([]);

@@ -23,8 +23,9 @@ window.google = {
 };
 function App() {
   const [theme, setTheme] = useState("dark");
+  const [historyProject, setHistoryProject] = useState("synthetic-project"), [historyActor, setHistoryActor] = useState("synthetic-actor");
   if (window.location.pathname === "/google-sheets-privacy") return <main><GoogleSheetsPrivacyNotice /></main>;
-  if (window.location.pathname === "/historical") return <main style={{ maxWidth: 1100, padding: 16, margin: "auto" }}><button onClick={() => { const next = theme === "dark" ? "light" : "dark"; document.documentElement.dataset.theme = next; setTheme(next); }}>Switch theme</button><HistoricalResultsImport projectId="synthetic-project" /></main>;
+  if (window.location.pathname === "/historical") return <main style={{ maxWidth: 1100, padding: 16, margin: "auto" }}><button onClick={() => { const next = theme === "dark" ? "light" : "dark"; document.documentElement.dataset.theme = next; setTheme(next); }}>Switch theme</button><button onClick={() => setHistoryProject(value => value + "-next")}>Switch synthetic project</button><button onClick={() => setHistoryActor(value => value + "-next")}>Switch synthetic actor</button><HistoricalResultsImport projectId={historyProject} actorScope={historyActor} /></main>;
   return <main style={{ maxWidth: 1100, padding: 16, margin: "auto" }}><button onClick={() => { const next = theme === "dark" ? "light" : "dark"; document.documentElement.dataset.theme = next; setTheme(next); }}>Switch theme</button><h1>Import cases · Synthetic sandbox</h1><p>Local component fixture. Google authorization and the API are simulated.</p><MigrationWizard projectId="synthetic-project" onCommitted={() => {}} /></main>;
 }
 createRoot(document.getElementById("root")).render(<App />);

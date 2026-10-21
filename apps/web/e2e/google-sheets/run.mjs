@@ -16,7 +16,7 @@ const output = path.join(web, "../../.local/google-sheets-import-20261021/ui-wit
 await mkdir(output, { recursive: true });
 const inputs = ["components/GoogleSheetsPrivacyNotice.tsx", "app/google-sheets-privacy/page.tsx", "middleware.ts", "components/Sidebar.tsx", "app/layout.tsx", "lib/auth-return.test.mjs", "components/MigrationWizard.tsx", "components/GoogleSheetsImportSource.tsx", "lib/google-sheets-import.ts", "../api/src/services/csvFieldMapping.ts", "app/globals.css", "app/workbench.css", "e2e/google-sheets/fixture.jsx", "e2e/google-sheets/boundary.jsx", "e2e/google-sheets/run.mjs", "../../pnpm-lock.yaml"];
 const hashes = async () => Object.fromEntries(await Promise.all(inputs.map(async file => [file, createHash("sha256").update(await readFile(path.join(web, file))).digest("hex")])));
-inputs.push("components/HistoricalResultsImport.tsx");
+inputs.push("components/HistoricalResultsImport.tsx", "app/projects/[projectId]/import/page.tsx");
 const sourceHashes = await hashes();
 const result = await build({
   entryPoints: [path.join(web, "e2e/google-sheets/fixture.jsx")], outfile: "fixture.js", bundle: true, write: false, jsx: "automatic", platform: "browser", nodePaths: [path.join(web, "node_modules")], alias: { "@": web },
@@ -198,6 +198,17 @@ try {
   assert.equal(await page.getByRole("group", { name: "Worksheets · 1 selected", exact: true }).getByRole("checkbox").nth(1).isEnabled(), false, "Historical import reads one selected results tab");
   await page.getByRole("button", { name: "Read selected tabs and preview", exact: true }).click();
   await page.getByText("Source: google-sheets:synthetic_book:0", { exact: true }).waitFor();
+  assert.equal(await page.evaluate(() => window.sheetFixture.commits.length), 0);
+  await page.getByRole("button", { name: "Switch synthetic project", exact: true }).click();
+  assert.equal(await page.getByText("Source: google-sheets:synthetic_book:0", { exact: true }).count(), 0, "Project change clears the prior source");
+  assert.equal(await page.getByLabel("Original historical run date", { exact: true }).count(), 0);
+  await page.getByLabel("Historical results file", { exact: true }).setInputFiles({ name: "actor-private.csv", mimeType: "text/csv", buffer: Buffer.from("ID,Result\nold-1,pass") });
+  await page.getByLabel("Original historical run date", { exact: true }).fill("2025-01-02");
+  await page.getByRole("button", { name: "Review historical results", exact: true }).click();
+  await page.getByRole("heading", { name: "3. Review matches before saving", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Switch synthetic actor", exact: true }).click();
+  assert.equal(await page.getByRole("heading", { name: "3. Review matches before saving", exact: true }).count(), 0, "Actor change clears review/approval");
+  assert.equal(await page.getByText("Source: file:actor-private.csv", { exact: true }).count(), 0);
   assert.equal(await page.evaluate(() => window.sheetFixture.commits.length), 0);
   assert.deepEqual(errors, []);
   assert.deepEqual(await hashes(), sourceHashes, "Source inputs stayed unchanged during fixture verification");

@@ -168,8 +168,13 @@ function findHeaderRow(rows: CellValue[][], purpose: "cases" | "results" = "case
     const mapping = suggestCsvMapping(headers);
     if (purpose === "results") {
       // Results need identity plus execution columns, not a case procedure.
-      // The customer still explicitly maps the result/date columns in review.
-      if ((mapping.externalId || mapping.title) && headers.filter(Boolean).length >= 2 && new Set(headers).size === headers.length) return index;
+      // Prefer an execution table over a two-cell title/preamble. Custom
+      // result-column names remain a lower-confidence mapping fallback.
+      const labels = headers.map(value => value.toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " "));
+      const execution = labels.some(value => ["result", "results", "status", "test result", "actual result", "execution status", "outcome", "verdict"].includes(value));
+      const date = labels.some(value => ["date", "run date", "execution date", "executed on"].includes(value));
+      const score = (execution ? 40 : 0) + (date ? 20 : 0) + (mapping.externalId ? 4 : 2);
+      if ((mapping.externalId || mapping.title) && headers.filter(Boolean).length >= 2 && new Set(headers).size === headers.length && (!best || score > best.score)) best = { index, score };
       continue;
     }
     const score =

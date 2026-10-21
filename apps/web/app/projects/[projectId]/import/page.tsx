@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import { useSession } from "@clerk/nextjs";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { MigrationWizard } from "@/components/MigrationWizard";
 import { HistoricalResultsImport } from "@/components/HistoricalResultsImport";
@@ -201,6 +202,10 @@ function BackfillSection({ projectId, defaultBranch }: { projectId: string; defa
 export default function ImportPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const { canEdit, loaded } = useProjectPermissions(projectId);
+  const { session, isLoaded: sessionLoaded } = useSession();
+  const actorScope = JSON.stringify([session?.id ?? null, session?.user.id ?? null]);
+  const importScope = JSON.stringify([projectId, actorScope]);
+  const canImport = canEdit && sessionLoaded && Boolean(session);
   const utils = trpcReact.useUtils();
 
   const jobsQuery = trpcReact.importJobs.list.useQuery({ projectId });
@@ -219,9 +224,9 @@ export default function ImportPage() {
       {!canEdit && (
         <p>{loaded ? "A full-seat Owner, Admin, or Editor can import cases and CI results." : "Checking project access…"}</p>
       )}
-      {canEdit && <MigrationWizard projectId={projectId} onCommitted={() => void utils.importJobs.list.invalidate({ projectId })} />}
-      {canEdit && <HistoricalResultsImport projectId={projectId} />}
-      {canEdit && <details className="panel"><summary>Automated JUnit XML reports</summary><BackfillSection projectId={projectId} defaultBranch={defaultBranch} /></details>}
+      {canImport && <MigrationWizard key={importScope} projectId={projectId} onCommitted={() => void utils.importJobs.list.invalidate({ projectId })} />}
+      {canImport && <HistoricalResultsImport projectId={projectId} actorScope={actorScope} />}
+      {canImport && <details key={importScope} className="panel"><summary>Automated JUnit XML reports</summary><BackfillSection projectId={projectId} defaultBranch={defaultBranch} /></details>}
 
       {jobs.length > 0 && (
         <div style={{ marginTop: 24 }}>
