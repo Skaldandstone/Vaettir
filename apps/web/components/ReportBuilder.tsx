@@ -24,6 +24,7 @@ import {
 type Definition = RouterInputs["reportSnapshots"]["preview"]["definition"];
 type PreviewRequest = RouterInputs["reportSnapshots"]["preview"];
 type Preview = RouterOutputs["reportSnapshots"]["preview"];
+const COMMENTARY_LABELS = { summary: "Summary (optional)", risks: "Risks and impediments (optional)", nextActions: "Next actions (optional)" } as const;
 type DraftStart = { actor: string; organizationId: string } & (
   | { kind: "fresh" }
   | { kind: "definition"; source: RouterOutputs["reportSnapshots"]["definitions"][number] }
@@ -873,14 +874,9 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
             )}
             {(["summary", "risks", "nextActions"] as const).map((key) => (
               <label key={key}>
-                {
-                  {
-                    summary: "Summary (optional)",
-                    risks: "Risks and impediments (optional)",
-                    nextActions: "Next actions (optional)",
-                  }[key]
-                }
+                {COMMENTARY_LABELS[key]}
                 <textarea
+                  aria-label={COMMENTARY_LABELS[key]}
                   disabled={frozen}
                   rows={3}
                   maxLength={1500}
