@@ -5,7 +5,7 @@ import type { PrismaClient, AuditAction } from "@vaettir/db";
 // queued) since an audit record that silently failed to write would defeat
 // the point -- if this throws, the caller's mutation should fail too.
 export async function recordAudit(
-  prisma: PrismaClient,
+  prisma: Pick<PrismaClient, "auditLog">,
   args: {
     organizationId: string;
     projectId?: string;

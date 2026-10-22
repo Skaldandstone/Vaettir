@@ -18,3 +18,5 @@ export * from "./caseExecutionWholeCaseSummary.js";
 export * from "./spreadsheetCsv.js";
 export * from "./workspaceDomain.js";
 export * from "./qualityVisuals.js";
+export * from "./identityPolicy.js";
+export * from "./identityConfiguration.js";

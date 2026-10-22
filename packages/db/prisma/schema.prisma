@@ -19,6 +19,15 @@ datasource db {
 // Tenancy
 // ---------------------------------------------------------------------------
 
+// Staged access configuration. Saving this document never grants or revokes access.
+model IdentityAccessDraft {
+  organizationId String @id
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  revision Int @default(1)
+  configuration Json
+  updatedAt DateTime @updatedAt
+}
+
 model WorkspaceDomain {
   name String @id
   organizationId String? @unique
@@ -28,6 +37,7 @@ model WorkspaceDomain {
 }
 
 model Organization {
+  identityAccessDraft IdentityAccessDraft?
   workspaceDomain WorkspaceDomain?
   aiDisclosurePolicies AiDisclosurePolicy[]
   driveSourceConnections DriveSourceConnection[]

@@ -1,4 +1,5 @@
 import { router } from "./trpc.js";
+import { identityAccessRouter } from "./routers/identityAccess.js";
 import { aiDisclosureRouter } from "./routers/aiDisclosure.js";
 import { architectureRouter } from "./routers/architecture.js";
 import { atlassianQualityRouter } from "./routers/atlassianQuality.js";
@@ -173,6 +174,7 @@ export const appRouter = router({
   user: userRouter,
   liveAppGeneration: liveAppGenerationRouter,
   productionSignals: productionSignalsRouter,
+  identityAccess: identityAccessRouter,
 });
 
 export type AppRouter = typeof appRouter;

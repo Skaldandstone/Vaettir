@@ -20,6 +20,7 @@ const ORGANIZATION_ADMIN_LINKS: Array<{
   icon: IconName;
 }> = [
   { href: "/settings/members", label: "Members", icon: "people" },
+  { href: "/settings/access", label: "Access", icon: "settings" },
   { href: "/settings/access-review", label: "Access review", icon: "check" },
   { href: "/settings/billing", label: "Billing", icon: "folder" },
   { href: "/settings/integrations", label: "Integrations", icon: "branch" },

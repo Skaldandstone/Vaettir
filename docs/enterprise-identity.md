@@ -1,6 +1,6 @@
 # Enterprise identity implementation
 
-Status: policy foundation only. Not enabled, deployed, or available to customers.
+Status: policy foundation plus persisted preparation workflow and local Access editor. Not enabled or deployed. Active SSO, directory provisioning and custom permission enforcement are still incomplete.
 
 ## Product scope
 
@@ -13,6 +13,12 @@ Workspace Settings > Access will have three compact sections:
 Default existing workspace behavior remains unchanged. No workspace is enrolled by email domain alone. No provider credentials belong in screenshots, audit metadata, browser storage or repository files.
 
 ## Implemented checkpoint
+
+`IdentityAccessDraft` adds a workspace-owned preparation record with revision CAS. The `identityAccess` router rechecks a verified human Clerk subject, current full-seat administrator membership, workspace host and suspension inside its transaction. It validates current tenant members/projects, saves and audits atomically under Serializable isolation. No native membership, seat, provider connection or authorization policy is modified by a draft save.
+
+Workspace Settings > Access provides searchable, collapsible roles/groups, permission checklists, project scope, member selection, recoverable save errors and explicit saved-version reload. Revision conflicts preserve browser edits. This UI deliberately labels drafts and disconnected setup rather than presenting non-operational SSO switches. It must not be released as completed enterprise identity support.
+
+Local verification: 21 router/schema tests use a synthetic transaction double, not a database; core/db/AI package builds and API/Web typechecks pass. The real editor rendered in dark/light at desktop and 390px with synthetic browser persistence passes role/group save/reopen, failure recovery, duplicate-name validation and dialog keyboard/overflow checks. SQL transaction rollback/concurrency, actual provider calls and hosted acceptance remain unverified.
 
 `packages/core/src/identityPolicy.ts` is a dependency-free policy kernel with:
 
@@ -60,7 +66,9 @@ Clerk is the existing authentication provider. Use its SAML/OIDC and Directory S
 
 The installed backend SDK exposes enterprise connection CRUD, but the inspected Session model does not itself expose a verified connection-specific authentication field. Do not fabricate that proof from `user.enterpriseAccounts`, email domain, or `lastActiveOrganizationId`. Confirm a documented provider enforcement/session mechanism before enabling the policy predicate in production.
 
-Directory group mappings and custom attributes are not part of Clerk's documented self-serve directory wizard. Confirm supported APIs/SDK and tenant-specific group visibility before wiring Vaettir's mapping picker; never call undocumented dashboard endpoints. Provider-native default-role behavior must not silently grant Vaettir access when its last mapping is removed.
+Directory group mappings and custom attributes are not part of Clerk's documented self-serve directory wizard. The official BAPI 2026-08-20 schema does expose `/directories`, directory detail and `group_role_mappings` routes, even though the installed SDK lacks the corresponding convenience API. Validate the exact response/group membership schemas and tenant-specific visibility before wiring Vaettir's picker; do not call undocumented dashboard endpoints. Provider-native default-role behavior must not silently grant Vaettir access when its last mapping is removed.
+
+The same official schema exposes a session-scoped reverification read endpoint. Its existence is not proof of connection-specific SSO: validate the response schema and actual completed SSO factor before using it for enforcement. Frontend `prepareFirstFactorVerification` accepts an enterprise connection ID but a browser-supplied factor is not trusted server evidence.
 
 Provider lifecycle details require actual acceptance tests: the current directory overview and self-serve documentation describe different membership-retention outcomes on directory removal. Vaettir should explicitly invalidate its own connection-sourced grants on disconnect; do not assume a provider UI action supplies that guarantee.
 
@@ -69,5 +77,7 @@ Sources checked October 21, 2026:
 - [Clerk enterprise SSO](https://clerk.com/docs/guides/organizations/add-members/sso)
 - [Directory Sync](https://clerk.com/docs/guides/configure/auth-strategies/enterprise-connections/directory-sync)
 - [Self-serve Directory Sync](https://clerk.com/docs/guides/configure/auth-strategies/enterprise-connections/self-serve-directory-sync)
+- [Official Backend API schema 2026-08-20](https://raw.githubusercontent.com/clerk/openapi-specs/main/bapi/2026-08-20.yml)
+- [Session verification methods](https://clerk.com/docs/js-frontend/reference/objects/session)
 
 No provider plan, add-on, credential, organization, grant or connection has been created or changed by this checkpoint. Any configuration or cost approval remains separate from source completion.
