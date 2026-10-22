@@ -3,10 +3,12 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { TRPCError } from "@trpc/server";
 import type { Context } from "../trpc.js";
 const policy = vi.hoisted(() => ({ lock: vi.fn() }));
+const secrets = vi.hoisted(() => ({ decrypt: vi.fn(() => { throw Error("No credential decryption permitted"); }) }));
+vi.mock("../services/tokenEncryption.js", () => ({ decryptToken: secrets.decrypt, encryptToken: vi.fn(() => { throw Error("No credential creation permitted"); }) }));
 vi.mock("../services/identityAccessPolicy.js", () => ({ lockPublishedIdentityAction: policy.lock }));
 import { repositoryConnectionsRouter } from "./repositoryConnections.js";
 
-beforeEach(() => { policy.lock.mockReset(); policy.lock.mockResolvedValue({ permissions: ["integrations.manage"] }); });
+beforeEach(() => { policy.lock.mockReset(); secrets.decrypt.mockClear(); policy.lock.mockResolvedValue({ permissions: ["integrations.manage"] }); });
 function fixture() {
   const now = new Date();
   const catalog = [{ id: "repo", name: "Synthetic repository", url: "https://gitlab.example.invalid/team/repo", defaultBranch: "main" }];
@@ -15,9 +17,12 @@ function fixture() {
     tokenExpiresAt: new Date(now.getTime() + 3600000), catalogAt: now, catalog, verifiedAt: now };
   const state = { member: { role: "VIEWER", seatType: "FULL" }, suspendedAt: null as Date | null, organizationId: "org", subject: "subject", current: { ...original }, taken: false, phase: 0 };
   const events: string[] = [];
+  const projected = { id: original.id, provider: original.provider, origin: original.origin, configurationId: null as string | null, catalog: [...catalog] as unknown,
+    catalogAt: now, tokenExpiresAt: original.tokenExpiresAt, credentialAvailable: true };
   const tx = {
     $queryRaw: vi.fn(async (parts: TemplateStringsArray) => {
       const sql = parts.join("?");
+      if (sql.includes('AS "credentialAvailable"')) { events.push("catalogue-read"); return [projected]; }
       if (sql.includes('FROM "Organization"')) { events.push("organization"); return [{ suspendedAt: state.suspendedAt }]; }
       if (sql.includes('FROM "Membership"')) { events.push("membership"); return [state.member]; }
       if (sql.includes('FROM "Project"')) { events.push("project"); return [{ organizationId: state.organizationId }]; }
@@ -40,7 +45,7 @@ function fixture() {
   const input = { id: original.id, repositoryIds: ["repo"], approved: true as const,
     catalogVersion: createHash("sha256").update(JSON.stringify([original.id,now.toISOString(),catalog.map(r => [r.id,r.name,r.url,r.defaultBranch])])).digest("hex") };
   const caller = () => repositoryConnectionsRouter.createCaller(ctx);
-  return { state, tx, db, ctx, input, caller, events };
+  return { state, tx, db, ctx, input, caller, events, projected };
 }
 it("attaches only the current actor's reviewed catalogue with an action-specific grant and locked recheck", async () => {
   const f = fixture();
@@ -88,4 +93,46 @@ it("preserves native full-editor selection without consuming a custom grant", as
   const f = fixture(); f.state.member.role = "EDITOR"; f.ctx.user!.memberships[0]!.role = "EDITOR";
   expect(await f.caller().connectSelected(f.input)).toEqual({ connected: 1 });
   expect(policy.lock).not.toHaveBeenCalled();
+});
+it("projects bounded persisted catalogue metadata with current actor/action rechecks, no credentials or provider I/O", async () => {
+  const f = fixture();
+  f.projected.catalog = [{ ...((f.projected.catalog as object[])[0]), encryptedToken: "must-not-leave", unrelated: "private" }];
+  const result = await f.caller().reviewedCatalogue({ projectId: "project" });
+  expect(policy.lock).toHaveBeenCalledTimes(2);
+  expect(result).toMatchObject({ projectId: "project", organizationId: "org", nativeActorId: "actor", clerkSubject: "subject",
+    connections: [{ id: "connection", catalogVersion: f.input.catalogVersion, repositories: [{ id: "repo" }] }] });
+  expect(Object.keys(result.connections[0]!).sort()).toEqual(["catalogVersion","expiresAt","id","origin","provider","repositories","reviewedAt"]);
+  expect(JSON.stringify(result)).not.toMatch(/must-not-leave|encrypted|credential|unrelated|private/);
+  expect(secrets.decrypt).not.toHaveBeenCalled();
+  expect(f.db.repositoryProviderConfiguration.findFirst).not.toHaveBeenCalled();
+  expect(f.tx.projectRepository.create).not.toHaveBeenCalled();
+  const sql = f.tx.$queryRaw.mock.calls.map(([parts]) => parts.join("?")).find(value => value.includes('AS "credentialAvailable"'))!;
+  expect(sql).toContain('c."actorId"=?'); expect(sql).toContain('c."projectId"=?'); expect(sql).toContain('c."organizationId"=?');
+  expect(sql).toContain("LIMIT 51 FOR SHARE OF c");
+});
+it.each(["expired", "old", "future", "credential"])("does not expose %s persisted catalogue as available", async fault => {
+  const f = fixture();
+  if (fault === "expired") f.projected.tokenExpiresAt = new Date(Date.now() + 29000);
+  if (fault === "old") f.projected.catalogAt = new Date(Date.now() - 600001);
+  if (fault === "future") f.projected.catalogAt = new Date(Date.now() + 60000);
+  if (fault === "credential") f.projected.credentialAvailable = false;
+  expect((await f.caller().reviewedCatalogue({ projectId: "project" })).connections).toEqual([]);
+});
+it.each(["revoked", "seat", "subject", "project", "suspended"])("rejects %s at the final projection authorization check", async fault => {
+  const f = fixture(); let calls = 0;
+  policy.lock.mockImplementation(async () => {
+    if (++calls === 1) {
+      if (fault === "seat") f.state.member.seatType = "READ_ONLY";
+      if (fault === "subject") f.state.subject = "rebound";
+      if (fault === "project") f.state.organizationId = "moved";
+      if (fault === "suspended") f.state.suspendedAt = new Date();
+    } else if (fault === "revoked") throw new TRPCError({ code: "FORBIDDEN" });
+  });
+  await expect(f.caller().reviewedCatalogue({ projectId: "project" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+});
+it.each(["duplicate", "mixed-scope", "oversized", "malformed"])("fails closed on %s persisted metadata", async fault => {
+  const f = fixture(), row = (f.projected.catalog as object[])[0]!;
+  f.projected.catalog = fault === "duplicate" ? [row, row] : fault === "mixed-scope" ? [{ ...row, scopeKey: "one" }, { ...row, id: "second", scopeKey: "two" }] :
+    fault === "oversized" ? Array.from({ length: 501 }, (_, id) => ({ ...row, id: String(id) })) : [{ ...row, name: null }];
+  await expect(f.caller().reviewedCatalogue({ projectId: "project" })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
 });

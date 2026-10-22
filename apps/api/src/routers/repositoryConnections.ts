@@ -83,6 +83,9 @@ function connectionAccessMethod(row:{provider:string;configurationId:string|null
 const catalogVersion=(catalog:unknown,connectionId:string,catalogAt:Date)=>hashOAuthState(JSON.stringify([
   connectionId,catalogAt.toISOString(),z.array(repositorySelectionSchema).parse(catalog).map(repo=>[repo.id,repo.name,repo.url,repo.defaultBranch,...(repo.scopeKey||repo.projectId||repo.projectName?[repo.scopeKey??null,repo.projectId??null,repo.projectName??null]:[])]),
 ]));
+const reviewedCatalogueRow=z.object({id:z.string().min(1).max(200),provider:z.enum(["github","gitlab","bitbucket","azure-devops"]),
+  origin:z.string().max(1000),configurationId:z.string().max(200).nullable(),catalog:z.unknown(),catalogAt:z.date().nullable(),
+  tokenExpiresAt:z.date().nullable(),credentialAvailable:z.boolean()});
 async function editor(ctx:Context,projectId:string){
   if(!ctx.user)throw new TRPCError({code:"UNAUTHORIZED"});
   const access=await requireProjectAccess({...ctx,user:ctx.user},projectId,"EDITOR");
@@ -145,6 +148,55 @@ async function tokenRepositories(provider:string,origin:string,credentials:z.inf
   throw new Error("This provider has no token adapter");
 }
 export const repositoryConnectionsRouter=router({
+  // Persisted, actor-reviewed metadata only. This does not discover repositories,
+  // renew credentials/catalogue age, or grant provider setup/listing authority.
+  reviewedCatalogue:protectedProcedure.input(projectInput.strict()).query(async({ctx,input})=>{
+    const {project}=await requireProjectAccess({...ctx,user:ctx.user},input.projectId);
+    const binding={actorId:ctx.user.id,projectId:input.projectId,organizationId:project.organizationId};
+    return ctx.prisma.$transaction(async tx=>{
+      await lockRepositorySelectionManager(tx,ctx,binding);
+      // Only boolean credential/method admission leaves SQL, never secret JSON.
+      // Lock current connection rows after organization/member/project/policy.
+      const raw=await tx.$queryRaw<unknown[]>`SELECT c.id,c.provider,c.origin,c."configurationId",c.catalog,c."catalogAt",c."tokenExpiresAt",
+        COALESCE(c."encryptedToken" IS NOT NULL AND c."encryptedToken" <> 'null'::jsonb AND
+          CASE WHEN c.provider <> 'gitlab' THEN true
+            WHEN jsonb_typeof(c."encryptedVerifier")='object' AND c."encryptedVerifier" ? 'accessMethod' THEN
+              c."configurationId" IS NULL AND c."encryptedVerifier"->>'accessMethod'='gitlab-token/v1' AND
+              jsonb_typeof(c."encryptedVerifier"->'requestHash')='string' AND c."encryptedVerifier"->>'requestHash' ~ '^[a-f0-9]{64}$'
+            ELSE c."configurationId" IS NOT NULL END,false) AS "credentialAvailable"
+        FROM "RepositoryConnection" c WHERE c."actorId"=${binding.actorId} AND c."projectId"=${binding.projectId}
+          AND c."organizationId"=${binding.organizationId} AND c.status='VERIFIED'
+        ORDER BY c.id LIMIT 51 FOR SHARE OF c`;
+      if(raw.length>50)throw new TRPCError({code:"PRECONDITION_FAILED",message:"Too many reviewed connections. Ask an administrator to review connection inventory."});
+      const rows=z.array(reviewedCatalogueRow).max(50).safeParse(raw);
+      if(!rows.success)throw new TRPCError({code:"PRECONDITION_FAILED",message:"Stored catalogue needs review by an authorized editor."});
+      const now=new Date(),connections=[];let totalChoices=0;
+      for(const row of rows.data){
+        if(!row.credentialAvailable||!row.tokenExpiresAt||row.tokenExpiresAt.getTime()<=now.getTime()+30000||
+          !row.catalogAt||row.catalogAt.getTime()<now.getTime()-600000||row.catalogAt>now)continue;
+        const parsed=z.array(repositorySelectionSchema).max(500).safeParse(row.catalog);
+        if(!parsed.success||new Set(parsed.data.map(repo=>repo.id)).size!==parsed.data.length||new Set(parsed.data.map(repo=>repo.scopeKey??null)).size>1)
+          throw new TRPCError({code:"PRECONDITION_FAILED",message:"Stored catalogue needs review by an authorized editor."});
+        if(row.provider==="github"){
+          // Public configuration discriminator only; never load/decrypt its secret.
+          const config=row.configurationId?await tx.repositoryProviderConfiguration.findFirst({where:{id:row.configurationId,organizationId:binding.organizationId,provider:configurationProvider(row.provider),origin:GITHUB_ORIGIN},select:{provider:true}}):null;
+          if(!config)continue;
+          if(config.provider==="github-app"&&parsed.data.some(repo=>!repo.scopeKey||!/^\["github-installation\/v1","[1-9][0-9]{0,15}"\]$/.test(repo.scopeKey)))continue;
+        }
+        if(!parsed.data.length)continue;
+        totalChoices+=parsed.data.length;
+        if(totalChoices>500)throw new TRPCError({code:"PRECONDITION_FAILED",message:"Too many reviewed choices. An authorized editor must review a smaller catalogue batch."});
+        connections.push({id:row.id,provider:row.provider,origin:row.origin,reviewedAt:row.catalogAt.toISOString(),
+          expiresAt:new Date(Math.min(row.catalogAt.getTime()+600000,row.tokenExpiresAt.getTime()-30000)).toISOString(),
+          catalogVersion:catalogVersion(parsed.data,row.id,row.catalogAt),repositories:parsed.data});
+      }
+      // Fresh authorization before returning the locked, same-actor projection.
+      await lockRepositorySelectionManager(tx,ctx,binding);
+      const checkedAt=new Date();
+      return{projectId:binding.projectId,organizationId:binding.organizationId,nativeActorId:binding.actorId,clerkSubject:ctx.authenticatedClerkSubject!,checkedAt:checkedAt.toISOString(),
+        connections:connections.filter(connection=>new Date(connection.expiresAt)>checkedAt)};
+    });
+  }),
   connectToken:protectedProcedure.input(projectInput.extend({
     provider:z.enum(["bitbucket","azure-devops","gitlab"]),requestId:z.string().uuid(),
     token:z.string().min(1).max(10000),email:z.string().trim().max(320).default(""),

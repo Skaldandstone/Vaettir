@@ -12,6 +12,7 @@ import {ProviderMark} from "./SourceConnectionChips";
 import {Modal} from "./Modal";
 import {RepositoryConnectionContent,repositoryProviders,type RepositoryProvider} from "./RepositoryConnectionContent";
 import {RepositoryProviderPicker,cancelRepositoryAuthorization,type RepositoryAuthorizationIntent} from "./RepositoryProviderPicker";
+import {ReviewedRepositoryAttachment} from "./ReviewedRepositoryAttachment";
 export function ProjectRepositories({projectId,canEdit}:{projectId:string;canEdit:boolean}){
   const query=trpcReact.project.repositories.useQuery({projectId});
   const ready=query.isSuccess&&!query.error&&!query.isFetching&&!query.isPaused&&query.data.every(repo=>repo.projectId===projectId);
@@ -57,6 +58,7 @@ export function ProjectRepositories({projectId,canEdit}:{projectId:string;canEdi
     {repositories?.length===0&&<p className="text-muted">No repositories registered for this project yet.</p>}
     {query.isLoading&&<p role="status">Loading registered repositories…</p>}
     <SavedRepositoryAccessCheck projectId={projectId} repositories={repositories??null} canEdit={canEdit&&ready} onChecked={()=>query.refetch()}/>
+    {!canEdit&&<ReviewedRepositoryAttachment projectId={projectId} onAttached={()=>query.refetch()}/>}
     <div className="source-chip-list">{repositories?.map(repo=>{
       const knownProvider=repositoryProviders.find(([id])=>id===repo.provider)?.[0];
       const name=repositoryDisplayName(repo.url);

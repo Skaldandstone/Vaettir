@@ -13,6 +13,7 @@ import { architectureRouter } from "../routers/architecture.js";
 import { testCasesRouter } from "../routers/testCases.js";
 import { caseFieldsRouter } from "../routers/caseFields.js";
 import { reportSnapshotsRouter } from "../routers/reportSnapshots.js";
+import { repositoryConnectionsRouter } from "../routers/repositoryConnections.js";
 import { manualRunStartReviewedRouter } from "../routers/manualRunStartReviewed.js";
 import { manualCaseResultsRouter } from "../routers/manualCaseResults.js";
 import { manualStepExecutionReviewRouter } from "../routers/manualStepExecutionReview.js";
@@ -207,6 +208,72 @@ describe.skipIf(!admitted)("directory journal on owned PostgreSQL", () => {
       authenticatedClerkSubject: f.user.clerkUserId, workspaceOrganizationId: f.org.id, staff: null } as Context);
     return { ...f, project, configuration, administrator, actor, caller };
   }
+  async function reviewedRepositoryFixture() {
+    const f = await localRulesFixture();
+    const configuration = { ...f.configuration, roles: [{ id: "author", name: "Repository attachment", permissions: ["integrations.manage"] }] };
+    await db.identityAccessDraft.update({ where: { organizationId: f.org.id }, data: { configuration } });
+    await publishIdentityDraft(db, f.administrator, { organizationId: f.org.id, expectedDraftRevision: 1, expectedPolicyRevision: 0 });
+    const catalog = [{ id: "repo", name: "Synthetic reviewed repository", url: "https://gitlab.example.invalid/team/repo", defaultBranch: "main" }];
+    const row = await db.repositoryConnection.create({ data: { organizationId: f.org.id, projectId: f.project.id, actorId: f.user.id,
+      provider: "gitlab", origin: "https://gitlab.example.invalid", stateHash: randomUUID(), status: "VERIFIED",
+      encryptedToken: { synthetic: "no-real-token" }, encryptedVerifier: { accessMethod: "gitlab-token/v1", requestHash: "a".repeat(64) },
+      tokenExpiresAt: new Date(Date.now() + 3600000), authorizationExpiresAt: new Date(Date.now() + 3600000), verifiedAt: new Date(), catalog, catalogAt: new Date() } });
+    const ctx = { prisma: db, user: await db.user.findUniqueOrThrow({ where: { id: f.user.id }, include: { memberships: true } }),
+      authenticatedClerkSubject: f.user.clerkUserId, workspaceOrganizationId: f.org.id, staff: null } as Context;
+    return { ...f, row, ctx, configuration, caller: repositoryConnectionsRouter.createCaller(ctx) };
+  }
+  it("reviewed repository projection uses actual SQL isolation, private fields and current action revocation", async () => {
+    const f = await reviewedRepositoryFixture();
+    // Other actors' cached metadata is not part of this projection.
+    await db.repositoryConnection.create({ data: { ...f.row, id: undefined, actorId: f.administrator.userId, stateHash: randomUUID(), catalog: [{ id: "other", name: "Not for this actor", url: "https://example.invalid/other", defaultBranch: null }] } });
+    const result = await f.caller.reviewedCatalogue({ projectId: f.project.id });
+    expect(result.connections).toHaveLength(1); expect(result.connections[0]!.id).toBe(f.row.id);
+    expect(JSON.stringify(result)).not.toMatch(/no-real-token|encrypted|requestHash|Not for this actor/);
+    const input = { id: f.row.id, repositoryIds: ["repo"], approved: true as const, catalogVersion: result.connections[0]!.catalogVersion };
+    expect(await f.caller.connectSelected(input)).toEqual({ connected: 1 });
+    const before = await db.repositoryConnection.findUniqueOrThrow({ where: { id: f.row.id } });
+    expect(before.catalogAt).toEqual(f.row.catalogAt); expect(before.tokenExpiresAt).toEqual(f.row.tokenExpiresAt);
+    for (const patch of [{ tokenExpiresAt: new Date(Date.now() + 10000) }, { catalogAt: new Date(0) }, { encryptedToken: Prisma.JsonNull },
+      { encryptedVerifier: { accessMethod: "unknown-method" } }]) {
+      await db.repositoryConnection.update({ where: { id: f.row.id }, data: patch });
+      expect((await f.caller.reviewedCatalogue({ projectId: f.project.id })).connections).toEqual([]);
+      await db.repositoryConnection.update({ where: { id: f.row.id }, data: { tokenExpiresAt: f.row.tokenExpiresAt, catalogAt: f.row.catalogAt,
+        encryptedToken: f.row.encryptedToken!, encryptedVerifier: f.row.encryptedVerifier! } });
+    }
+    await db.identityAccessDraft.update({ where: { organizationId: f.org.id }, data: { revision: 2, configuration: { ...f.configuration, groups: [] } } });
+    await publishIdentityDraft(db, f.administrator, { organizationId: f.org.id, expectedDraftRevision: 2, expectedPolicyRevision: 1 });
+    await expect(f.caller.reviewedCatalogue({ projectId: f.project.id })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(f.caller.connectSelected(input)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(await db.projectRepository.count({ where: { projectId: f.project.id } })).toBe(1);
+  });
+  it("reviewed repository projection retains a SQL lock against concurrent connection rebinding", async () => {
+    const f = await reviewedRepositoryFixture();
+    let release!: () => void, reached!: () => void;
+    const hold = new Promise<void>(done => { release = done; }), locked = new Promise<void>(done => { reached = done; });
+    const proxy = new Proxy(db, { get(target, property) {
+      if (property === "$transaction") return <T>(work: (tx: Prisma.TransactionClient) => Promise<T>) => db.$transaction(tx => work(new Proxy(tx, { get(transaction, operation) {
+        if (operation === "$queryRaw") return async (parts: TemplateStringsArray, ...values: unknown[]) => {
+          const result = await tx.$queryRaw(parts, ...values);
+          if (parts.join("?").includes('AS "credentialAvailable"')) { reached(); await hold; }
+          return result;
+        };
+        return Reflect.get(transaction, operation);
+      } })));
+      return Reflect.get(target, property);
+    } });
+    const pending = repositoryConnectionsRouter.createCaller({ ...f.ctx, prisma: proxy }).reviewedCatalogue({ projectId: f.project.id });
+    const timeout = setTimeout(() => { reached(); release(); }, 3000);
+    try {
+      await locked;
+      await expect(second.$transaction(async tx => {
+        await tx.$executeRaw`SET LOCAL lock_timeout = '150ms'`;
+        await tx.repositoryConnection.update({ where: { id: f.row.id }, data: { actorId: f.administrator.userId } });
+      })).rejects.toThrow();
+    } finally { clearTimeout(timeout); release(); }
+    expect((await pending).connections[0]!.id).toBe(f.row.id);
+    await second.repositoryConnection.update({ where: { id: f.row.id }, data: { actorId: f.administrator.userId } });
+    expect((await f.caller.reviewedCatalogue({ projectId: f.project.id })).connections).toEqual([]);
+  });
   it("publishes scoped rules, creates a real plan, then revokes the custom action without altering native role/seat", async () => {
     const f = await localRulesFixture();
     await expect((await f.caller()).create({ projectId: f.project.id, name: "Before publication" })).rejects.toMatchObject({ code: "FORBIDDEN" });

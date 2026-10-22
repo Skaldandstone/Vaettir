@@ -11,7 +11,8 @@ import { createHash } from "node:crypto";
 
 assert.equal(process.platform, "win32", "Use the documented Windows PostgreSQL fixture");
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-assert.ok(process.argv.slice(2).every(arg => arg === "--generated-baseline"), "Unknown fixture argument");
+assert.ok(process.argv.slice(2).every(arg => ["--generated-baseline", "--reviewed-attachment"].includes(arg)), "Unknown fixture argument");
+const reviewedAttachmentOnly = process.argv.includes("--reviewed-attachment");
 const migrationMode = process.argv.includes("--generated-baseline") ? "generated-baseline" : "historical-chain";
 const pgBin = "C:/Program Files/PostgreSQL/17/bin";
 for (const executable of ["initdb.exe", "pg_ctl.exe", "psql.exe"]) assert.ok(existsSync(join(pgBin, executable)), "PostgreSQL17 tools required");
@@ -45,7 +46,7 @@ assert.notEqual(port, 5432, "Existing local database port is out of scope");
 const files = ["scripts/identity-directory-postgres.mjs", "scripts/identity-migration-canary.sql", "apps/api/src/services/identityDirectoryStore.integration.test.ts",
   "apps/api/src/services/identityDirectorySettings.ts", "apps/api/src/services/identityDirectoryMappingSchema.ts", "apps/api/src/services/testPlanGovernance.ts", "apps/api/src/routers/testPlanGovernance.ts",
   "apps/api/src/services/identityProviderSetup.ts", "apps/api/src/routers/requirements.ts", "apps/api/src/routers/architecture.ts", "apps/api/src/routers/testCases.ts", "apps/api/src/routers/caseFields.ts",
-  "apps/api/src/routers/reportSnapshots.ts",
+  "apps/api/src/routers/reportSnapshots.ts", "apps/api/src/routers/repositoryConnections.ts",
   "apps/api/src/services/manualRunAuthorization.ts", "apps/api/src/services/manualRetestScope.ts", "apps/api/src/services/manualRunStart.ts",
   "apps/api/src/services/manualRunStartReviewedRead.ts", "apps/api/src/services/manualRunStartReviewedAdmission.ts", "apps/api/src/services/manualRunCurrentRead.ts", "apps/api/src/services/manualExecutionCurrentProjection.ts", "apps/api/src/services/manualExecutionReadScope.ts",
   "apps/api/src/services/manualCaseResultsReviewed.ts", "apps/api/src/services/manualStepExecutionReview.ts", "apps/api/src/routers/manualExecution.ts",
@@ -59,7 +60,7 @@ assert.ok(migrationNames.length > 0 && migrationNames.every(name => /^[0-9]{14}_
 const migrationHashes = Object.fromEntries(migrationNames.map(name => [name,
   createHash("sha256").update(readFileSync(join(migrationsRoot, name, "migration.sql"))).digest("hex")]));
 const owner = { purpose: "identity-directory-postgres-fixture", fixture, data, database, port,
-  migrationMode, migrationHashes,
+  migrationMode, migrationHashes, testSelection: reviewedAttachmentOnly ? "reviewed repository" : "all",
   source: run("git", ["rev-parse", "HEAD"]).trim(), postgresVersion: run(join(pgBin, "pg_ctl.exe"), ["--version"]).trim(),
   fileHashes: Object.fromEntries(files.map(file => [file, createHash("sha256").update(readFileSync(join(root, file))).digest("hex")])) };
 writeFileSync(join(fixture, "owner.json"), JSON.stringify(owner, null, 2));
@@ -141,7 +142,7 @@ try {
   psql(readFileSync(join(root, "packages/db/prisma/migrations/20261022070000_identity_directory_mappings/migration.sql"), "utf8"));
   psql(readFileSync(join(root, "packages/db/prisma/migrations/20261022080000_identity_provider_binding/migration.sql"), "utf8"));
   }
-  const output = run(process.execPath, [vitestCli, "run", "src/services/identityDirectoryStore.integration.test.ts"], {
+  const output = run(process.execPath, [vitestCli, "run", "src/services/identityDirectoryStore.integration.test.ts", ...(reviewedAttachmentOnly ? ["-t", "reviewed repository"] : [])], {
     cwd: join(root, "apps/api"), env: testEnv, timeout: 60000,
   });
   writeFileSync(join(fixture, "tests.txt"), output);
