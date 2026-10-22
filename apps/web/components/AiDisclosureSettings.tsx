@@ -1,5 +1,5 @@
 "use client";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { trpcReact, type RouterInputs } from "@/lib/trpcReact";
 
@@ -35,6 +35,7 @@ function AiDisclosureControls({
   organizationId,
   canConfigure,
 }: Scope) {
+  const classificationHelpId = useId();
   const { userId, isLoaded, isSignedIn } = useAuth();
   const query = trpcReact.aiDisclosure.settings.useQuery(
     { projectId, organizationId },
@@ -208,11 +209,13 @@ function AiDisclosureControls({
           </p>
         </>
       )}
-      <fieldset disabled={locked} style={{ border: 0, padding: 0 }}>
+      <fieldset disabled={locked} style={{ border: 0, padding: 0, minWidth: 0 }}>
         <legend>1. Review project classification</legend>
         <label>
           Classification{" "}
           <select
+            aria-describedby={classificationHelpId}
+            style={{ maxWidth: "100%", minWidth: 0, width: "100%" }}
             value={classification}
             onChange={(e) => {
               setClassification(e.target.value as typeof classification);
@@ -220,15 +223,36 @@ function AiDisclosureControls({
             }}
           >
             <option value="UNCLASSIFIED">
-              Unclassified: AI access blocked
+              Unclassified: data not yet reviewed
             </option>
             <option value="CUSTOMER_PROPRIETARY">
-              Customer proprietary: AI access blocked
+              Customer proprietary: confidential business or customer data
             </option>
-            <option value="REGULATED">Regulated: AI access blocked</option>
-            <option value="SYNTHETIC">Synthetic only</option>
+            <option value="REGULATED">
+              Regulated: protected health, personal, or other regulated data
+            </option>
+            <option value="SYNTHETIC">
+              Synthetic only: fabricated data with no real customer information
+            </option>
           </select>
         </label>
+        <div id={classificationHelpId}>
+          <p>
+            {classification === "UNCLASSIFIED"
+              ? "Choose Unclassified when the project has not been reviewed or its data sensitivity is uncertain."
+              : classification === "CUSTOMER_PROPRIETARY"
+                ? "Choose Customer proprietary for confidential customer or business information, such as internal requirements, test procedures, or unreleased product details. If regulated information is also present, choose Regulated."
+                : classification === "REGULATED"
+                  ? "Choose Regulated when tests, attachments, or results contain information subject to regulatory protections, such as patient health information or personal data."
+                  : "Choose Synthetic only when all project data is fabricated for testing, with no real people, customer information, confidential business content, or regulated information. Anonymized or redacted customer data is not automatically synthetic."}
+          </p>
+          <p role="status">
+            <strong>Plugin access:</strong>{" "}
+            {classification === "SYNTHETIC"
+              ? "Eligible for a separately approved, expiring counts-only connection after saving the classification and attestation. Selecting this option does not grant access."
+              : "Blocked for this classification. Project data remains unavailable to the plugin."}
+          </p>
+        </div>
         {classification === "SYNTHETIC" && (
           <label style={{ display: "block", marginTop: 10 }}>
             <input
