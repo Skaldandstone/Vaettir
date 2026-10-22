@@ -155,6 +155,12 @@ missing traffic as TODO, reject bounds-only as a durable locator and preserve
 the expected behavior. Generation still follows the existing disclosed AI
 operation; this change does not invoke it or spend credits automatically.
 
+The database's closed family enum stores this import as `CUSTOM`; the case page
+uses its exact retained framework name to select a supported suggestion. A browser
+regression derives the actual picker and its parent prop binding, checks Android,
+known-family, unknown and missing metadata, and renders both themes at 1280/390.
+Provider/design hooks are synthetic and the test asserts zero paid mutations.
+
 ## Reviewed repairs for existing cases (APP-NAV-02)
 
 The owner also requires selected existing-case replay, technical enrichment,
