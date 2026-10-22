@@ -9,7 +9,8 @@ const web = path.resolve(fileURLToPath(new URL("../../", import.meta.url)));
 const require = createRequire(path.join(web, "package.json"));
 const viteRequire = createRequire(createRequire(require.resolve("vitest")).resolve("vite"));
 const { build } = viteRequire("esbuild"), { chromium } = require("@playwright/test");
-const output = path.join(web, "../../.local/identity-access-ui");
+const previewOnly = process.argv.includes("--preview-only");
+const output = path.join(web, previewOnly ? "../../.local/identity-draft-preview-ui" : "../../.local/identity-access-ui");
 await mkdir(output, { recursive: true });
 const bundle = await build({ entryPoints: [path.join(web, "e2e/identity-access/fixture.tsx")], outfile: path.join(output, "fixture.js"), bundle: true, write: false, jsx: "automatic", platform: "browser", nodePaths: [path.join(web, "node_modules")] });
 const css = (await readFile(path.join(web, "app/globals.css"), "utf8")).replace(/^@import[^\r\n]+\r?\n/, "") + "\n" + await readFile(path.join(web, "app/workbench.css"), "utf8") + "\n" + bundle.outputFiles.find(file => file.path.endsWith(".css")).text;
@@ -21,11 +22,20 @@ await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
 const origin = `http://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+page.setDefaultTimeout(10000);
 const errors = [];
 page.on("pageerror", error => errors.push(error.message));
 await page.route("**/*", route => route.request().url().startsWith(origin) ? route.continue() : route.abort());
 try {
   await page.goto(origin);
+  if (previewOnly) {
+    const { checkDraftPreview } = await import("./preview-checks.mjs");
+    await checkDraftPreview(page, output);
+    assert.deepEqual(errors, []);
+    await writeFile(path.join(output, "result.json"), JSON.stringify({ result: "PASS", evidence: "Actual local component, synthetic persistence only; not active access or hosted acceptance",
+      themes: ["dark", "light"], viewportWidths: [1280, 390], checks: ["explicit member/project selection", "expandable exact rule sources", "native keyboard selects", "no fallback rules", "project scope", "unsaved role reduction and retained selections", "saved reopen", "stale member failure and reload recovery", "long select value disclosure", "narrow overflow"], errors }, null, 2));
+    console.log(`PASS: identity draft preview local two-theme workflow. Evidence: ${output}`);
+  } else {
   for (const theme of ["dark", "light"]) {
     await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
     await page.getByRole("button", { name: "Roles", exact: true }).click();
@@ -98,4 +108,9 @@ try {
   assert.deepEqual(errors, []);
   await writeFile(path.join(output, "result.json"), JSON.stringify({ result: "PASS", evidence: "Actual local component, synthetic persistence only", themes: ["dark", "light"], viewportWidths: [1280, 390], checks: ["role edit/save/reopen", "group members/roles/scope reopen", "save failure recovery", "duplicate name validation in dialog", "unsaved navigation guard", "revision conflict and explicit reload", "dialog keyboard containment", "narrow overflow"], errors }, null, 2));
   console.log(`PASS: identity editor local two-theme workflow. Evidence: ${output}`);
+  }
+} catch (error) {
+  await page.screenshot({ path: path.join(output, "failure.png"), fullPage: true });
+  await writeFile(path.join(output, "failure.json"), JSON.stringify({ message: String(error), errors, body: await page.locator("body").innerText() }, null, 2));
+  throw error;
 } finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }

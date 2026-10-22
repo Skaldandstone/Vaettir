@@ -1,0 +1,64 @@
+import assert from "node:assert/strict";
+import path from "node:path";
+
+export async function checkDraftPreview(page, output) {
+  const openPreview = () => page.getByRole("button", { name: "Draft preview", exact: true }).click();
+  const preview = page.getByRole("region", { name: "Draft rule preview", exact: true });
+  for (const theme of ["dark", "light"]) {
+    await page.evaluate(() => localStorage.clear());
+    await page.reload();
+    await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await openPreview();
+    await preview.getByText("Choose a member and project to inspect this draft.", { exact: true }).waitFor();
+    await preview.getByLabel("Member", { exact: true }).selectOption("one");
+    await preview.getByLabel("Project", { exact: true }).selectOption("project");
+    await preview.getByText("3 proposed actions.", { exact: false }).waitFor();
+    const details = preview.locator("details").filter({ hasText: "View cases" });
+    await details.locator("summary").focus(); await page.keyboard.press("Enter");
+    await details.getByText("Release engineering", { exact: true }).waitFor();
+    await details.getByText("Test author", { exact: true }).waitFor();
+    await page.screenshot({ path: path.join(output, `preview-${theme}.png`), fullPage: true });
+    await preview.getByLabel("Member", { exact: true }).focus();
+    await page.keyboard.press("End"); await page.keyboard.press("Enter");
+    assert.equal(await preview.getByLabel("Member", { exact: true }).inputValue(), "two");
+    await preview.getByText("No local rules apply in this draft. Existing access is unchanged.", { exact: true }).waitFor();
+    await preview.getByLabel("Member", { exact: true }).selectOption("one");
+    await preview.getByLabel("Project", { exact: true }).selectOption("second");
+    await preview.getByText("No local rules apply in this draft. Existing access is unchanged.", { exact: true }).waitFor();
+    await preview.getByLabel("Project", { exact: true }).selectOption("project");
+    await page.getByRole("button", { name: "Roles", exact: true }).click();
+    await page.getByRole("button", { name: "Edit Test author", exact: true }).click();
+    await page.getByRole("checkbox", { name: "Edit cases", exact: true }).uncheck();
+    await page.getByRole("button", { name: "Apply to draft", exact: true }).click();
+    await openPreview();
+    await preview.getByText("Unsaved draft", { exact: true }).waitFor();
+    await preview.getByText("2 proposed actions.", { exact: false }).waitFor();
+    assert.equal(await preview.locator("summary").filter({ hasText: "Edit cases" }).count(), 0);
+    assert.equal(await preview.getByLabel("Member", { exact: true }).inputValue(), "one");
+    await page.getByRole("button", { name: "Save draft", exact: true }).click();
+    await page.getByRole("status").filter({ hasText: "Draft saved" }).waitFor();
+    await page.reload();
+    await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
+    await openPreview();
+    await preview.getByLabel("Member", { exact: true }).selectOption("one");
+    await preview.getByLabel("Project", { exact: true }).selectOption("project");
+    await preview.getByText("2 proposed actions.", { exact: false }).waitFor();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await preview.locator(".readable-select-value").filter({ hasText: "long project name" }).waitFor();
+    await preview.locator("summary").filter({ hasText: "View cases" }).click();
+    await page.screenshot({ path: path.join(output, `preview-narrow-${theme}.png`), fullPage: true });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, "Preview must fit narrow viewport");
+    const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("identity-fixture")));
+    await page.evaluate(() => { const saved = JSON.parse(localStorage.getItem("identity-fixture")); saved.members = saved.members.filter(member => member.id !== "one"); localStorage.setItem("identity-fixture", JSON.stringify(saved)); });
+    await page.getByRole("button", { name: "Reload", exact: true }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Reload", exact: true }).click();
+    await preview.getByText("That member or project is no longer available. Reload and choose again.", { exact: true }).waitFor();
+    assert.equal(await preview.locator("summary").count(), 0, "Stale references must not retain rule rows");
+    await page.screenshot({ path: path.join(output, `preview-unavailable-${theme}.png`), fullPage: true });
+    await page.evaluate(saved => localStorage.setItem("identity-fixture", JSON.stringify(saved)), saved);
+    await preview.getByRole("button", { name: "Reload saved version", exact: true }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Reload", exact: true }).click();
+    await preview.getByText("2 proposed actions.", { exact: false }).waitFor();
+  }
+}

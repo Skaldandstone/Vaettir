@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { IDENTITY_PERMISSIONS, IDENTITY_PERMISSION_LABELS, identityConfigurationSchema,
   identityRoleDraftSchema, identityGroupDraftSchema, type IdentityConfiguration } from "@vaettir/core";
 import { Modal } from "./Modal";
 import { Icon } from "./ui/Workspace";
+import { ReadableSelect } from "./ui/ReadableSelect";
+import { previewIdentityDraft } from "../lib/identity-draft-preview";
 import styles from "./IdentityAccessEditor.module.css";
 
 type Role = IdentityConfiguration["roles"][number];
@@ -25,7 +27,7 @@ function EditButton({ name, onClick }: { name: string; onClick: () => void }) {
 export function IdentityAccessEditor({ initial, onSave, onReload }: Props) {
   const [saved, setSaved] = useState(initial);
   const [draft, setDraft] = useState(initial.configuration);
-  const [section, setSection] = useState<"roles" | "groups" | "sign-in">("roles");
+  const [section, setSection] = useState<"roles" | "groups" | "preview" | "sign-in">("roles");
   const [search, setSearch] = useState("");
   const [role, setRole] = useState<Role | null>(null);
   const [group, setGroup] = useState<Group | null>(null);
@@ -78,9 +80,9 @@ export function IdentityAccessEditor({ initial, onSave, onReload }: Props) {
     {error && <div role="alert" className={styles.error}>{error} <button type="button" onClick={() => setReloadOpen(true)} disabled={busy}>Reload saved version</button></div>}
     {notice && <p role="status">{notice}</p>}
     <fieldset disabled={busy} className={styles.controls}>
-      <nav className={styles.tabs} aria-label="Access sections">{([ ["roles", "Roles", "settings"], ["groups", "Groups", "people"], ["sign-in", "Sign-in & directory", "link"] ] as const).map(([id, label, icon]) =>
+      <nav className={styles.tabs} aria-label="Access sections">{([ ["roles", "Roles", "settings"], ["groups", "Groups", "people"], ["preview", "Draft preview", "search"], ["sign-in", "Sign-in & directory", "link"] ] as const).map(([id, label, icon]) =>
         <button key={id} type="button" aria-pressed={section === id} onClick={() => { setSection(id); setSearch(""); }}><Icon name={icon} size={16} />{label}</button>)}</nav>
-      {section !== "sign-in" && <div className={styles.toolbar}><label className={styles.search}><Icon name="search" size={16} /><input aria-label={`Search ${section}`} placeholder={`Search ${section}`} value={search} onChange={event => setSearch(event.target.value)} /></label>
+      {(section === "roles" || section === "groups") && <div className={styles.toolbar}><label className={styles.search}><Icon name="search" size={16} /><input aria-label={`Search ${section}`} placeholder={`Search ${section}`} value={search} onChange={event => setSearch(event.target.value)} /></label>
         <button className="btn-secondary" type="button" disabled={section === "groups" && !draft.roles.length} title={section === "groups" && !draft.roles.length ? "Create a role first" : undefined} onClick={() => section === "roles"
           ? setRole({ id: crypto.randomUUID(), name: "", permissions: [] })
           : setGroup({ id: crypto.randomUUID(), name: "", userIds: [], roleIds: [], scope: { kind: "workspace" } })}><Icon name="plus" size={16} />{section === "roles" ? "New role" : "New group"}</button></div>}
@@ -94,6 +96,7 @@ export function IdentityAccessEditor({ initial, onSave, onReload }: Props) {
         {draft.groups.length > 0 && !draft.groups.some(item => match(item.name)) && <p>No groups match your search.</p>}
         {draft.groups.filter(item => match(item.name)).map(item => <article className={styles.row} key={item.id}><details><summary>{item.name}<span>{item.userIds.length} members · {item.scope.kind === "workspace" ? "All projects" : `${item.scope.projectIds.length} projects`}</span></summary><p>{item.roleIds.map(id => draft.roles.find(candidate => candidate.id === id)?.name ?? "Missing role").join(", ")}</p><ul>{item.userIds.map(id => <li key={id}>{saved.members.find(member => member.id === id)?.email ?? "Member no longer available"}</li>)}</ul></details><EditButton name={item.name} onClick={() => setGroup(item)} /></article>)}
       </section>}
+      <div hidden={section !== "preview"}><DraftPreview configuration={draft} members={saved.members} projects={saved.projects} dirty={dirty} revision={saved.revision} onReload={() => setReloadOpen(true)} /></div>
       {section === "sign-in" && <section className={styles.setup} aria-label="Identity setup status">
         <div><Icon name="link" size={24} /><h2>Single sign-on</h2><span className={styles.status}>Setup pending</span><p>SAML or OpenID Connect through your identity provider.</p></div>
         <div><Icon name="people" size={24} /><h2>Directory sync</h2><span className={styles.status}>Setup pending</span><p>Provision members and map external groups to Vaettir roles.</p></div>
@@ -113,6 +116,40 @@ export function IdentityAccessEditor({ initial, onSave, onReload }: Props) {
     <Modal open={reloadOpen} onClose={() => setReloadOpen(false)} title="Reload access settings?" dismissible={!busy}><p>{dirty ? "This replaces your unsaved changes with the saved draft." : "Get the latest saved draft."}</p><div className={styles.dialogActions}><button type="button" className="btn-secondary" disabled={busy} onClick={() => setReloadOpen(false)}>Keep editing</button><button type="button" disabled={busy} onClick={reload}>Reload</button></div></Modal>
     <Modal open={!!pendingNavigation} onClose={() => setPendingNavigation(null)} title="Leave unsaved changes?"><p>Save your draft before leaving to keep these changes.</p><div className={styles.dialogActions}><button className="btn-secondary" onClick={() => setPendingNavigation(null)}>Keep editing</button><button className="btn-primary" onClick={() => { if (pendingNavigation) { leaveAccepted.current = true; location.assign(pendingNavigation); } }}>Leave without saving</button></div></Modal>
   </div>;
+}
+
+function DraftPreview({ configuration, members, projects, dirty, revision, onReload }: {
+  configuration: IdentityConfiguration; members: Member[]; projects: Project[]; dirty: boolean; revision: number; onReload: () => void;
+}) {
+  const [userId, setUserId] = useState("");
+  const [projectId, setProjectId] = useState("");
+  const id = useId();
+  const result = previewIdentityDraft({ configuration, userId, projectId,
+    memberIds: members.map(member => member.id), projectIds: projects.map(project => project.id) });
+  return <section aria-label="Draft rule preview" className={styles.preview}>
+    <div className={styles.previewHeading}><h2>Inspect local rules</h2><span className={styles.status}>{dirty ? "Unsaved draft" : `Draft revision ${revision}`}</span></div>
+    <p className={styles.hint}>Proposed rules only. Current access, seats, SSO and directory state are not evaluated.</p>
+    <div className={styles.previewSelectors}>
+      <div><label htmlFor={`${id}-member`}>Member</label><ReadableSelect id={`${id}-member`} value={userId} onChange={event => setUserId(event.target.value)} disabled={!members.length}>
+        <option value="">Choose a member</option>
+        {userId && !members.some(member => member.id === userId) && <option value={userId}>Unavailable member</option>}
+        {members.map(member => <option key={member.id} value={member.id}>{member.name ? `${member.name} · ${member.email}` : member.email}</option>)}
+      </ReadableSelect></div>
+      <div><label htmlFor={`${id}-project`}>Project</label><ReadableSelect id={`${id}-project`} value={projectId} onChange={event => setProjectId(event.target.value)} disabled={!projects.length}>
+        <option value="">Choose a project</option>
+        {projectId && !projects.some(project => project.id === projectId) && <option value={projectId}>Unavailable project</option>}
+        {projects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
+      </ReadableSelect></div>
+    </div>
+    <div aria-live="polite" aria-atomic="true" className={styles.previewSummary}>
+      {!members.length || !projects.length ? "A workspace member and project are needed to preview rules." : result.status === "select" ? "Choose a member and project to inspect this draft." : result.status === "unavailable" ? result.message : result.rules.length ? `${result.rules.length} proposed actions. Expand an action to see its sources.` : "No local rules apply in this draft. Existing access is unchanged."}
+    </div>
+    {result.status === "unavailable" && <button type="button" className="btn-secondary" onClick={onReload}>Reload saved version</button>}
+    {result.status === "ready" && result.rules.length > 0 && <div className={styles.list}>{result.rules.map(rule => <article className={styles.row} key={rule.permission}><details>
+      <summary>{IDENTITY_PERMISSION_LABELS[rule.permission]}<span>{rule.sources.length} {rule.sources.length === 1 ? "source" : "sources"}</span></summary>
+      <ul className={styles.previewSources}>{rule.sources.map(source => <li key={`${source.groupId}:${source.roleId}`}><span>{source.groupName}</span><Icon name="arrow" size={14} /><span>{source.roleName}</span></li>)}</ul>
+    </details></article>)}</div>}
+  </section>;
 }
 
 function RoleDialog({ role, onClose, onApply }: { role: Role; onClose: () => void; onApply: (value: Role) => boolean }) {
