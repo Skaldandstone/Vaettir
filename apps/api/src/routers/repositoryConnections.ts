@@ -12,6 +12,7 @@ import {availablePlatformRepositoryConfigurations,platformRepositoryApplication,
 import {githubInstallationIdSchema,githubRepositoryAppSecretSchema,githubRepositoryAppInstallationUrl,createGithubAppRepositoryAuthorization,verifyGithubAppRepositoryAuthorization,listGithubAppInstallations,listGithubAppInstallationRepositories} from "../services/githubAppRepositoryConnection.js";
 import { lockCaseFieldProject } from "../services/caseFields.js";
 import { lockCurrentCaseFieldActor } from "../services/caseFieldReadScope.js";
+import { lockPublishedIdentityAction } from "../services/identityAccessPolicy.js";
 
 const projectInput=z.object({projectId:z.string()});
 const jsonToken=(value:ReturnType<typeof encryptToken>)=>({...value});
@@ -93,6 +94,29 @@ async function ownConnection(ctx:Context,id:string){
   if(!row)throw new TRPCError({code:"NOT_FOUND"});
   await editor(ctx,row.projectId);
   return row;
+}
+// Only attaching explicitly reviewed catalogue entries. This is not permission
+// to configure credentials/OAuth, fetch provider metadata, scan, or import.
+async function selectionConnection(ctx:Context,id:string){
+  const row=await ctx.prisma.repositoryConnection.findFirst({where:{id,actorId:ctx.user?.id}});
+  if(!row)throw new TRPCError({code:"NOT_FOUND"});
+  const {membership}=await requireProjectAccess({...ctx,user:ctx.user!},row.projectId);
+  const customManager=!["OWNER","ADMIN","EDITOR"].includes(membership.role);
+  if(!customManager)await editor(ctx,row.projectId);
+  else await ctx.prisma.$transaction(tx=>lockRepositorySelectionManager(tx,ctx,row));
+  return{row,customManager};
+}
+async function lockRepositorySelectionManager(tx:Prisma.TransactionClient,ctx:Context,row:{organizationId:string;projectId:string;actorId:string}){
+  const subject=ctx.authenticatedClerkSubject,actorId=ctx.user?.id;
+  if(!actorId||!subject||subject!==ctx.user?.clerkUserId||row.actorId!==actorId||
+    (ctx.workspaceOrganizationId&&ctx.workspaceOrganizationId!==row.organizationId))throw new TRPCError({code:"FORBIDDEN"});
+  const [org]=await tx.$queryRaw<Array<{suspendedAt:Date|null}>>`SELECT "suspendedAt" FROM "Organization" WHERE id=${row.organizationId} FOR SHARE`;
+  const [member]=await tx.$queryRaw<Array<{role:string;seatType:string}>>`SELECT role::text AS role,"seatType"::text AS "seatType" FROM "Membership" WHERE "organizationId"=${row.organizationId} AND "userId"=${actorId} FOR SHARE`;
+  const [project]=await tx.$queryRaw<Array<{organizationId:string}>>`SELECT "organizationId" FROM "Project" WHERE id=${row.projectId} FOR SHARE`;
+  const [user]=await tx.$queryRaw<Array<{clerkUserId:string|null}>>`SELECT "clerkUserId" FROM "User" WHERE id=${actorId} FOR SHARE`;
+  if(!org||org.suspendedAt||member?.seatType!=="FULL"||!["OWNER","ADMIN","EDITOR","VIEWER","COMPLIANCE_AUDITOR"].includes(member.role)||
+    project?.organizationId!==row.organizationId||user?.clerkUserId!==subject)throw new TRPCError({code:"FORBIDDEN",message:"Current repository management permission is required."});
+  await lockPublishedIdentityAction(tx,{userId:actorId,clerkSubject:subject,workspaceOrganizationId:ctx.workspaceOrganizationId},row.organizationId,row.projectId,"integrations.manage");
 }
 async function disconnectableConnection(ctx:Context,id:string){
   const row=await ctx.prisma.repositoryConnection.findUnique({where:{id}});
@@ -496,7 +520,7 @@ export const repositoryConnectionsRouter=router({
     return{repositories:visible,hasMore,limitReached,listingStatus:limitReached?"truncated" as const:hasMore?"more-pages" as const:"end-of-scope" as const,scopeKey:scopeKey??null,catalogVersion:catalogVersion(catalog,row.id,catalogAt),catalogReset,githubInstallationRequired:false};
   }),
   connectSelected:protectedProcedure.input(z.object({id:z.string(),repositoryIds:z.array(z.string()).min(1).max(100),catalogVersion:z.string().length(64),approved:z.literal(true)})).mutation(async({ctx,input})=>{
-    const row=await ownConnection(ctx,input.id);requireVerified(row);
+    const {row,customManager}=await selectionConnection(ctx,input.id);requireVerified(row);
     if(!row.catalogAt || row.catalogAt.getTime()<Date.now()-600000)throw new TRPCError({code:"PRECONDITION_FAILED",message:"Refresh the repository list before confirming."});
     const catalog=z.array(repositorySelectionSchema).parse(row.catalog);
     if(new Set(catalog.map(repo=>repo.scopeKey??null)).size>1)throw new TRPCError({code:"PRECONDITION_FAILED",message:"The catalogue contains different repository scopes. Refresh and review one scope before connecting."});
@@ -509,10 +533,11 @@ export const repositoryConnectionsRouter=router({
     if(row.provider==="github"&&!config)throw unavailable();
     if(app&&catalog.some(repo=>!repo.scopeKey||!/^\["github-installation\/v1","[1-9][0-9]{0,15}"\]$/.test(repo.scopeKey)))throw new TRPCError({code:"PRECONDITION_FAILED",message:"Refresh and review one installed account before connecting."});
     await ctx.prisma.$transaction(async tx=>{
-      if(app)await liveRepositoryAppEditor(tx,ctx,row);else await liveEditor(tx,row.organizationId,ctx.user.id);
+      if(customManager)await lockRepositorySelectionManager(tx,ctx,row);
+      else if(app)await liveRepositoryAppEditor(tx,ctx,row);else await liveEditor(tx,row.organizationId,ctx.user.id);
       await tx.$queryRaw`SELECT id FROM "RepositoryConnection" WHERE id = ${row.id} FOR UPDATE`;
       const current=await tx.repositoryConnection.findUniqueOrThrow({where:{id:row.id}});requireVerified(current);
-      if(app&&(current.configurationId!==row.configurationId||current.organizationId!==row.organizationId||current.projectId!==row.projectId||current.actorId!==row.actorId||current.origin!==row.origin||current.provider!==row.provider||JSON.stringify(current.encryptedToken)!==JSON.stringify(row.encryptedToken)))throw new TRPCError({code:"CONFLICT",message:"Connection changed. Refresh before connecting repositories."});
+      if((app||customManager)&&(current.configurationId!==row.configurationId||current.organizationId!==row.organizationId||current.projectId!==row.projectId||current.actorId!==row.actorId||current.origin!==row.origin||current.provider!==row.provider||JSON.stringify(current.encryptedToken)!==JSON.stringify(row.encryptedToken)))throw new TRPCError({code:"CONFLICT",message:"Connection changed. Refresh before connecting repositories."});
       if(!current.catalogAt || current.catalogAt.getTime()<Date.now()-600000)throw new TRPCError({code:"PRECONDITION_FAILED",message:"Refresh the repository list before confirming."});
       if(catalogVersion(current.catalog,current.id,current.catalogAt)!==input.catalogVersion)throw new TRPCError({code:"CONFLICT",message:"Repository choices changed. Refresh and review again."});
       for(const repo of selected){
