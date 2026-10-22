@@ -89,3 +89,74 @@ dump, customer row or production provider credential belongs in this runtime.
 No runtime or database was started by this implementation. Existing deployment,
 directory-read authority, shared-development-user-pool exposure, isolated test
 IDs, independent recovery, provider proof and end-to-end UI gates remain open.
+
+## Offline Web staging gate
+
+`scripts/identity-web-stage.mjs` provides `prepareIdentityWebStage` and
+`verifyIdentityWebStage`. These are offline artifact functions, not a server,
+installer, credential collector or authentication substitute. Neither launches
+Next, opens a socket, imports application code nor calls a provider. Production
+Next configuration and middleware remain untouched.
+
+Main must first review a **materialized** candidate containing the actual source
+and all required dependency bytes. No automatic dependency installation or
+materialization is performed. Ordinary pnpm dependency symlinks/hardlinks are
+intentionally refused; their targets must be separately reviewed and materialized.
+The helper must not be pointed at a credential-bearing checkout as a copier.
+
+Inputs are an absolute candidate `sourceRoot`, a fresh absolute `destinationRoot`,
+the reviewed `manifestText`, its independently recorded `approvedManifestSha256`,
+and a new explicit `environment` object. The destination parent must already
+exist. Existing destinations, overlapping source/destination paths and linked
+ancestors are refused. No existing artifact is overwritten or automatically
+deleted; an incomplete stage remains for inspection if copying fails.
+
+The exact manifest has `version: 1`, `reviewReference`, `sourceCommit` (40-character
+Git identity), `applicationId`, `developmentInstanceId`, `organizationId`,
+`nativeOrganizationId`, `issuer`, `secretKeySha256`, `publishableKeySha256`, and
+`files` (an exhaustive array of `{ path, sha256 }`). Relative paths are checked
+against traversal, Windows aliases/streams and duplicate case spellings.
+Source/configuration/dependency bytes are hash-checked before copying and the
+whole resulting tree is checked again. Unexpected files, `.env` variants,
+`.next`, local history, credential/cache directories and links are refused.
+Ancestor environment files and `node_modules` are refused to prevent ordinary
+fallback to an enclosing checkout. No prior build output is reused.
+
+All environment names are explicit. In addition to the API gate's optional OS
+keys, the Web gate requires:
+
+| Name | Value |
+| --- | --- |
+| NODE_ENV | development |
+| NEXT_TELEMETRY_DISABLED | 1 |
+| NEXT_PUBLIC_API_URL | http://127.0.0.1:4208 |
+| VAETTIR_PUBLIC_ORIGIN | http://localhost:3208 |
+| NEXT_PUBLIC_CLERK_SIGN_IN_URL | /sign-in |
+| NEXT_PUBLIC_CLERK_SIGN_UP_URL | /sign-up |
+| NEXT_PUBLIC_VAETTIR_PRIMARY_AUTH_ENABLED | 0 |
+| NEXT_PUBLIC_VAETTIR_WORKSPACE_AUTH_ENABLED | 0 |
+| CLERK_SECRET_KEY | Independently verified pinned existing development key |
+| NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY | Matching pinned development issuer key |
+
+The result reports the reviewed IDs, manifest/source hashes, file count,
+`runtimeStarted: false` and an unexecuted Next argv fixed to IPv4 loopback3208.
+It contains no environment values or credentials. Errors are deliberately generic.
+Re-run verification immediately before any separately approved launch. A stage
+modified by a run is no longer this sealed input and must not be silently reused.
+
+The organization pins identify the **reviewed intended target**, not proof that
+a browser selected it or that the provider binds the keys to it. Real server
+tenant authorization and observed session identity are still required. A supplied
+hash or review label is not execution authority. Complete dependency resolution,
+source integrity, transitive side effects, isolated provider scope, egress and OS
+credential-store isolation still require operator review. This helper is not a
+sandbox against hostile source, dependencies, filesystem races or later writes.
+Launch must use a plain independently verified Node executable and the explicit
+child environment, never inherited `NODE_OPTIONS`, preload hooks, pnpm or dotenv.
+Record actual PID/listener ownership after launch; an argv is not socket evidence.
+
+The focused test uses the installed `@next/env` loader with synthetic values to
+demonstrate automatic project environment loading and the gate's refusal. It
+does not run Vaettir or establish a working SSO/provisioning integration. See
+[Next environment loading](https://nextjs.org/docs/15/app/guides/environment-variables)
+and [Next CLI hostname options](https://nextjs.org/docs/app/api-reference/cli/next).
