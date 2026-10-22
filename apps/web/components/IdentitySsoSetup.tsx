@@ -7,20 +7,30 @@ import { IdentitySsoPanel } from "./IdentitySsoPanel";
 export function IdentitySsoSetup({ organizationId }: { organizationId: string }) {
   const clerk = useClerk();
   const auth = useAuth();
+  const scope = JSON.stringify([organizationId, auth.userId, auth.sessionId]);
+  const selectedScope = useRef<string | null>(scope);
+  const inspected = useRef(new WeakMap<object, number>());
   const lifecycle = useRef(0), openedFor = useRef<string | null>(null);
   useLayoutEffect(() => {
-    lifecycle.current++;
-    return () => { lifecycle.current++; if (openedFor.current) clerk.closeOrganizationProfile(); openedFor.current = null; };
-  }, [organizationId, auth.userId, auth.sessionId, clerk]);
+    selectedScope.current = scope; const epoch = ++lifecycle.current;
+    return () => { selectedScope.current = null; lifecycle.current = epoch + 1; if (openedFor.current) clerk.closeOrganizationProfile(); openedFor.current = null; };
+  }, [scope, clerk]);
   useLayoutEffect(() => {
     if (openedFor.current && openedFor.current !== auth.orgId) { clerk.closeOrganizationProfile(); openedFor.current = null; }
   }, [auth.orgId, clerk]);
   const query = trpcReact.identityAccess.providerSetup.useQuery({ organizationId }, { enabled: false, retry: false });
-  return <IdentitySsoPanel inspect={async () => {
-    const current = await query.refetch(); if (current.error || !current.data) throw new Error("Setup unavailable"); return current.data;
-  }} openSetup={async status => {
+  return <IdentitySsoPanel key={scope} inspect={async () => {
     const generation = lifecycle.current;
-    const owns = () => lifecycle.current === generation && clerk.loaded && clerk.user?.id === status.clerkSubject &&
+    if (selectedScope.current !== scope) throw new Error("Workspace changed");
+    const current = await query.refetch();
+    if (selectedScope.current !== scope || lifecycle.current !== generation || current.error || !current.data) throw new Error("Setup unavailable");
+    // Do not attach provenance to a shared query-cache object across scopes.
+    const result = { ...current.data };
+    inspected.current.set(result, generation);
+    return result;
+  }} openSetup={async status => {
+    const generation = inspected.current.get(status);
+    const owns = () => generation !== undefined && selectedScope.current === scope && lifecycle.current === generation && clerk.loaded && clerk.user?.id === status.clerkSubject &&
       !!auth.sessionId && clerk.session?.id === auth.sessionId;
     if (!owns()) throw new Error("Session changed");
     // This is an explicit user action after a fresh server-side tenant and

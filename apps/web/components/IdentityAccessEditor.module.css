@@ -14,6 +14,7 @@
 .directoryRow summary { font-size: 13px; cursor: pointer; }
 .directoryRow li { font-size: 13px; margin: 8px 0; }
 .directoryRow .dialogActions { margin-top: 12px; flex-wrap: wrap; }
+.mappingLabel { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .header, .toolbar, .row, .footer, .dialogActions { display: flex; align-items: center; gap: 12px; }
 .header { justify-content: space-between; margin-bottom: 20px; }
 .header h1 { margin: 4px 0; font-family: Inter, system-ui, sans-serif; }

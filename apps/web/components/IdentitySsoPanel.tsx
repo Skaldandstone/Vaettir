@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "./ui/Workspace";
 import styles from "./IdentityAccessEditor.module.css";
 
@@ -9,11 +9,27 @@ export type IdentitySetupStatus = { status: "unavailable" | "provider-admin-requ
 };
 export function IdentitySsoPanel({ inspect, openSetup }: { inspect: () => Promise<IdentitySetupStatus>; openSetup: (status: Extract<IdentitySetupStatus, { status: "ready" }>) => Promise<void> }) {
   const [status, setStatus] = useState<IdentitySetupStatus | null>(null), [busy, setBusy] = useState(false), [error, setError] = useState("");
+  const generation = useRef(0), pending = useRef(false), mounted = useRef(false);
+  useLayoutEffect(() => {
+    mounted.current = true; const epoch = ++generation.current;
+    return () => { mounted.current = false; generation.current = epoch + 1; };
+  }, []);
   async function check(open = false) {
-    setBusy(true); setError("");
-    try { const current = await inspect(); setStatus(current); if (open && current.status === "ready") await openSetup(current); }
-    catch { setStatus(null); setError("Could not verify identity setup. Retry; your connection has not been changed."); }
-    finally { setBusy(false); }
+    if (pending.current || !mounted.current) return;
+    pending.current = true;
+    const started = generation.current;
+    const currentRequest = () => mounted.current && generation.current === started;
+    setBusy(true); setError(""); setStatus(null);
+    try {
+      const current = await inspect();
+      if (!currentRequest()) return;
+      setStatus(current);
+      if (open && current.status === "ready") await openSetup(current);
+    } catch {
+      if (currentRequest()) { setStatus(null); setError("Could not verify identity setup. Check status before trying again."); }
+    } finally {
+      if (currentRequest()) { pending.current = false; setBusy(false); }
+    }
   }
   return <section aria-label="Single sign-on" className={styles.sso}>
     <div className={styles.previewHeading}><h2><Icon name="link" size={18}/> Single sign-on</h2><span className={styles.status}>{status?.status === "ready" ? "Workspace verified" : "Setup check"}</span></div>

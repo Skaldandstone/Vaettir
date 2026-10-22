@@ -90,6 +90,14 @@ The Google fixture remains a **plan for isolated company test users/group**, not
 
 Other catalog actions remain preparation-only or retain native authorization. Keep the exact-workspace publication gate off for general use until coverage and provider acceptance are complete. Do not include these migrations or source changes in an unrelated release by implication.
 
+### Setup and directory UI recovery
+
+SSO inspection is pinned to the selected native workspace and current account/session before awaiting a response. A scope change or unmount rejects delayed callbacks, clears displayed status and closes an already opened provider profile. Only an inspected response from the same component lifecycle can open the existing SDK setup overlay, after the independent fresh server/provider binding recheck. Synchronous duplicate activations are ignored. This is UI request ownership, not proof of an enterprise-authenticated session.
+
+Directory labels distinguish never-synced, zero-member, stale and current observations. Mapping review shows the exact project scope. Unchanged mappings cannot be saved, including reordered mappings/project IDs and removal/recreation of the same rule; this prevents a UI no-op from withdrawing grants until another sync. Real changes retain explicit save, server validation/revision checks and reload-before-retry after an unknown outcome.
+
+Dedicated local component checks: `node apps/web/e2e/identity-sso-recovery/run.mjs` exercises the actual setup wrapper/panel with synthetic Clerk/query boundaries; `node apps/web/e2e/identity-access/run.mjs --directory-only` covers directory save/reopen/recovery. Both cover dark/light at 1280/390px, keyboard recovery/focus and no horizontal overflow. These fixtures neither call an identity provider nor establish authenticated, deployed or customer acceptance.
+
 ### Reviewed manual execution coverage
 
 The newest owned SQL fixture applies **106 historical migrations and passes 23 database/router checks**. This supersedes the earlier 105/21 authoring evidence above. A native FULL Viewer with only a published `runs.execute` contribution can start the reviewed whole-case and step workflows, record results, and complete those synthetic runs. Removing its grant rejects new writes and exact receipt recovery; republishing the explicitly restored grant allows completion without changing native role or seat. The SQL whole-case insert guard independently checks current action scope and source freshness; application/SQL parity covers directory disablement, lease expiry, configuration/subject revisions, wrong subject, project scope and seat reduction. The generated-baseline fixture deliberately skips these two trigger-dependent checks and cannot establish run acceptance.

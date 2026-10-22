@@ -1,3 +1,4 @@
+/* global document, innerWidth */
 import assert from "node:assert/strict";
 import path from "node:path";
 
@@ -32,6 +33,7 @@ export async function checkDirectory(page, output) {
     await sso.getByRole("button", { name: "Open provider setup" }).click();
     assert.equal(await page.evaluate(() => localStorage.getItem("sso-open-count")), "1");
     await section().getByRole("button", { name: "Edit mappings" }).click();
+    assert.equal(await dialog().getByRole("button", { name: "Save mappings" }).isDisabled(), true);
     await dialog().getByRole("button", { name: "Add mapping" }).click();
     await dialog().getByRole("alert").filter({ hasText: "Choose a group" }).waitFor();
     await dialog().getByLabel("External group", { exact: true }).selectOption({ index: 1 });
@@ -52,6 +54,16 @@ export async function checkDirectory(page, output) {
     await page.getByRole("button", { name: "Sign-in & directory", exact: true }).click();
     await section().getByRole("button", { name: "Edit mappings" }).click();
     assert.equal(await dialog().getByRole("button", { name: "Remove mapping 1" }).count(), 1);
+    assert.equal(await dialog().getByRole("button", { name: "Save mappings" }).isDisabled(), true);
+    // Removing and recreating the same rule is not a permission change.
+    await dialog().getByRole("button", { name: "Remove mapping 1" }).click();
+    assert.equal(await dialog().getByRole("button", { name: "Save mappings" }).isEnabled(), true);
+    await dialog().getByLabel("External group", { exact: true }).selectOption({ index: 1 });
+    await dialog().getByLabel("Published role", { exact: true }).selectOption("reviewer");
+    await dialog().getByRole("checkbox", { name: /Synthetic UI verification/ }).check();
+    await dialog().getByRole("button", { name: "Add mapping" }).click();
+    assert.equal(await dialog().getByRole("button", { name: "Save mappings" }).isDisabled(), true);
+    await dialog().getByText("No mapping changes.", { exact: true }).waitFor();
     await dialog().getByRole("button", { name: "Remove mapping 1" }).click();
     await page.evaluate(() => localStorage.setItem("fail-directory", "after"));
     await dialog().getByRole("button", { name: "Save mappings" }).click();
@@ -71,6 +83,22 @@ export async function checkDirectory(page, output) {
     assert.equal(await section().getByRole("button", { name: "Disable access" }).isDisabled(), true);
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.screenshot({ path: path.join(output, `directory-${theme}.png`), fullPage: true });
+    await page.evaluate(() => {
+      const connections = JSON.parse(localStorage.getItem("directory-fixture"));
+      Object.assign(connections[0], { enabled: true, lastObservedAt: null, observedMembers: 0, activeMembers: 0, staleMembers: 0 });
+      localStorage.setItem("directory-fixture", JSON.stringify(connections));
+    });
+    await section().getByRole("button", { name: "Reload", exact: true }).click();
+    await section().getByText("Not yet synced", { exact: true }).first().waitFor();
+    assert.equal(await section().getByText("Observations current", { exact: true }).count(), 0);
+    await page.screenshot({ path: path.join(output, `unobserved-${theme}.png`), fullPage: true });
+    await page.evaluate(() => {
+      const connections = JSON.parse(localStorage.getItem("directory-fixture"));
+      connections[0].lastObservedAt = "2026-10-22T12:00:00.000Z";
+      localStorage.setItem("directory-fixture", JSON.stringify(connections));
+    });
+    await section().getByRole("button", { name: "Reload", exact: true }).click();
+    await section().getByText("No members observed", { exact: true }).waitFor();
   }
   await page.evaluate(() => localStorage.setItem("directory-fixture", "[]"));
   await section().getByRole("button", { name: "Reload", exact: true }).click();

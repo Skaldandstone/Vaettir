@@ -1,6 +1,7 @@
 "use client";
 import { useId, useState } from "react";
 import type { IdentityScope } from "@vaettir/core";
+import { directoryObservationLabel, sameDirectoryMappings } from "../lib/identity-directory-view";
 import { Modal } from "./Modal";
 import { ReadableSelect } from "./ui/ReadableSelect";
 import { Icon } from "./ui/Workspace";
@@ -37,7 +38,7 @@ export function IdentityDirectoryPanel({ initial, projects, reload, update }: Pr
     {error && <p role="alert" className={styles.error}>{error}</p>}{notice && <p role="status" className={styles.hint}>{notice}</p>}
     {!data.connections.length ? <div className={styles.empty}><Icon name="people" size={24}/><h3>No directory connected</h3><p>Complete SSO and directory setup first. Existing access is unchanged.</p></div> :
       <div className={styles.list}>{data.connections.map(connection => <article className={styles.directoryRow} key={connection.id}>
-        <div className={styles.previewHeading}><h3>{connection.providerConnectionId}</h3><span className={styles.status}>{!connection.enabled ? "Disabled" : connection.staleMembers ? "Sync needed" : "Observations current"}</span></div>
+        <div className={styles.previewHeading}><h3>{connection.providerConnectionId}</h3><span className={styles.status}>{directoryObservationLabel(connection)}</span></div>
         <p className={styles.hint}>{connection.activeMembers} active · {connection.staleMembers} awaiting sync · {connection.mappings.length} mappings</p>
         <details><summary>Mappings and sync details</summary><p className={styles.hint}>Last observation: {connection.lastObservedAt ? new Date(connection.lastObservedAt).toLocaleString() : "Not yet synced"}</p>
           {connection.mappings.length ? <ul>{connection.mappings.map((mapping, index) => <li key={index}>{mapping.externalGroupId} → {data.roles.find(role => role.id === mapping.roleId)?.name ?? "Role unavailable"} · {mapping.scope.kind === "workspace" ? "Workspace" : `${mapping.scope.projectIds.length} selected projects`}</li>)}</ul> : <p>No group rules.</p>}</details>
@@ -62,6 +63,7 @@ function MappingDialog({ connection, roles, projects, busy, uncertain, error, on
   const [mappings, setMappings] = useState(connection.mappings), [group, setGroup] = useState(""), [role, setRole] = useState("");
   const [scope, setScope] = useState<"projects" | "workspace">("projects"), [selected, setSelected] = useState<string[]>([]), [validation, setValidation] = useState("");
   const labelId = useId();
+  const unchanged = sameDirectoryMappings(mappings, connection.mappings);
   function add() {
     if (mappings.length >= 250) { setValidation("This connection already has 250 mappings. Remove a mapping before adding another."); return; }
     if (!group || !role || (scope === "projects" && !selected.length)) { setValidation("Choose a group, role and project scope."); return; }
@@ -75,10 +77,11 @@ function MappingDialog({ connection, roles, projects, busy, uncertain, error, on
       <div><label htmlFor={`${labelId}-scope`}>Scope</label><ReadableSelect id={`${labelId}-scope`} value={scope} onChange={event => setScope(event.target.value as typeof scope)}><option value="projects">Selected projects</option><option value="workspace">Entire workspace</option></ReadableSelect></div>
       {scope === "projects" && <fieldset><legend>Projects</legend><div className={styles.choices}>{projects.map(project => <label key={project.id}><input type="checkbox" checked={selected.includes(project.id)} onChange={() => setSelected(selected.includes(project.id) ? selected.filter(id => id !== project.id) : [...selected, project.id])}/>{project.name}</label>)}</div></fieldset>}
       <button type="button" className="btn-secondary" onClick={add}>Add mapping</button>
-      <div className={styles.list}>{mappings.map((mapping, index) => <div className={styles.row} key={`${mapping.externalGroupId}:${mapping.roleId}`}><span>{mapping.externalGroupId} → {roles.find(item => item.id === mapping.roleId)?.name ?? "Role unavailable"}</span><button type="button" className="btn-secondary" aria-label={`Remove mapping ${index + 1}`} title="Remove mapping" onClick={() => setMappings(mappings.filter((_, i) => i !== index))}><Icon name="close" size={14}/></button></div>)}</div>
+      <div className={styles.list}>{mappings.map((mapping, index) => <div className={styles.row} key={`${mapping.externalGroupId}:${mapping.roleId}`}><div className={styles.mappingLabel}><span>{mapping.externalGroupId} → {roles.find(item => item.id === mapping.roleId)?.name ?? "Role unavailable"}</span><div className={styles.hint}>{mapping.scope.kind === "workspace" ? "Entire workspace" : mapping.scope.projectIds.map(id => projects.find(item => item.id === id)?.name ?? "Project unavailable").join(", ")}</div></div><button type="button" className="btn-secondary" aria-label={`Remove mapping ${index + 1}`} title="Remove mapping" onClick={() => setMappings(mappings.filter((_, i) => i !== index))}><Icon name="close" size={14}/></button></div>)}</div>
     </div></fieldset>
     {(validation || error) && <p role="alert">{validation || error}</p>}
     <p className={styles.hint}>Saving withdraws the old directory rules until a fresh provider sync. Local access is unchanged.</p>
-    <div className={styles.dialogActions}><button type="button" disabled={busy} onClick={onClose}>Cancel</button>{uncertain ? <button type="button" disabled={busy} onClick={onReload}>Reload status</button> : <button type="button" disabled={busy} onClick={() => onSave(mappings)}>Save mappings</button>}</div>
+    {unchanged && !uncertain && <p className={styles.hint}>No mapping changes.</p>}
+    <div className={styles.dialogActions}><button type="button" disabled={busy} onClick={onClose}>Cancel</button>{uncertain ? <button type="button" disabled={busy} onClick={onReload}>Reload status</button> : <button type="button" disabled={busy || unchanged} onClick={() => { if (!unchanged) onSave(mappings); }}>Save mappings</button>}</div>
   </Modal>;
 }
