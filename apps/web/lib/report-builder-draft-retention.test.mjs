@@ -61,6 +61,7 @@ const fresh = () => ({
 function fixture() {
   const state = {
     readOnly: false,
+    canApprove: true,
     busy: false,
     actorMatches: true,
     workflowMatches: true,
@@ -283,6 +284,17 @@ test("saved preview selection survives closing without silently resetting to pur
   assert.equal(draft(state), before);
   assert.equal(state.step, 4);
   assert.equal(state.resumeId, saved.id);
+});
+test("custom report author cannot approve sharing or discard its retained preview", async () => {
+  const { state, handlers: h } = fixture();
+  h.begin(); authored(state);
+  state.canApprove = false;
+  state.current = { id: "private-preview", reviewOrgId: "synthetic-org", payload: { state: "preview" } };
+  let calls = 0;
+  state.approve.mutateAsync = async () => { calls++; throw Error("Must not publish"); };
+  const before = draft(state);
+  await h.publish();
+  assert.equal(calls, 0); assert.equal(draft(state), before);
 });
 test("acknowledged publication permits the next fresh report even when catalog refresh fails", async () => {
   const { state, handlers: h } = fixture();

@@ -14,6 +14,7 @@ import { Modal } from "@/components/Modal";
 import { TestPlanDetailContent } from "@/components/TestPlanDetailContent";
 import { resolveQualityExperience } from "@vaettir/core";
 import { useCaseFieldAccess } from "@/lib/use-case-field-access";
+import { useProjectCustomActions } from "@/lib/use-project-custom-actions";
 import { currentSessionScope, sameAuthScope } from "@/lib/auth-query-cache";
 import { retainedTraceabilityReceipt } from "@/lib/traceability-receipt";
 import { IconButton } from "@/components/ui/IconButton";
@@ -26,6 +27,8 @@ const STATUSES = ["DRAFT", "ACTIVE", "IN_REVIEW", "APPROVED"];
  * The legacy create transport has no receipt/UUID: UNKNOWN must not be retried. */
 function ManualPlanCreate({projectId,readOnly,onCreated}:{projectId:string;readOnly:boolean;onCreated:()=>Promise<unknown>}) {
   const access=useCaseFieldAccess(projectId),auth=useAuth();
+  const customActions=useProjectCustomActions(projectId);
+  const customPlanAuthor=customActions.allows("plans.write",access.origin?.organizationId);
   const typesQuery=trpcReact.testPlans.types.useQuery(undefined,{retry:false,staleTime:0});
   const create=trpcReact.testPlans.create.useMutation();
   const [name,setName]=useState("");
@@ -41,19 +44,19 @@ function ManualPlanCreate({projectId,readOnly,onCreated}:{projectId:string;readO
   const sdk=typeof window==="undefined"?null:currentSessionScope(window.Clerk?.loaded?window.Clerk.session:null);
   const sdkCurrent=sameAuthScope({userId:auth.userId??"",sessionId:auth.sessionId??""},sdk);
   const frame=useMemo(()=>({projectId,organizationId:access.origin?.organizationId??"",nativeActorId:access.fresh?.readScope?.actorId??"",clerkActorId:auth.userId??"",sessionId:auth.sessionId??"",
-    eligible:!readOnly&&access.readable&&access.canEdit&&auth.isLoaded&&!!auth.isSignedIn&&sdkCurrent,
-  }),[projectId,access.origin?.organizationId,access.fresh?.readScope?.actorId,auth.userId,auth.sessionId,auth.isLoaded,auth.isSignedIn,sdkCurrent,readOnly,access.readable,access.canEdit]);
+    eligible:!readOnly&&access.readable&&(access.canEdit||customPlanAuthor)&&auth.isLoaded&&!!auth.isSignedIn&&sdkCurrent,
+  }),[projectId,access.origin?.organizationId,access.fresh?.readScope?.actorId,auth.userId,auth.sessionId,auth.isLoaded,auth.isSignedIn,sdkCurrent,readOnly,access.readable,access.canEdit,customPlanAuthor]);
   const committed=useRef<{frame:typeof frame;epoch:number}|null>(null);
   useLayoutEffect(()=>{const owner={frame,epoch:++epochRef.current};committed.current=owner;publishEpoch(owner.epoch);return()=>{if(committed.current===owner){committed.current=null;epochRef.current=owner.epoch+1;}};},[frame]);
   function sameOwner(original:typeof privateOwner){return !!original&&frame.projectId===original.projectId&&frame.organizationId===original.organizationId&&frame.nativeActorId===original.nativeActorId&&frame.clerkActorId===original.clerkActorId&&frame.sessionId===original.sessionId;}
-  function owns(){const current=committed.current;return !!current&&current.epoch===epoch&&epochRef.current===epoch&&current.frame===frame&&frame.eligible&&!!frame.nativeActorId&&(!privateOwner||sameOwner(privateOwner))&&!!access.origin&&access.owns(access.origin,"edit")&&sameAuthScope({userId:frame.clerkActorId,sessionId:frame.sessionId},typeof window==="undefined"?null:currentSessionScope(window.Clerk?.loaded?window.Clerk.session:null));}
+  function owns(){const current=committed.current;return !!current&&current.epoch===epoch&&epochRef.current===epoch&&current.frame===frame&&frame.eligible&&!!frame.nativeActorId&&(!privateOwner||sameOwner(privateOwner))&&!!access.origin&&(access.owns(access.origin,"edit")||(access.owns(access.origin,"read")&&customActions.owns("plans.write",frame.organizationId)))&&sameAuthScope({userId:frame.clerkActorId,sessionId:frame.sessionId},typeof window==="undefined"?null:currentSessionScope(window.Clerk?.loaded?window.Clerk.session:null));}
   const typesReady=typesQuery.isSuccess&&!typesQuery.error&&!typesQuery.isFetching&&!typesQuery.isPaused;
   const types=typesReady?typesQuery.data:[];
   const event=generation.current;
   function edit(change:()=>void){if(event!==generation.current||inFlight.current||held.current||!owns())return;generation.current++;if(!privateOwner)setPrivateOwner(frame);setKnownId("");setNotice("");change();}
   async function submit(){
     if(event!==generation.current||inFlight.current||held.current)return;
-    if(!owns()){setNotice("Current full editor access is required to create a plan. Your draft is retained.");return;}
+    if(!owns()){setNotice("Current plan-author access and a full seat are required. Your draft is retained.");return;}
     if(!name.trim()){setNotice("Enter a plan name before creating it.");return;}
     if(name.trim().length>200){setNotice("Use a plan name of 200 characters or fewer.");return;}
     if(typeId&&(!typesReady||!types.some(type=>type.id===typeId))){setNotice("The selected plan type is unavailable. Refresh types or choose Functional (default).");return;}
@@ -85,7 +88,7 @@ function ManualPlanCreate({projectId,readOnly,onCreated}:{projectId:string;readO
       {notice&&<p role={unknown?"alert":"status"}>{notice}</p>}
       {unknown&&!notice&&<p role="alert">The original creation remains unacknowledged. Check the plan list; do not submit this draft again.</p>}
       {knownId&&<a href={`/projects/${encodeURIComponent(projectId)}/test-plans/${encodeURIComponent(knownId)}`}>Open created plan</a>}
-    </>:<p role="status">{readOnly?"A full editor seat is required to create test plans.":"Checking original project access…"} Any manual draft or unacknowledged creation is retained and withheld here.</p>}
+    </>:<p role="status">{readOnly?"A full seat is required to create test plans.":"Plan-author access is required. Refresh access if your role changed."} Any manual draft or unacknowledged creation is retained and withheld here. {!readOnly&&<button type="button" className="btn-secondary" onClick={()=>{void access.query.refetch();void customActions.retry();}}>Refresh access</button>}</p>}
   </section>;
 }
 

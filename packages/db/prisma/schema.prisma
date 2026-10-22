@@ -41,6 +41,17 @@ model IdentityAccessPolicy {
 
 // Source observations only. These rows do not grant native membership or permissions.
 // Provider setup must establish exact immutable bindings before enabling a connection.
+model IdentityProviderBinding {
+  organizationId String @id
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  // Operator-established binding, never inferred from names, email or client input.
+  clerkOrganizationId String @unique
+  setupEnabled Boolean @default(false)
+  revision Int @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model IdentityDirectoryConnection {
   id String @id @default(cuid())
   organizationId String
@@ -52,6 +63,8 @@ model IdentityDirectoryConnection {
   // Every binding/configuration/enablement change must advance this revision.
   revision Int @default(1)
   observationLeaseSeconds Int @default(300)
+  // Reviewed external group -> published local role/scope mappings.
+  mappings Json @default("[]")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   subjects IdentityDirectorySubject[]
@@ -127,6 +140,7 @@ model WorkspaceDomain {
 }
 
 model Organization {
+  identityProviderBinding IdentityProviderBinding?
   identityDirectoryConnections IdentityDirectoryConnection[]
   identityAccessDraft IdentityAccessDraft?
   identityAccessPolicy IdentityAccessPolicy?

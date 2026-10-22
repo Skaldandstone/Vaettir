@@ -12,6 +12,7 @@ import {
   type RouterOutputs,
 } from "@/lib/trpcReact";
 import { canEditProject } from "@/lib/membership";
+import { useProjectCustomActions } from "@/lib/use-project-custom-actions";
 import { REPORT_SECTIONS, readableMetric } from "@/lib/frozen-report";
 import {
   REPORT_TEMPLATES,
@@ -41,6 +42,7 @@ export function ReportBuilder({ projectId }: { projectId: string }) {
   return <ProjectReportBuilder key={projectId} projectId={projectId} />;
 }
 function ProjectReportBuilder({ projectId }: { projectId: string }) {
+  const customActions = useProjectCustomActions(projectId);
   const { isLoaded, isSignedIn, userId } = useAuth();
   const [originalActor, setOriginalActor] = useState<string | null>(null);
   const actorReady = isLoaded && isSignedIn && !!userId;
@@ -51,6 +53,7 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
   const project = trpcReact.project.byId.useQuery({ id: projectId }, { enabled: actorMatches, retry: false, staleTime: 0 });
   const organizations = trpcReact.organization.mine.useQuery(undefined, { enabled: actorMatches, retry: false, staleTime: 0 });
   const workflowMatches = !workflowOrigin || (workflowOrigin.actor === userId && workflowOrigin.organizationId === project.data?.organizationId);
+  const nativeAuthor = canEditProject(organizations.data?.find(row => row.id === project.data?.organizationId));
   const readOnly =
     !actorMatches || !workflowMatches || project.data?.id !== projectId ||
     project.isFetching ||
@@ -59,11 +62,8 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
     organizations.isPaused ||
     !!project.error ||
     !!organizations.error ||
-    !canEditProject(
-      organizations.data?.find(
-        (row) => row.id === project.data?.organizationId,
-      ),
-    );
+    !(nativeAuthor || customActions.allows("reports.create", project.data?.organizationId));
+  const canApprove = !readOnly && nativeAuthor;
   const definitions = trpcReact.reportSnapshots.definitions.useQuery({
     projectId,
   }, { enabled: !readOnly, retry: false, staleTime: 0 });
@@ -265,7 +265,7 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
     }
   }
   async function publish() {
-    if (!current || readOnly || !userId || !actorMatches || !workflowMatches || current.payload.state !== "preview") return;
+    if (!current || readOnly || !canApprove || !userId || !actorMatches || !workflowMatches || current.payload.state !== "preview") return;
     const originalActorId = userId;
     const originalOrganizationId = "reviewOrgId" in current
       ? current.reviewOrgId
@@ -359,8 +359,8 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
       </div>
       {readOnly && (
         <p className="text-muted">
-          A full editor seat is required to create and share snapshots. Existing
-          reports remain viewable.
+          Report authoring access is required to create a preview. Existing reports remain viewable.
+          <button type="button" className="btn-secondary" onClick={() => { void customActions.retry(); }}>Refresh access</button>
         </p>
       )}
       {draftStatus === "draft" && (
@@ -914,7 +914,7 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
           ) : (
             <p role={resume.error ? "alert" : "status"}>
               {readOnly
-                ? "Preview context is retained but hidden until current editor access is verified."
+                ? "Preview retained. Verify report authoring access to continue."
                 : resume.error
                   ? "Saved preview could not be loaded. Restore access and try again."
                   : resume.isPaused
@@ -926,8 +926,7 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
         {(project.error || organizations.error || readOnly) && (
           <div role="status">
             <p>
-              Creation and approval are locked until full editor access is
-              verified. Pending requests stay unchanged.
+              Verify report authoring access to continue. Pending requests stay unchanged.
             </p>
             <button
               type="button"
@@ -937,6 +936,7 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
                 void Promise.all([
                   project.refetch(),
                   organizations.refetch(),
+                  customActions.retry(),
                   ...(resumeId ? [resume.refetch()] : []),
                 ])
               }
@@ -999,7 +999,8 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
               {request ? "Retry same preview" : "Capture private preview"}
             </button>
           )}
-          {step === 4 && (
+          {step === 4 && !canApprove && current && <p className="text-muted">Private preview saved. Sharing requires an editor’s approval.</p>}
+          {step === 4 && canApprove && (
             <button
               className="btn-primary"
               type="button"

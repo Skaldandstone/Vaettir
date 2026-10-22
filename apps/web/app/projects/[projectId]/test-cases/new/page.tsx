@@ -3,7 +3,7 @@
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import TestCaseForm from "@/components/TestCaseForm";
-import { useProjectPermissions } from "@/lib/use-project-permissions";
+import { useManualCasePermissions } from "@/lib/use-manual-case-permissions";
 
 export default function NewTestCasePage() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -12,7 +12,7 @@ export default function NewTestCasePage() {
 
 function NewCaseSession({ projectId }: { projectId: string }) {
   const { canEdit, loaded, accessError, retryAccess } =
-    useProjectPermissions(projectId);
+    useManualCasePermissions(projectId);
   const [opened, setOpened] = useState(false);
   if (!opened && loaded && canEdit) setOpened(true);
   if (!opened && accessError)
@@ -26,7 +26,7 @@ function NewCaseSession({ projectId }: { projectId: string }) {
   if (!opened && !canEdit)
     return (
       <p>
-        A full-seat Editor, Admin, or Owner is required to create test cases.
+        Case-author access and a full seat are required to create test cases.
       </p>
     );
   const locked = !loaded || !canEdit;

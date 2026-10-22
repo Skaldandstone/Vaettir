@@ -44,11 +44,14 @@ test("cached access and saved previews cannot authorize paused, failed or wrong-
     /code === "BAD_REQUEST"[\s\S]*code === "NOT_FOUND"[\s\S]*code === "PRECONDITION_FAILED"/,
   );
 });
-test("report creation requires fresh editor membership and explicit access recovery retains pending requests", () => {
+test("report creation requires fresh scoped authoring access and approval remains native", () => {
   assert.match(
     builder,
-    /project.isFetching[\s\S]*organizations.isFetching[\s\S]*!!project.error[\s\S]*!!organizations.error[\s\S]*!canEditProject/,
+    /project.isFetching[\s\S]*organizations.isFetching[\s\S]*!!project.error[\s\S]*!!organizations.error[\s\S]*!\(nativeAuthor \|\| customActions.allows\("reports.create", project.data\?\.organizationId\)\)/,
   );
+  assert.match(builder, /const canApprove = !readOnly && nativeAuthor/);
+  assert.match(builder, /if \(!current \|\| readOnly \|\| !canApprove/);
+  assert.match(builder, /step === 4 && canApprove/);
   assert.match(builder, /Retry workspace access/);
   assert.match(builder, /project.refetch\(\), organizations.refetch\(\)/);
   assert.match(builder, /if \(readOnly \|\| busy \|\| saveRequest\) return/);

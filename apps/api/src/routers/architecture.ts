@@ -32,6 +32,7 @@ import {
 } from "../services/caseFields.js";
 import { caseFieldValues } from "../services/caseFieldSchema.js";
 import { snapshotTestCaseVersion } from "../services/testCaseVersion.js";
+import { lockPublishedIdentityAction, requirePublishedLocalAction, readPublishedIdentityAccess } from "../services/identityAccessPolicy.js";
 
 const request = z
   .object({
@@ -72,7 +73,7 @@ type Actor = Context & { user: NonNullable<Context["user"]> };
 async function access(
   ctx: Actor,
   input: { projectId: string; organizationId: string },
-  edit = false,
+  edit: boolean | "manual-mapping" = false,
 ) {
   const user = await ctx.prisma.user.findUnique({
     where: { id: ctx.user.id },
@@ -87,7 +88,7 @@ async function access(
   const access = await requireProjectAccess(
     { ...ctx, user },
     input.projectId,
-    edit ? "EDITOR" : "VIEWER",
+    edit === true ? "EDITOR" : "VIEWER",
   );
   if (access.project.organizationId !== input.organizationId)
     throw new TRPCError({
@@ -95,9 +96,11 @@ async function access(
       message:
         "This project changed workspace. Reopen Architecture in its current workspace.",
     });
+  if (edit === "manual-mapping" && !["OWNER", "ADMIN", "EDITOR"].includes(access.membership.role))
+    await requirePublishedLocalAction(ctx.prisma, { userId: ctx.user.id, clerkSubject: ctx.authenticatedClerkSubject, workspaceOrganizationId: ctx.workspaceOrganizationId }, input.organizationId, input.projectId, "architecture.write");
   return access;
 }
-async function scope(ctx: Actor, input: z.infer<typeof request>, edit = false) {
+async function scope(ctx: Actor, input: z.infer<typeof request>, edit: boolean | "manual-mapping" = false) {
   const authorization = await access(ctx, input, edit);
   const rows = await ctx.prisma.testCase.findMany({
     where: { projectId: input.projectId, archived: false },
@@ -303,6 +306,9 @@ export const architectureRouter = router({
       const caseHashes = new Map(
         current.definitions.map((c) => [c.id, architectureCaseFingerprint(c)]),
       );
+      const nativeAuthor = current.membership.seatType === "FULL" && ["OWNER", "ADMIN", "EDITOR"].includes(current.membership.role);
+      const canMap = nativeAuthor || (!!ctx.authenticatedClerkSubject && (await readPublishedIdentityAccess(ctx.prisma,
+        { userId: ctx.user.id, clerkSubject: ctx.authenticatedClerkSubject, workspaceOrganizationId: ctx.workspaceOrganizationId }, input.organizationId, input.projectId)).permissions.includes("architecture.write"));
       return {
         projectId: input.projectId,
         organizationId: input.organizationId,
@@ -324,6 +330,7 @@ export const architectureRouter = router({
         canSpend:
           current.membership.seatType === "FULL" &&
           ["OWNER", "ADMIN", "EDITOR"].includes(current.membership.role),
+        canMap,
         results: completed.map((row) => ({
           batchIndex: Number((row.metadata as Prisma.JsonObject).batchIndex),
           ...resultMetadata.parse(row.metadata),
@@ -789,7 +796,7 @@ export const architectureRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const current = await scope(ctx, input, true);
+      const current = await scope(ctx, input, "manual-mapping");
       if (
         input.expectedScopeHash !== current.scopeHash ||
         !current.definitions.some((c) => c.id === input.caseId) ||
@@ -800,16 +807,18 @@ export const architectureRouter = router({
           message: "The architecture or case changed; review current evidence.",
         });
       return ctx.prisma.$transaction(async (tx) => {
-        await lockedProcessingEditor(
-          tx,
-          current.project.organizationId,
-          ctx.user.id,
-          input.projectId,
-        );
+        if (["OWNER", "ADMIN", "EDITOR"].includes(current.membership.role)) {
+          await lockedProcessingEditor(tx, current.project.organizationId, ctx.user.id, input.projectId);
+        } else {
+          await tx.$queryRaw`SELECT id FROM "Organization" WHERE id=${input.organizationId} FOR UPDATE`;
+          await tx.$queryRaw`SELECT id FROM "Membership" WHERE "organizationId"=${input.organizationId} AND "userId"=${ctx.user.id} FOR UPDATE`;
+          await tx.$queryRaw`SELECT id FROM "Project" WHERE id=${input.projectId} FOR UPDATE`;
+          await lockPublishedIdentityAction(tx, { userId: ctx.user.id, clerkSubject: ctx.authenticatedClerkSubject, workspaceOrganizationId: ctx.workspaceOrganizationId }, input.organizationId, input.projectId, "architecture.write");
+        }
         const fresh = await scope(
           { ...ctx, prisma: tx as unknown as PrismaClient },
           input,
-          true,
+          "manual-mapping",
         );
         if (fresh.scopeHash !== current.scopeHash)
           throw new TRPCError({

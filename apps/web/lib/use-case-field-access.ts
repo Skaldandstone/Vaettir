@@ -28,12 +28,13 @@ export function useCaseFieldAccess(
   projectId: string,
   caseId?: string,
   active = true,
+  authoringAction?: "cases.write",
 ): CaseFieldAccess {
   const { isLoaded, isSignedIn, userId } = useAuth();
   const authReady = Boolean(isLoaded && isSignedIn && userId);
   const [origin, setOrigin] = useState<CaseFieldOrigin | null>(null);
   const query = trpcReact.caseFields.get.useQuery(
-    { projectId, caseId, ...caseFieldReadPins(origin) },
+    { projectId, caseId, ...(authoringAction ? { authoringAction } : {}), ...caseFieldReadPins(origin) },
     {
       enabled: active && authReady,
       retry: false,

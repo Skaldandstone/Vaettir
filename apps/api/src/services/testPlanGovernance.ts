@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { Prisma, type PrismaClient } from "@vaettir/db";
 import { z } from "zod";
 import { lockCaseFieldProject } from "./caseFields.js";
+import { readPublishedIdentityAccess } from "./identityAccessPolicy.js";
 import {
   lockCaseFieldReadScope,
   lockCurrentCaseFieldActor,
@@ -54,6 +55,7 @@ import {
 import { caseFieldPresentationJsonBytes } from "./caseFieldPresentationSchema.js";
 const ENTITY = "TestPlanGovernanceWrite";
 type Scope = Awaited<ReturnType<typeof lockCaseFieldReadScope>>;
+export type PlanGovernanceAuthorization = CaseFieldReadAuthorization & { planAuthor?: import("./identityAccessPolicy.js").IdentityActor };
 type ScopeInput = z.infer<typeof planGovernanceScopeInput>;
 
 async function lockPlan(
@@ -126,10 +128,10 @@ async function writeScope(
   tx: Prisma.TransactionClient,
   actorId: string,
   input: ScopeInput,
-  authorized: CaseFieldReadAuthorization,
+  authorized: PlanGovernanceAuthorization,
 ): Promise<Scope> {
   await tx.$executeRaw(Prisma.sql`SET LOCAL statement_timeout='8000ms'`);
-  await lockCaseFieldProject(tx, actorId, input.projectId);
+  await lockCaseFieldProject(tx, actorId, input.projectId, authorized.planAuthor);
   const actorClerkUserId = await lockCurrentCaseFieldActor(
     tx,
     actorId,
@@ -359,7 +361,7 @@ export async function previewPlanGovernance(
   db: PrismaClient,
   actorId: string,
   raw: ScopeInput,
-  authorized: CaseFieldReadAuthorization,
+  authorized: PlanGovernanceAuthorization,
 ) {
   const input = planGovernanceScopeInput.parse(raw);
   return db.$transaction(
@@ -397,9 +399,11 @@ export async function previewPlanGovernance(
           editBlockedReason ??= statusBlockedReason;
         }
       }
-      const canRecover =
-        member.seatType === "FULL" &&
-        ["OWNER", "ADMIN", "EDITOR"].includes(member.role);
+      const customWrite = authorized.planAuthor
+        ? (await readPublishedIdentityAccess(tx, authorized.planAuthor, scope.organizationId, input.projectId)).permissions.includes("plans.write")
+        : false;
+      const canRecover = member.seatType === "FULL" &&
+        (["OWNER", "ADMIN", "EDITOR"].includes(member.role) || customWrite);
       const schema = await metadataSchema(tx, current.testPlanTypeId);
       const metadataEditable =
         schema.fieldSchemaHash !== null &&
@@ -412,10 +416,7 @@ export async function previewPlanGovernance(
         criterionRevisions: Object.fromEntries(
           current.criteria.map((c) => [c.id, governanceCriterionRevision(c)]),
         ),
-        canEdit:
-          !editBlockedReason &&
-          member.seatType === "FULL" &&
-          ["OWNER", "ADMIN", "EDITOR"].includes(member.role),
+        canEdit: !editBlockedReason && canRecover,
         editBlockedReason,
         manualVerdicts: !(await hasPlanCases(tx, input)),
         ...(input.requestId !== undefined
@@ -476,7 +477,7 @@ async function write(
     | Metadata
     | Template,
   operation: Operation,
-  authorized: CaseFieldReadAuthorization,
+  authorized: PlanGovernanceAuthorization,
 ) {
   const requestHash = governanceRequestHash({ operation, input });
   return db
@@ -858,7 +859,7 @@ async function write(
 export function saveGovernedExecutionTemplate(
   db: PrismaClient, actorId: string,
   raw: z.infer<typeof savePlanExecutionTemplateInput>,
-  authorized: CaseFieldReadAuthorization,
+  authorized: PlanGovernanceAuthorization,
 ) {
   return write(db, actorId, savePlanExecutionTemplateInput.parse(raw), "SAVE_EXECUTION_TEMPLATE", authorized);
 }
@@ -867,7 +868,7 @@ export function editGovernedCriterionDescription(
   db: PrismaClient,
   actorId: string,
   input: Edit,
-  authorized: CaseFieldReadAuthorization,
+  authorized: PlanGovernanceAuthorization,
 ) {
   return write(
     db,
@@ -881,7 +882,7 @@ export function setGovernedCriterionVerdict(
   db: PrismaClient,
   actorId: string,
   input: Verdict,
-  authorized: CaseFieldReadAuthorization,
+  authorized: PlanGovernanceAuthorization,
 ) {
   return write(
     db,
@@ -896,7 +897,7 @@ export function editGovernedPlanHeader(
   db: PrismaClient,
   actorId: string,
   input: Header,
-  authorized: CaseFieldReadAuthorization,
+  authorized: PlanGovernanceAuthorization,
 ) {
   return write(
     db,
@@ -910,7 +911,7 @@ export function setGovernedPlanStatus(
   db: PrismaClient,
   actorId: string,
   input: PlanStatus,
-  authorized: CaseFieldReadAuthorization,
+  authorized: PlanGovernanceAuthorization,
 ) {
   return write(
     db,
@@ -924,7 +925,7 @@ export function editGovernedPlanCustomFields(
   db: PrismaClient,
   actorId: string,
   input: Metadata,
-  authorized: CaseFieldReadAuthorization,
+  authorized: PlanGovernanceAuthorization,
 ) {
   return write(
     db,
@@ -938,7 +939,7 @@ export function addGovernedCriterion(
   db: PrismaClient,
   actorId: string,
   input: Add,
-  authorized: CaseFieldReadAuthorization,
+  authorized: PlanGovernanceAuthorization,
 ) {
   return write(
     db,
@@ -952,7 +953,7 @@ export function deleteGovernedCriterion(
   db: PrismaClient,
   actorId: string,
   input: Delete,
-  authorized: CaseFieldReadAuthorization,
+  authorized: PlanGovernanceAuthorization,
 ) {
   return write(
     db,
@@ -966,7 +967,7 @@ export function setGovernedCriterionRequirement(
   db: PrismaClient,
   actorId: string,
   input: Associate,
-  authorized: CaseFieldReadAuthorization,
+  authorized: PlanGovernanceAuthorization,
 ) {
   return write(
     db,
@@ -981,7 +982,7 @@ export async function listGovernanceRequirementChoices(
   db: PrismaClient,
   actorId: string,
   raw: z.input<typeof requirementChoiceInput>,
-  authorized: CaseFieldReadAuthorization,
+  authorized: PlanGovernanceAuthorization,
 ) {
   const input = requirementChoiceInput.parse(raw);
   return db.$transaction(
@@ -1064,7 +1065,7 @@ export async function setLegacyCriterionVerdict(
     status: Verdict["status"];
     requirementId?: string | null;
   },
-  authorized: CaseFieldReadAuthorization,
+  authorized: PlanGovernanceAuthorization,
 ) {
   return db.$transaction(
     async (tx) => {
@@ -1118,7 +1119,7 @@ export function attachGovernedUnassignedPlan(
   db: PrismaClient,
   actorId: string,
   input: Attach,
-  authorized: CaseFieldReadAuthorization,
+  authorized: PlanGovernanceAuthorization,
 ) {
   return write(
     db,
@@ -1132,7 +1133,7 @@ export function detachGovernedAttachedPlan(
   db: PrismaClient,
   actorId: string,
   input: Detach,
-  authorized: CaseFieldReadAuthorization,
+  authorized: PlanGovernanceAuthorization,
 ) {
   return write(db, actorId, detachAttachedPlanInput.parse(input), "DETACH_ATTACHED_PLAN", authorized);
 }
@@ -1140,7 +1141,7 @@ export async function listPlanGovernanceHistory(
   db: PrismaClient,
   actorId: string,
   raw: z.input<typeof planGovernanceHistoryInput>,
-  authorized: CaseFieldReadAuthorization,
+  authorized: PlanGovernanceAuthorization,
 ) {
   const input = planGovernanceHistoryInput.parse(raw);
   return db.$transaction(

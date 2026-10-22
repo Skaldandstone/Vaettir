@@ -43,6 +43,9 @@ const port = reservation.address().port;
 await new Promise(done => reservation.close(done));
 assert.notEqual(port, 5432, "Existing local database port is out of scope");
 const files = ["scripts/identity-directory-postgres.mjs", "scripts/identity-migration-canary.sql", "apps/api/src/services/identityDirectoryStore.integration.test.ts",
+  "apps/api/src/services/identityDirectorySettings.ts", "apps/api/src/services/identityDirectoryMappingSchema.ts", "apps/api/src/services/testPlanGovernance.ts", "apps/api/src/routers/testPlanGovernance.ts",
+  "apps/api/src/services/identityProviderSetup.ts", "apps/api/src/routers/requirements.ts", "apps/api/src/routers/architecture.ts", "apps/api/src/routers/testCases.ts", "apps/api/src/routers/caseFields.ts",
+  "apps/api/src/routers/reportSnapshots.ts",
   "apps/api/src/services/identityAccessPolicy.ts", "apps/api/src/routers/testPlans.ts", "apps/api/src/services/caseFields.ts", "apps/api/src/routers/identityAccess.ts",
   "apps/api/src/services/identityDirectoryStore.ts", "packages/db/src/constraintCheckedClient.ts", "packages/db/src/index.ts",
   "packages/db/prisma/schema.prisma", "packages/db/prisma/migrations/20261022025000_identity_directory_observations/migration.sql", "pnpm-lock.yaml"];
@@ -81,9 +84,9 @@ try {
       mkdirSync(join(migrations, name));
       copyFileSync(join(migrationsRoot, name, "migration.sql"), join(migrations, name, "migration.sql"));
     };
-    const identityMigrations = ["20261021190000_identity_access_draft", "20261022025000_identity_directory_observations", "20261022060000_identity_access_policy"];
-    assert.deepEqual(migrationNames.slice(-3), identityMigrations, "Review upgrade boundary when migration inventory changes");
-    migrationNames.slice(0, -3).forEach(copyMigration);
+    const identityMigrations = ["20261021190000_identity_access_draft", "20261022025000_identity_directory_observations", "20261022060000_identity_access_policy", "20261022070000_identity_directory_mappings", "20261022080000_identity_provider_binding"];
+    assert.deepEqual(migrationNames.slice(-5), identityMigrations, "Review upgrade boundary when migration inventory changes");
+    migrationNames.slice(0, -5).forEach(copyMigration);
     const deploy = () => run(process.execPath, [prismaCli, "migrate", "deploy", "--schema", schema], { cwd: fixture, env: testEnv });
     writeFileSync(join(fixture, "baseline-migrations.txt"), deploy());
     psql(readFileSync(join(root, "scripts/identity-migration-canary.sql"), "utf8"));
@@ -103,6 +106,8 @@ try {
     copyMigration(identityMigrations[1]);
     writeFileSync(join(fixture, "journal-migration.txt"), deploy());
     copyMigration(identityMigrations[2]);
+    copyMigration(identityMigrations[3]);
+    copyMigration(identityMigrations[4]);
     writeFileSync(join(fixture, "policy-migration.txt"), deploy());
     assert.equal(psql('SELECT count(*) FROM "IdentityAccessPolicy";').trim(), "0", "Migration must not publish access rules");
     // A second deployment must be a no-op with the same completed receipts.
@@ -128,6 +133,8 @@ try {
   psql(run(process.execPath, [prismaCli, "migrate", "diff", "--from-empty", "--to-schema-datamodel", schema, "--script"], { cwd: fixture }));
   psql(readFileSync(join(root, "packages/db/prisma/migrations/20261022025000_identity_directory_observations/migration.sql"), "utf8"));
   psql(readFileSync(join(root, "packages/db/prisma/migrations/20261022060000_identity_access_policy/migration.sql"), "utf8"));
+  psql(readFileSync(join(root, "packages/db/prisma/migrations/20261022070000_identity_directory_mappings/migration.sql"), "utf8"));
+  psql(readFileSync(join(root, "packages/db/prisma/migrations/20261022080000_identity_provider_binding/migration.sql"), "utf8"));
   }
   const output = run(process.execPath, [vitestCli, "run", "src/services/identityDirectoryStore.integration.test.ts"], {
     cwd: join(root, "apps/api"), env: testEnv, timeout: 60000,

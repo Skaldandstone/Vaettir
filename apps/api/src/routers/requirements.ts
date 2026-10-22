@@ -14,6 +14,7 @@ import { fetchJiraIssue, getOrgJiraConnection, JiraApiError, JiraNotConfiguredEr
 import { computeRequirementTestSummary } from "../services/requirementTestSummary.js";
 import { repositoryProcessingScope, repositoryProcessingConsent, beginRepositoryProcessing, assertRepositoryProcessingApproval } from "../services/repositoryProcessingApproval.js";
 import {publicRepositoryProcessingError} from "../services/repositoryProcessingErrors.js";
+import { lockPublishedIdentityAction, type IdentityActor } from "../services/identityAccessPolicy.js";
 
 const testSummaryOutput = z.object({
   requirementId: z.string(),
@@ -41,13 +42,17 @@ const draftRequirementOutput = z.object({
 // Same organization/member/project lock order as reviewed source imports.
 // Preserve the normal CRUD seat policy, but do not trust a cached membership
 // after waiting on another writer.
-async function lockedRequirementEditor(tx:Prisma.TransactionClient,organizationId:string,actorId:string,projectId:string){
+async function lockedRequirementEditor(tx:Prisma.TransactionClient,organizationId:string,actorId:string,projectId:string, customAuthor?:IdentityActor){
   const orgs=await tx.$queryRaw<Array<{suspendedAt:Date|null}>>`SELECT "suspendedAt" FROM "Organization" WHERE id=${organizationId} FOR UPDATE`;
   await tx.$queryRaw`SELECT id FROM "Membership" WHERE "organizationId"=${organizationId} AND "userId"=${actorId} FOR UPDATE`;
   const member=await tx.membership.findUnique({where:{organizationId_userId:{organizationId,userId:actorId}}});
-  if(!orgs[0]||orgs[0].suspendedAt||!member||!["OWNER","ADMIN","EDITOR"].includes(member.role))throw new TRPCError({code:"FORBIDDEN"});
+  if(!orgs[0]||orgs[0].suspendedAt||!member||(!customAuthor && !["OWNER","ADMIN","EDITOR"].includes(member.role)))throw new TRPCError({code:"FORBIDDEN"});
   const projects=await tx.$queryRaw<Array<{organizationId:string}>>`SELECT "organizationId" FROM "Project" WHERE id=${projectId} FOR UPDATE`;
   if(projects[0]?.organizationId!==organizationId)throw new TRPCError({code:"FORBIDDEN"});
+  if(customAuthor) {
+    if(customAuthor.userId!==actorId)throw new TRPCError({code:"FORBIDDEN"});
+    await lockPublishedIdentityAction(tx,customAuthor,organizationId,projectId,"requirements.write");
+  }
 }
 
 export const requirementsRouter = router({
@@ -104,11 +109,12 @@ export const requirementsRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const access = await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      const access = await requireProjectAccess(ctx, input.projectId);
+      const customAuthor = ["OWNER","ADMIN","EDITOR"].includes(access.membership.role) ? undefined : { userId: ctx.user.id, clerkSubject: ctx.authenticatedClerkSubject, workspaceOrganizationId: ctx.workspaceOrganizationId };
       // Serialize manual additions with reviewed Jira imports, so an import
       // sees a preceding human link rather than racing its duplicate check.
       return ctx.prisma.$transaction(async tx => {
-        await lockedRequirementEditor(tx,access.project.organizationId,ctx.user.id,input.projectId);
+        await lockedRequirementEditor(tx,access.project.organizationId,ctx.user.id,input.projectId,customAuthor);
         return tx.requirement.create({
           data: {
             projectId: input.projectId,
@@ -134,9 +140,10 @@ export const requirementsRouter = router({
         where: { id: input.id },
         select: { projectId: true },
       });
-      const access = await requireProjectAccess(ctx, existing.projectId, "EDITOR");
+      const access = await requireProjectAccess(ctx, existing.projectId);
+      const customAuthor = ["OWNER","ADMIN","EDITOR"].includes(access.membership.role) ? undefined : { userId: ctx.user.id, clerkSubject: ctx.authenticatedClerkSubject, workspaceOrganizationId: ctx.workspaceOrganizationId };
       return ctx.prisma.$transaction(async tx => {
-        await lockedRequirementEditor(tx,access.project.organizationId,ctx.user.id,existing.projectId);
+        await lockedRequirementEditor(tx,access.project.organizationId,ctx.user.id,existing.projectId,customAuthor);
         return tx.requirement.update({
           where: { id: input.id, projectId: existing.projectId },
           data: { title: input.title, description: input.description, externalRef: input.externalRef },
@@ -151,9 +158,10 @@ export const requirementsRouter = router({
         where: { id: input.id },
         select: { projectId: true },
       });
-      const access = await requireProjectAccess(ctx, existing.projectId, "EDITOR");
+      const access = await requireProjectAccess(ctx, existing.projectId);
+      const customAuthor = ["OWNER","ADMIN","EDITOR"].includes(access.membership.role) ? undefined : { userId: ctx.user.id, clerkSubject: ctx.authenticatedClerkSubject, workspaceOrganizationId: ctx.workspaceOrganizationId };
       await ctx.prisma.$transaction(async tx => {
-        await lockedRequirementEditor(tx,access.project.organizationId,ctx.user.id,existing.projectId);
+        await lockedRequirementEditor(tx,access.project.organizationId,ctx.user.id,existing.projectId,customAuthor);
         if (await tx.caseTraceabilityLink.count({ where: { projectId: existing.projectId, requirementId: input.id } })) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "This requirement has retained test coverage references, including removed-link history. Keep the requirement and update its details; its recorded traceability must be preserved." });
         await tx.requirement.delete({ where: { id: input.id, projectId: existing.projectId } });
       });

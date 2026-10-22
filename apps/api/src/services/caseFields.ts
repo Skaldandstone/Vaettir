@@ -7,7 +7,7 @@ import {
   validateCaseFieldValues,
 } from "./caseFieldSchema.js";
 import { requireCurrentPlanAccess } from "./testPlanExecution.js";
-import { requirePublishedLocalAction, type IdentityActor } from "./identityAccessPolicy.js";
+import { requirePublishedLocalAction, readPublishedIdentityAccess, type IdentityActor } from "./identityAccessPolicy.js";
 import { qualityProfileHash } from "./qualityExperienceProfile.js";
 import {
   caseFieldReadPinFields,
@@ -20,7 +20,7 @@ import {
 const id = z.string().min(1).max(200),
   hash = z.string().regex(/^[a-f0-9]{64}$/);
 export const caseFieldScope = z
-  .object({ projectId: id, caseId: id.optional(), ...caseFieldReadPinFields })
+  .object({ projectId: id, caseId: id.optional(), authoringAction: z.literal("cases.write").optional(), ...caseFieldReadPinFields })
   .strict()
   .superRefine(pairedCaseFieldReadPins);
 export const caseFieldSchemaReview = z
@@ -178,9 +178,9 @@ export async function assertCaseFieldAuthoring(
     expectedSchemaHash?: string;
     expectedValueHash?: string;
   },
-  authorized?: CaseFieldReadAuthorization,
+  authorized?: CaseAuthorAuthorization,
 ) {
-  await lockCaseFieldProject(tx, userId, projectId);
+  await lockCaseFieldProject(tx, userId, projectId, authorized?.caseAuthor, "cases.write");
   // Legacy transaction-bound clone/folder callers already hold case locks.
   // Do not introduce a late Case -> User acquisition in that omitted path.
   // Router-authorized updates/restores pin this User before their case locks.
@@ -222,6 +222,7 @@ export async function lockCaseFieldProject(
   userId: string,
   projectId: string,
   planAuthor?: IdentityActor,
+  customAction: "plans.write" | "cases.write" = "plans.write",
 ) {
   const original = await tx.project.findUnique({
     where: { id: projectId },
@@ -245,10 +246,15 @@ export async function lockCaseFieldProject(
     });
   if (planAuthor) {
     if (planAuthor.userId !== userId) throw new TRPCError({ code: "FORBIDDEN" });
+    await tx.$queryRaw`SELECT id FROM "User" WHERE id=${userId} FOR SHARE`;
     // Pin the published revision through the business write; publication may
     // remove this action but cannot race a checked mutation into stale access.
     await tx.$queryRaw`SELECT "organizationId" FROM "IdentityAccessPolicy" WHERE "organizationId"=${original.organizationId} FOR SHARE`;
-    await requirePublishedLocalAction(tx, planAuthor, original.organizationId, projectId, "plans.write");
+    await tx.$queryRaw`SELECT c.id FROM "IdentityDirectoryConnection" c
+      JOIN "IdentityDirectorySubject" s ON s."connectionId"=c.id AND s."organizationId"=c."organizationId"
+      WHERE c."organizationId"=${original.organizationId} AND s."userId"=${userId}
+      ORDER BY c.id,s.id FOR SHARE OF c,s`;
+    await requirePublishedLocalAction(tx, planAuthor, original.organizationId, projectId, customAction);
   } else {
     await requireCurrentPlanAccess(tx, userId, projectId, true);
   }
@@ -327,11 +333,12 @@ async function schemaImpact(
     ],
   };
 }
+export type CaseAuthorAuthorization = CaseFieldReadAuthorization & { caseAuthor?: IdentityActor };
 export async function getCaseFields(
   db: PrismaClient,
   userId: string,
   input: z.infer<typeof caseFieldScope>,
-  authorized?: CaseFieldReadAuthorization,
+  authorized?: CaseAuthorAuthorization,
 ) {
   return db.$transaction(
     async (tx) => {
@@ -341,8 +348,13 @@ export async function getCaseFields(
         input,
         authorized,
       );
+      const state = await readCaseFieldState(tx, userId, input.projectId, input.caseId, readScope.actorClerkUserId);
+      // Only the explicitly requested case-authoring view can add cases.write.
+      // Generic consumers (plans/admin/import/AI) retain native canEdit.
+      if (!state.canEdit && input.authoringAction === "cases.write" && authorized?.caseAuthor)
+        state.canEdit = (await readPublishedIdentityAccess(tx, authorized.caseAuthor, readScope.organizationId, input.projectId)).permissions.includes("cases.write");
       return {
-        ...(await readCaseFieldState(tx, userId, input.projectId, input.caseId, readScope.actorClerkUserId)),
+        ...state,
         readScope,
       };
     },

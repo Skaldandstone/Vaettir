@@ -57,6 +57,8 @@ export const caseFieldsRouter = router({
       await requireProjectAccess(ctx, input.projectId);
       return getCaseFields(ctx.prisma, ctx.user.id, input, {
         clerkActorId: ctx.user.clerkUserId,
+        ...(input.authoringAction && ctx.authenticatedClerkSubject ? { caseAuthor: { userId: ctx.user.id,
+          clerkSubject: ctx.authenticatedClerkSubject, workspaceOrganizationId: ctx.workspaceOrganizationId } } : {}),
       });
     }),
   reviewSchema: protectedProcedure

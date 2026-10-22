@@ -15,7 +15,7 @@ const source = readFileSync(
 test("retained field bodies require fresh original access and current editing role", () => {
   assert.match(
     source,
-    /const access = useCaseFieldAccess\(projectId, caseId, active\)/,
+    /const access = useCaseFieldAccess\(projectId, caseId, active, "cases.write"\)/,
   );
   assert.match(
     source,

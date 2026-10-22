@@ -12,6 +12,7 @@ function fixture() {
     organization: { findUnique: vi.fn().mockResolvedValue({ suspendedAt: null }) },
     project: { findUnique: vi.fn().mockResolvedValue({ organizationId: "org" }), findMany: vi.fn().mockResolvedValue([{ id: "project" }, { id: "other" }]) },
     identityAccessDraft: { findUnique: vi.fn().mockResolvedValue({ revision: 2, configuration: config() }) },
+    identityDirectorySubject: { findMany: vi.fn().mockResolvedValue([]) },
     identityAccessPolicy: { findUnique: vi.fn().mockResolvedValue({ revision: 3, configuration: config() }), create: vi.fn(), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     auditLog: { create: vi.fn() }, $transaction: vi.fn(),
   };

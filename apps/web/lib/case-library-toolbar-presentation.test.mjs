@@ -54,6 +54,8 @@ function fixture(readOnly = false) {
     PageHeading: ({actions}) => React.createElement("header", null, actions),
     styles: {},
     readOnly,
+    customActions: { allows: () => false },
+    permissions: { organizationId: "synthetic-org" },
     projectId: "synthetic-project",
     project: { organizationId: "synthetic-org", name: "Synthetic project" },
     reviewFilter: "APPROVED",

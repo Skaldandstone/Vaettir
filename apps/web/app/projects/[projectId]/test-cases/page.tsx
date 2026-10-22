@@ -8,6 +8,7 @@ import { useAuth } from "@clerk/nextjs";
 import { useParams, useRouter } from "next/navigation";
 import { trpcReact } from "@/lib/trpcReact";
 import { useProjectPermissions } from "@/lib/use-project-permissions";
+import { useProjectCustomActions } from "@/lib/use-project-custom-actions";
 import {
   TestCaseTree,
   filterCasesByPath,
@@ -222,6 +223,7 @@ export default function TestCasesPage() {
   const router = useRouter();
   const utils = trpcReact.useUtils();
   const permissions = useProjectPermissions(projectId);
+  const customActions = useProjectCustomActions(projectId);
   const folderActor = useAuth();
   const readOnly = !permissions.canEdit || Boolean(permissions.accessError);
   const [runConfigurationOpen, setRunConfigurationOpen] = useState(false);
@@ -833,6 +835,7 @@ export default function TestCasesPage() {
         title={reviewFilter === "APPROVED" ? "Test cases" : "Review queue"}
         actions={<>
           {!readOnly && <button className="btn-primary" onClick={() => setAddOpen(true)}><Icon name="plus"/>Add case</button>}
+          {readOnly && customActions.allows("cases.write", permissions.organizationId) && <Link className="btn-primary" href={`/projects/${projectId}/test-cases/new`}><Icon name="plus"/>Add case</Link>}
           <IconButton label="More library actions" icon="more" onClick={() => setMoreOpen(true)}/>
         </>}
         description={

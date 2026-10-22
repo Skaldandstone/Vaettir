@@ -9,6 +9,7 @@ import {
   type Context,
 } from "../trpc.js";
 import { liveEditor } from "./jiraConnections.js";
+import { lockPublishedIdentityAction } from "../services/identityAccessPolicy.js";
 import { reportCatalogInput } from "../services/reportCatalogSchema.js";
 import { readReportCatalog } from "../services/reportCatalog.js";
 import { reportDefinitionSchema } from "../services/reportDefinitionSchema.js";
@@ -138,17 +139,18 @@ const conflict = () =>
 async function access<T>(
   ctx: Actor,
   projectId: string,
-  write: boolean,
+  write: boolean | "reports.create",
   action: (tx: Prisma.TransactionClient, orgId: string) => Promise<T>,
 ) {
-  const { project } = await requireProjectAccess(
+  const { project, membership } = await requireProjectAccess(
     ctx,
     projectId,
-    write ? "EDITOR" : "VIEWER",
+    write === true ? "EDITOR" : "VIEWER",
   );
+  const customAuthor = write === "reports.create" && !["OWNER", "ADMIN", "EDITOR"].includes(membership.role);
   return ctx.prisma.$transaction(
     async (tx) => {
-      if (write) await liveEditor(tx, project.organizationId, ctx.user.id);
+      if (write && !customAuthor) await liveEditor(tx, project.organizationId, ctx.user.id);
       else {
         await tx.$queryRaw`SELECT id FROM "Organization" WHERE id=${project.organizationId} FOR UPDATE`;
         await tx.$queryRaw`SELECT id FROM "Membership" WHERE "organizationId"=${project.organizationId} AND "userId"=${ctx.user.id} FOR UPDATE`;
@@ -172,6 +174,10 @@ async function access<T>(
       >`SELECT "organizationId" FROM "Project" WHERE id=${projectId} FOR UPDATE`;
       if (rows[0]?.organizationId !== project.organizationId)
         throw new TRPCError({ code: "FORBIDDEN" });
+      if (customAuthor) await lockPublishedIdentityAction(tx, {
+        userId: ctx.user.id, clerkSubject: ctx.authenticatedClerkSubject,
+        workspaceOrganizationId: ctx.workspaceOrganizationId,
+      }, project.organizationId, projectId, "reports.create");
       return action(tx, project.organizationId);
     },
     { isolationLevel: "RepeatableRead", timeout: 20000 },
@@ -366,7 +372,7 @@ export const reportSnapshotsRouter = router({
         ),
     )
     .mutation(({ ctx, input }) =>
-      access(ctx, input.projectId, true, async (tx, orgId) => {
+      access(ctx, input.projectId, "reports.create", async (tx, orgId) => {
         const key = hash([input.projectId, ctx.user.id, input.requestId]);
         const requestHash = hash([
           input.id ?? null,
@@ -673,7 +679,7 @@ export const reportSnapshotsRouter = router({
       }),
     )
     .mutation(({ ctx, input }) =>
-      access(ctx, input.projectId, true, async (tx, orgId) => {
+      access(ctx, input.projectId, "reports.create", async (tx, orgId) => {
         const id = hash([input.projectId, ctx.user.id, input.requestId]);
         const inputHash = hash([
           input.title,

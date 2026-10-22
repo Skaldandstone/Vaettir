@@ -11,7 +11,8 @@ const viteRequire = createRequire(createRequire(require.resolve("vitest")).resol
 const { build } = viteRequire("esbuild"), { chromium } = require("@playwright/test");
 const previewOnly = process.argv.includes("--preview-only");
 const publicationOnly = process.argv.includes("--publication-only");
-const output = path.join(web, publicationOnly ? "../../.local/identity-publication-ui" : previewOnly ? "../../.local/identity-draft-preview-ui" : "../../.local/identity-access-ui");
+const directoryOnly = process.argv.includes("--directory-only");
+const output = path.join(web, directoryOnly ? "../../.local/identity-directory-ui" : publicationOnly ? "../../.local/identity-publication-ui" : previewOnly ? "../../.local/identity-draft-preview-ui" : "../../.local/identity-access-ui");
 await mkdir(output, { recursive: true });
 const bundle = await build({ entryPoints: [path.join(web, "e2e/identity-access/fixture.tsx")], outfile: path.join(output, "fixture.js"), bundle: true, write: false, jsx: "automatic", platform: "browser", nodePaths: [path.join(web, "node_modules")] });
 const css = (await readFile(path.join(web, "app/globals.css"), "utf8")).replace(/^@import[^\r\n]+\r?\n/, "") + "\n" + await readFile(path.join(web, "app/workbench.css"), "utf8") + "\n" + bundle.outputFiles.find(file => file.path.endsWith(".css")).text;
@@ -29,7 +30,14 @@ page.on("pageerror", error => errors.push(error.message));
 await page.route("**/*", route => route.request().url().startsWith(origin) ? route.continue() : route.abort());
 try {
   await page.goto(origin);
-  if (publicationOnly) {
+  if (directoryOnly) {
+    const { checkDirectory } = await import("./directory-checks.mjs");
+    await checkDirectory(page, output);
+    assert.deepEqual(errors, []);
+    await writeFile(path.join(output, "result.json"), JSON.stringify({ result: "PASS", evidence: "Actual directory component with synthetic transport only; not provider or hosted acceptance",
+      themes: ["dark", "light"], viewportWidths: [1280, 390], checks: ["group-role-project validation", "long group selector", "save/reopen", "revision conflict recovery", "lost response reload before retry", "explicit disable approval", "empty directory", "dialog focus and Escape", "narrow no overflow"], errors }, null, 2));
+    console.log(`PASS: identity directory local two-theme workflow. Evidence: ${output}`);
+  } else if (publicationOnly) {
     const { checkPublication } = await import("./publication-checks.mjs");
     await checkPublication(page, output);
     assert.deepEqual(errors, []);

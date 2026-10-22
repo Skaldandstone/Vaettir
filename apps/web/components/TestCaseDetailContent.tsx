@@ -19,6 +19,7 @@ import { CaseReviewDecision } from "@/components/CaseReviewDecision";
 import { Modal } from "@/components/Modal";
 import { automationTargetForFramework, casePresentationVisible } from "@vaettir/core";
 import { useCaseFieldAccess } from "@/lib/use-case-field-access";
+import { useProjectCustomActions } from "@/lib/use-project-custom-actions";
 import { projectTagHref, projectTagLabel } from "@/lib/project-tag-navigation";
 import { freshCasePresentation } from "@/lib/case-presentation-read";
 import {
@@ -1074,6 +1075,7 @@ function TestCaseInspector({
   onSuiteSelect,
   readOnly,
 }: TestCaseDetailProps) {
+  const customActions = useProjectCustomActions(projectId);
   const sectionId = useId();
   const [sectionState, setSectionState] = useState<{
     caseId: string;
@@ -1246,10 +1248,10 @@ function TestCaseInspector({
             </button>
           )}
         </div>
-        {!readOnly && (
+        {(!readOnly || customActions.allows("cases.write")) && (
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
             <a href={onEditHref ?? `/projects/${projectId}/test-cases/${tc.id}/edit`}>Edit case</a>
-            <TestCaseClone key={tc.id} projectId={projectId} caseId={tc.id} onChanged={onChanged} />
+            {!readOnly && <TestCaseClone key={tc.id} projectId={projectId} caseId={tc.id} onChanged={onChanged} />}
           </div>
         )}
       </div>

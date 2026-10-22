@@ -76,7 +76,7 @@ export function CaseCustomFieldsForm({
   active?: boolean;
   initial?: ReviewedCaseFieldDefaults;
 }) {
-  const access = useCaseFieldAccess(projectId, caseId, active);
+  const access = useCaseFieldAccess(projectId, caseId, active, "cases.write");
   const { query, fresh } = access;
   const stylesQuery = trpcReact.caseFieldPresentation.get.useQuery(
     { projectId, ...caseFieldReadPins(access.origin) },

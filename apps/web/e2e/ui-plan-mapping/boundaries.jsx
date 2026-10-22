@@ -31,6 +31,9 @@ export function ResponseControls() {
 }
 const reject = () => { throw Error("Provider calls and unrelated writes are forbidden in this fixture"); };
 export const useAuth = () => ({ userId: scope.actorClerkUserId, sessionId: "synthetic-session", isLoaded: true, isSignedIn: true });
+export const useParams = () => ({ projectId: scope.projectId });
+export const useReadOnlySeat = () => false;
+window.Clerk = { loaded: true, session: { id: "synthetic-session", user: { id: scope.actorClerkUserId } } };
 export const useRouter = () => ({ push: reject });
 export const usePathname = () => "/projects/synthetic-project/architecture";
 export const CaseCustomFieldsForm = () => null;
@@ -65,9 +68,15 @@ const document = {
 const architecturePreview = () => ({
   ...scope, organizationId: scope.organizationId, actorClerkUserId: scope.actorClerkUserId,
   scopeHash: "e".repeat(64), document, cases, decisions: [...decisions], results: [], unprocessed: [],
-  canSpend: true, maximumCredits: 12, batchCount: 1, balance: 0,
+  canSpend: !new URLSearchParams(location.search).has("identity"), canMap: localStorage.getItem("mapping-revoked") !== "true", maximumCredits: 12, batchCount: 1, balance: 0,
 });
 export const trpcReact = {
+  identityAccess: { projectActions: query(() => ({ projectId: scope.projectId, organizationId: scope.organizationId, clerkSubject: scope.actorClerkUserId,
+    permissions: localStorage.getItem("plan-revoked") === "true" ? [] : ["plans.write"], policyRevision: 1 })) },
+  testPlans: { types: query(() => []), create: mutation(async input => {
+    if (localStorage.getItem("plan-revoked") === "true") throw { data: { code: "FORBIDDEN" } };
+    localStorage.setItem("manual-plan-created", JSON.stringify(input)); return { id: "created-synthetic-plan", name: input.name };
+  }) },
   useUtils: () => ({}),
   organization: { mine: query(() => [{ id: scope.organizationId, name: "Synthetic workspace", role: "OWNER", seatType: "FULL" }]) },
   testPlanGovernance: {
@@ -100,7 +109,7 @@ export const trpcReact = {
     ]),
     create: mutation(reject), update: mutation(reject), delete: mutation(reject),
   },
-  caseFields: { get: query(() => ({ projectId: scope.projectId, caseId: null, readScope: scope, canEdit: true })) },
+  caseFields: { get: query(() => ({ projectId: scope.projectId, caseId: null, readScope: scope, canEdit: new URLSearchParams(location.search).get("screen") !== "manual" })) },
   repositoryIntelligence: {
     projectReleases: query(input => ({ projectId: input.projectId, offset: input.offset, repositories: [], nextOffset: null })),
   },
@@ -111,6 +120,7 @@ export const trpcReact = {
     saveDocument: mutation(() => { savedSource = true; return { saved: true }; }),
     analyzeBatch: mutation(reject), saveDraft: mutation(reject),
     decide: mutation(input => {
+      if (localStorage.getItem("mapping-revoked") === "true") throw new Error("Synthetic permission revoked");
       sentRequests.push(structuredClone(input));
       if (savedRequests.has(input.requestId)) return respondLater(savedRequests.get(input.requestId));
       savedSource = true;

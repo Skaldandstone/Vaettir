@@ -1,4 +1,4 @@
-import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
+import { router, protectedProcedure, requireProjectAccess, type Context } from "../trpc.js";
 import { TRPCError } from "@trpc/server";
 import { refreshReleaseReadiness } from "../services/releaseReadiness.js";
 import {
@@ -37,6 +37,17 @@ import {
   detachGovernedAttachedPlan,
   listPlanGovernanceHistory,
 } from "../services/testPlanGovernance.js";
+// The optional custom path carries independently verified transport identity.
+// Services recheck the exact action under the existing business locks.
+async function planWriteAuthorization(ctx: Context & { user: NonNullable<Context["user"]> }, projectId: string) {
+  const { membership } = await requireProjectAccess(ctx, projectId);
+  if (["OWNER", "ADMIN", "EDITOR"].includes(membership.role)) return { clerkActorId: ctx.user.clerkUserId };
+  if (!ctx.authenticatedClerkSubject || ctx.authenticatedClerkSubject !== ctx.user.clerkUserId)
+    throw new TRPCError({ code: "FORBIDDEN", message: "Sign in again before editing this plan." });
+  return { clerkActorId: ctx.authenticatedClerkSubject, planAuthor: {
+    userId: ctx.user.id, clerkSubject: ctx.authenticatedClerkSubject, workspaceOrganizationId: ctx.workspaceOrganizationId,
+  } };
+}
 export const testPlanGovernanceRouter = router({
   saveExecutionTemplate: protectedProcedure
     .input(savePlanExecutionTemplateInput)
@@ -44,46 +55,36 @@ export const testPlanGovernanceRouter = router({
     .mutation(async ({ ctx, input }) => {
       if (!ctx.authenticatedClerkSubject || ctx.authenticatedClerkSubject !== ctx.user.clerkUserId)
         throw new TRPCError({ code: "FORBIDDEN", message: "Sign in again before saving this plan." });
-      await requireProjectAccess(ctx, input.projectId, "EDITOR");
-      return saveGovernedExecutionTemplate(ctx.prisma, ctx.user.id, input, {
-        clerkActorId: ctx.authenticatedClerkSubject,
-      });
+      const authorized = await planWriteAuthorization(ctx, input.projectId);
+      return saveGovernedExecutionTemplate(ctx.prisma, ctx.user.id, input, authorized);
     }),
   setPlanStatus: protectedProcedure
     .input(setPlanStatusInput)
     .output(planGovernanceAck)
     .mutation(async ({ ctx, input }) => {
-      await requireProjectAccess(ctx, input.projectId, "EDITOR");
-      return setGovernedPlanStatus(ctx.prisma, ctx.user.id, input, {
-        clerkActorId: ctx.user.clerkUserId,
-      });
+      const authorized = await planWriteAuthorization(ctx, input.projectId);
+      return setGovernedPlanStatus(ctx.prisma, ctx.user.id, input, authorized);
     }),
   editPlanCustomFields: protectedProcedure
     .input(editPlanCustomFieldsInput)
     .output(planGovernanceAck)
     .mutation(async ({ ctx, input }) => {
-      await requireProjectAccess(ctx, input.projectId, "EDITOR");
-      return editGovernedPlanCustomFields(ctx.prisma, ctx.user.id, input, {
-        clerkActorId: ctx.user.clerkUserId,
-      });
+      const authorized = await planWriteAuthorization(ctx, input.projectId);
+      return editGovernedPlanCustomFields(ctx.prisma, ctx.user.id, input, authorized);
     }),
   editPlanHeader: protectedProcedure
     .input(editPlanHeaderInput)
     .output(planGovernanceAck)
     .mutation(async ({ ctx, input }) => {
-      await requireProjectAccess(ctx, input.projectId, "EDITOR");
-      return editGovernedPlanHeader(ctx.prisma, ctx.user.id, input, {
-        clerkActorId: ctx.user.clerkUserId,
-      });
+      const authorized = await planWriteAuthorization(ctx, input.projectId);
+      return editGovernedPlanHeader(ctx.prisma, ctx.user.id, input, authorized);
     }),
   addCriterion: protectedProcedure
     .input(addGovernedCriterionInput)
     .output(planGovernanceAck)
     .mutation(async ({ ctx, input }) => {
-      await requireProjectAccess(ctx, input.projectId, "EDITOR");
-      const saved = await addGovernedCriterion(ctx.prisma, ctx.user.id, input, {
-        clerkActorId: ctx.user.clerkUserId,
-      });
+      const authorized = await planWriteAuthorization(ctx, input.projectId);
+      const saved = await addGovernedCriterion(ctx.prisma, ctx.user.id, input, authorized);
       if (!saved.replayed) refreshReleaseReadiness(ctx.prisma, saved.releaseId);
       return saved;
     }),
@@ -91,12 +92,12 @@ export const testPlanGovernanceRouter = router({
     .input(deleteGovernedCriterionInput)
     .output(planGovernanceAck)
     .mutation(async ({ ctx, input }) => {
-      await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      const authorized = await planWriteAuthorization(ctx, input.projectId);
       const saved = await deleteGovernedCriterion(
         ctx.prisma,
         ctx.user.id,
         input,
-        { clerkActorId: ctx.user.clerkUserId },
+        authorized,
       );
       if (!saved.replayed) refreshReleaseReadiness(ctx.prisma, saved.releaseId);
       return saved;
@@ -105,12 +106,12 @@ export const testPlanGovernanceRouter = router({
     .input(setGovernedCriterionRequirementInput)
     .output(planGovernanceAck)
     .mutation(async ({ ctx, input }) => {
-      await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      const authorized = await planWriteAuthorization(ctx, input.projectId);
       const saved = await setGovernedCriterionRequirement(
         ctx.prisma,
         ctx.user.id,
         input,
-        { clerkActorId: ctx.user.clerkUserId },
+        authorized,
       );
       if (!saved.replayed) refreshReleaseReadiness(ctx.prisma, saved.releaseId);
       return saved;
@@ -128,14 +129,12 @@ export const testPlanGovernanceRouter = router({
     .input(setCriterionVerdictInput)
     .output(planGovernanceAck)
     .mutation(async ({ ctx, input }) => {
-      await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      const authorized = await planWriteAuthorization(ctx, input.projectId);
       const saved = await setGovernedCriterionVerdict(
         ctx.prisma,
         ctx.user.id,
         input,
-        {
-          clerkActorId: ctx.user.clerkUserId,
-        },
+        authorized,
       );
       // Preserve the existing post-commit readiness refresh for a new manual
       // decision. Replaying a lost ACK does not schedule a second transition.
@@ -149,25 +148,24 @@ export const testPlanGovernanceRouter = router({
       await requireProjectAccess(ctx, input.projectId);
       return previewPlanGovernance(ctx.prisma, ctx.user.id, input, {
         clerkActorId: ctx.user.clerkUserId,
+        ...(ctx.authenticatedClerkSubject ? { planAuthor: {
+          userId: ctx.user.id, clerkSubject: ctx.authenticatedClerkSubject, workspaceOrganizationId: ctx.workspaceOrganizationId,
+        } } : {}),
       });
     }),
   editCriterionDescription: protectedProcedure
     .input(editCriterionDescriptionInput)
     .output(planGovernanceAck)
     .mutation(async ({ ctx, input }) => {
-      await requireProjectAccess(ctx, input.projectId, "EDITOR");
-      return editGovernedCriterionDescription(ctx.prisma, ctx.user.id, input, {
-        clerkActorId: ctx.user.clerkUserId,
-      });
+      const authorized = await planWriteAuthorization(ctx, input.projectId);
+      return editGovernedCriterionDescription(ctx.prisma, ctx.user.id, input, authorized);
     }),
   attachUnassignedPlan: protectedProcedure
     .input(attachUnassignedPlanInput)
     .output(planGovernanceAck)
     .mutation(async ({ ctx, input }) => {
-      await requireProjectAccess(ctx, input.projectId, "EDITOR");
-      return attachGovernedUnassignedPlan(ctx.prisma, ctx.user.id, input, {
-        clerkActorId: ctx.user.clerkUserId,
-      });
+      const authorized = await planWriteAuthorization(ctx, input.projectId);
+      return attachGovernedUnassignedPlan(ctx.prisma, ctx.user.id, input, authorized);
     }),
   detachAttachedPlan: protectedProcedure
     .input(detachAttachedPlanInput)
@@ -175,10 +173,8 @@ export const testPlanGovernanceRouter = router({
     .mutation(async ({ ctx, input }) => {
       if (!ctx.authenticatedClerkSubject || ctx.authenticatedClerkSubject !== ctx.user.clerkUserId)
         throw new TRPCError({ code: "FORBIDDEN", message: "Current authenticated actor access is required for reviewed plan detachment." });
-      await requireProjectAccess(ctx, input.projectId, "EDITOR");
-      const saved = await detachGovernedAttachedPlan(ctx.prisma, ctx.user.id, input, {
-        clerkActorId: ctx.authenticatedClerkSubject,
-      });
+      const authorized = await planWriteAuthorization(ctx, input.projectId);
+      const saved = await detachGovernedAttachedPlan(ctx.prisma, ctx.user.id, input, authorized);
       if (!saved.replayed) refreshReleaseReadiness(ctx.prisma, input.expectedReleaseId);
       return saved;
     }),

@@ -10,13 +10,16 @@ const web = path.resolve(fileURLToPath(new URL("../../", import.meta.url)));
 const require = createRequire(path.join(web, "package.json"));
 const viteRequire = createRequire(createRequire(require.resolve("vitest")).resolve("vite"));
 const { build } = viteRequire("esbuild"), { chromium } = require("@playwright/test");
-const output = path.join(web, "../../.local/ui-plan-mapping-20261020");
+const identityOnly = process.argv.includes("--identity-mapping-only");
+const manualOnly = process.argv.includes("--identity-plan-only");
+const output = path.join(web, manualOnly ? "../../.local/identity-manual-plan-ui" : identityOnly ? "../../.local/identity-manual-mapping-ui" : "../../.local/ui-plan-mapping-20261020");
 await mkdir(output, { recursive: true });
 const boundary = path.join(web, "e2e/ui-plan-mapping/boundaries.jsx");
 const result = await build({
   entryPoints: [path.join(web, "e2e/ui-plan-mapping/fixture.jsx")], outfile: path.join(output, "fixture.js"), bundle: true, write: false, jsx: "automatic", platform: "browser",
   nodePaths: [path.join(web, "node_modules")], alias: { "@": web },
   plugins: [{ name: "synthetic-transport-only", setup(builder) {
+    builder.onLoad({ filter: /test-plans[\\/]page\.tsx$/ }, async ({ path: sourcePath }) => ({ contents: await readFile(sourcePath, "utf8") + "\nexport { ManualPlanCreate };", loader: "tsx" }));
     builder.onResolve({ filter: /^(next\/navigation|@clerk\/nextjs|.*\/trpcReact|\.\/CaseCustomFields)$/ }, () => ({ path: boundary }));
     builder.onResolve({ filter: /^next\/link$/ }, () => ({ path: path.join(web, "e2e/ui-workbench/link-boundary.tsx") }));
   } }],
@@ -30,11 +33,71 @@ await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
 const origin = `http://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+page.setDefaultTimeout(10000);
 const errors = [];
 page.on("pageerror", error => errors.push(error.message));
 await page.route("**/*", route => route.request().url().startsWith(origin) ? route.continue() : route.abort());
 const visible = locator => locator.waitFor({ state: "visible" });
 try {
+  if (manualOnly) {
+    for (const theme of ["dark", "light"]) {
+      await page.goto(`${origin}/?screen=manual`);
+      await page.evaluate(theme => { document.documentElement.dataset.theme = theme; localStorage.removeItem("plan-revoked"); }, theme);
+      await page.getByLabel("Plan name", { exact: true }).fill(`Scoped synthetic ${theme} plan`);
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.screenshot({ path: path.join(output, `plan-${theme}.png`), fullPage: true });
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.screenshot({ path: path.join(output, `plan-narrow-${theme}.png`), fullPage: true });
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+      await page.getByRole("button", { name: "Create test plan", exact: true }).click();
+      await visible(page.getByText("Test plan created.", { exact: true }));
+      assert.equal(JSON.parse(await page.evaluate(() => localStorage.getItem("manual-plan-created"))).name, `Scoped synthetic ${theme} plan`);
+      await page.evaluate(() => localStorage.setItem("plan-revoked", "true"));
+      await page.reload();
+      await visible(page.getByRole("button", { name: "Refresh access", exact: true }));
+      assert.equal(await page.getByLabel("Plan name", { exact: true }).count(), 0);
+      await page.evaluate(() => localStorage.removeItem("plan-revoked"));
+      await page.getByRole("button", { name: "Refresh access", exact: true }).click();
+      await visible(page.getByLabel("Plan name", { exact: true }));
+    }
+    assert.deepEqual(errors, []);
+    await writeFile(path.join(output, "evidence.json"), JSON.stringify({ source: "actual ManualPlanCreate and scoped action hook with synthetic transport", hostedAcceptance: false,
+      checks: ["custom plans.write without native editor", "explicit create acknowledgement", "revoked permission hidden", "refresh restores current access", "dark/light 1280/390"], errors }, null, 2));
+    console.log("PASS: scoped manual plan creation UI; not hosted/provider acceptance");
+  } else if (identityOnly) {
+    for (const theme of ["dark", "light"]) {
+      await page.goto(`${origin}/?screen=architecture&identity`);
+      await page.evaluate(theme => { document.documentElement.dataset.theme = theme; localStorage.removeItem("mapping-revoked"); }, theme);
+      await page.getByLabel("Diagram", { exact: true }).setInputFiles({ name: "synthetic-checkout.puml", mimeType: "text/plain", buffer: Buffer.from("@startuml\ncomponent CheckoutAPI\n@enduml") });
+      await page.getByRole("button", { name: "Inspect diagram", exact: true }).click();
+      await visible(page.getByRole("heading", { name: "Components & interactions" }));
+      assert.equal(await page.getByRole("button", { name: "Save architecture version", exact: true }).count(), 0);
+      await page.locator(".architecture-ai-options summary").click();
+      assert.equal(await page.getByRole("button", { name: "Analyze architecture", exact: true }).isDisabled(), true);
+      await page.locator(".architecture-ai-options summary").click();
+      await page.getByRole("button", { name: "Existing-test mappings", exact: true }).click();
+      await page.getByLabel("Test case", { exact: true }).selectOption("case-checkout");
+      await page.getByLabel("Component or interaction", { exact: true }).selectOption("checkout");
+      await page.getByRole("button", { name: "Link test", exact: true }).click();
+      await visible(page.getByText("Test link saved. No AI credits used.", { exact: true }));
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.screenshot({ path: path.join(output, `manual-${theme}.png`), fullPage: true });
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.screenshot({ path: path.join(output, `manual-narrow-${theme}.png`), fullPage: true });
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+      await page.evaluate(() => localStorage.setItem("mapping-revoked", "true"));
+      await page.reload();
+      await page.getByLabel("Diagram", { exact: true }).setInputFiles({ name: "synthetic-checkout.puml", mimeType: "text/plain", buffer: Buffer.from("@startuml\ncomponent CheckoutAPI\n@enduml") });
+      await page.getByRole("button", { name: "Inspect diagram", exact: true }).click();
+      await page.getByRole("button", { name: "Existing-test mappings", exact: true }).click();
+      assert.equal(await page.getByRole("button", { name: "Link test", exact: true }).count(), 0);
+      await page.setViewportSize({ width: 1280, height: 900 });
+    }
+    assert.deepEqual(errors, []);
+    await writeFile(path.join(output, "evidence.json"), JSON.stringify({ source: "actual ArchitectureWorkbench with synthetic transport", hostedAcceptance: false,
+      checks: ["scoped manual mapping with canSpend=false", "source retained", "AI and standalone document save unavailable", "permission revocation hides mapping controls", "dark/light 1280/390"], errors }, null, 2));
+    console.log("PASS: scoped manual architecture mapping UI; not hosted/provider acceptance");
+  } else {
   await page.goto(`${origin}/?controlled`);
   await page.getByRole("button", { name: "Configure cases", exact: true }).click();
   await visible(page.getByRole("heading", { name: "Available tests" }));
@@ -141,6 +204,7 @@ try {
   const report = { source: "actual PlanTemplateEditor, ArchitectureWorkbench, ProjectsPage and RepositoryReleaseDiscovery with synthetic transport", hostedAcceptance: false, checks: ["case selection, reordering, exact save and reload", "close/reopen retains draft and in-flight request", "pending versus lost-response display, identical retry and one commit", "two themes and 390px layout", "manual mapping retains link and source without AI", "compact project selector, search and keyboard tooltips", "single embedded release heading and content-sized refresh"], errors };
   await writeFile(path.join(output, "evidence.json"), JSON.stringify(report, null, 2));
   console.log(JSON.stringify(report));
+  }
 } catch (error) {
   await page.screenshot({ path: path.join(output, "failure.png"), fullPage: true });
   console.error(JSON.stringify({ errors, body: await page.locator("body").innerText() }));

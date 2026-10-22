@@ -13,6 +13,7 @@ import { CreationWizard, WizardChoices } from "@/components/CreationWizard";
 import { IconButton } from "@/components/ui/IconButton";
 import { Icon } from "@/components/ui/Workspace";
 import { useProjectPermissions } from "@/lib/use-project-permissions";
+import { useProjectCustomActions } from "@/lib/use-project-custom-actions";
 import { saveRequirementDrafts } from "@/lib/requirement-drafts";
 import { CoveredTestCasesPanel } from "@/components/CaseTraceabilityPanel";
 import { RepositoryProcessingReview } from "@/components/RepositoryProcessingReview";
@@ -807,6 +808,8 @@ function ExtractFromRepoModal({
 export default function RequirementsPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const { canEdit } = useProjectPermissions(projectId);
+  const customActions = useProjectCustomActions(projectId);
+  const canWriteRequirement = canEdit || customActions.allows("requirements.write");
   const utils = trpcReact.useUtils();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -917,12 +920,14 @@ export default function RequirementsPage() {
         <Link href={`/projects/${encodeURIComponent(projectId)}/requirement-coverage`}>Requirement coverage and gaps</Link>
       </div>
 
-      {canEdit && (
+      {!canEdit && customActions.error && <p role="alert">Could not check custom access. <button type="button" onClick={() => customActions.retry()}>Retry access check</button></p>}
+      {canWriteRequirement && (
         <div style={{ display: "flex", gap: 8, margin: "8px 0 16px" }}>
           <button
             className="btn-primary"
             onClick={() => {
               resetForm();
+              setCreationSource("Write a requirement");
               setCreationStep(0);
             }}
           >
@@ -931,7 +936,7 @@ export default function RequirementsPage() {
         </div>
       )}
 
-      {canEdit && creationStep !== null && (
+      {canWriteRequirement && creationStep !== null && (
         <Modal
           open
           title="Add requirements"
@@ -976,23 +981,23 @@ export default function RequirementsPage() {
                 <WizardChoices
                   title="Requirement source"
                   single
-                  options={[
+                  options={canEdit ? [
                     "Write a requirement",
                     "Markdown document",
                     "Connected repository",
-                  ]}
+                  ] : ["Write a requirement"]}
                   selected={[creationSource]}
                   onToggle={setCreationSource}
                 />
-                <p className="text-muted">
+                {canEdit && <p className="text-muted">
                   Write one requirement, upload or paste a specification, or
                   draft from repository documents. Extracted rows can be edited
                   before saving.
-                </p>
+                </p>}
                 {creationSource === "Connected repository" && (
                   <ConnectedRepositoryPicker projectId={projectId} selectedId={selectedRepositoryId} onSelect={repo=>setSelectedRepositoryId(repo?.id??"")}/>
                 )}
-                <SourceConnectionChips projectId={projectId} only={["drive", "jira", "linear"]} />
+                {canEdit && <SourceConnectionChips projectId={projectId} only={["drive", "jira", "linear"]} />}
               </>
             )}
             {creationStep === 1 && (
@@ -1046,7 +1051,7 @@ export default function RequirementsPage() {
         </Modal>
       )}
 
-      {canEdit && editingId && (
+      {canWriteRequirement && editingId && (
         <div
           style={{ display: "grid", gap: 8, margin: "16px 0", maxWidth: 420 }}
         >
@@ -1118,13 +1123,13 @@ export default function RequirementsPage() {
             {canEdit && <JiraLinkControl requirement={r} onChanged={reload} />}
             {canEdit && <ShareLinkControl requirement={r} onChanged={reload} />}
             </details>}
-            {canEdit && (
+            {canWriteRequirement && (
               <div className="record-list-actions">
                 <IconButton icon="edit" label={`Edit ${r.title}`} onClick={() => startEdit(r)} />
                 <IconButton icon="delete" label={`Delete ${r.title}`} onClick={() => remove(r.id)} />
-                <button className="btn-secondary" onClick={() => setGeneratingForId(r.id)}>
+                {canEdit && <button className="btn-secondary" onClick={() => setGeneratingForId(r.id)}>
                   Generate test cases with AI
-                </button>
+                </button>}
               </div>
             )}
           </li>

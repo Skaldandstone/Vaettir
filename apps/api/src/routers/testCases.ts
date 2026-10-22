@@ -18,7 +18,8 @@ import {
   type TestCaseForReview,
 } from "@vaettir/ai-agent";
 import { Prisma } from "@vaettir/db";
-import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
+import { requirePublishedLocalAction } from "../services/identityAccessPolicy.js";
+import { router, protectedProcedure, requireProjectAccess, type Context } from "../trpc.js";
 import { recordAudit } from "../services/auditLog.js";
 import { buildCaseRiskInput as riskInput } from "../services/caseRiskInput.js";
 import {
@@ -45,6 +46,13 @@ import {
 } from "../services/physicalValidation.js";
 
 const prioritySchema = z.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"]);
+async function manualCaseAuthor(ctx: Context & { user: NonNullable<Context["user"]> }, projectId: string) {
+  const access = await requireProjectAccess(ctx, projectId);
+  if (["OWNER", "ADMIN", "EDITOR"].includes(access.membership.role)) return { ...access, caseAuthor: undefined };
+  if (!ctx.authenticatedClerkSubject || ctx.authenticatedClerkSubject !== ctx.user.clerkUserId)
+    throw new TRPCError({ code: "FORBIDDEN", message: "Current signed-in case author access is required." });
+  return { ...access, caseAuthor: { userId: ctx.user.id, clerkSubject: ctx.authenticatedClerkSubject, workspaceOrganizationId: ctx.workspaceOrganizationId } };
+}
 const priorityDecisionSchema = z.object({
   mode: z.enum(["MATCH_RISK", "BUSINESS_OVERRIDE", "MANUAL"]),
   from: prioritySchema,
@@ -1295,11 +1303,7 @@ export const testCasesRouter = router({
         }),
     )
     .mutation(async ({ ctx, input }) => {
-      const { project } = await requireProjectAccess(
-        ctx,
-        input.projectId,
-        "EDITOR",
-      );
+      const { project, caseAuthor } = await manualCaseAuthor(ctx, input.projectId);
       if (stepMediaIds(input.steps).length > 0) {
         throw new TRPCError({
           code: "BAD_REQUEST",
@@ -1308,7 +1312,9 @@ export const testCasesRouter = router({
         });
       }
       return ctx.prisma.$transaction(async (tx) => {
-        await requireCurrentPlanAccess(tx, ctx.user.id, input.projectId, true);
+        if (caseAuthor) await lockCaseFieldProject(tx, ctx.user.id, input.projectId, caseAuthor, "cases.write");
+        else await requireCurrentPlanAccess(tx, ctx.user.id, input.projectId, true);
+        if (caseAuthor && input.testPlanId) await requirePublishedLocalAction(tx, caseAuthor, project.organizationId, input.projectId, "plans.write");
         if (
           input.testPlanId &&
           !(await tx.testPlan.findFirst({
@@ -1333,7 +1339,7 @@ export const testCasesRouter = router({
             message: "Choose a shared step library in this project.",
           });
         }
-        const customFields = await assertCaseFieldAuthoring(tx, ctx.user.id, input.projectId, { values: input.customFields, expectedSchemaHash: input.expectedFieldSchemaHash }, { clerkActorId: ctx.user.clerkUserId });
+        const customFields = await assertCaseFieldAuthoring(tx, ctx.user.id, input.projectId, { values: input.customFields, expectedSchemaHash: input.expectedFieldSchemaHash }, { clerkActorId: ctx.user.clerkUserId, caseAuthor });
         const created = await tx.testCase.create({
           data: {
             projectId: input.projectId,
@@ -1556,11 +1562,7 @@ export const testCasesRouter = router({
           suitePath: true,
         },
       });
-      const { project } = await requireProjectAccess(
-        ctx,
-        existing.projectId,
-        "EDITOR",
-      );
+      const { project, caseAuthor } = await manualCaseAuthor(ctx, existing.projectId);
 
       // P2-07: a human correcting the AI's own output is the raw material
       // for tightening the system prompt later -- capture it only when the
@@ -1580,7 +1582,7 @@ export const testCasesRouter = router({
       // if per-step history/comments ever need steps to persist identity
       // across an edit.
       const updated = await ctx.prisma.$transaction(async (tx) => {
-        await lockCaseFieldProject(tx, ctx.user.id, existing.projectId);
+        await lockCaseFieldProject(tx, ctx.user.id, existing.projectId, caseAuthor, "cases.write");
         // Pin the independent authenticated identity before any case/body lock,
         // feedback, version or audit work; the later authoring check reuses it.
         await lockCurrentCaseFieldActor(tx, ctx.user.id, { clerkActorId: ctx.user.clerkUserId });
@@ -1643,6 +1645,8 @@ export const testCasesRouter = router({
             sharedStepGroup: true,
           },
         });
+        if (caseAuthor && input.testPlanId !== undefined && input.testPlanId !== currentContent.testPlanId)
+          await requirePublishedLocalAction(tx, caseAuthor, project.organizationId, existing.projectId, "plans.write");
         if (
           !input.expectedCaseRevision ||
           testCaseContentRevision(currentContent) !== input.expectedCaseRevision
@@ -1657,7 +1661,7 @@ export const testCasesRouter = router({
           tx,
           ctx.user.id,
           existing.projectId,
-          true,
+          !caseAuthor,
         );
         if (
           input.testPlanId &&
@@ -1721,7 +1725,7 @@ export const testCasesRouter = router({
             },
           });
         }
-        const approvedCustomFields = await assertCaseFieldAuthoring(tx, ctx.user.id, existing.projectId, { caseId: input.id, values: input.customFields, expectedSchemaHash: input.expectedFieldSchemaHash, expectedValueHash: input.expectedCustomFieldRevision }, { clerkActorId: ctx.user.clerkUserId });
+        const approvedCustomFields = await assertCaseFieldAuthoring(tx, ctx.user.id, existing.projectId, { caseId: input.id, values: input.customFields, expectedSchemaHash: input.expectedFieldSchemaHash, expectedValueHash: input.expectedCustomFieldRevision }, { clerkActorId: ctx.user.clerkUserId, caseAuthor });
         await tx.testCaseStep.deleteMany({ where: { testCaseId: input.id } });
         const changed = await tx.testCase.update({
           where: { id: input.id },

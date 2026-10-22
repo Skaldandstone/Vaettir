@@ -22,6 +22,7 @@ function fixture(){
   const schedule=scheduler(),auth={isLoaded:true,isSignedIn:true,userId:"clerk-original",sessionId:"session-original"};
   const browser={Clerk:{loaded:true,session:{id:"session-original",user:{id:"clerk-original"}}}};
   const access={readable:true,canEdit:true,origin:{projectId:"project-original",organizationId:"org-original",clerkActorId:"clerk-original",caseId:null},fresh:{readScope:{actorId:"native-original"}},owns:vi.fn(()=>true)};
+  const custom={allows:vi.fn(()=>false),owns:vi.fn(()=>false),retry:vi.fn()};
   const types={isSuccess:true,error:null as unknown,isFetching:false,isPaused:false,data:[] as Array<{id:string;name:string}>,refetch:vi.fn(async()=>undefined)};
   let outcome:(input:Input)=>Promise<unknown>=async input=>({id:"plan-created",name:input.name});
   const mutate=vi.fn((input:Input)=>outcome(input)),onCreated=vi.fn(async()=>undefined),noop=()=>null;
@@ -32,6 +33,7 @@ function fixture(){
   // List presentation imports are not executed by this manual-create controller.
   modules["@/components/ui/Workspace"]={Icon:noop,StatusPill:noop};
   modules["@/lib/case-inspector"]={inspectorLabel:noop};
+  modules["@/lib/use-project-custom-actions"]={useProjectCustomActions:()=>custom};
   const source=readFileSync(new URL("../app/projects/[projectId]/test-plans/page.tsx",import.meta.url),"utf8");
   const output=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.React}}).outputText;
   const exports:Record<string,unknown>={};new Function("require","exports","React","window",output+"\nexports.manual=ManualPlanCreate;")((name:string)=>{if(!(name in modules))throw Error("Unreviewed fixture dependency: "+name);return modules[name];},exports,React,browser);
@@ -41,8 +43,23 @@ function fixture(){
   function name(value:string){const field=elements(render()).find(node=>node.type==="input")!;(field.props.onChange as (event:unknown)=>void)({target:{value}});return render();}
   function type(value:string){const field=elements(render()).find(node=>node.type==="select")!;(field.props.onChange as (event:unknown)=>void)({target:{value}});return render();}
   function submit(tree=render()){const form=elements(tree).find(node=>node.type==="form")!;return(form.props.onSubmit as (event:{preventDefault:()=>void})=>Promise<void>)({preventDefault:()=>{}});}
-  return{render,name,type,submit,types,props,access,auth,browser,mutate,onCreated,setOutcome:(next:typeof outcome)=>{outcome=next;},source};
+  return{render,name,type,submit,types,props,access,custom,auth,browser,mutate,onCreated,setOutcome:(next:typeof outcome)=>{outcome=next;},source};
 }
+it("scoped custom plan authors can create without broad native edit authority",async()=>{
+  const f=fixture();f.access.canEdit=false;f.access.owns.mockImplementation((_origin?:unknown,mode?:string)=>mode==="read");
+  f.custom.allows.mockReturnValue(true);f.custom.owns.mockReturnValue(true);
+  await f.submit(f.name("Scoped plan"));expect(f.mutate).toHaveBeenCalledWith({projectId:"project-original",name:"Scoped plan"});
+  expect(f.custom.owns).toHaveBeenCalledWith("plans.write","org-original");
+});
+it("custom permission revocation rejects a captured submit without dropping its private draft",async()=>{
+  const f=fixture();f.access.canEdit=false;f.access.owns.mockImplementation((_origin?:unknown,mode?:string)=>mode==="read");
+  f.custom.allows.mockReturnValue(true);f.custom.owns.mockReturnValue(true);
+  const tree=f.name("Retained scoped plan");f.custom.allows.mockReturnValue(false);f.custom.owns.mockReturnValue(false);f.render();
+  await f.submit(tree);expect(f.mutate).not.toHaveBeenCalled();
+  f.custom.allows.mockReturnValue(true);f.custom.owns.mockReturnValue(true);f.render();await f.submit(tree);expect(f.mutate).not.toHaveBeenCalled();
+  expect(elements(f.render()).find(node=>node.type==="input")!.props.value).toBe("Retained scoped plan");
+  await f.submit();expect(f.mutate).toHaveBeenCalledOnce();
+});
 it("manual creation is standalone, labelled and defaults to built-in Functional without a missing-seed silent no-op",async()=>{
   const f=fixture(),tree=f.name("  Release <literal> regression  ");
   expect(text(tree)).toContain("Create test plan");expect(text(tree)).toContain("Plan name");expect(text(tree)).toContain("Plan type");expect(text(tree)).toContain("Functional (default)");expect(text(tree)).toContain("No other plan types");

@@ -1,4 +1,19 @@
 .editor { max-width: 1040px; margin: 0 auto; padding: 24px; }
+.directory { min-width: 0; }
+.sso { padding: 16px; margin-bottom: 20px; border: 1px solid var(--line); border-radius: 10px; min-width: 0; }
+.sso h2 { display: flex; align-items: center; gap: 8px; }
+.sso ul { padding: 0; list-style: none; }
+.sso li { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 8px 0; font-size: 13px; overflow-wrap: anywhere; }
+.sso summary { cursor: pointer; font-size: 13px; }
+.sso .dialogActions { flex-wrap: wrap; }
+.directory h2, .directory h3 { margin: 0; font-family: Inter, system-ui, sans-serif; }
+.directory h2 { font-size: 17px; }
+.directory h3 { font-size: 14px; overflow-wrap: anywhere; min-width: 0; }
+.directoryRow { padding: 14px; min-width: 0; overflow-wrap: anywhere; }
+.directoryRow + .directoryRow { border-top: 1px solid var(--line); }
+.directoryRow summary { font-size: 13px; cursor: pointer; }
+.directoryRow li { font-size: 13px; margin: 8px 0; }
+.directoryRow .dialogActions { margin-top: 12px; flex-wrap: wrap; }
 .header, .toolbar, .row, .footer, .dialogActions { display: flex; align-items: center; gap: 12px; }
 .header { justify-content: space-between; margin-bottom: 20px; }
 .header h1 { margin: 4px 0; font-family: Inter, system-ui, sans-serif; }

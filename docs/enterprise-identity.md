@@ -1,6 +1,6 @@
 # Enterprise identity implementation
 
-Status: persisted drafts, published local rules, the local Access editor and the first action-specific runtime integration. Not enabled or deployed. Active SSO, directory provisioning and complete custom permission enforcement are still incomplete.
+Status: persisted drafts and published rules, mapped directory observations, scoped manual authoring and governed-plan actions, and compact Access/SSO setup UI. Not enabled or deployed. Real SSO enforcement, automatic new-user provisioning and complete custom permission coverage remain incomplete. Local checks are not provider acceptance.
 
 ## Product scope
 
@@ -35,13 +35,13 @@ Local verification: 21 router/schema tests use a synthetic transaction double, n
 - Permission re-evaluation against current roles/mappings, current connection state and expiry.
 - A strict current-session SSO evidence predicate; merely linking an enterprise account does not prove this session used it.
 
-The initial policy-only checkpoint did not change runtime authorization. The published-local-rules slice below now consumes this kernel for one explicit business action; no broader runtime coverage or provider activation is implied.
+The initial policy-only checkpoint did not change runtime authorization. The historical slices below describe its progression; the current scoped-action table is the authoritative coverage list. No provider activation is implied.
 
 Run: `node --experimental-strip-types --test scripts/enterprise-identity-policy.test.mjs`.
 
 ### Durable directory observation journal
 
-The additive `IdentityDirectoryConnection`, `IdentityDirectorySubject` and `IdentityDirectoryReceipt` schema stores source provenance, not active permissions. The migration creates no connections, memberships or grants and has been applied only to owned local test databases, not a hosted environment. Connections and subjects default disabled. Composite foreign keys constrain a subject to its workspace connection and an existing native membership; provider-instance/directory uniqueness prevents reusing a directory across tenants. These restrictive references require an explicit future retention/offboarding path, not silent cascading deletion.
+The additive `IdentityDirectoryConnection`, `IdentityDirectorySubject` and `IdentityDirectoryReceipt` schema stores source provenance. The journal alone does not authorize access; the current explicit-action evaluator can use fresh, enabled, revision-matched observations with published mappings. The migration creates no connections, memberships or grants and has been applied only to owned local test databases, not a hosted environment. Connections and subjects default disabled. Composite foreign keys constrain a subject to its workspace connection and an existing native membership; provider-instance/directory uniqueness prevents reusing a directory across tenants. These restrictive references require an explicit future retention/offboarding path, not silent cascading deletion.
 
 `identityDirectoryStore` is an internal service with no route, scheduler or provider caller. Reservation advances a local generation before an authenticated fetch. Commit rechecks tenant, suspension, native subject, source IDs, binding/configuration revisions, latest generation and a server-reserved deadline in a Serializable transaction. Observations and source-attributed receipts commit together; receipts retain immutable source identifiers and observed group IDs, never credentials or raw provider payloads. Failed/partial reads are not removals. A newer reservation supersedes older in-flight fetches; replay/serialization conflicts require a fresh read, not replaying an old payload. Native memberships, seats and manual groups are untouched.
 
@@ -59,11 +59,35 @@ Windows SQL fixture: `node scripts/identity-directory-postgres.mjs` uses the exi
 
 `readPublishedLocalAccess` evaluates only the published custom local contribution, not total effective access. It checks the current independently verified Clerk subject, native membership, absence of service identity, tenant/project, suspension and seat. Group/source removal and role/scope reduction take effect on subsequent evaluation; stale deleted member/project references cannot grant access. Independent native access remains independent. An explicit action helper never promotes a custom role to a broad legacy Editor and never overrides entitlement checks.
 
-The first covered business action is `testPlans.create`. A full-seat native Viewer with a published, project-scoped `plans.write` grant can create a manual plan. Authorization and the business write occur together with the existing organization/membership/project locks and a pinned policy row. Native editor behavior is retained. Other actions **are not yet integrated** and must not be advertised as completed custom-role support. No external provisioning, directory grants, SSO enforcement or new membership creation is implied by this slice.
+The first covered business action was `testPlans.create`. A full-seat native Viewer with a published, project-scoped `plans.write` grant can create a manual plan. Authorization and the business write occur together with the existing organization/membership/project locks and a pinned policy row. Native editor behavior is retained. The current table below lists subsequent coverage; this initial slice did not include external provisioning, directory grants, SSO enforcement or new membership creation.
 
 The Access editor has a compact explicit publication review, separate saved/published revisions and a lost-acknowledgement guard: a failure requires reading the durable revision before another deliberate publication. Publication remains hidden when unavailable. Actual local component checks cover both themes at1280/390px, focus/Escape, dirty-draft prevention, failure before commit, lost response after commit, reload/reopen, no automatic republish and permission-reduction publication. These use synthetic transport, not hosted acceptance. Run `node apps/web/e2e/identity-access/run.mjs --publication-only`.
 
-The owned PostgreSQL runner now applies103 historical migrations. It additionally proves real plan creation after publication and denial after publication of group removal, unchanged native Viewer/Full membership, actual audit foreign-key failure rollback, scope/seat/rebound-subject denials and competing publication rejection. This closes local SQL/router behavior only; real provider and hosted UI tests remain required. The journal fixture still has no Google connection.
+The initial publication verification applied103 historical migrations. It additionally proved real plan creation after publication and denial after publication of group removal, unchanged native Viewer/Full membership, actual audit foreign-key failure rollback, scope/seat/rebound-subject denials and competing publication rejection. The current migration/test count appears below. This closes local SQL/router behavior only; real provider and hosted UI tests remain required. The journal fixture still has no Google connection.
+
+## Current scoped authoring and setup implementation
+
+The current implementation adds these explicit actions without converting a custom role into a legacy Editor:
+
+| Action | Covered operations | Deliberately unchanged |
+| --- | --- | --- |
+| `plans.write` | Manual creation and governed header/status/criteria/configuration/release attachment operations | AI generation, legacy mutation endpoints, workspace plan-type administration |
+| `cases.write` | Manual case creation/content update, explicit case-authoring field projection; changing plan assignment additionally requires `plans.write` | Bulk/import, clone, standalone metadata/history restore, review decisions, AI, field-schema administration |
+| `requirements.write` | Manual requirement create/update/delete | Provider/import/link-management and AI paths |
+| `architecture.write` | Reviewed manual case/diagram decisions with retained source | AI processing, draft generation and standalone document saving |
+| `reports.create` | Private definition save/update and private preview capture | Sharing approval, shared definition management and catalog administration |
+
+Business mutations authorize the exact action with current published policy and directory observations under transaction locks, before replay or writing. Existing tenant ingress, native membership, full-seat requirements, subject identity, source revisions and original review/CAS rules remain. The generic case-field `canEdit` projection remains native-only; only an explicit `cases.write` view used by the manual authoring form can add that action. Custom plan/case controls do not enable unrelated UI actions. Native read access is still the prerequisite, not a completed project-scoped managed-membership model.
+
+Directory mappings are strict, tenant-bound records on the connection. Mapping changes and disablement increment its revision with an atomic audit, immediately making old observations unusable. Fresh reconciliation is required before the directory contribution returns; independent local/native sources remain. The UI provides observed-group selection, published-role and project choices, status, explicit disable confirmation, and reload-before-retry after an unknown outcome. It does not create, enable or reconnect a directory.
+
+`IdentityProviderBinding` is an additive, disabled-by-default operator-owned one-to-one workspace/Clerk organization binding. The read-only preflight checks the independently authenticated native administrator, exact provider organization membership and `org:sys_entconns:manage`, refuses incomplete connection lists, and rechecks local binding/authorization after provider reads. No email/domain/name inference or provider mutation is used. The SSO button uses Clerk's supported OrganizationProfile overlay; it rechecks after active-organization selection and closes on account/organization changes. The provider Security tab, not custom token text fields, owns SAML/OIDC setup. This is a setup bridge, not evidence that the current session used a particular enterprise connection.
+
+Local verification includes 105 historical migrations and 21 real PostgreSQL/router checks in the isolated owned fixture, including source removal/reactivation, scope reduction, mapping revision invalidation, native membership preservation, audit rollback, governed-plan replay denial, case/requirement authoring, free architecture links with AI denial, and private report creation with sharing/replay denial. Component fixtures render directory/setup, scoped manual plans and mapping in dark/light at1280/390px with recovery and revocation checks. Report handlers additionally verify private-preview retention and denial of custom-author sharing; the custom report/case browser paths still require their own visual acceptance. These checks do not exercise Google, hosted identity settings or new-user provisioning. Run `node apps/web/e2e/identity-access/run.mjs --directory-only`, `node apps/web/e2e/ui-plan-mapping/run.mjs --identity-plan-only` and `--identity-mapping-only` for the distinct local proofs.
+
+The Google fixture remains a **plan for isolated company test users/group**, not authorization to create them, grant delegation, enable domain routing or read a production directory. Clerk's documented Google directory sync reads all users/groups in the Workspace domain and valid credential upload activates synchronization. A group mapping in Vaettir does not constrain that provider read scope. The deployment operator must separately establish an approved exact fixture and consent scope. Sheets OAuth and Search Console ownership are unrelated. Supported source-specific lifecycle/current-session proof and automatic managed-user ingress remain unresolved; do not fabricate these from a linked enterprise account, global active state or omitted groups.
+
+Other catalog actions remain preparation-only or retain native authorization. Keep the exact-workspace publication gate off for general use until coverage and provider acceptance are complete. Do not include these migrations or source changes in an unrelated release by implication.
 
 ## Remaining implementation, in order
 

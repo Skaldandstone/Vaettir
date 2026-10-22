@@ -84,7 +84,10 @@ function fixture(role = "EDITOR") {
     user: { findUnique: vi.fn(async () => user) },
     project: {
       findUnique: vi.fn(async () => ({ id: "project", organizationId: "org" })),
+      findMany: vi.fn(async () => [{ id: "project" }]),
     },
+    membership: { findUnique: vi.fn(async () => state.revoked ? null : ({ role, seatType: "FULL" })), findMany: vi.fn(async () => [{ userId: "actor" }]) },
+    identityAccessPolicy: { findUnique: vi.fn(async () => null) },
     organization: { findUnique: vi.fn(async () => ({ suspendedAt: null })) },
     testCase: {
       findMany: vi.fn(async () => cases),

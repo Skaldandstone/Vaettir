@@ -4,7 +4,11 @@ import { Prisma } from "@vaettir/db";
 import { emptyIdentityConfiguration, identityConfigurationSchema, validateIdentityReferences } from "@vaettir/core";
 import { router, protectedProcedure, requireOrgRole, type Context } from "../trpc.js";
 import { recordAudit } from "../services/auditLog.js";
-import { localIdentityPublicationAvailable, publishIdentityDraft, readPublishedLocalAccess } from "../services/identityAccessPolicy.js";
+import { localIdentityPublicationAvailable, publishIdentityDraft, readPublishedLocalAccess, readPublishedIdentityAccess } from "../services/identityAccessPolicy.js";
+import { directorySettings, updateDirectorySettings } from "../services/identityDirectorySettings.js";
+import { directoryMappingsSchema } from "../services/identityDirectoryMappingSchema.js";
+import { identityProviderSetup } from "../services/identityProviderSetup.js";
+import { clerkClient } from "../clerk.js";
 
 const organizationInput = z.object({ organizationId: z.string().min(1).max(512) }).strict();
 const conflict = () => new TRPCError({ code: "CONFLICT", message: "Access settings changed in another session. Reload the saved version before saving again." });
@@ -24,6 +28,27 @@ async function requireAccessAdministrator(db: Prisma.TransactionClient, ctx: Con
 }
 
 export const identityAccessRouter = router({
+  projectActions: protectedProcedure.input(z.object({ projectId: z.string().min(1).max(512) }).strict()).query(({ ctx, input }) => ctx.prisma.$transaction(async db => {
+    const project = await db.project.findUnique({ where: { id: input.projectId }, select: { organizationId: true } });
+    if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+    const current = await readPublishedIdentityAccess(db,
+      { userId: ctx.user.id, clerkSubject: ctx.authenticatedClerkSubject, workspaceOrganizationId: ctx.workspaceOrganizationId }, project.organizationId, input.projectId);
+    return { projectId: input.projectId, organizationId: project.organizationId, clerkSubject: ctx.authenticatedClerkSubject!, permissions: current.permissions, policyRevision: current.revision };
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead })),
+  providerSetup: protectedProcedure.input(organizationInput).query(({ ctx, input }) => identityProviderSetup(ctx.prisma,
+    { userId: ctx.user.id, clerkSubject: ctx.authenticatedClerkSubject, workspaceOrganizationId: ctx.workspaceOrganizationId }, input.organizationId, clerkClient)),
+  directorySettings: protectedProcedure.input(organizationInput).query(({ ctx, input }) => ctx.prisma.$transaction(async db => {
+    const connections = await directorySettings(db, { userId: ctx.user.id, clerkSubject: ctx.authenticatedClerkSubject, workspaceOrganizationId: ctx.workspaceOrganizationId }, input.organizationId);
+    const policy = await db.identityAccessPolicy.findUnique({ where: { organizationId: input.organizationId } });
+    return { connections, roles: policy ? identityConfigurationSchema.parse(policy.configuration).roles.map(({ id, name }) => ({ id, name })) : [] };
+  },
+    { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead })),
+  updateDirectorySettings: protectedProcedure.input(organizationInput.extend({ connectionId: z.string().min(1).max(512),
+    expectedRevision: z.number().int().positive().max(2147483646),
+    change: z.discriminatedUnion("kind", [z.object({ kind: z.literal("mappings"), mappings: directoryMappingsSchema }).strict(), z.object({ kind: z.literal("disable") }).strict()]),
+    confirmed: z.literal(true),
+  }).strict()).mutation(({ ctx, input }) => updateDirectorySettings(ctx.prisma,
+    { userId: ctx.user.id, clerkSubject: ctx.authenticatedClerkSubject, workspaceOrganizationId: ctx.workspaceOrganizationId }, input)),
   configuration: protectedProcedure.input(organizationInput).query(({ ctx, input }) => ctx.prisma.$transaction(async db => {
     await requireAccessAdministrator(db, ctx, input.organizationId);
     const [saved, members, projects, published] = await Promise.all([

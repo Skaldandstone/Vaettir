@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { IDENTITY_PERMISSIONS, IDENTITY_PERMISSION_LABELS, identityConfigurationSchema,
   identityRoleDraftSchema, identityGroupDraftSchema, type IdentityConfiguration } from "@vaettir/core";
 import { Modal } from "./Modal";
@@ -16,6 +16,7 @@ type Project = { id: string; name: string };
 export type AccessDraftView = { revision: number; configuration: IdentityConfiguration; members: Member[]; projects: Project[];
   publication?: { available: boolean; revision: number; sourceDraftRevision: number | null; publishedAt: string | null } };
 type Props = { initial: AccessDraftView; onSave: (configuration: IdentityConfiguration, revision: number) => Promise<{ revision: number }>; onReload: () => Promise<AccessDraftView>;
+  identitySetup?: ReactNode;
   onPublish?: (draftRevision: number, policyRevision: number) => Promise<{ revision: number; sourceDraftRevision: number; publishedAt: string }> };
 
 function toggle(values: string[], id: string) { return values.includes(id) ? values.filter(value => value !== id) : [...values, id]; }
@@ -26,7 +27,7 @@ function EditButton({ name, onClick }: { name: string; onClick: () => void }) {
   return <button type="button" className="btn-secondary" aria-label={`Edit ${name}`} title={`Edit ${name}`} onClick={onClick}><Icon name="edit" size={16} /></button>;
 }
 
-export function IdentityAccessEditor({ initial, onSave, onReload, onPublish }: Props) {
+export function IdentityAccessEditor({ initial, onSave, onReload, onPublish, identitySetup }: Props) {
   const [saved, setSaved] = useState(initial);
   const [draft, setDraft] = useState(initial.configuration);
   const [section, setSection] = useState<"roles" | "groups" | "preview" | "sign-in">("roles");
@@ -94,7 +95,7 @@ export function IdentityAccessEditor({ initial, onSave, onReload, onPublish }: P
   }
   return <div className={styles.editor}>
     <header className={styles.header}><div><span className={styles.eyebrow}>Workspace settings</span><h1>Access</h1><p>Sign-in, roles and groups.</p></div><span className={styles.status}>{saved.publication?.revision ? `Published v${saved.publication.revision}` : "Setup draft"}</span></header>
-    <div className={styles.banner}><Icon name="alert" /><span>{saved.publication?.revision ? "Draft edits do not change published rules. Publish after reviewing your changes." : "Prepare access rules here. Existing permissions stay in effect until activation is verified."}</span></div>
+    {section !== "sign-in" && <div className={styles.banner}><Icon name="alert" /><span>{saved.publication?.revision ? "Draft edits do not change published rules. Publish after reviewing your changes." : "Prepare access rules here. Existing permissions stay in effect until activation is verified."}</span></div>}
     {error && <div role="alert" className={styles.error}>{error} <button type="button" onClick={() => setReloadOpen(true)} disabled={busy}>Reload saved version</button></div>}
     {notice && <p role="status">{notice}</p>}
     <fieldset disabled={busy} className={styles.controls}>
@@ -115,14 +116,14 @@ export function IdentityAccessEditor({ initial, onSave, onReload, onPublish }: P
         {draft.groups.filter(item => match(item.name)).map(item => <article className={styles.row} key={item.id}><details><summary>{item.name}<span>{item.userIds.length} members · {item.scope.kind === "workspace" ? "All projects" : `${item.scope.projectIds.length} projects`}</span></summary><p>{item.roleIds.map(id => draft.roles.find(candidate => candidate.id === id)?.name ?? "Missing role").join(", ")}</p><ul>{item.userIds.map(id => <li key={id}>{saved.members.find(member => member.id === id)?.email ?? "Member no longer available"}</li>)}</ul></details><EditButton name={item.name} onClick={() => setGroup(item)} /></article>)}
       </section>}
       <div hidden={section !== "preview"}><DraftPreview configuration={draft} members={saved.members} projects={saved.projects} dirty={dirty} revision={saved.revision} onReload={() => setReloadOpen(true)} /></div>
-      {section === "sign-in" && <section className={styles.setup} aria-label="Identity setup status">
+      {section === "sign-in" && (identitySetup ?? <section className={styles.setup} aria-label="Identity setup status">
         <div><Icon name="link" size={24} /><h2>Single sign-on</h2><span className={styles.status}>Setup pending</span><p>SAML or OpenID Connect through your identity provider.</p></div>
         <div><Icon name="people" size={24} /><h2>Directory sync</h2><span className={styles.status}>Setup pending</span><p>Provision members and map external groups to Vaettir roles.</p></div>
         <p className={styles.setupNote}>Provider setup and activation are not available in this preparation build. No sign-in enforcement or automatic access changes are enabled.</p>
-      </section>}
-      <footer className={styles.footer}><span>{dirty ? "Unsaved changes" : `Saved revision ${saved.revision}`}</span><button type="button" className="btn-secondary" onClick={() => setReloadOpen(true)}>Reload</button><button className="btn-primary" type="button" disabled={!dirty} onClick={save}><Icon name="save" size={16} />Save draft</button>
+      </section>)}
+      {section !== "sign-in" && <footer className={styles.footer}><span>{dirty ? "Unsaved changes" : `Saved revision ${saved.revision}`}</span><button type="button" className="btn-secondary" onClick={() => setReloadOpen(true)}>Reload</button><button className="btn-primary" type="button" disabled={!dirty} onClick={save}><Icon name="save" size={16} />Save draft</button>
         {saved.publication?.available && onPublish && <button type="button" className="btn-secondary" disabled={dirty || !saved.revision || publicationUnconfirmed || saved.publication.sourceDraftRevision === saved.revision} title={dirty ? "Save and review the draft first" : "Review saved local rules before publication"} onClick={() => setPublishOpen(true)}>Review publication</button>}
-      </footer>
+      </footer>}
     </fieldset>
     {busy && <p role="status">Saving or loading access settings…</p>}
     <Modal open={publishOpen} onClose={() => setPublishOpen(false)} title="Publish local access rules?" dismissible={!busy}>

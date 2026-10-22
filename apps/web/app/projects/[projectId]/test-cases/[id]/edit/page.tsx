@@ -4,7 +4,7 @@ import { useParams } from "next/navigation";
 import { useState } from "react";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import TestCaseForm from "@/components/TestCaseForm";
-import { useProjectPermissions } from "@/lib/use-project-permissions";
+import { useManualCasePermissions } from "@/lib/use-manual-case-permissions";
 
 // P1-15
 export default function EditTestCasePage() {
@@ -19,7 +19,7 @@ function EditCaseSession({
 }: {
   params: { projectId: string; id: string };
 }) {
-  const { canEdit, loaded, accessError, retryAccess } = useProjectPermissions(
+  const { canEdit, loaded, accessError, retryAccess } = useManualCasePermissions(
     params.projectId,
   );
   const tcQuery = trpcReact.testCases.byId.useQuery({ id: params.id });
@@ -52,7 +52,7 @@ function EditCaseSession({
   if (!tc && !loaded) return <p>Checking project access…</p>;
   if (!tc && !canEdit)
     return (
-      <p>A full-seat Editor, Admin, or Owner is required to edit test cases.</p>
+      <p>Case-author access and a full seat are required to edit test cases.</p>
     );
   if (!tc && tcQuery.data && tcQuery.data.id !== params.id)
     return <p role="alert">The returned case does not match this editor.</p>;

@@ -219,7 +219,7 @@ export function ArchitectureWorkbench({
     elementId: string,
     value: "CONFIRMED" | "REJECTED",
   ) {
-    if (!input || !current || decisionBusy.current || !current.canSpend) return;
+    if (!input || !current || decisionBusy.current || !current.canMap) return;
     if (heldDecision && heldDecisionActor.current !== actorClerkUserId) {
       setMessage("Sign in with the original account to confirm the pending link save.");
       return;
@@ -488,7 +488,7 @@ export function ArchitectureWorkbench({
           {view === "MAPPINGS" && (
             <section style={{ display: "grid", gap: 16 }}>
               <h2>Existing-test mappings</h2>
-              {current.canSpend && <section className="architecture-link-editor" style={panel}>
+              {current.canMap && <section className="architecture-link-editor" style={panel}>
                 <header><h3>Link an existing test</h3><small>Manual traceability · No AI credits</small></header>
                 {heldDecision ? <div role="status" aria-busy={decision.isPending}>
                   {decision.isPending ? <p>Saving test link…</p> : <>
@@ -535,7 +535,7 @@ export function ArchitectureWorkbench({
                         ·{" "}
                         {d.decision === "CONFIRMED" ? "Confirmed" : "Rejected"}
                       </Link>
-                      {current.canSpend && (
+                      {current.canMap && (
                         <button
                           type="button"
                           disabled={busy || decision.isPending || !!heldDecision}
@@ -629,7 +629,7 @@ export function ArchitectureWorkbench({
                               ))}
                             </div>
                           </div>
-                          {current.canSpend && (
+                          {current.canMap && (
                             <div style={row}>
                               <button
                                 type="button"

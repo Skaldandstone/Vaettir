@@ -3,6 +3,7 @@ import { Prisma, type PrismaClient } from "@vaettir/db";
 import { identityConfigurationSchema, localGroupGrants, resolveIdentityPermissions,
   IDENTITY_PERMISSIONS, type IdentityPermission } from "@vaettir/core";
 import { recordAudit } from "./auditLog.js";
+import { directoryMappingsSchema } from "./identityDirectoryMappingSchema.js";
 
 type Database = Prisma.TransactionClient;
 export type IdentityActor = { userId: string; clerkSubject: string | null | undefined; workspaceOrganizationId?: string | null };
@@ -77,9 +78,49 @@ export async function readPublishedLocalAccess(db: Database, actor: IdentityActo
  * legacy EDITOR, bypass entitlements, or accept service tokens as human proof. */
 export async function requirePublishedLocalAction(db: Database, actor: IdentityActor, organizationId: string, projectId: string, action: IdentityPermission) {
   if (!(IDENTITY_PERMISSIONS as readonly string[]).includes(action)) throw denied();
-  const access = await readPublishedLocalAccess(db, actor, organizationId, projectId);
+  const access = await readPublishedIdentityAccess(db, actor, organizationId, projectId);
   if (!access.permissions.includes(action)) throw denied();
   return access;
+}
+
+/** Call only after the business operation locks organization/member/project.
+ * Keep source revocation and subject rebinding serialized with the write. */
+export async function lockPublishedIdentityAction(db: Database, actor: IdentityActor, organizationId: string, projectId: string, action: IdentityPermission) {
+  await db.$queryRaw`SELECT id FROM "User" WHERE id=${actor.userId} FOR SHARE`;
+  await db.$queryRaw`SELECT "organizationId" FROM "IdentityAccessPolicy" WHERE "organizationId"=${organizationId} FOR SHARE`;
+  await db.$queryRaw`SELECT c.id FROM "IdentityDirectoryConnection" c
+    JOIN "IdentityDirectorySubject" s ON s."connectionId"=c.id AND s."organizationId"=c."organizationId"
+    WHERE c."organizationId"=${organizationId} AND s."userId"=${actor.userId}
+    ORDER BY c.id,s.id FOR SHARE OF c,s`;
+  return requirePublishedLocalAction(db, actor, organizationId, projectId, action);
+}
+
+/** Union source contributions, never a broad role conversion. Directory removal
+ * affects only that source. A global provider user-active flag is not evidence. */
+export async function readPublishedIdentityAccess(db: Database, actor: IdentityActor, organizationId: string, projectId: string) {
+  const local = await readPublishedLocalAccess(db, actor, organizationId, projectId);
+  const member = await currentIdentityMember(db, actor, organizationId);
+  const policy = await db.identityAccessPolicy.findUnique({ where: { organizationId } });
+  if (!policy) return { ...local, directorySources: [] as { connectionId: string; externalGroupId: string; roleId: string; permission: IdentityPermission }[] };
+  const roles = identityConfigurationSchema.parse(policy.configuration).roles;
+  const subjects = await db.identityDirectorySubject.findMany({ where: { organizationId, userId: actor.userId, clerkSubject: actor.clerkSubject!, enabled: true }, include: { connection: true } });
+  const now = Date.now();
+  const directorySources = subjects.flatMap(subject => {
+    const connection = subject.connection;
+    if (connection.organizationId !== organizationId || !connection.enabled || !subject.active || subject.appliedGeneration <= 0 ||
+      !subject.observedAt || subject.observedAt.getTime() > now || !subject.expiresAt || subject.expiresAt.getTime() <= now ||
+      subject.observedConnectionRevision !== connection.revision || subject.observedSubjectRevision !== subject.revision) return [];
+    const parsed = directoryMappingsSchema.safeParse(connection.mappings);
+    if (!parsed.success) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Directory mappings need administrator review." });
+    return parsed.data.flatMap(mapping => {
+      if (!subject.externalGroupIds.includes(mapping.externalGroupId) ||
+        (mapping.scope.kind === "projects" && !mapping.scope.projectIds.includes(projectId))) return [];
+      return (roles.find(role => role.id === mapping.roleId)?.permissions ?? [])
+        .filter(permission => member.seatType === "FULL" || identityReadActions.has(permission))
+        .map(permission => ({ connectionId: connection.id, externalGroupId: mapping.externalGroupId, roleId: mapping.roleId, permission }));
+    });
+  });
+  return { ...local, permissions: [...new Set([...local.permissions, ...directorySources.map(source => source.permission)])], directorySources };
 }
 
 export async function publishIdentityDraft(prisma: PrismaClient, actor: IdentityActor, input: {
