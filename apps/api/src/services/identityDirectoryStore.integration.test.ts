@@ -13,6 +13,11 @@ import { architectureRouter } from "../routers/architecture.js";
 import { testCasesRouter } from "../routers/testCases.js";
 import { caseFieldsRouter } from "../routers/caseFields.js";
 import { reportSnapshotsRouter } from "../routers/reportSnapshots.js";
+import { manualRunStartReviewedRouter } from "../routers/manualRunStartReviewed.js";
+import { manualCaseResultsRouter } from "../routers/manualCaseResults.js";
+import { manualStepExecutionReviewRouter } from "../routers/manualStepExecutionReview.js";
+import { manualExecutionRouter } from "../routers/manualExecution.js";
+import { startManualRun } from "./manualRunStart.js";
 import type { Context } from "../trpc.js";
 
 // Do not widen the shared test database admission helper or use its default port.
@@ -36,6 +41,7 @@ function fixtureAdmission() {
   return true;
 }
 const admitted = fixtureAdmission();
+const historicalRunGuards = admitted && JSON.parse(readFileSync(join(process.env.VAETTIR_IDENTITY_POSTGRES_FIXTURE!, "owner.json"), "utf8")).migrationMode === "historical-chain";
 function afterSubjectRead(client: PrismaClient, reached: () => Promise<void>): PrismaClient {
   return { $transaction: <T>(work: (tx: Prisma.TransactionClient) => Promise<T>, options: { isolationLevel: Prisma.TransactionIsolationLevel }) =>
     client.$transaction(tx => work(new Proxy(tx, { get(target, property) {
@@ -403,6 +409,100 @@ describe.skipIf(!admitted)("directory journal on owned PostgreSQL", () => {
     await expect(reports.preview(capture)).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect((await reports.get({ projectId: f.project.id, id: preview.id })).payload.state).toBe("preview");
     expect(await second.projectReportSnapshot.count({ where: { projectId: f.project.id } })).toBe(1);
+  });
+  it.skipIf(!historicalRunGuards)("executes synthetic whole-case and step runs with only runs.execute, revoking writes and exact receipts without broad editor promotion", async () => {
+    const f = await localRulesFixture();
+    const configuration = { ...f.configuration, roles: [{ id: "author", name: "Run executor", permissions: ["runs.execute"] }] };
+    await db.identityAccessDraft.update({ where: { organizationId: f.org.id }, data: { configuration } });
+    await publishIdentityDraft(db, f.administrator, { organizationId: f.org.id, expectedDraftRevision: 1, expectedPolicyRevision: 0 });
+    const context = { prisma: db, user: await db.user.findUniqueOrThrow({ where: { id: f.user.id }, include: { memberships: true } }),
+      authenticatedClerkSubject: f.user.clerkUserId, workspaceOrganizationId: f.org.id, staff: null } as Context;
+    const adminContext = { ...context, user: await db.user.findUniqueOrThrow({ where: { id: f.administrator.userId }, include: { memberships: true } }), authenticatedClerkSubject: f.administrator.clerkSubject };
+    const cases = testCasesRouter.createCaller(adminContext);
+    const whole = await cases.create({ projectId: f.project.id, title: "Synthetic whole case", testType: "FUNCTIONAL", given: ["Fixture exists"], when: ["Check fixture"], then: ["Fixture responds"] });
+    const step = await cases.create({ projectId: f.project.id, title: "Synthetic step case", testType: "FUNCTIONAL", steps: [{ action: "Check fixture", expectedResult: "Fixture responds" }] });
+    await db.testCase.updateMany({ where: { id: { in: [whole.id, step.id] } }, data: { reviewStatus: "APPROVED" } });
+    const starts = manualRunStartReviewedRouter.createCaller(context), results = manualCaseResultsRouter.createCaller(context),
+      steps = manualStepExecutionReviewRouter.createCaller(context), runs = manualExecutionRouter.createCaller(context);
+    const pins = { projectId: f.project.id, originalOrganizationId: f.org.id, expectedClerkActorId: f.user.clerkUserId, expectedNativeActorId: f.user.id };
+    const reviewed = await starts.preview({ ...pins, requestId: randomUUID() });
+    expect(reviewed.canStart).toBe(true);
+    if (reviewed.profile.kind !== "SUPPORTED") throw Error("Synthetic empty profile must be supported");
+    const startInput = (id: string) => ({ ...pins, mode: "START" as const, request: { projectId: f.project.id, testCaseIds: [id],
+      originalOrganizationId: f.org.id, expectedClerkActorId: f.user.clerkUserId, expectedProfileHash: reviewed.profile.kind === "SUPPORTED" ? reviewed.profile.profileHash : "",
+      executionContext: {}, idempotencyKey: randomUUID() } });
+    const wholeStart = startInput(whole.id), stepStart = startInput(step.id);
+    // Exercise the writer directly with the exact verified scope first so SQL
+    // failures remain diagnostic in this owned synthetic fixture. The actual
+    // transport below must recover only this same accepted body/key.
+    await startManualRun(context as Context & { user: NonNullable<Context["user"]> }, wholeStart.request,
+      { ...pins, mode: "REVIEWED_START", authenticatedClerkSubject: f.user.clerkUserId });
+    const wholeRun = (await starts.start(wholeStart)).legacyAck.testRunId, stepRun = (await starts.start(stepStart)).legacyAck.testRunId;
+    const wholeRef = { projectId: f.project.id, testRunId: wholeRun, testCaseId: whole.id,
+      expectedScope: { projectId: f.project.id, organizationId: f.org.id, clerkActorId: f.user.clerkUserId }, expectedNativeActorId: f.user.id };
+    const wholePreview = await results.previewReviewed({ ...wholeRef, readRequestId: randomUUID() });
+    expect(wholePreview.canWrite).toBe(true);
+    const wholeWrite = { ...wholeRef, mode: "EXACT" as const, expectedFrozenEvidenceHash: wholePreview.frozenEvidenceHash!,
+      expectedRevisionId: wholePreview.currentRevisionId, expectedCurrentFingerprint: wholePreview.currentFingerprint!,
+      status: "PASS" as const, note: null, observations: {}, correctionReason: null, idempotencyKey: randomUUID() };
+    await results.recordReviewed(wholeWrite);
+    const stepRef = { ...pins, testRunId: stepRun, testCaseId: step.id, stepIndex: 0 };
+    const stepPreview = await steps.preview({ ...stepRef, readRequestId: randomUUID() });
+    expect(stepPreview.canRecord).toBe(true);
+    const stepWrite = { ...stepRef, expectedProcedureHash: stepPreview.procedureHash!, expectedCurrentFingerprint: stepPreview.currentFingerprint!,
+      expectedRevisionId: stepPreview.current?.id ?? null, status: "PASS" as const, note: null, observations: { specimen: "", hardwareRevision: "", firmwareVersion: "", environment: "", measurements: [] },
+      evidenceAttachmentIds: [], correctionReason: null, idempotencyKey: randomUUID(), confirmed: true as const };
+    await steps.record(stepWrite);
+    await expect(testCasesRouter.createCaller(context).create({ projectId: f.project.id, title: "Not an author", testType: "FUNCTIONAL", steps: [{ action: "No edit" }] })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(manualExecutionRouter.createCaller({ ...context, authenticatedClerkSubject: undefined }).complete({ testRunId: wholeRun })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await db.identityAccessDraft.update({ where: { organizationId: f.org.id }, data: { revision: 2, configuration: { ...configuration, groups: [] } } });
+    await publishIdentityDraft(db, f.administrator, { organizationId: f.org.id, expectedDraftRevision: 2, expectedPolicyRevision: 1 });
+    expect((await starts.access({ ...pins, requestId: randomUUID() })).canConfigure).toBe(false);
+    await expect(starts.start(wholeStart)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(results.recordReviewed(wholeWrite)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(steps.record(stepWrite)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(runs.complete({ testRunId: wholeRun })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    const retained = await db.manualCaseResultRevision.findFirstOrThrow({ where: { testRunId: wholeRun } });
+    await expect(db.manualCaseResultRevision.create({ data: { ...retained, id: randomUUID(), idempotencyKey: randomUUID(),
+      observations: retained.observations as Prisma.InputJsonValue, legacyPrior: Prisma.DbNull } })).rejects.toThrow(/current full human execution permission/i);
+    expect((await db.testRun.findUniqueOrThrow({ where: { id: wholeRun } })).status).toBe("RUNNING");
+    await db.identityAccessDraft.update({ where: { organizationId: f.org.id }, data: { revision: 3, configuration } });
+    await publishIdentityDraft(db, f.administrator, { organizationId: f.org.id, expectedDraftRevision: 3, expectedPolicyRevision: 2 });
+    expect((await runs.complete({ testRunId: wholeRun })).status).toBe("PASSED");
+    expect((await runs.complete({ testRunId: stepRun })).status).toBe("PASSED");
+    expect(await second.membership.findUnique({ where: { organizationId_userId: { organizationId: f.org.id, userId: f.user.id } } })).toMatchObject({ role: "VIEWER", seatType: "FULL" });
+  });
+  it.skipIf(!historicalRunGuards)("SQL run guard and application evaluator agree on source scope, lease, revision, subject, disablement and seat reduction", async () => {
+    const f = await localRulesFixture();
+    const configuration = { ...f.configuration, groups: [], roles: [{ id: "author", name: "Run executor", permissions: ["runs.execute"] }] };
+    await db.identityAccessDraft.update({ where: { organizationId: f.org.id }, data: { configuration } });
+    await publishIdentityDraft(db, f.administrator, { organizationId: f.org.id, expectedDraftRevision: 1, expectedPolicyRevision: 0 });
+    const allowed = async (projectId = f.project.id, subject = f.user.clerkUserId) => {
+      const [row] = await db.$queryRaw<Array<{ allowed: boolean }>>`SELECT vaettir_identity_may_execute(${f.org.id},${projectId},${f.user.id},${subject}) AS allowed`;
+      return row!.allowed;
+    };
+    expect(await allowed()).toBe(false);
+    await f.store.commit(await f.store.reserve(f.target), f.observation);
+    await updateDirectorySettings(db, f.administrator, { organizationId: f.org.id, connectionId: f.connection.id, expectedRevision: 1,
+      change: { kind: "mappings", mappings: [{ externalGroupId: "synthetic-group-a", roleId: "author", scope: { kind: "projects", projectIds: [f.project.id] } }] } });
+    await f.store.commit(await f.store.reserve(f.target), f.observation);
+    expect(await allowed()).toBe(true);
+    expect((await readPublishedIdentityAccess(db, f.actor, f.org.id, f.project.id)).permissions).toContain("runs.execute");
+    const outside = await db.project.create({ data: { organizationId: f.org.id, name: "Unmapped synthetic project", slug: randomUUID() } });
+    expect(await allowed(outside.id)).toBe(false); expect(await allowed(f.project.id, "different-subject")).toBe(false);
+    await db.membership.update({ where: { organizationId_userId: { organizationId: f.org.id, userId: f.user.id } }, data: { seatType: "READ_ONLY" } });
+    expect(await allowed()).toBe(false);
+    await db.membership.update({ where: { organizationId_userId: { organizationId: f.org.id, userId: f.user.id } }, data: { seatType: "FULL" } });
+    await db.identityDirectorySubject.update({ where: { id: f.subject.id }, data: { observedAt: new Date(Date.now() - 2000), expiresAt: new Date(Date.now() - 1000) } });
+    expect(await allowed()).toBe(false);
+    await f.store.commit(await f.store.reserve(f.target), f.observation);
+    await db.identityDirectorySubject.update({ where: { id: f.subject.id }, data: { revision: { increment: 1 } } });
+    expect(await allowed()).toBe(false);
+    await f.store.commit(await f.store.reserve(f.target), f.observation);
+    expect(await allowed()).toBe(true);
+    await updateDirectorySettings(db, f.administrator, { organizationId: f.org.id, connectionId: f.connection.id, expectedRevision: 2, change: { kind: "disable" } });
+    expect(await allowed()).toBe(false);
+    expect((await readPublishedIdentityAccess(db, f.actor, f.org.id, f.project.id)).permissions).not.toContain("runs.execute");
   });
   it("denies custom plan creation after a seat downgrade, subject rebind or scope mismatch", async () => {
     const f = await localRulesFixture();

@@ -16,7 +16,7 @@ import {
 } from "@vaettir/core";
 import { trpcReact } from "@/lib/trpcReact";
 import { useProjectPermissions } from "@/lib/use-project-permissions";
-import { useManualExecutionAccess } from "@/lib/use-manual-execution-access";
+import { useScopedManualExecutionAccess } from "@/lib/use-scoped-manual-execution-access";
 import { useManualRunStartReviewedAccess } from "@/lib/use-manual-run-start-reviewed-access";
 import {
   safeRunStartSDKRead,
@@ -186,9 +186,10 @@ export function RunConfigurationModal({
     configuration: ReviewedRunConfiguration,
   ) => void;
 }) {
-  const { loaded, canEdit, accessError, retryAccess } =
+  const { loaded, canEdit: nativeCanEdit, accessError, retryAccess } =
     useProjectPermissions(projectId);
-  const access = useManualExecutionAccess(projectId);
+  const access = useScopedManualExecutionAccess(projectId);
+  const canEdit = nativeCanEdit || access.canWrite;
   const { isLoaded, isSignedIn, userId, sessionId } = useAuth();
   const utils = trpcReact.useUtils();
   const metadataAdapter = useMemo(

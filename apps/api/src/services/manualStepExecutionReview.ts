@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { Prisma, type PrismaClient } from "@vaettir/db";
 import { z } from "zod";
 import { lockManualRetestAccess } from "./manualRetestScope.js";
+import { manualRunPermission, type ManualRunActor } from "./manualRunAuthorization.js";
 import { qualityProfileHash, runCaseDefinitionSchema } from "./qualityExperienceProfile.js";
 import { aggregateStepStatus, savedStepEvidenceSchema, safeEvidenceFileName } from "./manualStepExecution.js";
 import { caseFieldPresentationJsonBytes } from "./caseFieldPresentationSchema.js";
@@ -14,7 +15,7 @@ const refused = () => new TRPCError({ code: "PRECONDITION_FAILED", message: "The
 const conflict = () => new TRPCError({ code: "CONFLICT", message: "The reviewed step baseline or exact request changed. Keep the original request and explicitly review current evidence." });
 const businessRefusal = (purpose: "READ" | "WRITE", code: "BAD_REQUEST" | "CONFLICT", message: string) => purpose === "WRITE" ? new TRPCError({ code, message }) : refused();
 const options = { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead, timeout: 20000, maxWait: 5000 };
-type Actor = { id: string; clerkUserId: string };
+type Actor = ManualRunActor;
 type Ref = Pick<ReviewedStepPreviewInput, "projectId" | "testRunId" | "testCaseId" | "stepIndex" | "originalOrganizationId" | "expectedClerkActorId" | "expectedNativeActorId">;
 export const reviewedStepRequestHash = (input: ReviewedStepWriteInput) => createHash("sha256").update(reviewedStepWriteKey(input)).digest("hex");
 /** Preserve the old normalized hash recipe; never apply it as the outer review. */
@@ -25,7 +26,7 @@ export function reviewedStepLegacyHash(input: ReviewedStepWriteInput) {
 }
 async function access(tx: Prisma.TransactionClient, actor: Actor, ref: Ref, write: boolean) {
   const scoped = await lockManualRetestAccess(tx, actor.id, { projectId: ref.projectId, sourceRunId: ref.testRunId, testCaseId: ref.testCaseId,
-    ...(ref.originalOrganizationId === undefined ? {} : { expectedScope: { projectId: ref.projectId, organizationId: ref.originalOrganizationId, clerkActorId: ref.expectedClerkActorId! } }) }, write, actor.clerkUserId, write);
+    ...(ref.originalOrganizationId === undefined ? {} : { expectedScope: { projectId: ref.projectId, organizationId: ref.originalOrganizationId, clerkActorId: ref.expectedClerkActorId! } }) }, write, actor.clerkUserId, write, actor.authenticatedClerkSubject);
   if (ref.expectedNativeActorId !== undefined && ref.expectedNativeActorId !== actor.id) throw new TRPCError({ code: "FORBIDDEN", message: "Restore the original native step author. The retained request was not rebound." });
   const parsedScope = reviewedStepScopeSchema.safeParse({ projectId: scoped.projectId, organizationId: scoped.organizationId, actorId: scoped.actorId, actorClerkUserId: scoped.clerkActorId });
   if (!parsedScope.success) throw refused();
@@ -35,7 +36,7 @@ async function access(tx: Prisma.TransactionClient, actor: Actor, ref: Ref, writ
   const [run] = await tx.$queryRaw<Array<{ projectId: string; status: string; provider: string }>>(Prisma.sql`SELECT "projectId",status::text AS status,left("ciProvider",200) AS provider FROM "TestRun" WHERE id=${ref.testRunId} ${write ? Prisma.sql`FOR UPDATE` : Prisma.sql`FOR SHARE`}`);
   if (!run || run.projectId !== ref.projectId) throw new TRPCError({ code: "NOT_FOUND", message: "Manual execution is unavailable in this original project." });
   const member = await tx.membership.findUniqueOrThrow({ where: { organizationId_userId: { organizationId: scope.organizationId, userId: actor.id } }, select: { role: true, seatType: true } });
-  return { scope, run, canRecover: member.seatType === "FULL" && ["OWNER", "ADMIN", "EDITOR"].includes(member.role) };
+  return { scope, run, canRecover: await manualRunPermission(tx, actor, scope.organizationId, scope.projectId, member, false) };
 }
 const frozenStep = z.object({ order: z.number().int().min(0).max(499), action: z.string().min(1).max(10000), expectedActionOrData: z.string().max(10000).nullable(), expectedResult: z.string().max(10000).nullable(), expectedResponse: z.string().max(10000).nullable(), mediaAttachmentIds: z.array(z.string().min(1).max(200)).max(100) }).strict();
 const frozenCase = runCaseDefinitionSchema.extend({ steps: z.array(frozenStep).min(1).max(500) }).passthrough();
@@ -144,7 +145,8 @@ export async function previewReviewedStep(db: PrismaClient, actor: Actor, raw: R
   }, options);
 }
 export async function recordReviewedStep(db: PrismaClient, actor: Actor, raw: ReviewedStepWriteInput) {
-  actor = freezeReviewedStepValue({ id: actor.id, clerkUserId: actor.clerkUserId });
+  actor = freezeReviewedStepValue({ id: actor.id, clerkUserId: actor.clerkUserId,
+    ...(actor.authenticatedClerkSubject ? { authenticatedClerkSubject: actor.authenticatedClerkSubject } : {}) });
   const input = freezeReviewedStepValue(reviewedStepWriteInputSchema.parse(raw)), requestHash = reviewedStepRequestHash(input);
   if (caseFieldPresentationJsonBytes(input) > 262144) throw refused();
   return withReviewedStepRollback(budget => db.$transaction(async tx => {

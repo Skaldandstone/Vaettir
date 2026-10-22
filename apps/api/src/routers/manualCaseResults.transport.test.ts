@@ -298,7 +298,7 @@ describe("actual reviewed whole-case protected transport; services/native/JWT cr
       expect(service[endpoint]).toHaveBeenCalledOnce();
       expect(service[endpoint]).toHaveBeenCalledWith(
         h.db,
-        { id: nativeId, clerkUserId: verifiedSubject },
+        { id: nativeId, clerkUserId: verifiedSubject, authenticatedClerkSubject: verifiedSubject },
         f.inputs[endpoint],
       );
       expect(h.user!.clerkUserId).toBe(cachedMapping);

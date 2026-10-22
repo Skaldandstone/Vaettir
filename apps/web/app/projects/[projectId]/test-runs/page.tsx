@@ -18,7 +18,7 @@ import {
   applyRunBulkSelection,
   type RunBulkSelectionMode,
 } from "@/lib/run-bulk-selection";
-import { useManualExecutionAccess } from "@/lib/use-manual-execution-access";
+import { useScopedManualExecutionAccess } from "@/lib/use-scoped-manual-execution-access";
 import {
   RUN_SUITE_ALL_VALUE,
   resolveRunSuiteScope,
@@ -138,8 +138,8 @@ function HealingSignalSection({ projectId }: { projectId: string }) {
 export default function TestRunsPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const router = useRouter();
-  const { canEdit, organizationId } = useProjectPermissions(projectId);
-  const manualAccess = useManualExecutionAccess(projectId);
+  const { organizationId } = useProjectPermissions(projectId);
+  const manualAccess = useScopedManualExecutionAccess(projectId);
   const linkedRunId = useSyncExternalStore(
     subscribeRunHash,
     readRunHash,
@@ -270,7 +270,7 @@ export default function TestRunsPage() {
         error:
           "Choose a current suite or another approved scope before applying selection. Nothing was changed.",
       };
-  const manualBulkReady = canEdit && manualAccess.canWrite && manualSourceReady;
+  const manualBulkReady = manualAccess.canWrite && manualSourceReady;
   function manualSelectionWritable() {
     const current = currentSessionScope(
       window.Clerk?.loaded ? window.Clerk.session : null,
@@ -402,7 +402,7 @@ export default function TestRunsPage() {
         }}
       >
         <h1 style={{ marginBottom: 4 }}>Test Runs</h1>
-        {canEdit && (
+        {manualAccess.canWrite && (
           <button
             className="btn-primary"
             type="button"

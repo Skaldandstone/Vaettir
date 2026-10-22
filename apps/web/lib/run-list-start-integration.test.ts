@@ -156,7 +156,7 @@ function harness(mixedSuites = false) {
     useParams: () => ({ projectId: "project" }),
     useRouter: () => ({ push: navigate }),
     useProjectPermissions: () => permissions,
-    useManualExecutionAccess: () => access,
+    useScopedManualExecutionAccess: () => access,
     currentSessionScope,
     applyRunBulkSelection,
     RUN_SUITE_ALL_VALUE,

@@ -4,7 +4,7 @@ import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { resolveQualityExperience } from "@vaettir/core";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
-import { useManualExecutionAccess } from "@/lib/use-manual-execution-access";
+import { useScopedManualExecutionAccess } from "@/lib/use-scoped-manual-execution-access";
 import { useManualRunCurrentReader } from "@/lib/use-manual-run-current-reader";
 import { useRetainedManualRunRows } from "@/lib/use-retained-manual-run-rows";
 import { ManualRunCurrentRenderGuard, type ManualRunCurrentOrigin, type ManualRunCurrentSnapshot } from "@/lib/manual-run-current-reader";
@@ -489,7 +489,7 @@ function ManualExecutionContent() {
   }>();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const access = useManualExecutionAccess(projectId);
+  const access = useScopedManualExecutionAccess(projectId);
   const reader = useManualRunCurrentReader(projectId, testRunId, access.origin?.organizationId, { ready: access.ready });
   const rows = useRetainedManualRunRows(reader.snapshot);
   const snapshot = rows.current === reader.snapshot ? rows.current : null;
@@ -1041,7 +1041,7 @@ function ManualExecutionContent() {
               testCaseId={tc.testCaseId}
               active={readable && !!fresh?.cases.some(current => current.testCaseId === tc.testCaseId)}
               canRetest={
-                canEdit && !!fresh?.cases.some(current => current.testCaseId === tc.testCaseId) &&
+                canEdit && access.nativeCanWrite && !!fresh?.cases.some(current => current.testCaseId === tc.testCaseId) &&
                 (tc.currentResult?.status === "FAIL" ||
                   tc.currentResult?.status === "BLOCKED")
               }

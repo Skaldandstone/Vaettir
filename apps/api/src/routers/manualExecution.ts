@@ -12,6 +12,7 @@ import {
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { resolveStepFieldLabels } from "@vaettir/core";
 import { readManualExecutionCurrentProjection } from "../services/manualExecutionCurrentProjection.js";
+import { manualRunPermission } from "../services/manualRunAuthorization.js";
 import { manualExecutionCurrentOutputSchema } from "../services/manualRunCurrentReadSchema.js";
 import {
   manualRunScopeAvailability,
@@ -661,13 +662,26 @@ export const manualExecutionRouter = router({
       const authorizedRun = await ctx.prisma.testRun.findUniqueOrThrow({
         where: { id: input.testRunId },
       });
-      await requireProjectAccess(ctx, authorizedRun.projectId, "EDITOR");
+      await requireProjectAccess(ctx, authorizedRun.projectId);
       return ctx.prisma.$transaction(async (tx) => {
+        // Keep tenant/subject/policy revocation ordered before the run lock.
+        const projectRef = await tx.project.findUniqueOrThrow({ where: { id: authorizedRun.projectId }, select: { organizationId: true } });
+        const [organization] = await tx.$queryRaw<Array<{ suspendedAt: Date | null }>>`SELECT "suspendedAt" FROM "Organization" WHERE id=${projectRef.organizationId} FOR SHARE`;
+        const [member] = await tx.$queryRaw<Array<{ role: string; seatType: string }>>`SELECT role::text AS role,"seatType"::text AS "seatType" FROM "Membership" WHERE "organizationId"=${projectRef.organizationId} AND "userId"=${ctx.user.id} FOR SHARE`;
+        const [project] = await tx.$queryRaw<Array<{ organizationId: string }>>`SELECT "organizationId" FROM "Project" WHERE id=${authorizedRun.projectId} FOR SHARE`;
+        const [actor] = await tx.$queryRaw<Array<{ clerkUserId: string | null }>>`SELECT "clerkUserId" FROM "User" WHERE id=${ctx.user.id} FOR SHARE`;
+        if (!organization || organization.suspendedAt || !member || project?.organizationId !== projectRef.organizationId ||
+          !actor?.clerkUserId || actor.clerkUserId !== (ctx.authenticatedClerkSubject ?? ctx.user.clerkUserId) ||
+          !["OWNER", "ADMIN", "EDITOR", "VIEWER", "COMPLIANCE_AUDITOR"].includes(member.role))
+          throw new TRPCError({ code: "FORBIDDEN", message: "Current manual execution access is required." });
+        await manualRunPermission(tx, { id: ctx.user.id, clerkUserId: actor.clerkUserId,
+          authenticatedClerkSubject: ctx.authenticatedClerkSubject ?? undefined }, projectRef.organizationId, authorizedRun.projectId, member, true);
         await tx.$queryRaw`SELECT id FROM "TestRun" WHERE id = ${input.testRunId} FOR UPDATE`;
         const run = await tx.testRun.findUniqueOrThrow({
           where: { id: input.testRunId },
         });
-        await requireCurrentPlanAccess(tx, ctx.user.id, run.projectId, true);
+        if (run.projectId !== authorizedRun.projectId) throw new TRPCError({ code: "FORBIDDEN", message: "Run project changed. Refresh the original run." });
+        await requireCurrentPlanAccess(tx, ctx.user.id, run.projectId, false);
 
         if (run.ciProvider !== "manual" || run.status !== "RUNNING") {
           throw new TRPCError({

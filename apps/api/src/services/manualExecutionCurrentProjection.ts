@@ -25,6 +25,7 @@ export async function readManualExecutionCurrentProjection(
   clerkActorId: string,
   input: ManualExecutionReadScopeInput,
   expectedNativeActorId?: string,
+  executionSubject?: string,
 ) {
   if (expectedNativeActorId !== undefined && expectedNativeActorId !== actorId)
     throw new TRPCError({
@@ -36,6 +37,7 @@ export async function readManualExecutionCurrentProjection(
     actorId,
     clerkActorId,
     input,
+    executionSubject,
   );
   if (
     expectedNativeActorId !== undefined &&

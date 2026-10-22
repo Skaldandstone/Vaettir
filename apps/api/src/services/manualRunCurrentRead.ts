@@ -51,6 +51,7 @@ export async function readManualRunCurrent(
           expectedClerkActorId: input.expectedClerkActorId,
         },
         input.expectedNativeActorId,
+        authorized.clerkActorId,
       );
       if (
         view.projectId !== input.projectId ||

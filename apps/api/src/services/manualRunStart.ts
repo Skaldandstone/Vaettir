@@ -4,6 +4,7 @@ import { Prisma } from "@vaettir/db";
 import { z } from "zod";
 import { resolveStepFieldLabels } from "@vaettir/core";
 import { requireProjectAccess, type Context } from "../trpc.js";
+import { manualRunPermission } from "./manualRunAuthorization.js";
 import {
   requireCurrentPlanAccess,
   reviewPlanExecution,
@@ -167,7 +168,7 @@ export async function startManualRun(
       org.suspendedAt ||
       !member ||
       member.seatType !== "FULL" ||
-      !["OWNER", "ADMIN", "EDITOR"].includes(member.role) ||
+      !["OWNER", "ADMIN", "EDITOR", "VIEWER", "COMPLIANCE_AUDITOR"].includes(member.role) ||
       project?.organizationId !== found.organizationId ||
       !actor?.clerkUserId ||
       actor.clerkUserId !==
@@ -187,7 +188,9 @@ export async function startManualRun(
         message:
           "A current signed-in full editor seat in this project is required.",
       });
-    await requireCurrentPlanAccess(tx, ctx.user.id, input.projectId, true);
+    await manualRunPermission(tx, { id: ctx.user.id, clerkUserId: actor.clerkUserId,
+      authenticatedClerkSubject: reviewed?.authenticatedClerkSubject }, found.organizationId, input.projectId, member, true);
+    await requireCurrentPlanAccess(tx, ctx.user.id, input.projectId, false);
   }
   async function previousRunInTransaction(tx: Prisma.TransactionClient) {
     if (!durableId) return null;

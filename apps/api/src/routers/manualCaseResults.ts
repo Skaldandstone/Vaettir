@@ -37,7 +37,7 @@ function verifiedReviewedActor(ctx: Context & { user: NonNullable<Context["user"
       code: "FORBIDDEN",
       message: "An independently verified human session is required for reviewed case evidence.",
     });
-  return { id: ctx.user.id, clerkUserId: ctx.authenticatedClerkSubject };
+  return { id: ctx.user.id, clerkUserId: ctx.authenticatedClerkSubject, authenticatedClerkSubject: ctx.authenticatedClerkSubject };
 }
 export const manualCaseResultsRouter = router({
   accessReviewed: protectedProcedure

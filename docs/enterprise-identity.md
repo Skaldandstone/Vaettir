@@ -73,6 +73,7 @@ The current implementation adds these explicit actions without converting a cust
 | --- | --- | --- |
 | `plans.write` | Manual creation and governed header/status/criteria/configuration/release attachment operations | AI generation, legacy mutation endpoints, workspace plan-type administration |
 | `cases.write` | Manual case creation/content update, explicit case-authoring field projection; changing plan assignment additionally requires `plans.write` | Bulk/import, clone, standalone metadata/history restore, review decisions, AI, field-schema administration |
+| `runs.execute` | Reviewed manual start, whole-case and step recording, current execution view, completion | Legacy starts, retests, datasets, CI/import, release workflows, broad case/plan editing |
 | `requirements.write` | Manual requirement create/update/delete | Provider/import/link-management and AI paths |
 | `architecture.write` | Reviewed manual case/diagram decisions with retained source | AI processing, draft generation and standalone document saving |
 | `reports.create` | Private definition save/update and private preview capture | Sharing approval, shared definition management and catalog administration |
@@ -88,6 +89,14 @@ Local verification includes 105 historical migrations and 21 real PostgreSQL/rou
 The Google fixture remains a **plan for isolated company test users/group**, not authorization to create them, grant delegation, enable domain routing or read a production directory. Clerk's documented Google directory sync reads all users/groups in the Workspace domain and valid credential upload activates synchronization. A group mapping in Vaettir does not constrain that provider read scope. The deployment operator must separately establish an approved exact fixture and consent scope. Sheets OAuth and Search Console ownership are unrelated. Supported source-specific lifecycle/current-session proof and automatic managed-user ingress remain unresolved; do not fabricate these from a linked enterprise account, global active state or omitted groups.
 
 Other catalog actions remain preparation-only or retain native authorization. Keep the exact-workspace publication gate off for general use until coverage and provider acceptance are complete. Do not include these migrations or source changes in an unrelated release by implication.
+
+### Reviewed manual execution coverage
+
+The newest owned SQL fixture applies **106 historical migrations and passes 23 database/router checks**. This supersedes the earlier 105/21 authoring evidence above. A native FULL Viewer with only a published `runs.execute` contribution can start the reviewed whole-case and step workflows, record results, and complete those synthetic runs. Removing its grant rejects new writes and exact receipt recovery; republishing the explicitly restored grant allows completion without changing native role or seat. The SQL whole-case insert guard independently checks current action scope and source freshness; application/SQL parity covers directory disablement, lease expiry, configuration/subject revisions, wrong subject, project scope and seat reduction. The generated-baseline fixture deliberately skips these two trigger-dependent checks and cannot establish run acceptance.
+
+The new run action is available only to verified human transports. Legacy cached-subject callers gain no custom authority. Native ingress, FULL seat, suspension, frozen procedure/context, correction/history and entitlement checks remain. The UI's scoped execution hook retains a separate native-authority flag so retests do not accidentally inherit this grant. Mounted configuration/controller checks include a non-editor executor and permission withdrawal before submission. These are not actual hosted/browser/provider acceptance.
+
+This real SQL exercise also exposed a pre-existing malformed quoted identifier in the reviewed run-start admission query. Its standalone one-line repair is separate from the identity migration and has been handed to the deployment operator for a baseline-native regression; no identity rollout is implied.
 
 ## Remaining implementation, in order
 

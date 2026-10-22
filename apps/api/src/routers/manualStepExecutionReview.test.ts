@@ -35,7 +35,7 @@ describe("reviewed step original verified human transport", () => {
     const h = fixture("verified"), read = preview(), write = record();
     await expect(h.api.preview(read)).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
     await expect(h.api.record(write)).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
-    expect(services.preview).toHaveBeenCalledExactlyOnceWith(h.prisma, { id: "n", clerkUserId: "verified" }, read);
-    expect(services.record).toHaveBeenCalledExactlyOnceWith(h.prisma, { id: "n", clerkUserId: "verified" }, write);
+    expect(services.preview).toHaveBeenCalledExactlyOnceWith(h.prisma, { id: "n", clerkUserId: "verified", authenticatedClerkSubject: "verified" }, read);
+    expect(services.record).toHaveBeenCalledExactlyOnceWith(h.prisma, { id: "n", clerkUserId: "verified", authenticatedClerkSubject: "verified" }, write);
   });
 });

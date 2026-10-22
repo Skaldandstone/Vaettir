@@ -71,6 +71,7 @@ function fixture() {
     };
   const tx = {
     project: {
+      findUniqueOrThrow: vi.fn(async () => ({ organizationId: "o" })),
       findUnique: vi.fn(async () => {
         events.push("current-project");
         return {
@@ -117,6 +118,10 @@ function fixture() {
       const sql = Array.isArray(raw)
         ? raw.join("?")
         : (raw as { sql: string }).sql;
+      if (sql.includes('FROM "Organization"')) return [{ suspendedAt: null }];
+      if (sql.includes('FROM "Membership"')) return [{ role: state.nativeRole, seatType: state.nativeSeat }];
+      if (sql.includes('FROM "Project"')) return [{ organizationId: "o" }];
+      if (sql.includes('FROM "User"')) return [{ clerkUserId: "cl" }];
       if (sql.includes("FOR UPDATE")) {
         events.push("run-lock");
         return [{ id: "run" }];

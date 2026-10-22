@@ -2,6 +2,7 @@ import { Prisma } from "@vaettir/db";
 import { TRPCError } from "@trpc/server";
 import { TestCaseStepInputSchema } from "@vaettir/core";
 import { z } from "zod";
+import { manualRunPermission } from "./manualRunAuthorization.js";
 import {
   manualExecutionReadScopeInputSchema,
   manualExecutionReadScopeOutputSchema,
@@ -42,6 +43,7 @@ export async function lockManualExecutionReadScope(
   actorId: string,
   authenticatedClerkActorId: string,
   raw: ManualExecutionReadScopeInput,
+  executionSubject?: string,
 ): Promise<ManualExecutionObservedReadScope> {
   const input = manualExecutionReadScopeInputSchema.parse(raw);
   if (
@@ -133,9 +135,9 @@ export async function lockManualExecutionReadScope(
     originalOrganizationId: organizationId,
     actorId,
     clerkActorId: actor.clerkUserId,
-    canWrite:
-      member.seatType === "FULL" &&
-      ["OWNER", "ADMIN", "EDITOR"].includes(member.role),
+    canWrite: await manualRunPermission(tx, { id: actorId, clerkUserId: actor.clerkUserId,
+      authenticatedClerkSubject: executionSubject === authenticatedClerkActorId ? executionSubject : undefined },
+      organizationId, projectId, member, false),
     readRequestKey: manualExecutionReadRequestKey(input),
   });
 }

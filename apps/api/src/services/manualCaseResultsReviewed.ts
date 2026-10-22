@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { Prisma, type PrismaClient } from "@vaettir/db";
 import { z } from "zod";
 import { lockManualRetestAccess } from "./manualRetestScope.js";
+import { manualRunPermission, type ManualRunActor } from "./manualRunAuthorization.js";
 import {
   qualityProfileHash,
   runCaseDefinitionSchema,
@@ -31,7 +32,7 @@ import {
   type ManualCaseReviewedWrite,
 } from "./manualCaseResultSchema.js";
 
-type Actor = { id: string; clerkUserId: string };
+type Actor = ManualRunActor;
 type Tx = Prisma.TransactionClient;
 const reject = (
   message: string,
@@ -105,6 +106,7 @@ async function lockedScope(
     write,
     actor.clerkUserId,
     write,
+    actor.authenticatedClerkSubject,
   );
   if (
     input.expectedNativeActorId !== undefined &&
@@ -125,9 +127,7 @@ async function lockedScope(
   });
   return {
     scope,
-    canRecover:
-      member.seatType === "FULL" &&
-      ["OWNER", "ADMIN", "EDITOR"].includes(member.role),
+    canRecover: await manualRunPermission(tx, actor, scope.organizationId, scope.projectId, member, false),
   };
 }
 const context = (

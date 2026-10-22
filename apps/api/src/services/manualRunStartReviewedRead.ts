@@ -5,6 +5,7 @@ import {
   type CaseFieldReadAuthorization,
 } from "./caseFieldReadScope.js";
 import { readQualityExperience } from "./qualityExperienceProfile.js";
+import { manualRunPermission } from "./manualRunAuthorization.js";
 import {
   manualRunStartReviewedAccessInput,
   manualRunStartReviewedAccessOutput,
@@ -40,7 +41,7 @@ const unsupported = () => ({
 });
 const limitations = [
   "Current native metadata read, not a run creation, receipt approval or globally frozen snapshot.",
-  "Can configure/recover means current full-editor access only. Starting still checks the complete selected cases, prerequisites, profile and plan inside its own transaction.",
+  "Can configure/recover means current manual execution permission. Starting still checks the complete selected cases, prerequisites, profile and plan inside its own transaction.",
   "The profile hash covers the complete admitted stored JSON; experience is the existing supported interpretation. Unknown raw profile fields are not exposed.",
   "Unsupported profile data has no substitute hash. Current recovery capability does not prove that a particular retained UUID was accepted.",
 ];
@@ -74,9 +75,8 @@ async function access(
     !["FULL", "READ_ONLY"].includes(rows[0]!.seatType)
   )
     throw refused();
-  const canConfigure =
-    rows[0]!.seatType === "FULL" &&
-    ["OWNER", "ADMIN", "EDITOR"].includes(rows[0]!.role);
+  const canConfigure = await manualRunPermission(tx, { id: actorId, clerkUserId: scope.actorClerkUserId,
+    authenticatedClerkSubject: authorized.clerkActorId }, scope.organizationId, scope.projectId, rows[0]!, false);
   return { scope, canConfigure, canRecover: canConfigure };
 }
 export async function readManualRunStartReviewedAccess(

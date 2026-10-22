@@ -177,6 +177,7 @@ function harness(
   const permissions = {
     loaded: true,
     canEdit: true,
+    customExecute: false,
     accessError: null,
     retryAccess: () => {},
   };
@@ -286,14 +287,14 @@ function harness(
       !auth.isSignedIn ||
       !access.ready ||
       !access.canWrite ||
-      !permissions.canEdit ||
+      !(permissions.canEdit || permissions.customExecute) ||
       nativeState.blocked ||
       query.error ||
       query.isFetching ||
       query.isPaused ||
       !query.isFetchedAfterMount
     ) {
-      if (!props.open || !permissions.canEdit || !access.canWrite)
+      if (!props.open || !(permissions.canEdit || permissions.customExecute) || !access.canWrite)
         nativeState.blocked = true;
       return null;
     }
@@ -390,7 +391,7 @@ function harness(
         if (
           browser.Clerk.session.id !== auth.sessionId ||
           !props.open ||
-          !permissions.canEdit
+          !(permissions.canEdit || permissions.customExecute)
         )
           return false;
       } catch {
@@ -454,7 +455,7 @@ function harness(
         `00000000-0000-4000-8000-${String(++uuid).padStart(12, "0")}`,
     },
     useAuth: () => auth,
-    useManualExecutionAccess: () => access,
+    useScopedManualExecutionAccess: () => access,
     useProjectPermissions: () => permissions,
     trpcReact: { useUtils: () => utils },
     useManualRunStartReviewedAccess: () => metadata,
@@ -608,6 +609,16 @@ function harness(
   };
 }
 describe("actual mounted run configuration synthetic controller", () => {
+  it("allows a scoped non-editor to review and start, but not after execution permission is withdrawn", async () => {
+    const h = harness(); h.permissions.canEdit = false; h.permissions.customExecute = true;
+    h.render(); h.review(); h.click("Start execution record"); await h.flush();
+    expect(h.sent).toHaveLength(1); expect(h.opened).toHaveLength(1);
+    const revoked = harness(); revoked.permissions.canEdit = false; revoked.permissions.customExecute = true;
+    revoked.render(); revoked.review();
+    revoked.permissions.customExecute = false; revoked.access.canWrite = false; revoked.render();
+    expect(revoked.sent).toHaveLength(0);
+    expect(revoked.content).toContain("Private configuration is hidden");
+  });
   it("waits for completed asynchronous ACK verification under scheduler contention without another request or nonce", async () => {
     const h = harness();
     h.review();

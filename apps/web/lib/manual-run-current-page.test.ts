@@ -340,7 +340,8 @@ function harness() {
     useParams: () => ({ projectId: "p", testRunId: "run" }),
     useRouter: () => ({ push }),
     useSearchParams: () => ({ getAll: (key: string) => key === "caseId" ? state.historyCaseIds : [] }),
-    useManualExecutionAccess: () => ({
+    useScopedManualExecutionAccess: () => ({
+      nativeCanWrite: true,
       origin: { organizationId: "o", clerkActorId: "cl" },
       ready: true,
       canWrite: true,

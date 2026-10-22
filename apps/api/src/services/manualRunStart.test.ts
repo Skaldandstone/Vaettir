@@ -4,6 +4,11 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import ts from "typescript";
 import { describe, expect, it, vi } from "vitest";
+import { TRPCError } from "@trpc/server";
+vi.mock("./identityAccessPolicy.js", () => ({
+  readPublishedIdentityAccess: vi.fn(async () => ({ permissions: [] })),
+  lockPublishedIdentityAction: vi.fn(async () => { throw new TRPCError({ code: "FORBIDDEN" }); }),
+}));
 const mocks = vi.hoisted(() => ({
   cached: vi.fn(),
   currentPlan: vi.fn(),
