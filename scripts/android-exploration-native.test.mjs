@@ -36,7 +36,9 @@ const names = [
   "androidExplorerBounds",
   "androidExplorerVisibleNodes",
   "androidExplorerFieldBoundary",
+  "androidExplorerObjectTarget",
   "observeAndroidExplorerWindow",
+  "performAndroidExplorerCommand",
 ];
 const tree = ts.createSourceFile(
     "owned.mjs",
@@ -71,14 +73,15 @@ function fixture() {
     if (args.includes("dumpsys")) return window;
     if (args.includes("cat")) return xml;
     if (args.includes("getprop")) return "Synthetic model\n";
-    if (args.includes("dump") || args.includes("rm")) return "";
+    if (args.includes("dump") || args.includes("rm") || args.includes("input"))
+      return "";
     throw Error("Unexpected native operation");
   };
   const api = new Function(
     "run",
     "createHash",
     "randomBytes",
-    `${declarations}\nreturn {inspectAndroidExplorerTarget,observeAndroidExplorerWindow,androidExplorerBounds};`,
+    `${declarations}\nreturn {inspectAndroidExplorerTarget,observeAndroidExplorerWindow,androidExplorerBounds,performAndroidExplorerCommand};`,
   )(run, createHash, randomBytes);
   return {
     api,
@@ -120,6 +123,63 @@ test("actual native adapter admits accessible named navigation without resource 
     f.api.observeAndroidExplorerWindow("SYNTHETIC", f.pkg).id,
     before,
   );
+});
+
+test("native object evidence retains real ids and downgrades ambiguous selectors without inventing identifiers", () => {
+  const f = fixture();
+  f.xml = f.xml.replace(
+    'text="Browse"',
+    'text="Browse" resource-id="com.vaettir.synthetic:id/browse"',
+  );
+  let target = f.api
+    .observeAndroidExplorerWindow("SYNTHETIC", f.pkg)
+    .controls.find((c) => c.name === "Browse").target;
+  assert.equal(target.objectId, "com.vaettir.synthetic:id/browse");
+  assert.deepEqual(target.selector, {
+    kind: "RESOURCE_ID",
+    value: target.objectId,
+  });
+  assert.equal(target.className, "android.widget.Button");
+  assert.deepEqual(target.bounds, [0, 100, 200, 180]);
+  f.xml = f.xml.replace(
+    "</hierarchy>",
+    '<node package="com.vaettir.synthetic" class="android.widget.Button" text="Other" resource-id="com.vaettir.synthetic:id/browse" bounds="[0,200][200,280]" /></hierarchy>',
+  );
+  target = f.api
+    .observeAndroidExplorerWindow("SYNTHETIC", f.pkg)
+    .controls.find((c) => c.name === "Browse").target;
+  assert.equal(target.objectId, "com.vaettir.synthetic:id/browse");
+  assert.deepEqual(target.selector, { kind: "TEXT_CLASS", value: "Browse" });
+  f.xml = f.xml.replace('text="Other"', 'text="Browse"');
+  target = f.api
+    .observeAndroidExplorerWindow("SYNTHETIC", f.pkg)
+    .controls.find((c) => c.name === "Browse").target;
+  assert.deepEqual(target.selector, { kind: "BOUNDS_ONLY", value: null });
+  f.xml = f.xml.replace(
+    'text="Browse" resource-id=',
+    'text="Browse" content-desc="Open catalog" resource-id=',
+  );
+  target = f.api
+    .observeAndroidExplorerWindow("SYNTHETIC", f.pkg)
+    .controls.find((c) => c.name === "Browse").target;
+  assert.deepEqual(target.selector, {
+    kind: "ACCESSIBILITY_ID",
+    value: "Open catalog",
+  });
+  assert.equal(
+    f.calls.some((args) => args.includes("input")),
+    false,
+  );
+});
+
+test("native command receipt contains the exact dispatched ADB arguments while device selection remains local", () => {
+  const f = fixture(),
+    command = ["shell", "input", "tap", "100", "140"];
+  assert.deepEqual(
+    f.api.performAndroidExplorerCommand("SYNTHETIC", command),
+    command,
+  );
+  assert.deepEqual(f.calls.at(-1), ["-s", "SYNTHETIC", ...command]);
 });
 test("actual adapter identifies form/password and embedded content stops; foreign hierarchy and unsupported bounds refuse", () => {
   for (const className of [

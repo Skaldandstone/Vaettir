@@ -114,14 +114,32 @@ const explorer = createAndroidExplorer(
         role: "button",
         navigable: true,
         bounds: [index * 100, 0, (index + 1) * 100, 100],
+        target: {
+          packageName: "com.vaettir.synthetic",
+          objectId: `com.vaettir.synthetic:id/${name}`,
+          className: "android.widget.Button",
+          selector: {
+            kind: "RESOURCE_ID",
+            value: `com.vaettir.synthetic:id/${name}`,
+          },
+          bounds: [index * 100, 0, (index + 1) * 100, 100],
+        },
       })),
     }),
     tap: (_serial, bounds) => {
       stack.push(current);
       current = names[current][bounds[0] / 100];
+      return [
+        "shell",
+        "input",
+        "tap",
+        String(Math.floor((bounds[0] + bounds[2]) / 2)),
+        String(Math.floor((bounds[1] + bounds[3]) / 2)),
+      ];
     },
     back: () => {
       current = stack.pop();
+      return ["shell", "input", "keyevent", "4"];
     },
     scroll: () => {
       throw Error("No scrolling in synthetic native boundary");
@@ -240,6 +258,19 @@ try {
     0,
   );
   checks.push("No hosted disclosure or case creation during exploration");
+  const technical = page
+    .getByRole("article")
+    .first()
+    .getByText("Object, ADB and API evidence", { exact: true });
+  await technical.click();
+  const technicalText = await page.getByRole("article").first().innerText();
+  assert.ok(technicalText.includes("com.vaettir.synthetic:id/Browse"));
+  assert.ok(technicalText.includes("shell input tap 50 50"));
+  assert.ok(technicalText.includes("NOT_CAPTURED"));
+  assert.ok(technicalText.includes("/exploration/v1/next"));
+  checks.push(
+    "Actual object selector and ADB receipt rendered separately from uncaptured app HTTP evidence",
+  );
   await page
     .getByRole("button", { name: "Pause", exact: true })
     .waitFor({ state: "hidden" });

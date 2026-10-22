@@ -255,7 +255,9 @@ export function createAndroidExplorer(native, { hash, nonce, now }) {
         command !== "next" ||
         session.status !== "ACTIVE" ||
         input.sequence !== session.sequence ||
-        !/^[a-f0-9-]{36}$/.test(text(input.requestId, 36))
+        !/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(
+          text(input.requestId, 36),
+        )
       )
         deny();
       if (session.sequence >= session.limits.actions) {
@@ -317,12 +319,65 @@ export function createAndroidExplorer(native, { hash, nonce, now }) {
           native.inspect(session.serial) !== session.packageName
         )
           throw Error();
+        const observedTarget =
+          action.kind === "TAP"
+            ? target.target
+            : action.kind === "SCROLL"
+              ? before.scroll.target
+              : null;
+        if (
+          action.kind !== "BACK" &&
+          (!observedTarget ||
+            observedTarget.packageName !== session.packageName)
+        )
+          throw Error();
+        const b =
+          action.kind === "TAP"
+            ? target.bounds
+            : action.kind === "SCROLL"
+              ? before.scroll.bounds
+              : null;
+        if (
+          b &&
+          (JSON.stringify(observedTarget.bounds) !== JSON.stringify(b) ||
+            b.length !== 4 ||
+            b.some((v) => !Number.isInteger(v) || v < 0 || v > 20000) ||
+            b[2] <= b[0] ||
+            b[3] <= b[1])
+        )
+          throw Error();
+        const x = b ? String(Math.floor((b[0] + b[2]) / 2)) : null;
+        const expectedArgs =
+          action.kind === "TAP"
+            ? [
+                "shell",
+                "input",
+                "tap",
+                x,
+                String(Math.floor((b[1] + b[3]) / 2)),
+              ]
+            : action.kind === "SCROLL"
+              ? [
+                  "shell",
+                  "input",
+                  "swipe",
+                  x,
+                  String(Math.floor(b[1] + (b[3] - b[1]) * 0.8)),
+                  x,
+                  String(Math.floor(b[1] + (b[3] - b[1]) * 0.3)),
+                  "300",
+                ]
+              : ["shell", "input", "keyevent", "4"];
         session.lastOperation.actionAttempted = true;
         session.actionCount++;
-        if (action.kind === "TAP") native.tap(session.serial, target.bounds);
+        let commandArgs;
+        if (action.kind === "TAP")
+          commandArgs = native.tap(session.serial, target.bounds);
         else if (action.kind === "SCROLL")
-          native.scroll(session.serial, before.scroll.bounds);
-        else native.back(session.serial);
+          commandArgs = native.scroll(session.serial, before.scroll.bounds);
+        else commandArgs = native.back(session.serial);
+        if (JSON.stringify(commandArgs) !== JSON.stringify(expectedArgs))
+          throw Error();
         const after = native.observe(session.serial, session.packageName);
         session.lastOperation.outcome = "OBSERVED";
         if (!remember(session, after) || after.blocked)
@@ -333,6 +388,20 @@ export function createAndroidExplorer(native, { hash, nonce, now }) {
           from: { id: before.id, label: before.label },
           to: { id: after.id, label: after.label },
           observedAt: new Date(now()).toISOString(),
+          execution: {
+            transport: "ADB",
+            connector: {
+              method: "POST",
+              path: "/exploration/v1/next",
+              requestId: input.requestId,
+            },
+            commandArgs,
+            target: observedTarget,
+            appNetwork: {
+              status: "NOT_CAPTURED",
+              reason: "APP_NETWORK_INSPECTION_NOT_CONNECTED",
+            },
+          },
         };
         if (action.kind === "BACK") {
           const prior = session.stack.pop();

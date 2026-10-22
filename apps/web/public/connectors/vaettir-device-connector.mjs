@@ -825,7 +825,9 @@ function createAndroidExplorer(native, { hash, nonce, now }) {
         command !== "next" ||
         session.status !== "ACTIVE" ||
         input.sequence !== session.sequence ||
-        !/^[a-f0-9-]{36}$/.test(text(input.requestId, 36))
+        !/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(
+          text(input.requestId, 36),
+        )
       )
         deny();
       if (session.sequence >= session.limits.actions) {
@@ -887,12 +889,65 @@ function createAndroidExplorer(native, { hash, nonce, now }) {
           native.inspect(session.serial) !== session.packageName
         )
           throw Error();
+        const observedTarget =
+          action.kind === "TAP"
+            ? target.target
+            : action.kind === "SCROLL"
+              ? before.scroll.target
+              : null;
+        if (
+          action.kind !== "BACK" &&
+          (!observedTarget ||
+            observedTarget.packageName !== session.packageName)
+        )
+          throw Error();
+        const b =
+          action.kind === "TAP"
+            ? target.bounds
+            : action.kind === "SCROLL"
+              ? before.scroll.bounds
+              : null;
+        if (
+          b &&
+          (JSON.stringify(observedTarget.bounds) !== JSON.stringify(b) ||
+            b.length !== 4 ||
+            b.some((v) => !Number.isInteger(v) || v < 0 || v > 20000) ||
+            b[2] <= b[0] ||
+            b[3] <= b[1])
+        )
+          throw Error();
+        const x = b ? String(Math.floor((b[0] + b[2]) / 2)) : null;
+        const expectedArgs =
+          action.kind === "TAP"
+            ? [
+                "shell",
+                "input",
+                "tap",
+                x,
+                String(Math.floor((b[1] + b[3]) / 2)),
+              ]
+            : action.kind === "SCROLL"
+              ? [
+                  "shell",
+                  "input",
+                  "swipe",
+                  x,
+                  String(Math.floor(b[1] + (b[3] - b[1]) * 0.8)),
+                  x,
+                  String(Math.floor(b[1] + (b[3] - b[1]) * 0.3)),
+                  "300",
+                ]
+              : ["shell", "input", "keyevent", "4"];
         session.lastOperation.actionAttempted = true;
         session.actionCount++;
-        if (action.kind === "TAP") native.tap(session.serial, target.bounds);
+        let commandArgs;
+        if (action.kind === "TAP")
+          commandArgs = native.tap(session.serial, target.bounds);
         else if (action.kind === "SCROLL")
-          native.scroll(session.serial, before.scroll.bounds);
-        else native.back(session.serial);
+          commandArgs = native.scroll(session.serial, before.scroll.bounds);
+        else commandArgs = native.back(session.serial);
+        if (JSON.stringify(commandArgs) !== JSON.stringify(expectedArgs))
+          throw Error();
         const after = native.observe(session.serial, session.packageName);
         session.lastOperation.outcome = "OBSERVED";
         if (!remember(session, after) || after.blocked)
@@ -903,6 +958,20 @@ function createAndroidExplorer(native, { hash, nonce, now }) {
           from: { id: before.id, label: before.label },
           to: { id: after.id, label: after.label },
           observedAt: new Date(now()).toISOString(),
+          execution: {
+            transport: "ADB",
+            connector: {
+              method: "POST",
+              path: "/exploration/v1/next",
+              requestId: input.requestId,
+            },
+            commandArgs,
+            target: observedTarget,
+            appNetwork: {
+              status: "NOT_CAPTURED",
+              reason: "APP_NETWORK_INSPECTION_NOT_CONNECTED",
+            },
+          },
         };
         if (action.kind === "BACK") {
           const prior = session.stack.pop();
@@ -996,6 +1065,16 @@ function androidExplorerFieldBoundary(nodes) {
   }
   return {blocked:false,fields};
 }
+function androidExplorerObjectTarget(a,bounds,nodes,packageName) {
+  const objectId=a["resource-id"]?exactText(a["resource-id"],200):null;
+  const className=a.class?exactText(a.class,200):null;
+  const unique=(key,value)=>nodes.filter(node=>node.a[key]===value).length===1;
+  let selector={kind:"BOUNDS_ONLY",value:null};
+  if(objectId&&unique("resource-id",objectId))selector={kind:"RESOURCE_ID",value:objectId};
+  else if(a["content-desc"]&&unique("content-desc",a["content-desc"]))selector={kind:"ACCESSIBILITY_ID",value:exactText(a["content-desc"],200)};
+  else if(a.text&&className&&nodes.filter(node=>node.a.text===a.text&&node.a.class===className).length===1)selector={kind:"TEXT_CLASS",value:exactText(a.text,200)};
+  return {packageName,objectId,className,selector,bounds};
+}
 function observeAndroidExplorerWindow(serial, expectedPackage) {
   let hierarchy;
   captureAndroidWindow({source:"android", serial, expectedPackage, label:"Exploration observation"}, {
@@ -1022,7 +1101,7 @@ function observeAndroidExplorerWindow(serial, expectedPackage) {
     semantics.push(Object.keys(a).sort().map(key=>[key,a[key]]));
     if (a.scrollable === "true" && a.enabled !== "false" && !scroll) {
       const b=androidExplorerBounds(a.bounds),x=Math.floor((b[0]+b[2])/2),y1=Math.floor(b[1]+(b[3]-b[1])*0.3),y2=Math.floor(b[1]+(b[3]-b[1])*0.8);
-      if (!boundary.fields.some(f=>x>=f[0]&&x<f[2]&&y2>=f[1]&&y1<f[3])) scroll = {id:hash(JSON.stringify(semantics.at(-1))),bounds:b};
+      if (!boundary.fields.some(f=>x>=f[0]&&x<f[2]&&y2>=f[1]&&y1<f[3])) scroll = {id:hash(JSON.stringify(semantics.at(-1))),bounds:b,target:androidExplorerObjectTarget(a,b,nodes,expectedPackage)};
     }
     if (!name) continue;
     exactText(name, 200);
@@ -1033,17 +1112,18 @@ function observeAndroidExplorerWindow(serial, expectedPackage) {
       ["button", "text", "tab", "link"].includes(role) && !!(a.text || a["content-desc"]);
     const bounds = navigable || a.scrollable === "true" ? androidExplorerBounds(a.bounds) : null;
     if (navigable) { const x=Math.floor((bounds[0]+bounds[2])/2),y=Math.floor((bounds[1]+bounds[3])/2); if(boundary.fields.some(f=>x>=f[0]&&x<f[2]&&y>=f[1]&&y<f[3])) navigable=false; }
-    controls.push({id, name, role, navigable, bounds});
+    controls.push({id, name, role, navigable, bounds,target:navigable?androidExplorerObjectTarget(a,bounds,nodes,expectedPackage):null});
   }
   if (!controls.length) throw captureRefusal();
   return {id:hash(JSON.stringify(semantics)), label, controls, blocked, scroll};
 }
+function performAndroidExplorerCommand(serial,args) { run("adb",["-s",serial,...args]); return args; }
 const androidExplorer = createAndroidExplorer({
   inspect: inspectAndroidExplorerTarget,
   observe: observeAndroidExplorerWindow,
-  tap: (serial, b) => run("adb", ["-s", serial, "shell", "input", "tap", String(Math.floor((b[0]+b[2])/2)), String(Math.floor((b[1]+b[3])/2))]),
-  back: serial => run("adb", ["-s", serial, "shell", "input", "keyevent", "4"]),
-  scroll: (serial, b) => { const x=String(Math.floor((b[0]+b[2])/2)), height=b[3]-b[1]; return run("adb", ["-s", serial, "shell", "input", "swipe", x, String(Math.floor(b[1]+height*0.8)), x, String(Math.floor(b[1]+height*0.3)), "300"]); },
+  tap: (serial, b) => performAndroidExplorerCommand(serial,["shell", "input", "tap", String(Math.floor((b[0]+b[2])/2)), String(Math.floor((b[1]+b[3])/2))]),
+  back: serial => performAndroidExplorerCommand(serial,["shell", "input", "keyevent", "4"]),
+  scroll: (serial, b) => { const x=String(Math.floor((b[0]+b[2])/2)), height=b[3]-b[1]; return performAndroidExplorerCommand(serial,["shell", "input", "swipe", x, String(Math.floor(b[1]+height*0.8)), x, String(Math.floor(b[1]+height*0.3)), "300"]); },
 }, {hash: value => createHash("sha256").update(value).digest("hex"), nonce: () => randomBytes(24).toString("hex"), now: Date.now});
 async function handleAndroidExploration(request, response, cors, origin, command) {
   let timer, iterator;

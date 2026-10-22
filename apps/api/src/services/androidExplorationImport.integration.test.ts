@@ -78,6 +78,35 @@ function input(label = "Browse") {
       from: { id: digest("Home"), label: "Home" },
       to: { id: digest(label), label },
       observedAt: "2026-10-22T15:01:00.000Z",
+      execution: {
+        transport: "ADB" as const,
+        connector: {
+          method: "POST" as const,
+          path: "/exploration/v1/next" as const,
+          requestId: "11111111-1111-4111-8111-111111111111",
+        },
+        commandArgs: ["shell", "input", "tap", "100", "50"] as [
+          "shell",
+          "input",
+          "tap",
+          string,
+          string,
+        ],
+        target: {
+          packageName: "com.vaettir.synthetic",
+          objectId: "com.vaettir.synthetic:id/navigation",
+          className: "android.widget.Button",
+          selector: {
+            kind: "RESOURCE_ID" as const,
+            value: "com.vaettir.synthetic:id/navigation",
+          },
+          bounds: [0, 0, 200, 100] as [number, number, number, number],
+        },
+        appNetwork: {
+          status: "NOT_CAPTURED" as const,
+          reason: "APP_NETWORK_INSPECTION_NOT_CONNECTED" as const,
+        },
+      },
     },
   ];
   return androidExplorationCommit.parse({
@@ -170,6 +199,16 @@ it("creates only selected pending proposals and exact source/version/audit; conc
     nativeExecutionIndependentlyVerified: false,
   });
   expect(saved.steps).toHaveLength(1);
+  expect(saved.steps[0]!.action).toContain(
+    'objectId="com.vaettir.synthetic:id/navigation"',
+  );
+  expect(saved.steps[0]!.action).toContain(
+    "adb -s <selected-device> shell input tap 100 50",
+  );
+  expect(saved.steps[0]!.expectedActionOrData).toContain(
+    "App backend requests were not captured",
+  );
+  expect(saved.steps[0]!.expectedResponse).toBeNull();
   expect(saved.versions).toHaveLength(1);
   expect(await prisma.testCase.count({ where: { projectId } })).toBe(1);
   expect(

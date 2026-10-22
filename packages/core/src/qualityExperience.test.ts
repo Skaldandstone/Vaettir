@@ -81,6 +81,8 @@ describe("quality experience", () => {
     expect(automationTargetForFramework("VITEST")).toBe("JEST_VITEST");
     expect(automationTargetForFramework("PYTEST")).toBe("PYTEST");
     expect(automationTargetForFramework("PLAYWRIGHT")).toBe("PLAYWRIGHT");
+    expect(automationTargetForFramework("android-exploration")).toBe("UI_AUTOMATOR");
+    expect(automationTargetForFramework("ANDROID-EXPLORATION")).toBeNull();
     expect(automationTargetForFramework(null)).toBeNull();
     expect(automationTargetForFramework("GAME")).toBeNull();
     expect(automationTargetForFramework("UNKNOWN")).toBeNull();

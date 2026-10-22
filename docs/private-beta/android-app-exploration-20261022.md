@@ -130,3 +130,60 @@ excluded input rectangle, and scroll paths crossing one are not dispatched.
 No typing, field focus or submission command is added. Hidden subtrees are also
 excluded after complete hierarchy/package admission, without weakening that
 original admission. Input-boundary tests cover these cases explicitly.
+
+## Technical evidence and automation suggestions
+
+Each newly observed forward step retains the real Android resource id (when
+available), class, selector type/value and original bounds, separately from
+its hashed observation id. Ambiguous ids fall back to a unique observed
+accessibility or text/class selector; otherwise they remain bounds-only.
+The action receipt contains the actual dispatched ADB argument array and
+connector request id. The engine refuses mismatched geometry before acting;
+a mismatched command receipt after acting is uncertain and is never replayed.
+
+The exact selected evidence is visible before hosted disclosure and retained in
+the pending-review case's steps and provenance. The backend column explicitly
+records missing app traffic. There is no app network adapter in this slice:
+`NOT_CAPTURED` cannot be represented as a captured endpoint or response.
+The earlier physical pilot predates this schema and does not prove collection
+of these additional technical fields. A fresh bounded native test is required.
+
+The `android-exploration` source family suggests UI Automator in the existing
+automation-draft picker. This is a compatible draft target, not proof that the
+case is replayable or its assertions were verified. Draft instructions retain
+missing traffic as TODO, reject bounds-only as a durable locator and preserve
+the expected behavior. Generation still follows the existing disclosed AI
+operation; this change does not invoke it or spend credits automatically.
+
+## Reviewed repairs for existing cases (APP-NAV-02)
+
+The owner also requires selected existing-case replay, technical enrichment,
+and a recommendation when an old object or path has changed. The pure
+`recommendAndroidObjectRepair` module prepares candidate evidence from a current
+same-app observation and exact original case/scope pins. It ranks matching labels
+and classes for review, retains alternatives, refuses stale/foreign/protected
+observations, and excludes ambiguous, bounds-only, disabled and sensitive objects.
+Class or proximity alone cannot nominate a replacement. Scores order evidence;
+they are not match probabilities. The module performs no I/O or native commands.
+
+The intended sequence is:
+
+1. Read the selected case's exact current revision and attempt supported reviewed
+   steps under fresh original project/account/device authority.
+2. If an object cannot resolve, stop and show the original selector, current
+   candidate selectors, matching evidence and unchanged expected result. Ask
+   whether a candidate is the correct new path; never silently select one.
+3. After explicit candidate approval, recheck scope, case revision, app, current
+   screen and unique selector, then admit a separately bounded retry.
+4. Verify the original assertion. An uncertain action must first be reconciled;
+   an assertion failure requires app-defect/case review, not locator healing.
+5. Review a separate versioned case patch with original evidence and audit trail.
+   Feed approved evidence and unresolved blockers into automation suggestions.
+
+The pure recommendation module and draft guidance are implemented foundations.
+The existing-case selection/replay UI, assertion evaluator, native retry admission
+and durable reviewed patch operation are not implemented in this slice. No
+hosted endpoint exposes the module and it grants neither execution nor update
+authority. No existing case has been replayed, healed or updated by this work.
+App-request capture, a fresh technical native run and authenticated sandbox
+addition/replay remain acceptance gates. aTwist activation stays pending review.

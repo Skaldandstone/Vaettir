@@ -10,6 +10,7 @@ import {
   androidExplorerDevices as devicesSchema,
   androidExplorerCapabilities as capabilities,
   navigationProposal,
+  navigationTechnicalAction,
 } from "../../api/src/services/androidExplorationSchema";
 import {
   buildDeviceConnectorLauncher,
@@ -935,6 +936,23 @@ export function AndroidAppExploration(props: Props) {
                         <li key={step.sequence}>
                           {step.from.label} → {step.action.label} →{" "}
                           {step.to.label}
+                          <details>
+                            <summary>Object, ADB and API evidence</summary>
+                            <p>{navigationTechnicalAction(step)}</p>
+                            <p>
+                              App backend requests: not captured. App network
+                              inspection must be connected before API
+                              expectations can be proposed.
+                            </p>
+                            <pre
+                              style={{
+                                whiteSpace: "pre-wrap",
+                                overflowWrap: "anywhere",
+                              }}
+                            >
+                              {JSON.stringify(step.execution, null, 2)}
+                            </pre>
+                          </details>
                         </li>
                       ))}
                     </ol>

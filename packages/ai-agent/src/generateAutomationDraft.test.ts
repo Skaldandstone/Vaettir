@@ -5,6 +5,38 @@ import {
 } from "./generateAutomationDraft.js";
 
 describe("automation draft contract", () => {
+  it("keeps observed Android commands, missing app traffic and proposed repairs distinct", () => {
+    const prompt = buildAutomationDraftPrompt({
+      framework: "UI_AUTOMATOR",
+      automationId: "VAE-native",
+      projectName: "Synthetic",
+      title: "Browse",
+      given: ["Home"],
+      when: ["Choose Browse"],
+      then: ["Catalog is visible"],
+      structuredSteps: [
+        {
+          action:
+            'objectId="com.example.synthetic:id/browse"; adb -s <selected-device> shell input tap 50 50; connector=POST /exploration/v1/next',
+          expectedActionOrData: "NOT_CAPTURED",
+          expectedResult: "Catalog is visible",
+        },
+      ],
+    });
+    expect(prompt).toContain("com.example.synthetic:id/browse");
+    expect(prompt).toContain(
+      "ADB commands and connector HTTP calls are not the app's backend requests",
+    );
+    expect(prompt).toContain(
+      "BOUNDS_ONLY is an observed position, not a durable replay locator",
+    );
+    expect(prompt).toContain(
+      "NOT_CAPTURED network evidence must remain an explicit TODO",
+    );
+    expect(prompt).toContain("a retry verifies the original expected result");
+    expect(prompt).toContain("never silently alter expectations");
+    expect(prompt).toContain("Do not generate automatic selector fallbacks");
+  });
   it("grounds the prompt in the selected framework and reviewed case", () => {
     const prompt = buildAutomationDraftPrompt({
       framework: "MAESTRO",
@@ -59,15 +91,29 @@ describe("automation draft contract", () => {
       validationCommands: ["xcodebuild test"],
     };
     expect(AutomationDraftSchema.parse(valid)).toEqual(valid);
-    expect(() => AutomationDraftSchema.parse({ ...valid, framework: "UNKNOWN" })).toThrow();
+    expect(() =>
+      AutomationDraftSchema.parse({ ...valid, framework: "UNKNOWN" }),
+    ).toThrow();
   });
 
   it("supports native, cross-platform, service, and game automation targets", () => {
     const targets = [
-      "SWIFT_TESTING", "COMPOSE_UI", "UI_AUTOMATOR", "ROBOLECTRIC",
-      "APPIUM_WEBDRIVERIO", "DETOX", "FLUTTER_INTEGRATION_TEST",
-      "PLAYWRIGHT", "PYTEST", "JUNIT5", "NUNIT", "POSTMAN", "PACT",
-      "UNITY_TEST_FRAMEWORK", "UNREAL_AUTOMATION", "GODOT_GDUNIT4",
+      "SWIFT_TESTING",
+      "COMPOSE_UI",
+      "UI_AUTOMATOR",
+      "ROBOLECTRIC",
+      "APPIUM_WEBDRIVERIO",
+      "DETOX",
+      "FLUTTER_INTEGRATION_TEST",
+      "PLAYWRIGHT",
+      "PYTEST",
+      "JUNIT5",
+      "NUNIT",
+      "POSTMAN",
+      "PACT",
+      "UNITY_TEST_FRAMEWORK",
+      "UNREAL_AUTOMATION",
+      "GODOT_GDUNIT4",
     ] as const;
     for (const framework of targets) {
       const prompt = buildAutomationDraftPrompt({
@@ -75,7 +121,10 @@ describe("automation draft contract", () => {
         automationId: "VAE-case_native",
         projectName: "Client app",
         title: "Critical path",
-        given: [], when: [], then: [], structuredSteps: [],
+        given: [],
+        when: [],
+        then: [],
+        structuredSteps: [],
       });
       expect(prompt).toContain(`Target framework: ${framework}`);
       expect(prompt).toContain("VAE-case_native");

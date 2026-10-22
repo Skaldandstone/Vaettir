@@ -55,6 +55,85 @@ export const androidExplorerCapabilities = z
   })
   .strict();
 const screen = z.object({ id: digest, label: text(200) }).strict();
+const coordinate = z.string().regex(/^(?:0|[1-9][0-9]{0,4})$/);
+export const observedAndroidObject = z
+  .object({
+    packageName: text(200),
+    objectId: text(200).nullable(),
+    className: text(200).nullable(),
+    selector: z
+      .object({
+        kind: z.enum([
+          "RESOURCE_ID",
+          "ACCESSIBILITY_ID",
+          "TEXT_CLASS",
+          "BOUNDS_ONLY",
+        ]),
+        value: text(500).nullable(),
+      })
+      .strict(),
+    bounds: z.tuple([
+      z.number().int().min(0).max(20000),
+      z.number().int().min(0).max(20000),
+      z.number().int().min(0).max(20000),
+      z.number().int().min(0).max(20000),
+    ]),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (
+      value.bounds[2] <= value.bounds[0] ||
+      value.bounds[3] <= value.bounds[1] ||
+      (value.selector.kind === "BOUNDS_ONLY") !==
+        (value.selector.value === null) ||
+      (value.selector.kind === "RESOURCE_ID" &&
+        value.selector.value !== value.objectId) ||
+      (value.selector.kind === "TEXT_CLASS" && value.className === null)
+    )
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "Retain the exact observed Android object and selector quality.",
+      });
+  });
+export const androidStepExecution = z
+  .object({
+    transport: z.literal("ADB"),
+    connector: z
+      .object({
+        method: z.literal("POST"),
+        path: z.literal("/exploration/v1/next"),
+        requestId: z.string().uuid(),
+      })
+      .strict(),
+    commandArgs: z.union([
+      z.tuple([
+        z.literal("shell"),
+        z.literal("input"),
+        z.literal("tap"),
+        coordinate,
+        coordinate,
+      ]),
+      z.tuple([
+        z.literal("shell"),
+        z.literal("input"),
+        z.literal("swipe"),
+        coordinate,
+        coordinate,
+        coordinate,
+        coordinate,
+        z.literal("300"),
+      ]),
+    ]),
+    target: observedAndroidObject,
+    appNetwork: z
+      .object({
+        status: z.literal("NOT_CAPTURED"),
+        reason: z.literal("APP_NETWORK_INSPECTION_NOT_CONNECTED"),
+      })
+      .strict(),
+  })
+  .strict();
 export const observedNavigationStep = z
   .object({
     sequence: z.number().int().min(1).max(24),
@@ -68,8 +147,32 @@ export const observedNavigationStep = z
     from: screen,
     to: screen,
     observedAt: z.string().datetime(),
+    execution: androidStepExecution,
   })
-  .strict();
+  .strict()
+  .superRefine((step, ctx) => {
+    const b = step.execution.target.bounds,
+      x = String(Math.floor((b[0] + b[2]) / 2));
+    const expected =
+      step.action.kind === "TAP"
+        ? ["shell", "input", "tap", x, String(Math.floor((b[1] + b[3]) / 2))]
+        : [
+            "shell",
+            "input",
+            "swipe",
+            x,
+            String(Math.floor(b[1] + (b[3] - b[1]) * 0.8)),
+            x,
+            String(Math.floor(b[1] + (b[3] - b[1]) * 0.3)),
+            "300",
+          ];
+    if (JSON.stringify(expected) !== JSON.stringify(step.execution.commandArgs))
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "The observed command must match the action and original target bounds.",
+      });
+  });
 export const observedNavigationJourney = z
   .object({
     id: digest,
@@ -88,6 +191,10 @@ export const observedNavigationJourney = z
       const step = journey.steps[i]!;
       if (
         step.from.id === step.to.id ||
+        step.execution.target.packageName !== journey.packageName ||
+        (step.action.kind === "TAP"
+          ? step.execution.commandArgs[2] !== "tap"
+          : step.execution.commandArgs[2] !== "swipe") ||
         Date.parse(step.observedAt) < Date.parse(journey.startedAt) ||
         (i > 0 &&
           (journey.steps[i - 1]!.to.id !== step.from.id ||
@@ -109,6 +216,12 @@ export const observedNavigationJourney = z
 export type ObservedNavigationJourney = z.infer<
   typeof observedNavigationJourney
 >;
+export function navigationTechnicalAction(
+  step: z.infer<typeof observedNavigationStep>,
+) {
+  const target = step.execution.target;
+  return `Android ${step.action.kind}: ${JSON.stringify(step.action.label)}; package=${JSON.stringify(target.packageName)}; objectId=${JSON.stringify(target.objectId)}; class=${JSON.stringify(target.className)}; selector=${JSON.stringify(target.selector)}; bounds=${JSON.stringify(target.bounds)}; adb -s <selected-device> ${step.execution.commandArgs.join(" ")}; connector=POST /exploration/v1/next; requestId=${step.execution.connector.requestId}. Observed locator only; resolve the current unique target again before execution.`;
+}
 export function navigationProposal(journey: ObservedNavigationJourney) {
   const value = observedNavigationJourney.parse(journey),
     first = value.steps[0]!,

@@ -50,6 +50,16 @@ function fixture() {
           role: "button",
           navigable: true,
           bounds: [index * 100, 0, (index + 1) * 100, 100],
+          target: {
+            packageName: "com.vaettir.synthetic",
+            objectId: `com.vaettir.synthetic:id/${name}`,
+            className: "android.widget.Button",
+            selector: {
+              kind: "RESOURCE_ID",
+              value: `com.vaettir.synthetic:id/${name}`,
+            },
+            bounds: [index * 100, 0, (index + 1) * 100, 100],
+          },
         })),
       };
     },
@@ -60,11 +70,19 @@ function fixture() {
       stack.push(screen);
       screen = name;
       if (failAfterAction) failed = true;
+      return [
+        "shell",
+        "input",
+        "tap",
+        String(Math.floor((bounds[0] + bounds[2]) / 2)),
+        String(Math.floor((bounds[1] + bounds[3]) / 2)),
+      ];
     },
     back() {
       calls.push("back");
       actions++;
       screen = stack.pop();
+      return ["shell", "input", "keyevent", "4"];
     },
     scroll() {
       throw Error("no scroll in fixture");
@@ -130,6 +148,7 @@ function fixture() {
     changeScreen() {
       changed = true;
     },
+    native,
     advance(ms) {
       clock += ms;
     },
@@ -176,6 +195,80 @@ test("bounded DFS produces real multi-step journeys, returns through Back and ex
   for (const j of f.state.journeys)
     assert.equal(j.id, hash(JSON.stringify(j.steps)));
   assert.equal(f.state.aiProcessingPerformed, false);
+  const execution = f.state.journeys[0].steps[0].execution;
+  assert.equal(execution.target.objectId, "com.vaettir.synthetic:id/Browse");
+  assert.deepEqual(execution.commandArgs, [
+    "shell",
+    "input",
+    "tap",
+    "50",
+    "50",
+  ]);
+  assert.equal(
+    execution.connector.requestId,
+    "11111111-1111-4111-8111-111111111111",
+  );
+  assert.deepEqual(execution.appNetwork, {
+    status: "NOT_CAPTURED",
+    reason: "APP_NETWORK_INSPECTION_NOT_CONNECTED",
+  });
+});
+
+test("malformed command identifiers and mismatched native target geometry refuse before acting", () => {
+  for (const requestId of [
+    "------------------------------------",
+    "11111111-1111-1111-1111-111111111111",
+  ]) {
+    const f = fixture();
+    f.start();
+    const count = f.calls.length;
+    assert.throws(() => f.next({ requestId }));
+    assert.equal(f.calls.length, count);
+    assert.equal(f.actions, 0);
+  }
+  for (const mutation of [
+    (c) => {
+      c.target = null;
+    },
+    (c) => {
+      c.target.packageName = "com.other.synthetic";
+    },
+    (c) => {
+      c.target.bounds = [0, 0, 200, 100];
+    },
+    (c) => {
+      c.target.bounds = c.bounds = [0, 0, 0, 100];
+    },
+  ]) {
+    const f = fixture();
+    f.start();
+    const observe = f.native.observe;
+    f.native.observe = () => {
+      const value = observe();
+      mutation(value.controls[0]);
+      return value;
+    };
+    f.next();
+    assert.equal(f.actions, 0);
+    assert.equal(f.state.reason, "TARGET_OR_OBSERVATION_UNAVAILABLE");
+    assert.equal(f.state.journeys.length, 0);
+  }
+});
+
+test("a command adapter mismatch after a tap is uncertain and cannot produce evidence or replay", () => {
+  const f = fixture();
+  f.start();
+  const tap = f.native.tap;
+  f.native.tap = (...args) => {
+    tap(...args);
+    return ["shell", "input", "tap", "999", "999"];
+  };
+  f.next();
+  assert.equal(f.actions, 1);
+  assert.equal(f.state.reason, "ACTION_OUTCOME_UNCERTAIN_NO_RETRY");
+  assert.equal(f.state.journeys.length, 0);
+  assert.throws(() => f.next());
+  assert.equal(f.actions, 1);
 });
 test("original actor, workspace, project, login and origin pins cannot be rebound", () => {
   const f = fixture();

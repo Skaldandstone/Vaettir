@@ -107,6 +107,7 @@ jobs:
       - name: Verify operations contracts
         run: |
           pnpm test:operations
+          pnpm test:device-capture
           pnpm test:native-fresh-next
           pnpm test:native-fresh-final
           pnpm test:native-fresh-final-adapter

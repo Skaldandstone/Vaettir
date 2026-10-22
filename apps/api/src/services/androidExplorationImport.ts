@@ -5,6 +5,7 @@ import {
   androidExplorationCommit,
   androidExplorationReceipt,
   navigationProposal,
+  navigationTechnicalAction,
 } from "./androidExplorationSchema.js";
 import { snapshotTestCaseVersion } from "./testCaseVersion.js";
 import type { z } from "zod";
@@ -110,8 +111,9 @@ export async function importAndroidExploration(
         const proposal = navigationProposal(journey);
         const steps = journey.steps.map((step, order) => ({
           order,
-          action: proposal.when[order]!,
-          expectedActionOrData: `Observed ${step.action.kind}: ${step.action.label}; from ${step.from.id}; to ${step.to.id}`,
+          action: `${proposal.when[order]!} ${navigationTechnicalAction(step)}`,
+          expectedActionOrData:
+            "App backend requests were not captured. Connect app network inspection before defining API expectations; connector/ADB calls are recorded in the action, not as app backend evidence.",
           expectedResult: `Review destination: ${step.to.label}`,
           expectedResponse: null,
         }));
