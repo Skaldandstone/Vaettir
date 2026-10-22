@@ -1,5 +1,4 @@
 // Real connection/intake/review/modal UI with explicit synthetic boundaries.
-/* global document, innerWidth */
 import {createRequire} from "node:module";
 import {readFile,mkdir,writeFile} from "node:fs/promises";
 import {createServer} from "node:http";
@@ -38,6 +37,7 @@ try{
  assert.equal(await page.getByRole("button",{name:"Approve selected additions",exact:true}).count(),0,"Defect mode never offers requirement creation");
  await page.getByRole("button",{name:"Review selected defect tasks",exact:true}).click();
  await visible(page.getByRole("button",{name:"Save reviewed Jira tasks",exact:true}));
+ assert.equal(await page.getByText("Add new task",{exact:true}).count(),2,"Review shows the concrete action for each selected task");
  assert.equal(await page.getByRole("button",{name:"Save reviewed Jira tasks",exact:true}).isEnabled(),false);
  await page.screenshot({path:path.join(output,"jira-review-dark.png"),fullPage:true});
  await page.getByRole("checkbox",{name:"I approve saving these reviewed Jira summaries",exact:false}).check();
@@ -64,14 +64,26 @@ try{
  assert.ok(await page.locator(".modal-panel").evaluate(element=>element.scrollWidth<=element.clientWidth+1),"Connection and review fit at 390px");
  await page.getByRole("button",{name:"Retry the same task import",exact:true}).click();
  await visible(page.getByText("The earlier Jira task import was already saved. No duplicate write was made.",{exact:true}));
+ await page.getByRole("checkbox",{name:"Import SYN-2",exact:true}).uncheck();
+ assert.equal(await page.getByRole("button",{name:"Save reviewed Jira tasks",exact:true}).count(),0,"Changing selection withholds the previous approval");
+ await page.getByRole("button",{name:"Review selected defect tasks",exact:true}).click();
+ await visible(page.getByText("Keep unchanged task",{exact:true}));
+ await page.getByRole("checkbox",{name:"I approve saving these reviewed Jira summaries",exact:false}).check();
+ await page.getByRole("button",{name:"Reject next write",exact:true}).dispatchEvent("click");
+ await page.getByRole("button",{name:"Save reviewed Jira tasks",exact:true}).click();
+ await visible(page.getByRole("button",{name:"Review again after rejection",exact:true}));
+ assert.equal(await page.getByRole("checkbox",{name:"Import SYN-1",exact:true}).isEnabled(),false,"Rejected request stays held until explicitly released");
+ await page.getByRole("button",{name:"Review again after rejection",exact:true}).click();
+ assert.equal(await page.getByRole("checkbox",{name:"Import SYN-1",exact:true}).isEnabled(),true);
+ assert.equal(await page.getByRole("button",{name:"Save reviewed Jira tasks",exact:true}).count(),0,"Rejected review cannot reuse its approval");
  await page.getByRole("button",{name:"Close",exact:true}).click();
  await page.getByText("Synthetic transport evidence",{exact:true}).click();
  const evidence=JSON.parse(await page.getByTestId("evidence").innerText());
- assert.equal(evidence.readCount,1);assert.equal(evidence.requirements,0);assert.equal(evidence.sourceWrites,1);assert.equal(evidence.writes.length,2);assert.deepEqual(evidence.writes[0],evidence.writes[1]);
+ assert.equal(evidence.readCount,1);assert.equal(evidence.requirements,0);assert.equal(evidence.sourceWrites,1);assert.equal(evidence.writes.length,3);assert.deepEqual(evidence.writes[0],evidence.writes[1]);assert.notEqual(evidence.writes[1].requestId,evidence.writes[2].requestId);
  await page.goto(origin+"/?screen=map");await page.getByRole("button",{name:"Connect Jira tracker",exact:true}).click();
  await visible(page.getByRole("button",{name:"Preview or resume Jira issues",exact:true}));
  assert.deepEqual(errors,[]);
- const result={actualComponents:true,syntheticTransport:true,hostedProviderAccepted:false,checks:["settings and defect-map connection entry points","explicit scoped issue-read and separate task-save approval","unchanged requirement classification remains selectable for tasks","no requirement mutations","active write blocks close","unknown receipt survives failed refresh, close and reopen","exact retry and one durable write","dark, light and390px"],errors,evidence};
+ const result={actualComponents:true,syntheticTransport:true,hostedProviderAccepted:false,checks:["settings and defect-map connection entry points","explicit scoped issue-read and separate task-save approval","per-task action review","unchanged requirement classification remains selectable for tasks","no requirement mutations","active write blocks close","unknown receipt survives failed refresh, close and reopen","exact retry and one durable write","selection change withholds old review","known rejection releases only through fresh review","dark, light and390px"],errors,evidence};
  await writeFile(path.join(output,"evidence.json"),JSON.stringify(result,null,2));console.log(JSON.stringify(result));
 }catch(error){await page.screenshot({path:path.join(output,"failure.png"),fullPage:true});console.error(JSON.stringify({errors,body:await page.locator("body").innerText()}));throw error;}
 finally{await browser.close();await new Promise(resolve=>server.close(resolve));}

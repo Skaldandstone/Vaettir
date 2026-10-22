@@ -1,7 +1,7 @@
 // Only transport, identity and adjacent unrelated panels are synthetic.
 import React, { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { buildDefectMap, emptyDefectDocument } from "@vaettir/core";
+import { buildDefectMap, emptyDefectDocument, defectRecordKey } from "@vaettir/core";
 const project={id:"synthetic-project",organizationId:"synthetic-org"};
 const source={id:"10001",key:"SYN",name:"Synthetic tracker",url:"https://synthetic.atlassian.net/browse/SYN"};
 const issues=[1,2].map(n=>({id:String(20000+n),projectId:source.id,key:`SYN-${n}`,title:`Synthetic defect ${n}`,status:n===1?"To do":"Done",updatedAt:"2026-10-20T00:00:00Z",url:`https://synthetic.atlassian.net/browse/SYN-${n}`,classification:n===1?"new":"unchanged",requirementId:n===1?null:"existing-requirement"}));
@@ -38,7 +38,7 @@ export const trpcReact={
  },
  defectMap:{
   get:query(["defectMap","get"],()=>{const document=emptyDefectDocument();return{version:0,document,map:buildDefectMap(document,()=>"a".repeat(64)),capabilities:{ingestion:"reviewed_metadata_export_and_jira_snapshot",liveSync:"unavailable",aiUsed:false,credits:0}};}),
-  previewJira:mutation(["defectMap","previewJira"],input=>({version:0,previewHash:"a".repeat(64),changes:input.issueIds.map(id=>({id})),tasks:issues.filter(issue=>input.issueIds.includes(issue.id)).map(issue=>({provider:"jira",scope:"synthetic-site:10001",externalId:issue.id,title:issue.title,url:issue.url,status:"unknown"})),credits:0})),
+  previewJira:mutation(["defectMap","previewJira"],input=>{const tasks=issues.filter(issue=>input.issueIds.includes(issue.id)).map(issue=>({provider:"jira",scope:"synthetic-site:10001",externalId:issue.id,title:issue.title,url:issue.url,status:"unknown"}));return{version:0,previewHash:"a".repeat(64),changes:tasks.map(task=>({kind:receipts.size?"unchanged":"new",record:"task",key:defectRecordKey(task),title:task.title})),tasks,credits:0};}),
   approveJira:mutation(["defectMap","approveJira"],async input=>{
    writes.push(structuredClone(input));
    if(conflictNext){conflictNext=false;const error=Error("Synthetic map conflict");error.data={code:"CONFLICT"};throw error;}

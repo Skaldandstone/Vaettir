@@ -1,5 +1,6 @@
 "use client";
 import { useLayoutEffect, useRef, useState } from "react";
+import { defectRecordKey } from "@vaettir/core";
 import { trpcReact, type RouterInputs, type RouterOutputs } from "@/lib/trpcReact";
 
 /** No provider I/O or requirement writes; imports only server-bound summaries. */
@@ -39,7 +40,8 @@ export function JiraDefectReview({ projectId, runId, runVersion, issueIds, disab
       if (!active.current) return;
       setReceipt(null); onHeldChange(false); setApproved(false); setDone(true); ambiguous.current = false;
       setMessage(result.retried ? "The earlier Jira task import was already saved. No duplicate write was made." : "Reviewed Jira task summaries saved to the defect map. No requirements were created.");
-      onSaved();
+      // A refresh failure cannot turn an acknowledged write into an unknown one.
+      try { onSaved(); } catch { setMessage("Reviewed Jira tasks were saved. Refresh the defect map to load its latest view."); }
     } catch (error) {
       if (active.current) {
         const code = error && typeof error === "object" && "data" in error && error.data && typeof error.data === "object" && "code" in error.data ? error.data.code : null;
@@ -55,8 +57,12 @@ export function JiraDefectReview({ projectId, runId, runVersion, issueIds, disab
     <p>Review {issueIds.length} selected summaries as tracker tasks. This does not create requirements or modify Jira. Source reads remain a manual snapshot; automatic sync is not enabled.</p>
     {!receipt && <button type="button" disabled={busy || !issueIds.length} onClick={() => void preview()}>{working ? "Working…" : "Review selected defect tasks"}</button>}
     {shownReview && !done && <>
-      <ul style={{ paddingLeft: 20, overflowWrap: "anywhere" }}>{shownReview.tasks.map(task => <li key={JSON.stringify([task.scope, task.externalId])}><a href={task.url ?? undefined} target="_blank" rel="noopener noreferrer">{task.url?.split("/").at(-1) ?? task.externalId}</a>{" · "}{task.title}</li>)}</ul>
-      <p>{shownReview.changes.length} changes to review. Missing tasks and existing human link decisions are retained. Metadata labels may be redacted. Jira status labels are not mapped to a resolution category; imported status remains unknown until supported category evidence is available.</p>
+      <ul style={{ paddingLeft: 20, overflowWrap: "anywhere" }}>{shownReview.tasks.map(task => {
+        const change = shownReview.changes.find(item => item.record === "task" && item.key === defectRecordKey(task));
+        const action = change?.kind === "new" ? "Add new task" : change?.kind === "changed" ? "Update saved summary" : change?.kind === "stale" ? "Keep newer saved summary" : change?.kind === "unchanged" ? "Keep unchanged task" : "Review unavailable";
+        return <li key={defectRecordKey(task)}><strong>{action}</strong>{" · "}<a href={task.url ?? undefined} target="_blank" rel="noopener noreferrer">{task.url?.split("/").at(-1) ?? task.externalId}</a>{" · "}{task.title}</li>;
+      })}</ul>
+      <p>Missing tasks and existing human link decisions are retained. Older snapshots do not overwrite newer saved summaries. Metadata labels may be redacted. Jira status labels are not mapped to a resolution category; imported status remains unknown until supported category evidence is available.</p>
       <label><input type="checkbox" checked={approved} disabled={busy || !!receipt} onChange={event => setApproved(event.target.checked)} /> I approve saving these reviewed Jira summaries as defect-map tasks.</label>
       <button type="button" disabled={busy || (!receipt && !approved)} onClick={() => void save()}>{working ? "Saving tasks…" : receipt ? "Retry the same task import" : "Save reviewed Jira tasks"}</button>
       {rejected && <button type="button" disabled={busy} onClick={() => { setReceipt(null); onHeldChange(false); setReview(null); setApproved(false); setRejected(false); setMessage("The rejected request was not applied. Review the current source and map before trying again."); }}>Review again after rejection</button>}
