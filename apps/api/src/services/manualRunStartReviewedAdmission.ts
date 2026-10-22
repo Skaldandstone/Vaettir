@@ -347,7 +347,7 @@ export async function admitReviewedRunStart(
     throw refused();
   const projectJson = admitReviewedStartJson(projectRows[0]?.body);
   const projectExact = await tx.$queryRaw<Array<{ exact: boolean }>>(Prisma.sql`
-    /* reviewed-start-project-exact */ SELECT jsonb_build_object('qualityProfile',p."qualityProfile",'stepFieldLabels',o."stepFieldLabels')=${projectJson.encoded}::jsonb AS exact
+    /* reviewed-start-project-exact */ SELECT jsonb_build_object('qualityProfile',p."qualityProfile",'stepFieldLabels',o."stepFieldLabels")=${projectJson.encoded}::jsonb AS exact
     FROM "Project" p JOIN "Organization" o ON o.id=p."organizationId" WHERE p.id=${input.projectId}`);
   if (projectExact.length !== 1 || projectExact[0]?.exact !== true)
     throw refused();
