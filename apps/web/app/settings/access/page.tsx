@@ -21,8 +21,10 @@ export default function AccessSettingsPage() {
 function AccessWorkspace({ organizationId }: { organizationId: string }) {
   const query = trpcReact.identityAccess.configuration.useQuery({ organizationId }, { retry: false });
   const mutation = trpcReact.identityAccess.saveDraft.useMutation();
+  const publish = trpcReact.identityAccess.publishDraft.useMutation();
   if (query.isPending) return <p role="status">Loading access settings…</p>;
   if (query.isError || !query.data) return <div role="alert">Could not load access settings. <button onClick={() => query.refetch()}>Try again</button></div>;
   return <IdentityAccessEditor initial={query.data} onSave={(configuration, expectedRevision) => mutation.mutateAsync({ organizationId, configuration, expectedRevision })}
+    onPublish={(expectedDraftRevision, expectedPolicyRevision) => publish.mutateAsync({ organizationId, expectedDraftRevision, expectedPolicyRevision, approveLocalRules: true })}
     onReload={async () => { const result = await query.refetch(); if (result.error || !result.data) throw new Error("Reload failed"); return result.data; }} />;
 }

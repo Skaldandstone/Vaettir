@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
+import { Prisma } from "@vaettir/db";
+import { requirePublishedLocalAction } from "../services/identityAccessPolicy.js";
 import { generateQaStrategyDraft } from "@vaettir/ai-agent";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { recordAudit } from "../services/auditLog.js";
@@ -387,14 +389,17 @@ export const testPlansRouter = router({
     // useMutation wrapper, P1-15) - no caller reads beyond the id.
     .output(z.object({ id: z.string(), name: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const { project } = await requireProjectAccess(
+      const { project, membership } = await requireProjectAccess(
         ctx,
         input.projectId,
-        "EDITOR",
       );
+      const customAuthor = ["OWNER", "ADMIN", "EDITOR"].includes(membership.role) ? undefined : {
+        userId: ctx.user.id, clerkSubject: ctx.authenticatedClerkSubject, workspaceOrganizationId: ctx.workspaceOrganizationId,
+      };
       const created = await ctx.prisma.$transaction(async (tx) => {
-        await lockCaseFieldProject(tx, ctx.user.id, input.projectId);
-        await requireCurrentPlanAccess(tx, ctx.user.id, input.projectId, true);
+        await lockCaseFieldProject(tx, ctx.user.id, input.projectId, customAuthor);
+        if (customAuthor) await requirePublishedLocalAction(tx, customAuthor, project.organizationId, input.projectId, "plans.write");
+        else await requireCurrentPlanAccess(tx, ctx.user.id, input.projectId, true);
         const currentProject = await tx.project.findUniqueOrThrow({
           where: { id: input.projectId }, select: { organizationId: true },
         });
@@ -438,7 +443,7 @@ export const testPlansRouter = router({
           action: "CREATE", summary: `Created test plan "${plan.name}"`,
         } });
         return plan;
-      });
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
       return created;
     }),
 

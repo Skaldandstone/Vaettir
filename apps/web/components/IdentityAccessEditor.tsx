@@ -13,8 +13,10 @@ type Role = IdentityConfiguration["roles"][number];
 type Group = IdentityConfiguration["groups"][number];
 type Member = { id: string; name: string | null; email: string };
 type Project = { id: string; name: string };
-export type AccessDraftView = { revision: number; configuration: IdentityConfiguration; members: Member[]; projects: Project[] };
-type Props = { initial: AccessDraftView; onSave: (configuration: IdentityConfiguration, revision: number) => Promise<{ revision: number }>; onReload: () => Promise<AccessDraftView> };
+export type AccessDraftView = { revision: number; configuration: IdentityConfiguration; members: Member[]; projects: Project[];
+  publication?: { available: boolean; revision: number; sourceDraftRevision: number | null; publishedAt: string | null } };
+type Props = { initial: AccessDraftView; onSave: (configuration: IdentityConfiguration, revision: number) => Promise<{ revision: number }>; onReload: () => Promise<AccessDraftView>;
+  onPublish?: (draftRevision: number, policyRevision: number) => Promise<{ revision: number; sourceDraftRevision: number; publishedAt: string }> };
 
 function toggle(values: string[], id: string) { return values.includes(id) ? values.filter(value => value !== id) : [...values, id]; }
 function replaceItem<T extends { id: string }>(items: T[], item: T): T[] {
@@ -24,7 +26,7 @@ function EditButton({ name, onClick }: { name: string; onClick: () => void }) {
   return <button type="button" className="btn-secondary" aria-label={`Edit ${name}`} title={`Edit ${name}`} onClick={onClick}><Icon name="edit" size={16} /></button>;
 }
 
-export function IdentityAccessEditor({ initial, onSave, onReload }: Props) {
+export function IdentityAccessEditor({ initial, onSave, onReload, onPublish }: Props) {
   const [saved, setSaved] = useState(initial);
   const [draft, setDraft] = useState(initial.configuration);
   const [section, setSection] = useState<"roles" | "groups" | "preview" | "sign-in">("roles");
@@ -35,6 +37,8 @@ export function IdentityAccessEditor({ initial, onSave, onReload }: Props) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [reloadOpen, setReloadOpen] = useState(false);
+  const [publishOpen, setPublishOpen] = useState(false);
+  const [publicationUnconfirmed, setPublicationUnconfirmed] = useState(false);
   const [pendingNavigation, setPendingNavigation] = useState<string | null>(null);
   const leaveAccepted = useRef(false);
   const dirty = JSON.stringify(draft) !== JSON.stringify(saved.configuration);
@@ -70,13 +74,27 @@ export function IdentityAccessEditor({ initial, onSave, onReload }: Props) {
   }
   async function reload() {
     setBusy(true); setError("");
-    try { const current = await onReload(); setSaved(current); setDraft(current.configuration); setReloadOpen(false); setNotice("Loaded the saved draft."); }
+    try { const current = await onReload(); setSaved(current); setDraft(current.configuration); setReloadOpen(false); setPublicationUnconfirmed(false); setNotice("Loaded the saved draft."); }
     catch { setError("Could not reload. Your changes are still here."); }
     finally { setBusy(false); }
   }
+  async function publish() {
+    if (!onPublish || !saved.publication?.available || dirty || publicationUnconfirmed) return;
+    setBusy(true); setError(""); setNotice("");
+    try {
+      const result = await onPublish(saved.revision, saved.publication.revision);
+      setSaved({ ...saved, publication: { available: true, ...result } });
+      setPublishOpen(false); setNotice(`Local rules published as revision ${result.revision}. Native memberships and SSO are unchanged.`);
+    } catch {
+      // The server may have committed despite a lost acknowledgement. Re-read
+      // the durable revision before allowing another deliberate publication.
+      setPublicationUnconfirmed(true); setPublishOpen(false);
+      setError("Publication could not be confirmed. Reload the saved version before trying again.");
+    } finally { setBusy(false); }
+  }
   return <div className={styles.editor}>
-    <header className={styles.header}><div><span className={styles.eyebrow}>Workspace settings</span><h1>Access</h1><p>Sign-in, roles and groups.</p></div><span className={styles.status}>Setup draft</span></header>
-    <div className={styles.banner}><Icon name="alert" /><span>Prepare access rules here. Existing permissions stay in effect until activation is verified.</span></div>
+    <header className={styles.header}><div><span className={styles.eyebrow}>Workspace settings</span><h1>Access</h1><p>Sign-in, roles and groups.</p></div><span className={styles.status}>{saved.publication?.revision ? `Published v${saved.publication.revision}` : "Setup draft"}</span></header>
+    <div className={styles.banner}><Icon name="alert" /><span>{saved.publication?.revision ? "Draft edits do not change published rules. Publish after reviewing your changes." : "Prepare access rules here. Existing permissions stay in effect until activation is verified."}</span></div>
     {error && <div role="alert" className={styles.error}>{error} <button type="button" onClick={() => setReloadOpen(true)} disabled={busy}>Reload saved version</button></div>}
     {notice && <p role="status">{notice}</p>}
     <fieldset disabled={busy} className={styles.controls}>
@@ -102,9 +120,16 @@ export function IdentityAccessEditor({ initial, onSave, onReload }: Props) {
         <div><Icon name="people" size={24} /><h2>Directory sync</h2><span className={styles.status}>Setup pending</span><p>Provision members and map external groups to Vaettir roles.</p></div>
         <p className={styles.setupNote}>Provider setup and activation are not available in this preparation build. No sign-in enforcement or automatic access changes are enabled.</p>
       </section>}
-      <footer className={styles.footer}><span>{dirty ? "Unsaved changes" : `Saved revision ${saved.revision}`}</span><button type="button" className="btn-secondary" onClick={() => setReloadOpen(true)}>Reload</button><button className="btn-primary" type="button" disabled={!dirty} onClick={save}><Icon name="save" size={16} />Save draft</button></footer>
+      <footer className={styles.footer}><span>{dirty ? "Unsaved changes" : `Saved revision ${saved.revision}`}</span><button type="button" className="btn-secondary" onClick={() => setReloadOpen(true)}>Reload</button><button className="btn-primary" type="button" disabled={!dirty} onClick={save}><Icon name="save" size={16} />Save draft</button>
+        {saved.publication?.available && onPublish && <button type="button" className="btn-secondary" disabled={dirty || !saved.revision || publicationUnconfirmed || saved.publication.sourceDraftRevision === saved.revision} title={dirty ? "Save and review the draft first" : "Review saved local rules before publication"} onClick={() => setPublishOpen(true)}>Review publication</button>}
+      </footer>
     </fieldset>
     {busy && <p role="status">Saving or loading access settings…</p>}
+    <Modal open={publishOpen} onClose={() => setPublishOpen(false)} title="Publish local access rules?" dismissible={!busy}>
+      <p>Saved draft {saved.revision}: {saved.configuration.roles.length} {saved.configuration.roles.length === 1 ? "role" : "roles"} and {saved.configuration.groups.length} {saved.configuration.groups.length === 1 ? "group" : "groups"}.</p>
+      <p>These replace the published local rules. Removing a rule withdraws its custom action. Native memberships, seats and SSO are unchanged.</p>
+      <div className={styles.dialogActions}><button type="button" className="btn-secondary" disabled={busy} onClick={() => setPublishOpen(false)}>Keep draft</button><button type="button" className="btn-primary" disabled={busy || dirty || publicationUnconfirmed} onClick={publish}>Publish local rules</button></div>
+    </Modal>
     {role && <RoleDialog role={role} onClose={() => setRole(null)} onApply={next => {
       const success = apply({ ...draft, roles: replaceItem(draft.roles, next) });
       if (success) setRole(null); return success;

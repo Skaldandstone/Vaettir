@@ -7,6 +7,7 @@ import {
   validateCaseFieldValues,
 } from "./caseFieldSchema.js";
 import { requireCurrentPlanAccess } from "./testPlanExecution.js";
+import { requirePublishedLocalAction, type IdentityActor } from "./identityAccessPolicy.js";
 import { qualityProfileHash } from "./qualityExperienceProfile.js";
 import {
   caseFieldReadPinFields,
@@ -220,6 +221,7 @@ export async function lockCaseFieldProject(
   tx: Prisma.TransactionClient,
   userId: string,
   projectId: string,
+  planAuthor?: IdentityActor,
 ) {
   const original = await tx.project.findUnique({
     where: { id: projectId },
@@ -241,7 +243,15 @@ export async function lockCaseFieldProject(
       code: "FORBIDDEN",
       message: "Project ownership changed. Review current case fields again.",
     });
-  await requireCurrentPlanAccess(tx, userId, projectId, true);
+  if (planAuthor) {
+    if (planAuthor.userId !== userId) throw new TRPCError({ code: "FORBIDDEN" });
+    // Pin the published revision through the business write; publication may
+    // remove this action but cannot race a checked mutation into stale access.
+    await tx.$queryRaw`SELECT "organizationId" FROM "IdentityAccessPolicy" WHERE "organizationId"=${original.organizationId} FOR SHARE`;
+    await requirePublishedLocalAction(tx, planAuthor, original.organizationId, projectId, "plans.write");
+  } else {
+    await requireCurrentPlanAccess(tx, userId, projectId, true);
+  }
 }
 async function schemaImpact(
   tx: Prisma.TransactionClient,

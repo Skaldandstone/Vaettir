@@ -1,6 +1,6 @@
 # Enterprise identity implementation
 
-Status: policy foundation plus persisted preparation workflow and local Access editor. Not enabled or deployed. Active SSO, directory provisioning and custom permission enforcement are still incomplete.
+Status: persisted drafts, published local rules, the local Access editor and the first action-specific runtime integration. Not enabled or deployed. Active SSO, directory provisioning and complete custom permission enforcement are still incomplete.
 
 ## Product scope
 
@@ -35,7 +35,7 @@ Local verification: 21 router/schema tests use a synthetic transaction double, n
 - Permission re-evaluation against current roles/mappings, current connection state and expiry.
 - A strict current-session SSO evidence predicate; merely linking an enterprise account does not prove this session used it.
 
-This checkpoint is intentionally not exported or consumed by runtime routes. Existing authorization is unchanged.
+The initial policy-only checkpoint did not change runtime authorization. The published-local-rules slice below now consumes this kernel for one explicit business action; no broader runtime coverage or provider activation is implied.
 
 Run: `node --experimental-strip-types --test scripts/enterprise-identity-policy.test.mjs`.
 
@@ -52,6 +52,18 @@ Focused service tests use a synthetic transaction double; they do not prove Post
 Run: `pnpm --filter @vaettir/api test -- src/services/identityDirectoryStore.test.ts`.
 
 Windows SQL fixture: `node scripts/identity-directory-postgres.mjs` uses the existing PostgreSQL17 binaries to initialize a fresh loopback-only cluster under `.local/identity-postgres-*` on a dynamically selected non-default port. It never consumes an existing `DATABASE_URL`, provider secrets or database service. Schema and migrations are copied into the owned fixture so Prisma cannot discover repository environment files. The runner records source/file and migration hashes, upgrade readbacks and receipts, retains its synthetic data and logs, and stops only its owned cluster. The integration suite refuses any other fixture/URL. No Windows service, external identity or live database is created/modified. Its local bootstrap role uses trust only in this temporary synthetic loopback cluster; it is not a production authentication configuration. Retained fixtures are ignored and require deliberate cleanup review. The optional `--generated-baseline` mode retains the narrower earlier generated-schema check; it must not be reported as historical migration acceptance.
+
+### Published local rules and first runtime action
+
+`IdentityAccessPolicy` holds an explicitly published copy of a saved draft, its source revision and publication revision. The additive migration creates no policies. Publication validates a fresh verified human native FULL administrator, tenant ingress, suspension and current member/project references. Policy revision CAS and its audit commit together at Serializable isolation. Draft edits never change published rules. The HTTP publication endpoint remains unavailable unless the deployment operator enables the exact workspace with `VAETTIR_IDENTITY_LOCAL_RULES_ORGANIZATIONS`; there is no wildcard, browser-controlled enablement, or email/domain inference. **Do not enable this rollout gate for general use: the complete route/provider acceptance is still open.**
+
+`readPublishedLocalAccess` evaluates only the published custom local contribution, not total effective access. It checks the current independently verified Clerk subject, native membership, absence of service identity, tenant/project, suspension and seat. Group/source removal and role/scope reduction take effect on subsequent evaluation; stale deleted member/project references cannot grant access. Independent native access remains independent. An explicit action helper never promotes a custom role to a broad legacy Editor and never overrides entitlement checks.
+
+The first covered business action is `testPlans.create`. A full-seat native Viewer with a published, project-scoped `plans.write` grant can create a manual plan. Authorization and the business write occur together with the existing organization/membership/project locks and a pinned policy row. Native editor behavior is retained. Other actions **are not yet integrated** and must not be advertised as completed custom-role support. No external provisioning, directory grants, SSO enforcement or new membership creation is implied by this slice.
+
+The Access editor has a compact explicit publication review, separate saved/published revisions and a lost-acknowledgement guard: a failure requires reading the durable revision before another deliberate publication. Publication remains hidden when unavailable. Actual local component checks cover both themes at1280/390px, focus/Escape, dirty-draft prevention, failure before commit, lost response after commit, reload/reopen, no automatic republish and permission-reduction publication. These use synthetic transport, not hosted acceptance. Run `node apps/web/e2e/identity-access/run.mjs --publication-only`.
+
+The owned PostgreSQL runner now applies103 historical migrations. It additionally proves real plan creation after publication and denial after publication of group removal, unchanged native Viewer/Full membership, actual audit foreign-key failure rollback, scope/seat/rebound-subject denials and competing publication rejection. This closes local SQL/router behavior only; real provider and hosted UI tests remain required. The journal fixture still has no Google connection.
 
 ## Remaining implementation, in order
 

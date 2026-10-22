@@ -15,6 +15,7 @@ function fixture() {
     organization: { findUnique: vi.fn().mockResolvedValue({ suspendedAt: null }) },
     project: { findMany: vi.fn().mockResolvedValue([{ id: "project", name: "Synthetic project" }]) },
     identityAccessDraft: { findUnique: vi.fn().mockResolvedValue(null), create: vi.fn(), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+    identityAccessPolicy: { findUnique: vi.fn().mockResolvedValue(null) },
     auditLog: { create: vi.fn() },
     $transaction: vi.fn(),
   };
@@ -25,6 +26,15 @@ function fixture() {
 const save = (revision = 0) => ({ organizationId: "org", expectedRevision: revision, configuration: configuration() });
 
 describe("identity access draft router (synthetic transaction double)", () => {
+  it("keeps publication disabled unless the exact workspace is enabled by the operator", async () => {
+    const { caller, db } = fixture();
+    vi.stubEnv("VAETTIR_IDENTITY_LOCAL_RULES_ORGANIZATIONS", "other-org");
+    try {
+      expect((await caller.configuration({ organizationId: "org" })).publication.available).toBe(false);
+      await expect(caller.publishDraft({ organizationId: "org", expectedDraftRevision: 1, expectedPolicyRevision: 0, approveLocalRules: true })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+      expect(db.identityAccessDraft.create).not.toHaveBeenCalled();
+    } finally { vi.unstubAllEnvs(); }
+  });
   it("reads an explicit inactive preparation state without writing", async () => {
     const { caller, db } = fixture();
     expect(await caller.configuration({ organizationId: "org" })).toMatchObject({ revision: 0, activation: "PREPARATION_ONLY", configuration: { roles: [], groups: [] } });

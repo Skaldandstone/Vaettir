@@ -28,6 +28,17 @@ model IdentityAccessDraft {
   updatedAt DateTime @updatedAt
 }
 
+// Explicitly published rules. Draft edits never change this revision.
+// Native memberships/roles/seats remain independent from these scoped rules.
+model IdentityAccessPolicy {
+  organizationId String @id
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  revision Int @default(1)
+  sourceDraftRevision Int
+  configuration Json
+  publishedAt DateTime @default(now())
+}
+
 // Source observations only. These rows do not grant native membership or permissions.
 // Provider setup must establish exact immutable bindings before enabling a connection.
 model IdentityDirectoryConnection {
@@ -118,6 +129,7 @@ model WorkspaceDomain {
 model Organization {
   identityDirectoryConnections IdentityDirectoryConnection[]
   identityAccessDraft IdentityAccessDraft?
+  identityAccessPolicy IdentityAccessPolicy?
   workspaceDomain WorkspaceDomain?
   aiDisclosurePolicies AiDisclosurePolicy[]
   driveSourceConnections DriveSourceConnection[]

@@ -4,6 +4,7 @@ import { Prisma } from "@vaettir/db";
 import { emptyIdentityConfiguration, identityConfigurationSchema, validateIdentityReferences } from "@vaettir/core";
 import { router, protectedProcedure, requireOrgRole, type Context } from "../trpc.js";
 import { recordAudit } from "../services/auditLog.js";
+import { localIdentityPublicationAvailable, publishIdentityDraft, readPublishedLocalAccess } from "../services/identityAccessPolicy.js";
 
 const organizationInput = z.object({ organizationId: z.string().min(1).max(512) }).strict();
 const conflict = () => new TRPCError({ code: "CONFLICT", message: "Access settings changed in another session. Reload the saved version before saving again." });
@@ -25,10 +26,11 @@ async function requireAccessAdministrator(db: Prisma.TransactionClient, ctx: Con
 export const identityAccessRouter = router({
   configuration: protectedProcedure.input(organizationInput).query(({ ctx, input }) => ctx.prisma.$transaction(async db => {
     await requireAccessAdministrator(db, ctx, input.organizationId);
-    const [saved, members, projects] = await Promise.all([
+    const [saved, members, projects, published] = await Promise.all([
       db.identityAccessDraft.findUnique({ where: { organizationId: input.organizationId } }),
       db.membership.findMany({ where: { organizationId: input.organizationId }, select: { user: { select: { id: true, name: true, email: true } } }, orderBy: { userId: "asc" } }),
       db.project.findMany({ where: { organizationId: input.organizationId }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+      db.identityAccessPolicy.findUnique({ where: { organizationId: input.organizationId }, select: { revision: true, sourceDraftRevision: true, publishedAt: true } }),
     ]);
     return {
       revision: saved?.revision ?? 0,
@@ -36,9 +38,26 @@ export const identityAccessRouter = router({
       updatedAt: saved?.updatedAt.toISOString() ?? null,
       members: members.map(member => member.user), projects,
       // Never infer readiness from a saved ID, linked account, email domain or draft.
-      activation: "PREPARATION_ONLY" as const,
+      activation: published ? "LOCAL_RULES" as const : "PREPARATION_ONLY" as const,
+      publication: { available: localIdentityPublicationAvailable(input.organizationId), revision: published?.revision ?? 0,
+        sourceDraftRevision: published?.sourceDraftRevision ?? null, publishedAt: published?.publishedAt.toISOString() ?? null },
     };
   })),
+
+  publishDraft: protectedProcedure.input(organizationInput.extend({
+    expectedDraftRevision: z.number().int().positive().max(2147483646),
+    expectedPolicyRevision: z.number().int().min(0).max(2147483646),
+    approveLocalRules: z.literal(true),
+  }).strict()).mutation(({ ctx, input }) => {
+    requireOrgRole(ctx, input.organizationId, "ADMIN");
+    if (!localIdentityPublicationAvailable(input.organizationId)) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Local rule activation is not available for this workspace yet." });
+    return publishIdentityDraft(ctx.prisma, { userId: ctx.user.id, clerkSubject: ctx.authenticatedClerkSubject, workspaceOrganizationId: ctx.workspaceOrganizationId }, input);
+  }),
+
+  publishedLocalAccess: protectedProcedure.input(organizationInput.extend({ projectId: z.string().min(1).max(512) }).strict())
+    .query(({ ctx, input }) => ctx.prisma.$transaction(db => readPublishedLocalAccess(db,
+      { userId: ctx.user.id, clerkSubject: ctx.authenticatedClerkSubject, workspaceOrganizationId: ctx.workspaceOrganizationId }, input.organizationId, input.projectId),
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })),
 
   saveDraft: protectedProcedure.input(organizationInput.extend({
     expectedRevision: z.number().int().min(0).max(2147483646), configuration: identityConfigurationSchema,

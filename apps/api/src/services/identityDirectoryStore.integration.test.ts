@@ -4,6 +4,9 @@ import { join, resolve } from "node:path";
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
 import { Prisma, type PrismaClient, ConstraintCheckedPrismaClient } from "@vaettir/db";
 import { createIdentityDirectoryStore, DirectoryObservationConflict, DirectoryObservationUnavailable } from "./identityDirectoryStore.js";
+import { publishIdentityDraft, readPublishedLocalAccess } from "./identityAccessPolicy.js";
+import { testPlansRouter } from "../routers/testPlans.js";
+import type { Context } from "../trpc.js";
 
 // Do not widen the shared test database admission helper or use its default port.
 // This file only runs against the exact cluster created by the dedicated runner.
@@ -175,5 +178,67 @@ describe.skipIf(!admitted)("directory journal on owned PostgreSQL", () => {
     const f = await fixture();
     await expect(db.membership.delete({ where: { organizationId_userId: { organizationId: f.org.id, userId: f.user.id } } })).rejects.toMatchObject({ code: "P2003" });
     expect(await db.identityDirectorySubject.count({ where: { id: f.subject.id } })).toBe(1);
+  });
+
+  async function localRulesFixture() {
+    const f = await fixture(); const key = randomUUID();
+    const admin = await db.user.create({ data: { clerkUserId: key, email: `${key}@example.invalid`, memberships: { create: { organizationId: f.org.id, role: "ADMIN", seatType: "FULL" } } } });
+    await db.membership.update({ where: { organizationId_userId: { organizationId: f.org.id, userId: f.user.id } }, data: { seatType: "FULL" } });
+    const project = await db.project.create({ data: { organizationId: f.org.id, name: "Scoped plan fixture", slug: key } });
+    const configuration = { schemaVersion: 1, roles: [{ id: "author", name: "Plan author", permissions: ["plans.write"] }],
+      groups: [{ id: "authors", name: "Authors", userIds: [f.user.id], roleIds: ["author"], scope: { kind: "projects", projectIds: [project.id] } }] };
+    await db.identityAccessDraft.create({ data: { organizationId: f.org.id, configuration } });
+    const administrator = { userId: admin.id, clerkSubject: admin.clerkUserId, workspaceOrganizationId: f.org.id };
+    const actor = { userId: f.user.id, clerkSubject: f.user.clerkUserId, workspaceOrganizationId: f.org.id };
+    const caller = async () => testPlansRouter.createCaller({ prisma: db, user: await db.user.findUniqueOrThrow({ where: { id: f.user.id }, include: { memberships: true } }),
+      authenticatedClerkSubject: f.user.clerkUserId, workspaceOrganizationId: f.org.id, staff: null } as Context);
+    return { ...f, project, configuration, administrator, actor, caller };
+  }
+  it("publishes scoped rules, creates a real plan, then revokes the custom action without altering native role/seat", async () => {
+    const f = await localRulesFixture();
+    await expect((await f.caller()).create({ projectId: f.project.id, name: "Before publication" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await publishIdentityDraft(db, f.administrator, { organizationId: f.org.id, expectedDraftRevision: 1, expectedPolicyRevision: 0 });
+    const created = await (await f.caller()).create({ projectId: f.project.id, name: "Scoped custom plan" });
+    expect(await second.testPlan.findUnique({ where: { id: created.id } })).toMatchObject({ name: "Scoped custom plan", createdById: f.user.id });
+    expect(await second.auditLog.count({ where: { organizationId: f.org.id, entityType: "IdentityAccessPolicy" } })).toBe(1);
+    await db.identityAccessDraft.update({ where: { organizationId: f.org.id }, data: { revision: 2, configuration: { ...f.configuration, groups: [] } } });
+    // Draft changes alone do not change published access.
+    expect((await readPublishedLocalAccess(second, f.actor, f.org.id, f.project.id)).permissions).toEqual(["plans.write"]);
+    await publishIdentityDraft(db, f.administrator, { organizationId: f.org.id, expectedDraftRevision: 2, expectedPolicyRevision: 1 });
+    await expect((await f.caller()).create({ projectId: f.project.id, name: "After revocation" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(await second.membership.findUnique({ where: { organizationId_userId: { organizationId: f.org.id, userId: f.user.id } } })).toMatchObject({ role: "VIEWER", seatType: "FULL" });
+    expect(await second.testPlan.count({ where: { projectId: f.project.id } })).toBe(1);
+  });
+  it("rolls back publication when its audit fails a real foreign-key constraint", async () => {
+    const f = await localRulesFixture();
+    const fault = { $transaction: <T>(work: (tx: Prisma.TransactionClient) => Promise<T>, options: { isolationLevel: Prisma.TransactionIsolationLevel }) =>
+      db.$transaction(tx => work(new Proxy(tx, { get(target, property) {
+        if (property === "auditLog") return { create: (args: Prisma.AuditLogCreateArgs) => tx.auditLog.create({ data: { ...args.data, actorId: "missing-synthetic-actor" } as Prisma.AuditLogUncheckedCreateInput }) };
+        return Reflect.get(target, property);
+      } })), options) } as unknown as PrismaClient;
+    await expect(publishIdentityDraft(fault, f.administrator, { organizationId: f.org.id, expectedDraftRevision: 1, expectedPolicyRevision: 0 })).rejects.toMatchObject({ code: "P2003" });
+    expect(await second.identityAccessPolicy.findUnique({ where: { organizationId: f.org.id } })).toBeNull();
+    expect(await second.auditLog.count({ where: { organizationId: f.org.id, entityType: "IdentityAccessPolicy" } })).toBe(0);
+  });
+  it("denies custom plan creation after a seat downgrade, subject rebind or scope mismatch", async () => {
+    const f = await localRulesFixture();
+    await publishIdentityDraft(db, f.administrator, { organizationId: f.org.id, expectedDraftRevision: 1, expectedPolicyRevision: 0 });
+    const outside = await db.project.create({ data: { organizationId: f.org.id, name: "Outside scope", slug: randomUUID() } });
+    await expect((await f.caller()).create({ projectId: outside.id, name: "Denied scope" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await db.membership.update({ where: { organizationId_userId: { organizationId: f.org.id, userId: f.user.id } }, data: { seatType: "READ_ONLY" } });
+    await expect((await f.caller()).create({ projectId: f.project.id, name: "Denied seat" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await db.membership.update({ where: { organizationId_userId: { organizationId: f.org.id, userId: f.user.id } }, data: { seatType: "FULL" } });
+    await db.user.update({ where: { id: f.user.id }, data: { clerkUserId: randomUUID() } });
+    await expect((await f.caller()).create({ projectId: f.project.id, name: "Denied rebound" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(await db.testPlan.count({ where: { projectId: { in: [f.project.id, outside.id] } } })).toBe(0);
+  });
+  it("competing policy publications cannot overwrite the winner from the same reviewed revision", async () => {
+    const f = await localRulesFixture();
+    const results = await Promise.allSettled([db, second].map(client => publishIdentityDraft(client, f.administrator,
+      { organizationId: f.org.id, expectedDraftRevision: 1, expectedPolicyRevision: 0 })));
+    expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter(result => result.status === "rejected")).toHaveLength(1);
+    expect(await second.identityAccessPolicy.findUnique({ where: { organizationId: f.org.id } })).toMatchObject({ revision: 1 });
+    expect(await second.auditLog.count({ where: { organizationId: f.org.id, entityType: "IdentityAccessPolicy" } })).toBe(1);
   });
 });
