@@ -98,7 +98,7 @@ async function supportedSnapshot(tx: Tx, projectId: string, caseId: string, orga
   const [size] = await tx.$queryRaw<Array<{ bytes: bigint; customBytes: bigint; definitionBytes: bigint; linkedBytes:bigint; labelBytes:bigint; typeBytes:bigint; planBytes:bigint; steps: bigint; prerequisites: bigint; sharedSteps: number }>>(Prisma.sql`
     SELECT octet_length(q.snapshot::text)::bigint AS bytes,
       octet_length((q.snapshot->'case'->'customFields')::text)::bigint AS "customBytes",
-      octet_length((q.snapshot->'context'-'linkedContext')::text)::bigint AS "definitionBytes",
+      octet_length(((q.snapshot->'context')-'linkedContext')::text)::bigint AS "definitionBytes",
       octet_length((q.snapshot->'context'->'linkedContext')::text)::bigint AS "linkedBytes",
       octet_length((q.snapshot->'context'->'linkedContext'->'organizationLabels')::text)::bigint AS "labelBytes",
       octet_length((q.snapshot->'context'->'linkedContext'->'types')::text)::bigint AS "typeBytes",
