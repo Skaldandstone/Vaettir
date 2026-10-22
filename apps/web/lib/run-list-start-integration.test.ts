@@ -168,6 +168,7 @@ function harness(mixedSuites = false) {
       manualRunStartReviewed: { start: { useMutation: () => mutation } },
     },
     RunConfigurationModal: stub,
+    ExecutionPermissionNotice: stub,
     Modal: stub,
     Drawer: stub,
     RunHistoryDashboard: stub,

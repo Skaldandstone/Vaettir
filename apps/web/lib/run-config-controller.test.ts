@@ -437,6 +437,7 @@ function harness(
   const context = vm.createContext({
     React,
     Modal: "synthetic-modal",
+    ExecutionPermissionNotice: "synthetic-permission-notice",
     RunConfigCompletionController,
     emptyRunStartCompletion,
     currentSessionScope,

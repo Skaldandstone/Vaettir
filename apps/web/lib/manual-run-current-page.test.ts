@@ -360,6 +360,7 @@ function harness() {
     ManualCaseResultHistory,
     ManualRetestActions,
     RunExecutionSummary,
+    ExecutionPermissionNotice: () => null,
     admittedManualRunProgress,
     manualCaseHistoryAnchor,
     manualCaseHistorySelection,

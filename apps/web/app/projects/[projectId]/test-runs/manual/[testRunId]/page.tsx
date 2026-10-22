@@ -5,6 +5,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { resolveQualityExperience } from "@vaettir/core";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { useScopedManualExecutionAccess } from "@/lib/use-scoped-manual-execution-access";
+import { ExecutionPermissionNotice } from "@/components/ExecutionPermissionNotice";
 import { useManualRunCurrentReader } from "@/lib/use-manual-run-current-reader";
 import { useRetainedManualRunRows } from "@/lib/use-retained-manual-run-rows";
 import { ManualRunCurrentRenderGuard, type ManualRunCurrentOrigin, type ManualRunCurrentSnapshot } from "@/lib/manual-run-current-reader";
@@ -595,6 +596,7 @@ function ManualExecutionContent() {
   if (!data)
     return (
       <section role={access.denied || pageError ? "alert" : "status"}>
+        <ExecutionPermissionNotice state={access.permissionState} onRetry={access.retryPermissions} />
         <p>
           {access.denied
             ? "Original workspace and signed-in actor access could not be verified."
@@ -639,6 +641,7 @@ function ManualExecutionContent() {
 
   return (
     <div style={{ maxWidth: 800 }}>
+      <ExecutionPermissionNotice state={access.permissionState} onRetry={access.retryPermissions} />
       {!readable && (
         <section role={access.denied || !!pageError ? "alert" : "status"}>
           <p>

@@ -5,7 +5,7 @@ import type { useScopedManualExecutionAccess } from "./use-scoped-manual-executi
 
 function fixture() {
   const native = { ready: true, canWrite: false, origin: { organizationId: "org" }, refresh: vi.fn(async () => {}) };
-  const custom = { allows: vi.fn((action: string, org?: string) => action === "runs.execute" && org === "org"), retry: vi.fn(async () => {}) };
+  const custom = { ready: true, error: null as string | null, allows: vi.fn((action: string, org?: string) => action === "runs.execute" && org === "org"), retry: vi.fn(async () => {}) };
   const modules: Record<string, unknown> = {
     "./use-manual-execution-access": { useManualExecutionAccess: () => native },
     "./use-project-custom-actions": { useProjectCustomActions: () => custom },
@@ -34,4 +34,21 @@ it("preserves independent native authority and refreshes both sources", async ()
   expect(f.render()).toMatchObject({ canWrite: true, nativeCanWrite: true });
   await f.render().refresh();
   expect(f.native.refresh).toHaveBeenCalledOnce(); expect(f.custom.retry).toHaveBeenCalledOnce();
+});
+it("exposes an unavailable scoped lookup and retries only that read", async () => {
+  const f = fixture(); f.custom.error = "Synthetic failure"; f.custom.ready = false; f.custom.allows.mockReturnValue(false);
+  expect(f.render()).toMatchObject({ canWrite: false, permissionState: "unavailable" });
+  await f.render().retryPermissions();
+  expect(f.custom.retry).toHaveBeenCalledOnce(); expect(f.native.refresh).not.toHaveBeenCalled();
+  f.custom.error = null;
+  expect(f.render().permissionState).toBe("checking");
+  f.custom.ready = true;
+  expect(f.render()).toMatchObject({ canWrite: false, permissionState: null });
+});
+it("does not show scoped lookup recovery as a native-access failure or deny native editors", () => {
+  const f = fixture(); f.custom.error = "Synthetic failure"; f.custom.ready = false; f.custom.allows.mockReturnValue(false);
+  f.native.ready = false;
+  expect(f.render()).toMatchObject({ canWrite: false, permissionState: null });
+  f.native.ready = true; f.native.canWrite = true;
+  expect(f.render()).toMatchObject({ canWrite: true, nativeCanWrite: true, permissionState: null });
 });

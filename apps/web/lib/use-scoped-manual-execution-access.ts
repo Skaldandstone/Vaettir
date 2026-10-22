@@ -9,6 +9,8 @@ export function useScopedManualExecutionAccess(projectId: string) {
   return { ...native,
     nativeCanWrite: native.canWrite,
     canWrite: native.ready && (native.canWrite || custom.allows("runs.execute", native.origin?.organizationId)),
+    permissionState: !native.ready || native.canWrite ? null : custom.error ? "unavailable" as const : !custom.ready ? "checking" as const : null,
+    retryPermissions: () => custom.retry(),
     refresh: () => Promise.all([native.refresh(), custom.retry()]),
   };
 }

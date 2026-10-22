@@ -19,6 +19,7 @@ import {
   type RunBulkSelectionMode,
 } from "@/lib/run-bulk-selection";
 import { useScopedManualExecutionAccess } from "@/lib/use-scoped-manual-execution-access";
+import { ExecutionPermissionNotice } from "@/components/ExecutionPermissionNotice";
 import {
   RUN_SUITE_ALL_VALUE,
   resolveRunSuiteScope,
@@ -422,6 +423,8 @@ export default function TestRunsPage() {
         Results ingested from CI (JUnit XML) or recorded through manual
         execution. Most recent first.
       </p>
+
+      <ExecutionPermissionNotice state={manualAccess.permissionState} onRetry={manualAccess.retryPermissions} />
 
       <RunHistoryDashboard
         key={`${projectId}:run-history`}

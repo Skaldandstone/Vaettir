@@ -36,6 +36,7 @@ import {
   type ReviewedRunConfiguration,
 } from "@/lib/run-configuration-request";
 import { Modal } from "./Modal";
+import { ExecutionPermissionNotice } from "./ExecutionPermissionNotice";
 import {
   applyRunBulkSelection,
   type RunBulkScope,
@@ -619,6 +620,7 @@ export function RunConfigurationModal({
       onClose={onClose}
       dismissible={!busy && !refreshing}
     >
+      <ExecutionPermissionNotice state={access.permissionState} onRetry={access.retryPermissions} />
       {!access.ready || !completion.authorized || !native ? (
         <section role="status">
           <p>
