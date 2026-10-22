@@ -140,7 +140,7 @@ describe("Forge quality HTTP authorization boundary", () => {
   });
   it("mounts JSON routes outside raw Stripe byte parsing and outside the duplicated /api alias", () => {
     const source = readFileSync(
-      new URL("../server.ts", import.meta.url),
+      new URL("../serverApplication.ts", import.meta.url),
       "utf8",
     );
     const stripe = source.slice(
