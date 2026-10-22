@@ -99,6 +99,28 @@ References: [Google token model](https://developers.google.com/identity/oauth2/w
 [Picker setup](https://developers.google.com/workspace/drive/picker/guides/web-picker-sample),
 [Sheets values GET](https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.values/get).
 
+## Isolated Picker referrer
+
+A website-restricted Picker key needs the calling origin. The main import page
+and Sheets reads retain `no-referrer`. Only the protected, fixed
+`/connections/google-sheets/picker` document uses an `origin` referrer policy.
+It contains no project path, query parameters, selected file or customer content.
+The origin-only meta policy remains effective if an upstream HTTP response uses
+`no-referrer`; no global header or API-key restriction is relaxed.
+
+The temporary credential enters the frame through a message checked against
+both the exact origin and parent/source window. It is never placed in a Vaettir
+URL, server request or persistent storage. The selected result is reduced to a
+validated spreadsheet ID and MIME type. Cancellation, expiry and component
+disposal remove the frame, message listener and credential context. A directly
+opened helper neither authorizes nor loads Google. OAuth scope, customer import
+approval, project permissions and the explicit commit remain unchanged.
+
+`node apps/web/e2e/google-sheets/picker-frame.mjs` checks actual browser referrers
+against two loopback origins, wrong-origin/source messages, malformed selection,
+expiry and cancellation. Google is simulated in that test. Real provider
+selection and authenticated hosted imports remain separate acceptance gates.
+
 ## Published data notice
 
 `/google-sheets-privacy` is an exact public notice route; project, child and API routes remain protected. The import disclosure opens the notice in a separate tab so reading it does not discard the draft. The footer also links it. Owner-approved wording describes selected worksheet metadata/content, browser-only tokens, explicit commit, retained history, revocation versus deletion, and separate AI-sharing authority. Provider configuration must use the live notice URL only after hosted verification.

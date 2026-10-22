@@ -4,7 +4,6 @@ import { MigrationWizard } from "../../components/MigrationWizard";
 import { GoogleSheetsPrivacyNotice } from "../../components/GoogleSheetsPrivacyNotice";
 import { HistoricalResultsImport } from "../../components/HistoricalResultsImport";
 window.sheetFixture = { commits: [], ai: 0, tokens: 0, previews: [] };
-window.gapi = { load: (_name, options) => options.callback() };
 window.google = {
   accounts: { oauth2: { initTokenClient: config => ({ requestAccessToken() {
     window.sheetFixture.tokens++;
@@ -12,14 +11,6 @@ window.google = {
     if (config.include_granted_scopes !== false) throw new Error("Combined grant");
     config.callback({ access_token: "synthetic-browser-only-token", expires_in: 3600, scope: config.scope });
   } }) } },
-  picker: {
-    DocsView: class { setMimeTypes() { return this; } },
-    PickerBuilder: class {
-      addView() { return this; } setOAuthToken() { return this; } setDeveloperKey() { return this; }
-      setAppId() { return this; } setOrigin() { return this; } setCallback(callback) { this.callback = callback; return this; }
-      build() { return { dispose() {}, setVisible: () => this.callback({ action: "picked", docs: [{ id: "synthetic_book", mimeType: "application/vnd.google-apps.spreadsheet" }] }) }; }
-    },
-  },
 };
 function App() {
   const [theme, setTheme] = useState("dark");

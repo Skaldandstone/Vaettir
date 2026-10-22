@@ -12,19 +12,25 @@ const web = path.resolve(fileURLToPath(new URL("../../", import.meta.url)));
 const require = createRequire(path.join(web, "package.json"));
 const viteRequire = createRequire(createRequire(require.resolve("vitest")).resolve("vite"));
 const { build } = viteRequire("esbuild"), { chromium } = require("@playwright/test");
-const output = path.join(web, "../../.local/google-sheets-import-20261021/ui-with-history");
+const output = path.join(web, "../../.local/google-sheets-picker-20261021/import-ui");
 await mkdir(output, { recursive: true });
 const inputs = ["components/GoogleSheetsPrivacyNotice.tsx", "app/google-sheets-privacy/page.tsx", "middleware.ts", "components/Sidebar.tsx", "app/layout.tsx", "lib/auth-return.test.mjs", "components/MigrationWizard.tsx", "components/GoogleSheetsImportSource.tsx", "lib/google-sheets-import.ts", "../api/src/services/csvFieldMapping.ts", "app/globals.css", "app/workbench.css", "e2e/google-sheets/fixture.jsx", "e2e/google-sheets/boundary.jsx", "e2e/google-sheets/run.mjs", "../../pnpm-lock.yaml"];
 const hashes = async () => Object.fromEntries(await Promise.all(inputs.map(async file => [file, createHash("sha256").update(await readFile(path.join(web, file))).digest("hex")])));
 inputs.push("components/HistoricalResultsImport.tsx", "app/projects/[projectId]/import/page.tsx");
+inputs.push("lib/google-picker-frame.ts", "lib/google-picker-document.ts", "app/connections/google-sheets/picker/route.ts");
 const sourceHashes = await hashes();
 const result = await build({
   entryPoints: [path.join(web, "e2e/google-sheets/fixture.jsx")], outfile: "fixture.js", bundle: true, write: false, jsx: "automatic", platform: "browser", nodePaths: [path.join(web, "node_modules")], alias: { "@": web },
   plugins: [{ name: "synthetic-transport", setup(builder) { builder.onResolve({ filter: /\/trpcReact$/ }, () => ({ path: path.join(web, "e2e/google-sheets/boundary.jsx") })); } }],
 });
 const css = (await readFile(path.join(web, "app/globals.css"), "utf8")).replace(/^@import[^\r\n]+\r?\n/, "") + "\n" + await readFile(path.join(web, "app/workbench.css"), "utf8");
+const pickerRouteBuild = await build({ entryPoints: [path.join(web, "app/connections/google-sheets/picker/route.ts")], bundle: true, write: false, platform: "node", format: "esm", alias: { "@": web } });
+const { GET: pickerDocument } = await import("data:text/javascript;base64," + Buffer.from(pickerRouteBuild.outputFiles[0].text).toString("base64"));
 const server = createServer((req, res) => {
-  if (req.url === "/bundle.js") { res.setHeader("Content-Type", "application/javascript"); res.end(result.outputFiles[0].text); }
+  // Exercise the real isolated document, including an upstream no-referrer
+  // header. Its local meta exception must not change the parent document.
+  if (req.url === "/connections/google-sheets/picker") { const response = pickerDocument(); response.headers.forEach((v, k) => res.setHeader(k, v)); res.setHeader("Referrer-Policy", "no-referrer"); response.text().then(body => res.end(body)); }
+  else if (req.url === "/bundle.js") { res.setHeader("Content-Type", "application/javascript"); res.end(result.outputFiles[0].text); }
   else { res.setHeader("Content-Type", "text/html"); res.end(`<!doctype html><html data-theme="dark"><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style></head><body><div id="root"></div><script src="/bundle.js"></script></body></html>`); }
 });
 await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
@@ -35,7 +41,11 @@ const errors = [], network = [];
 page.on("pageerror", error => errors.push(error.message));
 await page.route("https://**/*", async route => {
   const url = new URL(route.request().url()); network.push(url.origin + url.pathname);
-  if (["https://accounts.google.com/gsi/client", "https://apis.google.com/js/api.js"].includes(url.origin + url.pathname)) { await route.fulfill({ contentType: "text/javascript", body: "/* local provider substitute */" }); return; }
+  if (url.origin + url.pathname === "https://accounts.google.com/gsi/client") { await route.fulfill({ contentType: "text/javascript", body: "/* local GIS substitute is in the component fixture */" }); return; }
+  if (url.origin + url.pathname === "https://apis.google.com/js/api.js") {
+    assert.equal(route.request().headers().referer, origin + "/", "Picker receives only the origin, never project/query data");
+    await route.fulfill({ contentType: "text/javascript", body: `window.gapi={load:(_name,options)=>options.callback()};window.google={picker:{DocsView:class{setMimeTypes(){return this}},PickerBuilder:class{addView(){return this}setOAuthToken(){return this}setDeveloperKey(){return this}setAppId(){return this}setOrigin(){return this}setCallback(callback){this.callback=callback;return this}build(){return{dispose(){},setVisible:()=>this.callback({action:"picked",docs:[{id:"synthetic_book",mimeType:"application/vnd.google-apps.spreadsheet"}]})}}}}};` }); return;
+  }
   if (url.origin === "https://sheets.googleapis.com") {
     assert.equal(route.request().method(), "GET");
     const flags = new URL(page.url()).searchParams;
