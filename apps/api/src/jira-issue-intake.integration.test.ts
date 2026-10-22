@@ -83,7 +83,7 @@ describe.skipIf(!isolated)("Jira reviewed issue intake",()=>{
     const run=await reviewed(),input=defectInput(run);
     await expect((await actor("OWNER")).defects.previewJira(input)).rejects.toMatchObject({code:"NOT_FOUND"});
     await expect((await actor("VIEWER")).defects.previewJira(input)).rejects.toMatchObject({code:"FORBIDDEN"});
-    await expect((await actor("EDITOR","STAKEHOLDER")).defects.previewJira(input)).rejects.toMatchObject({code:"FORBIDDEN"});
+    await expect((await actor("EDITOR","READ_ONLY")).defects.previewJira(input)).rejects.toMatchObject({code:"FORBIDDEN"});
     await expect(defects.previewJira({...input,issueIds:["99999"]})).rejects.toMatchObject({code:"BAD_REQUEST"});
     await expect(defects.previewJira({...input,issueIds:["20001","20001"]})).rejects.toMatchObject({code:"BAD_REQUEST"});
     expect(await prisma.defectMapState.count({where:{projectId}})).toBe(0);
