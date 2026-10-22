@@ -35,6 +35,18 @@ This checkpoint is intentionally not exported or consumed by runtime routes. Exi
 
 Run: `node --experimental-strip-types --test scripts/enterprise-identity-policy.test.mjs`.
 
+### Durable directory observation journal
+
+The additive `IdentityDirectoryConnection`, `IdentityDirectorySubject` and `IdentityDirectoryReceipt` schema stores source provenance, not active permissions. The migration creates no connections, memberships or grants and has not been applied to a database. Connections and subjects default disabled. Composite foreign keys constrain a subject to its workspace connection and an existing native membership; provider-instance/directory uniqueness prevents reusing a directory across tenants. These restrictive references require an explicit future retention/offboarding path, not silent cascading deletion.
+
+`identityDirectoryStore` is an internal service with no route, scheduler or provider caller. Reservation advances a local generation before an authenticated fetch. Commit rechecks tenant, suspension, native subject, source IDs, binding/configuration revisions, latest generation and a server-reserved deadline in a Serializable transaction. Observations and source-attributed receipts commit together; receipts retain immutable source identifiers and observed group IDs, never credentials or raw provider payloads. Failed/partial reads are not removals. A newer reservation supersedes older in-flight fetches; replay/serialization conflicts require a fresh read, not replaying an old payload. Native memberships, seats and manual groups are untouched.
+
+`readCurrent` returns source evidence only, never a permission decision. Disabled/rebound bindings are rejected; expired observations and revision-mismatched observations are unavailable. Starting another fetch cannot extend old evidence. Every future binding/enablement/mapping change must advance the relevant revision. The lease is configurable on the connection (schema default 300 seconds, bounded to 1–3600); it is not an adopted revocation SLA and adds to provider synchronization delay. Activating enforcement requires an explicit freshness/recovery decision and measured provider behavior.
+
+Focused service tests use a synthetic transaction double; they do not prove PostgreSQL rollback, constraints or concurrent isolation. Actual database acceptance must cover receipt failure rollback, overlapping commits, cross-tenant foreign keys, revision races and compatibility with existing membership removal. No live/provider acceptance or custom-role activation is implied.
+
+Run: `pnpm --filter @vaettir/api test -- src/services/identityDirectoryStore.test.ts`.
+
 ## Remaining implementation, in order
 
 | Stage | Required evidence before acceptance |

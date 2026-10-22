@@ -28,6 +28,85 @@ model IdentityAccessDraft {
   updatedAt DateTime @updatedAt
 }
 
+// Source observations only. These rows do not grant native membership or permissions.
+// Provider setup must establish exact immutable bindings before enabling a connection.
+model IdentityDirectoryConnection {
+  id String @id @default(cuid())
+  organizationId String
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  providerInstanceId String
+  providerConnectionId String
+  providerDirectoryId String
+  enabled Boolean @default(false)
+  // Every binding/configuration/enablement change must advance this revision.
+  revision Int @default(1)
+  observationLeaseSeconds Int @default(300)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  subjects IdentityDirectorySubject[]
+
+  @@unique([organizationId, id])
+  @@unique([providerInstanceId, providerDirectoryId], map: "IdentityDirectoryConnection_provider_directory_key")
+}
+
+model IdentityDirectorySubject {
+  id String @id @default(cuid())
+  organizationId String
+  connectionId String
+  connection IdentityDirectoryConnection @relation(fields: [organizationId, connectionId], references: [organizationId, id], onDelete: Restrict)
+  userId String
+  membership Membership @relation(fields: [organizationId, userId], references: [organizationId, userId], onDelete: Restrict)
+  // Pinned current native user subject; an email-based rebind invalidates observations.
+  clerkSubject String
+  externalSubjectId String
+  enabled Boolean @default(false)
+  revision Int @default(1)
+  requestedGeneration Int @default(0)
+  appliedGeneration Int @default(0)
+  observedConnectionRevision Int?
+  observedSubjectRevision Int?
+  reservedAt DateTime?
+  reservedUntil DateTime?
+  active Boolean @default(false)
+  externalGroupIds String[] @default([])
+  observedAt DateTime?
+  expiresAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  receipts IdentityDirectoryReceipt[]
+
+  @@unique([organizationId, id])
+  @@unique([organizationId, connectionId, externalSubjectId], map: "IdentityDirectorySubject_external_subject_key")
+  @@unique([organizationId, connectionId, userId])
+}
+
+// Source-attributed audit receipts, not human actions. No fabricated User actor.
+// Application code appends only; receipt and latest observation commit together.
+model IdentityDirectoryReceipt {
+  id String @id @default(cuid())
+  organizationId String
+  subjectId String
+  subject IdentityDirectorySubject @relation(fields: [organizationId, subjectId], references: [organizationId, id], onDelete: Restrict)
+  generation Int
+  connectionRevision Int
+  subjectRevision Int
+  providerInstanceId String
+  providerConnectionId String
+  providerDirectoryId String
+  externalSubjectId String
+  userId String
+  clerkSubject String
+  active Boolean
+  groupCount Int
+  externalGroupIds String[]
+  observedAt DateTime
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@unique([subjectId, generation])
+  @@index([organizationId, createdAt])
+}
+
 model WorkspaceDomain {
   name String @id
   organizationId String? @unique
@@ -37,6 +116,7 @@ model WorkspaceDomain {
 }
 
 model Organization {
+  identityDirectoryConnections IdentityDirectoryConnection[]
   identityAccessDraft IdentityAccessDraft?
   workspaceDomain WorkspaceDomain?
   aiDisclosurePolicies AiDisclosurePolicy[]
@@ -1145,6 +1225,7 @@ enum SeatType {
 }
 
 model Membership {
+  identityDirectorySubjects IdentityDirectorySubject[]
   id             String       @id @default(cuid())
   organizationId String
   // Deleting an org takes its memberships with it (they have no meaning
