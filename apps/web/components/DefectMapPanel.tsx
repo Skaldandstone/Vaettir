@@ -13,6 +13,7 @@ import { Modal } from "@/components/Modal";
 import EvidenceLinkChip from "./EvidenceLinkChip";
 import { CoveredTestCasesPanel } from "./CaseTraceabilityPanel";
 import styles from "./DefectMap.module.css";
+import { JiraTrackerConnection } from "./JiraTrackerConnection";
 
 type Snapshot = RouterOutputs["defectMap"]["get"];
 type Cluster = Snapshot["map"]["clusters"][number];
@@ -32,6 +33,15 @@ function label(value: string) {
   return value
     .replaceAll("_", " ")
     .replace(/^./, (first) => first.toUpperCase());
+}
+function taskLabel(task: Task) {
+  if (task.provider === "jira" && task.url) {
+    try {
+      const key = new URL(task.url).pathname.match(/^\/browse\/([A-Z][A-Z0-9_]*-[1-9]\d*)$/)?.[1];
+      if (key) return key;
+    } catch { /* Retained exports can omit a provider link. */ }
+  }
+  return task.externalId;
 }
 function date(value: string) {
   return new Date(value).toLocaleString();
@@ -148,7 +158,7 @@ function TaskSnapshot({
     <div className={styles.taskSnapshot}>
       <EvidenceLinkChip
         provider={task.provider}
-        label={task.externalId}
+        label={taskLabel(task)}
         href={task.url}
         status={status}
         onReview={onReview}
@@ -276,7 +286,9 @@ export function DefectClusterWorkbench({
           <p>
             {clusters.length
               ? "No clusters match these filters."
-              : "No signal summaries imported yet. Import a reviewed export to begin mapping defects."}
+              : tasks.length
+                ? "Tracker tasks are available. Import reviewed crash or analytics summaries to compare them with these tasks."
+                : "Connect Jira to review tracker tasks, or import a reviewed export to begin mapping defects."}
           </p>
         </div>
       ) : (
@@ -499,7 +511,7 @@ export function DefectClusterWorkbench({
                               value={defectRecordKey(task)}
                               key={defectRecordKey(task)}
                             >
-                              {label(task.provider)} · {task.externalId} ·{" "}
+                              {label(task.provider)} · {taskLabel(task)} ·{" "}
                               {task.title}
                             </option>
                           ))}
@@ -858,6 +870,8 @@ export default function DefectMapPanel({ projectId }: { projectId: string }) {
         title="Defect map"
         description="Compare recorded crash and analytics summaries with Jira, Linear and Asana tasks."
         actions={
+          <>
+          <JiraTrackerConnection projectId={projectId} canEdit={canEdit} onSaved={() => void snapshot.refetch()} />
           <button
             type="button"
             disabled={!canEdit}
@@ -868,6 +882,7 @@ export default function DefectMapPanel({ projectId }: { projectId: string }) {
           >
             Import normalized export
           </button>
+          </>
         }
       />
       <p role="note" className="text-muted">
@@ -876,7 +891,7 @@ export default function DefectMapPanel({ projectId }: { projectId: string }) {
       </p>
       <div className={styles.statusLine}>
         <span>
-          Reviewed metadata exports only · Live sync unavailable · No AI · 0
+          Jira connection and reviewed exports · Manual snapshots · No AI · 0
           credits
         </span>
         <button
@@ -947,6 +962,11 @@ export default function DefectMapPanel({ projectId }: { projectId: string }) {
               <span>Unavailable sources</span>
             </div>
           </div>
+          {snapshot.data.document.tasks.length > 0 && <details className="panel" open={snapshot.data.map.clusters.length === 0}>
+            <summary>Tracker tasks ({snapshot.data.document.tasks.length})</summary>
+            <p>Reviewed task snapshots are retained here. A task status does not establish whether a runtime defect is fixed.</p>
+            <ul style={{ paddingLeft: 20 }}>{snapshot.data.document.tasks.map(task => <li key={defectRecordKey(task)}><TaskSnapshot task={task} /></li>)}</ul>
+          </details>}
           <DefectClusterWorkbench
             projectId={projectId}
             clusters={snapshot.data.map.clusters}

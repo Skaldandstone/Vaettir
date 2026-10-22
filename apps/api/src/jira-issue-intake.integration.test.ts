@@ -4,6 +4,7 @@ import {prisma,type OrgRole,type SeatType} from "@vaettir/db";
 import {jiraConnectionsRouter} from "./routers/jiraConnections.js";
 import {jiraIssueIntakeRouter} from "./routers/jiraIssueIntake.js";
 import {requirementsRouter} from "./routers/requirements.js";
+import {defectMapRouter} from "./routers/defectMap.js";
 import {listJiraProjects} from "./services/jiraSourceConnection.js";
 import {listJiraIssuePage} from "./services/jiraIssueIntake.js";
 vi.mock("./services/jiraSourceConnection.js",async original=>({...await original<typeof import("./services/jiraSourceConnection.js")>(),listJiraProjects:vi.fn()}));
@@ -17,11 +18,12 @@ describe.skipIf(!isolated)("Jira reviewed issue intake",()=>{
   let projectId:string;let orgId:string;let actorId:string;let connectionId:string;
   let owner:ReturnType<typeof jiraIssueIntakeRouter.createCaller>;
   let metadata:ReturnType<typeof jiraConnectionsRouter.createCaller>;
+  let defects:ReturnType<typeof defectMapRouter.createCaller>;
   async function actor(role?:OrgRole,seatType:SeatType="FULL"){
     const suffix=randomUUID();
     const user=await prisma.user.create({data:{email:suffix+"@example.invalid",clerkUserId:suffix,...(role?{memberships:{create:{organizationId:orgId,role,seatType}}}:{})},include:{memberships:true}});
     const ctx={prisma,user,staff:null,securityLogger:undefined,staffAttempt:{tokenConfigured:false,tokenPresented:false,actorHeaderPresented:false}};
-    return {user,caller:jiraIssueIntakeRouter.createCaller(ctx),metadata:jiraConnectionsRouter.createCaller(ctx),requirements:requirementsRouter.createCaller(ctx)};
+    return {user,caller:jiraIssueIntakeRouter.createCaller(ctx),metadata:jiraConnectionsRouter.createCaller(ctx),requirements:requirementsRouter.createCaller(ctx),defects:defectMapRouter.createCaller(ctx)};
   }
   const startInput=()=>({connectionId,projectIds:[projectA.id],requestId:randomUUID(),approveIssueRead:true as const});
   async function page(runId:string){
@@ -46,7 +48,7 @@ describe.skipIf(!isolated)("Jira reviewed issue intake",()=>{
     const suffix=randomUUID();const tier=await prisma.planTier.findUniqueOrThrow({where:{key:"free"}});
     orgId=(await prisma.organization.create({data:{name:"Jira import fixture",slug:"jira-import-"+suffix,planTierId:tier.id}})).id;
     projectId=(await prisma.project.create({data:{organizationId:orgId,name:"Synthetic",slug:"synthetic-"+suffix}})).id;
-    const actorResult=await actor("OWNER");actorId=actorResult.user.id;owner=actorResult.caller;metadata=actorResult.metadata;
+    const actorResult=await actor("OWNER");actorId=actorResult.user.id;owner=actorResult.caller;metadata=actorResult.metadata;defects=actorResult.defects;
     vi.mocked(listJiraProjects).mockResolvedValue({workspace:{id:site,name:site},account:{id:"account-synthetic",name:"Synthetic"},projects:[projectA],nextCursor:null,hasMore:false});
     const verified=await metadata.verify({projectId,siteUrl:site,email:"fixture@example.invalid",apiToken:"synthetic-token-not-live",requestId:randomUUID(),approveMetadataAccess:true});
     connectionId=verified.id;
@@ -55,6 +57,70 @@ describe.skipIf(!isolated)("Jira reviewed issue intake",()=>{
     vi.mocked(listJiraIssuePage).mockResolvedValue({issues:[issue()],nextPageToken:null});
   });
   afterEach(()=>vi.unstubAllEnvs());
+  const defectInput=(run:{id:string;version:number;issues:Array<{id:string}>})=>({projectId,runId:run.id,runVersion:run.version,issueIds:run.issues.map(issue=>issue.id),approveMetadataRead:true as const});
+  it("reviews Jira defect tasks without creating requirements; saves only explicitly approved summaries with durable replay",async()=>{
+    const run=await reviewed(2),input=defectInput(run);
+    const preview=await defects.previewJira(input);
+    expect(preview.tasks.map(task=>task.externalId)).toEqual(["20001","20002"]);
+    expect(preview.tasks.every(task=>task.status==="unknown"&&task.url?.startsWith(site+"/browse/"))).toBe(true);
+    expect(await prisma.defectMapState.count({where:{projectId}})).toBe(0);
+    expect(await prisma.requirement.count({where:{projectId}})).toBe(0);
+    const write={...input,version:preview.version,previewHash:preview.previewHash,requestId:randomUUID(),approveImport:true as const};
+    const result=await defects.approveJira(write);
+    expect(result.retried).toBe(false);
+    expect((await defects.get({projectId})).document.tasks).toHaveLength(2);
+    expect(await defects.approveJira(write)).toMatchObject({retried:true,appliedVersion:result.appliedVersion});
+    await expect(defects.approveJira({...write,issueIds:["20001"]})).rejects.toMatchObject({code:"CONFLICT"});
+    expect(await prisma.defectMapWrite.count({where:{projectId}})).toBe(1);
+    const audits=await prisma.auditLog.findMany({where:{projectId,entityType:"DefectMap"}});
+    expect(audits).toHaveLength(1);
+    expect(audits[0].metadata).toMatchObject({runId:run.id,runVersion:run.version,issueIds:["20001","20002"],requestId:write.requestId});
+    expect(await prisma.requirement.count({where:{projectId}})).toBe(0);
+    expect((await owner.get({runId:run.id})).status).toBe("REVIEW");
+    expect(listJiraIssuePage).toHaveBeenCalledTimes(1);
+  });
+  it("denies foreign actors, read-only seats and out-of-snapshot selections for defect intake",async()=>{
+    const run=await reviewed(),input=defectInput(run);
+    await expect((await actor("OWNER")).defects.previewJira(input)).rejects.toMatchObject({code:"NOT_FOUND"});
+    await expect((await actor("VIEWER")).defects.previewJira(input)).rejects.toMatchObject({code:"FORBIDDEN"});
+    await expect((await actor("EDITOR","STAKEHOLDER")).defects.previewJira(input)).rejects.toMatchObject({code:"FORBIDDEN"});
+    await expect(defects.previewJira({...input,issueIds:["99999"]})).rejects.toMatchObject({code:"BAD_REQUEST"});
+    await expect(defects.previewJira({...input,issueIds:["20001","20001"]})).rejects.toMatchObject({code:"BAD_REQUEST"});
+    expect(await prisma.defectMapState.count({where:{projectId}})).toBe(0);
+  });
+  it("checks source revocation at the defect write while acknowledging only an already completed receipt",async()=>{
+    const run=await reviewed(),input=defectInput(run),preview=await defects.previewJira(input);
+    const write={...input,version:preview.version,previewHash:preview.previewHash,requestId:randomUUID(),approveImport:true as const};
+    await prisma.ticketSourceConnection.update({where:{id:connectionId},data:{status:"DISCONNECTED"}});
+    await expect(defects.approveJira(write)).rejects.toMatchObject({code:"PRECONDITION_FAILED"});
+    expect(await prisma.defectMapWrite.count({where:{projectId}})).toBe(0);
+    await prisma.ticketSourceConnection.update({where:{id:connectionId},data:{status:"VERIFIED"}});
+    await defects.approveJira(write);
+    await prisma.ticketSourceConnection.update({where:{id:connectionId},data:{status:"DISCONNECTED"}});
+    await expect(defects.previewJira(input)).rejects.toMatchObject({code:"PRECONDITION_FAILED"});
+    expect(await defects.approveJira(write)).toMatchObject({retried:true});
+    expect(await prisma.defectMapWrite.count({where:{projectId}})).toBe(1);
+  });
+  it("rejects stale map reviews, expired runs and summaries outside the approved Jira project or site",async()=>{
+    const run=await reviewed(),input=defectInput(run),preview=await defects.previewJira(input);
+    const write={...input,version:preview.version,previewHash:preview.previewHash,requestId:randomUUID(),approveImport:true as const};
+    await defects.approveJira(write);
+    await expect(defects.approveJira({...write,requestId:randomUUID()})).rejects.toMatchObject({code:"CONFLICT"});
+    await prisma.jiraIssueImportRun.update({where:{id:run.id},data:{issues:[{...issue(),projectId:"99999"}]}});
+    await expect(defects.previewJira(input)).rejects.toMatchObject({code:"FORBIDDEN"});
+    await prisma.jiraIssueImportRun.update({where:{id:run.id},data:{issues:[{...issue(),url:"https://other.atlassian.net/browse/SYN-1"}]}});
+    await expect(defects.previewJira(input)).rejects.toMatchObject({code:"FORBIDDEN"});
+    await prisma.jiraIssueImportRun.update({where:{id:run.id},data:{issues:[issue()],expiresAt:new Date(Date.now()-1000)}});
+    await expect(defects.previewJira(input)).rejects.toMatchObject({code:"PRECONDITION_FAILED"});
+  });
+  it("does not truncate Jira titles or guess a closed defect status",async()=>{
+    const run=await reviewed(),input=defectInput(run);
+    await prisma.jiraIssueImportRun.update({where:{id:run.id},data:{issues:[{...issue(),title:"x".repeat(181),status:"Done"}]}});
+    await expect(defects.previewJira(input)).rejects.toThrow(/180-character/);
+    expect(await prisma.defectMapState.count({where:{projectId}})).toBe(0);
+    await prisma.jiraIssueImportRun.update({where:{id:run.id},data:{issues:[{...issue(),status:"Done"}]}});
+    expect((await defects.previewJira(input)).tasks[0].status).toBe("unknown");
+  });
   it("requires separate literal read permission and approved projects before I/O",async()=>{
     await expect(owner.start({...startInput(),approveIssueRead:false as never})).rejects.toMatchObject({code:"BAD_REQUEST"});
     await expect(owner.start({...startInput(),projectIds:["99999"]})).rejects.toMatchObject({code:"FORBIDDEN"});

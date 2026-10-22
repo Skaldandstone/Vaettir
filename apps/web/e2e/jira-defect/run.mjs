@@ -1,0 +1,77 @@
+// Real connection/intake/review/modal UI with explicit synthetic boundaries.
+/* global document, innerWidth */
+import {createRequire} from "node:module";
+import {readFile,mkdir,writeFile} from "node:fs/promises";
+import {createServer} from "node:http";
+import {fileURLToPath} from "node:url";
+import path from "node:path";
+import assert from "node:assert/strict";
+const web=path.resolve(fileURLToPath(new URL("../../",import.meta.url))),output=path.join(web,"../../.local/jira-defect-20261021");
+await mkdir(output,{recursive:true});
+const require=createRequire(path.join(web,"package.json")),{build}=createRequire(createRequire(require.resolve("vitest")).resolve("vite"))("esbuild"),{chromium}=require("@playwright/test");
+const boundary=path.join(web,"e2e/jira-defect/boundaries.jsx");
+const bundle=await build({entryPoints:[path.join(web,"e2e/jira-defect/fixture.jsx")],outfile:"fixture.js",bundle:true,write:false,jsx:"automatic",platform:"browser",nodePaths:[path.join(web,"node_modules")],alias:{"@":web},plugins:[{name:"synthetic-transport",setup(b){
+ b.onResolve({filter:/^(?:@clerk\/nextjs|next\/navigation|.*\/trpcReact|.*\/use-project-permissions|.*\/use-case-field-access|\.\/SourceConnectionChips|\.\/PopulationDocuments|\.\/CaseTraceabilityPanel|.*\/ProjectRepositories|.*\/AiDisclosureSettings|.*\/AtlassianQualitySettings)$/},()=>({path:boundary}));
+ b.onResolve({filter:/^next\/link$/},()=>({path:path.join(web,"e2e/ui-workbench/link-boundary.tsx")}));
+}}]});
+const css=(await readFile(path.join(web,"app/globals.css"),"utf8")).replace(/^@import[^\r\n]+\r?\n/,"")+"\n"+await readFile(path.join(web,"app/workbench.css"),"utf8");
+const server=createServer((req,res)=>{if(req.url==="/bundle.js"){res.setHeader("content-type","text/javascript");res.end(bundle.outputFiles.find(file=>file.path.endsWith(".js")).text);}else{res.setHeader("content-type","text/html");res.end(`<!doctype html><html data-theme="dark"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div><script src="/bundle.js"></script></body></html>`);}});
+await new Promise(resolve=>server.listen(0,"127.0.0.1",resolve));
+const browser=await chromium.launch({headless:true}),page=await browser.newPage({viewport:{width:1280,height:1000}}),errors=[];
+page.on("pageerror",error=>errors.push(error.message));
+const origin=`http://127.0.0.1:${server.address().port}`;
+await page.route("**/*",route=>route.request().url().startsWith(origin)?route.continue():route.abort());
+const visible=locator=>locator.waitFor({state:"visible"});
+try{
+ await page.goto(origin);await page.getByRole("tab",{name:"Jira & Confluence",exact:true}).click();
+ await page.getByRole("button",{name:"Connect Jira tracker",exact:true}).click();
+ await visible(page.getByRole("heading",{name:"Connect Jira to the defect map",exact:true}));
+ await page.getByRole("button",{name:"Preview or resume Jira issues",exact:true}).click();
+ await page.getByRole("button",{name:"SYN Synthetic tracker",exact:false}).click();
+ await page.getByRole("checkbox",{name:"I approve reading issue summaries",exact:false}).check();
+ await page.getByRole("button",{name:"Approve issue reads and start preview",exact:true}).click();
+ await page.getByRole("button",{name:"Read next issue page",exact:true}).click();
+ await visible(page.getByText("Synthetic defect 2",{exact:true}));
+ await page.getByRole("button",{name:"Finish preview and review",exact:true}).click();
+ await visible(page.getByRole("button",{name:"Review selected defect tasks",exact:true}));
+ assert.equal(await page.getByRole("checkbox",{name:"Import SYN-2",exact:true}).isChecked(),true,"Existing requirement classification does not suppress a tracker task");
+ assert.equal(await page.getByRole("button",{name:"Approve selected additions",exact:true}).count(),0,"Defect mode never offers requirement creation");
+ await page.getByRole("button",{name:"Review selected defect tasks",exact:true}).click();
+ await visible(page.getByRole("button",{name:"Save reviewed Jira tasks",exact:true}));
+ assert.equal(await page.getByRole("button",{name:"Save reviewed Jira tasks",exact:true}).isEnabled(),false);
+ await page.screenshot({path:path.join(output,"jira-review-dark.png"),fullPage:true});
+ await page.getByRole("checkbox",{name:"I approve saving these reviewed Jira summaries",exact:false}).check();
+ await page.getByRole("button",{name:"Save reviewed Jira tasks",exact:true}).click();
+ await visible(page.getByRole("button",{name:"Saving tasks…",exact:true}));
+ assert.equal(await page.getByRole("button",{name:"Close",exact:true}).isEnabled(),false,"An active write cannot be dismissed");
+ assert.equal(await page.getByRole("checkbox",{name:"Import SYN-1",exact:true}).isEnabled(),false);
+ await page.getByRole("button",{name:"Lose synthetic acknowledgement",exact:true}).dispatchEvent("click");
+ await visible(page.getByRole("button",{name:"Retry the same task import",exact:true}));
+ await page.getByRole("button",{name:"Fail saved status",exact:true}).dispatchEvent("click");
+ await page.getByRole("button",{name:"Refresh saved status",exact:true}).click();
+ await visible(page.getByRole("alert"));
+ assert.equal(await page.getByRole("button",{name:"Retry the same task import",exact:true}).isVisible(),false,"Cached source is withheld during failed refresh");
+ await page.getByRole("button",{name:"Restore saved status",exact:true}).dispatchEvent("click");
+ await page.getByRole("button",{name:"Refresh saved status",exact:true}).click();
+ await visible(page.getByRole("button",{name:"Retry the same task import",exact:true}));
+ await page.getByRole("button",{name:"Close",exact:true}).click();
+ await page.getByRole("button",{name:"Switch theme",exact:true}).click();
+ await page.getByRole("button",{name:"Connect Jira tracker",exact:true}).click();
+ await visible(page.getByRole("button",{name:"Retry the same task import",exact:true}));
+ await page.screenshot({path:path.join(output,"jira-retry-light.png"),fullPage:true});
+ await page.setViewportSize({width:390,height:844});
+ await page.screenshot({path:path.join(output,"jira-retry-narrow.png"),fullPage:true});
+ assert.ok(await page.locator(".modal-panel").evaluate(element=>element.scrollWidth<=element.clientWidth+1),"Connection and review fit at 390px");
+ await page.getByRole("button",{name:"Retry the same task import",exact:true}).click();
+ await visible(page.getByText("The earlier Jira task import was already saved. No duplicate write was made.",{exact:true}));
+ await page.getByRole("button",{name:"Close",exact:true}).click();
+ await page.getByText("Synthetic transport evidence",{exact:true}).click();
+ const evidence=JSON.parse(await page.getByTestId("evidence").innerText());
+ assert.equal(evidence.readCount,1);assert.equal(evidence.requirements,0);assert.equal(evidence.sourceWrites,1);assert.equal(evidence.writes.length,2);assert.deepEqual(evidence.writes[0],evidence.writes[1]);
+ await page.goto(origin+"/?screen=map");await page.getByRole("button",{name:"Connect Jira tracker",exact:true}).click();
+ await visible(page.getByRole("button",{name:"Preview or resume Jira issues",exact:true}));
+ assert.deepEqual(errors,[]);
+ const result={actualComponents:true,syntheticTransport:true,hostedProviderAccepted:false,checks:["settings and defect-map connection entry points","explicit scoped issue-read and separate task-save approval","unchanged requirement classification remains selectable for tasks","no requirement mutations","active write blocks close","unknown receipt survives failed refresh, close and reopen","exact retry and one durable write","dark, light and390px"],errors,evidence};
+ await writeFile(path.join(output,"evidence.json"),JSON.stringify(result,null,2));console.log(JSON.stringify(result));
+}catch(error){await page.screenshot({path:path.join(output,"failure.png"),fullPage:true});console.error(JSON.stringify({errors,body:await page.locator("body").innerText()}));throw error;}
+finally{await browser.close();await new Promise(resolve=>server.close(resolve));}
