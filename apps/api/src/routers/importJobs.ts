@@ -9,6 +9,7 @@ import {
   type TargetField,
 } from "../services/csvFieldMapping.js";
 import { commitImportedTestCases } from "../services/importCommit.js";
+import { importSkippedRows, importSkippedRowsSchema, importStatusLabel } from "../services/importOutcome.js";
 import { parseXrayExport } from "../services/xrayImport.js";
 import { parseTestRailXml } from "../services/testrailImport.js";
 import { scanQTestProject } from "../services/qtestImport.js";
@@ -1054,6 +1055,8 @@ export const importJobsRouter = router({
           source: z.string(),
           sourceLabel: z.string().nullable(),
           status: z.string(),
+          statusLabel: z.string(),
+          skippedRows: importSkippedRowsSchema,
           createdCount: z.number(),
           updatedCount: z.number(),
           skippedCount: z.number(),
@@ -1074,6 +1077,8 @@ export const importJobsRouter = router({
         source: j.source,
         sourceLabel: j.sourceLabel,
         status: j.status,
+        statusLabel: importStatusLabel(j),
+        skippedRows: importSkippedRows(j.errors),
         createdCount: j.createdCount,
         updatedCount: j.updatedCount,
         skippedCount: j.skippedCount,

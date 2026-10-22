@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { inspectCsv, mapCsvRows, splitCsvRows } from "../../../api/src/services/csvFieldMapping";
 function previewResult(input) {
   const inspected = inspectCsv(input.csvText);
@@ -17,10 +17,18 @@ function mutation(handler) {
 }
 const fail = () => { throw new Error("Unexpected fixture endpoint"); };
 const endpoints = Object.fromEntries(["commitCsv", "commitXlsx", "commitXray", "commitTestRail", "commitQTest", "commitZephyr", "previewXlsxSheet", "previewXray", "previewTestRail", "previewQTest", "previewZephyr"].map(name => [name, mutation(fail)]));
-const utils = { testRuns: { list: { invalidate: async () => {} } }, client: { importJobs: { startTypeAnalysis: { mutate() { window.sheetFixture.ai++; throw new Error("Sheets must not trigger AI"); } } } } };
+export const useParams = () => ({ projectId: "synthetic-project" });
+export const useSession = () => ({ isLoaded: true, session: { id: "synthetic-session", user: { id: "synthetic-actor" } } });
+export const useProjectPermissions = () => ({ loaded: true, canEdit: true });
+let jobs = [];
+const listeners = new Set();
+const invalidateJobs = async () => { jobs = [...jobs]; listeners.forEach(listener => listener()); };
+const utils = { importJobs: { list: { invalidate: invalidateJobs } }, testRuns: { list: { invalidate: async () => {} } }, client: { importJobs: { startTypeAnalysis: { mutate() { window.sheetFixture.ai++; throw new Error("Sheets must not trigger AI"); } } } } };
 export const trpcReact = {
   useUtils: () => utils,
+  project: { byId: { useQuery: () => ({ data: { defaultBranch: "main" } }) } },
   testRuns: {
+    ingestJUnit: mutation(fail),
     previewHistorical: mutation(input => {
       window.sheetFixture.previews.push(input);
       // Synthetic transport exercises the UI; real matching, dates, tenant
@@ -35,9 +43,16 @@ export const trpcReact = {
     commitHistorical: mutation(input => { window.sheetFixture.commits.push(input); return { importedCount: 2, replayedCount: 0, runs: [{ id: "synthetic-run", date: input.runDate, results: 2, replayed: false }] }; }),
   },
   importJobs: {
+    list: { useQuery() { return { data: useSyncExternalStore(listener => { listeners.add(listener); return () => listeners.delete(listener); }, () => jobs) }; } },
     historicalWorkbook: mutation(() => ({ sheets: [{ name: "Old results", csvText: "ID,Result\nold-1,pass", headers: ["ID", "Result"], rowCount: 1, originalRowNumbers: [5,9] }] })),
     ...endpoints, previewCsv: mutation(preview), previewWithMapping: mutation(preview),
     googleSheetsConfig: { useQuery: () => ({ data: new URLSearchParams(location.search).has("unconfigured") ? null : { clientId: "synthetic-client", apiKey: "synthetic-public-key", appId: "123456789" }, isLoading: false, error: null }) },
-    commitGoogleSheets: mutation(input => { window.sheetFixture.commits.push(input); return { importJobId: "synthetic-job", createdCount: 2, updatedCount: 0, skipped: [] }; }),
+    commitGoogleSheets: mutation(input => {
+      window.sheetFixture.commits.push(input);
+      const conflict = new URLSearchParams(location.search).has("conflict");
+      const skipped = conflict ? [{ rowNumber: 2, reason: "Case changed since its last import; source updates were not applied. Review the human edits and source changes." }] : [];
+      jobs = [{ id: "synthetic-job", source: "GOOGLE_SHEETS", status: "SUCCEEDED", statusLabel: conflict ? "Needs review" : "Completed", skippedRows: skipped, sourceLabel: "Synthetic workbook", createdCount: conflict ? 0 : 2, updatedCount: 0, skippedCount: skipped.length, createdByName: "Synthetic actor", createdAt: "2026-10-18T12:00:00Z" }];
+      return { importJobId: "synthetic-job", createdCount: conflict ? 0 : 2, updatedCount: 0, skipped };
+    }),
   },
 };

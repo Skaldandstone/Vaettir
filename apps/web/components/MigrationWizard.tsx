@@ -1710,7 +1710,7 @@ export function MigrationWizard({
       {step === "done" && result && (
         <div>
           <h3 style={{ marginTop: 0, color: "var(--frost)" }}>
-            Import complete
+            {result.skipped.length > 0 ? "Import finished with skipped rows" : "Import complete"}
           </h3>
           <p>
             Imported {result.createdCount} test case(s)
@@ -1720,6 +1720,12 @@ export function MigrationWizard({
               `, skipped ${result.skipped.length} row(s)`}
             .
           </p>
+          {result.skipped.length > 0 && <div>
+            <p>Skipped rows were not applied. Review each reason before trying again.</p>
+            <ul style={{ maxHeight: 320, overflowY: "auto", overflowWrap: "anywhere" }}>
+              {result.skipped.map((row, index) => <li key={`${row.rowNumber}:${index}`}>Row {row.rowNumber}: {row.reason}</li>)}
+            </ul>
+          </div>}
           <button onClick={reset}>Import another</button>
         </div>
       )}
