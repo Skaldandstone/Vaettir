@@ -198,6 +198,13 @@ it("creates only selected pending proposals and exact source/version/audit; conc
     kind: "LOCAL_REPORTED_NAVIGATION",
     nativeExecutionIndependentlyVerified: false,
   });
+  // Prisma's closed family enum defaults this source to CUSTOM. The case page
+  // must use the exact retained framework for that family, rather than losing
+  // the supported Android automation suggestion at the enum boundary.
+  expect(saved.source).toMatchObject({
+    frameworkFamily: "CUSTOM",
+    framework: "android-exploration",
+  });
   expect(saved.steps).toHaveLength(1);
   expect(saved.steps[0]!.action).toContain(
     'objectId="com.vaettir.synthetic:id/navigation"',
