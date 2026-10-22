@@ -38,7 +38,7 @@ const reasonText: Record<string, string> = {
   SCREEN_LIMIT: "Reached the screen limit.",
   TIME_LIMIT: "Reached the time limit.",
   FORM_AUTH_OR_EMBEDDED_CONTENT:
-    "This screen needs manual interaction. Exploration stopped.",
+    "This screen has a protected or unrecognized form, authentication, payment or embedded content. Exploration stopped.",
   SCREEN_CHANGED_REVIEW_REQUIRED:
     "The screen changed outside this session. Exploration stopped for review.",
   TARGET_OR_OBSERVATION_UNAVAILABLE:
@@ -725,8 +725,10 @@ export function AndroidAppExploration(props: Props) {
               </details>
               <p className="text-muted">
                 One exact label per line. Vaettir will follow matching
-                navigation controls, scroll and go back. Other controls, forms,
-                sign-in, purchases and destructive actions are excluded. A label
+                navigation controls, scroll and go back. Ordinary search/filter
+                fields are left untouched and their contents are excluded.
+                Unrecognized forms, sign-in, payments, embedded content and
+                destructive actions stop exploration or are excluded. A label
                 cannot guarantee an app’s behavior; use a test account.
               </p>
               <label>

@@ -34,6 +34,8 @@ const names = [
   "listAndroidDevices",
   "inspectAndroidExplorerTarget",
   "androidExplorerBounds",
+  "androidExplorerVisibleNodes",
+  "androidExplorerFieldBoundary",
   "observeAndroidExplorerWindow",
 ];
 const tree = ts.createSourceFile(
@@ -151,6 +153,101 @@ test("actual adapter identifies form/password and embedded content stops; foreig
   assert.throws(() =>
     foreign.api.observeAndroidExplorerWindow("SYNTHETIC", foreign.pkg),
   );
+});
+test("ordinary search/filter fields are identified by stable metadata, omitted with their descendants, and never navigable", () => {
+  for (const metadata of [
+    'resource-id="com.vaettir.synthetic:id/searchInput"',
+    'hint="Filter items"',
+    'content-desc="Search items"',
+  ]) {
+    const f = fixture();
+    f.xml = f.xml.replace(
+      "</hierarchy>",
+      `<node package="${f.pkg}" class="android.widget.EditText" ${metadata} text="PRIVATE QUERY ONE" bounds="[0,20][400,60]" focused="false" clickable="true"><node package="${f.pkg}" class="android.widget.TextView" text="PRIVATE CHILD ONE" /></node></hierarchy>`,
+    );
+    const observed = f.api.observeAndroidExplorerWindow("SYNTHETIC", f.pkg);
+    assert.equal(observed.blocked, false);
+    assert.equal(
+      observed.controls.some((c) => c.role === "textbox"),
+      false,
+    );
+    assert.doesNotMatch(
+      JSON.stringify(observed),
+      /PRIVATE|Search items|Filter items|searchInput/,
+    );
+    assert.equal(
+      observed.controls.find((c) => c.name === "Browse").navigable,
+      true,
+    );
+    assert.ok(observed.scroll);
+    f.xml = f.xml
+      .replace("PRIVATE QUERY ONE", "PRIVATE QUERY TWO")
+      .replace("PRIVATE CHILD ONE", "PRIVATE CHILD TWO");
+    assert.equal(
+      f.api.observeAndroidExplorerWindow("SYNTHETIC", f.pkg).id,
+      observed.id,
+    );
+  }
+});
+test("ordinary-input admission never permits password, authentication, payment, focused or unrecognized fields", () => {
+  for (const attributes of [
+    'text="Search"', // A field value or placeholder never establishes classification.
+    'hint="Search" password="true"',
+    'hint="Search" focused="true"',
+    'resource-id="com.vaettir.synthetic:id/search_password"',
+    'hint="Filter" content-desc="Verification code"',
+    'hint="Search" resource-id="com.vaettir.synthetic:id/payment_card_number"',
+  ]) {
+    const f = fixture();
+    f.xml = f.xml.replace(
+      "</hierarchy>",
+      `<node package="${f.pkg}" class="android.widget.EditText" ${attributes} bounds="[0,20][400,60]" /></hierarchy>`,
+    );
+    const result = f.api.observeAndroidExplorerWindow("SYNTHETIC", f.pkg);
+    assert.equal(result.blocked, true);
+    assert.deepEqual(result.controls, []);
+  }
+  for (const heading of [
+    "Sign in",
+    "Verify your identity",
+    "Payment details",
+    "Checkout",
+  ]) {
+    const f = fixture();
+    f.xml = f.xml.replace('text="Home"', `text="${heading}"`);
+    const result = f.api.observeAndroidExplorerWindow("SYNTHETIC", f.pkg);
+    assert.equal(result.blocked, true);
+    assert.deepEqual(result.controls, []);
+  }
+});
+test("navigation tap and swipe geometry cannot target an excluded ordinary field", () => {
+  const f = fixture();
+  f.xml = f.xml.replace(
+    "</hierarchy>",
+    `<node package="${f.pkg}" class="android.widget.EditText" hint="Search" text="PRIVATE VALUE" bounds="[0,80][400,800]" /></hierarchy>`,
+  );
+  const result = f.api.observeAndroidExplorerWindow("SYNTHETIC", f.pkg);
+  assert.equal(result.blocked, false);
+  assert.equal(
+    result.controls.find((c) => c.name === "Browse").navigable,
+    false,
+  );
+  assert.equal(result.scroll, null);
+  assert.equal(
+    f.calls.some((args) => args.includes("input")),
+    false,
+  );
+});
+test("hidden subtrees do not expose descendant source or affect retained screen identity", () => {
+  const f = fixture();
+  const before = f.api.observeAndroidExplorerWindow("SYNTHETIC", f.pkg);
+  f.xml = f.xml.replace(
+    "</hierarchy>",
+    `<node package="${f.pkg}" class="android.widget.FrameLayout" visible="false"><node package="${f.pkg}" class="android.widget.TextView" text="PRIVATE HIDDEN VALUE" /></node></hierarchy>`,
+  );
+  const after = f.api.observeAndroidExplorerWindow("SYNTHETIC", f.pkg);
+  assert.equal(after.id, before.id);
+  assert.doesNotMatch(JSON.stringify(after), /PRIVATE HIDDEN VALUE/);
 });
 test("real helper HTTP keeps exact origin/pairing, strict version and duplicate/oversize request refusal without native reads", async () => {
   const listener = createServer();

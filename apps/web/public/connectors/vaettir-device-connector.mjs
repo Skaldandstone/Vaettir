@@ -960,6 +960,42 @@ function androidExplorerBounds(value) {
   if (bounds.some(n => n > 20000) || bounds[2] <= bounds[0] || bounds[3] <= bounds[1]) throw captureRefusal();
   return bounds;
 }
+function androidExplorerVisibleNodes(hierarchy) {
+  // Validate the entire document before pruning display-only input subtrees.
+  // Never turn a partial parse or a hidden foreign package into admitted source.
+  hierarchyTags(hierarchy);
+  const tokens = /<\?xml[^?]*\?>|<\/?[A-Za-z_][A-Za-z0-9_.:-]*(?:\s+[A-Za-z_][A-Za-z0-9_.:-]*\s*=\s*"[^"]*")*\s*\/?>/g;
+  const stack = [], result = [];
+  for (const match of hierarchy.matchAll(tokens)) {
+    const token = match[0];
+    if (token.startsWith("<?")) continue;
+    if (token.startsWith("</")) { stack.pop(); continue; }
+    const a = attributesOf(token), parent = stack.at(-1);
+    const hidden = !!parent?.hidden || a.visible === "false" || a.displayed === "false";
+    const withinField = !!parent?.withinField;
+    const isField = nativeRole(a,"node") === "textbox";
+    if (!hidden && token.startsWith("<node")) result.push({a, withinField, isField});
+    if (!token.endsWith("/>")) stack.push({hidden, withinField:withinField || isField});
+  }
+  return result;
+}
+function androidExplorerFieldBoundary(nodes) {
+  const risk = /\b(?:password|passcode|otp|mfa|2fa|auth|authentication|username|email|verification|payment|checkout|billing|cvv|cvc|iban)\b|sign\s*in|log\s*in|one\s*time|card\s*number|credit\s*card/i;
+  const authPaymentHeading = /^(?:sign[ -]?in|log[ -]?in|authentication|verify (?:your )?identity|enter (?:verification )?code|verify code|checkout|payment(?: details)?|billing details)$/i;
+  const normalize = value => value.replace(/([a-z])([A-Z])/g,"$1 $2").replace(/[_:./-]+/g," ");
+  const fields = [];
+  for (const {a,withinField,isField} of nodes) {
+    if (a.password === "true" || /WebView/.test(a.class ?? "")) return {blocked:true,fields:[]};
+    // An ordinary query value is never evidence that a field is safe. Only
+    // stable accessibility/identifier metadata may admit search/filter inputs.
+    if (isField) {
+      const metadata = normalize([a["content-desc"]??"",a.hint??"",a["resource-id"]?.split("/").at(-1)??"",a.class??""].join(" "));
+      if (a.focused === "true" || risk.test(metadata) || !/\b(?:search|filter)\b/i.test(metadata)) return {blocked:true,fields:[]};
+      fields.push(androidExplorerBounds(a.bounds));
+    } else if (!withinField && a.clickable !== "true" && authPaymentHeading.test((a.text || a["content-desc"] || "").trim())) return {blocked:true,fields:[]};
+  }
+  return {blocked:false,fields};
+}
 function observeAndroidExplorerWindow(serial, expectedPackage) {
   let hierarchy;
   captureAndroidWindow({source:"android", serial, expectedPackage, label:"Exploration observation"}, {
@@ -971,27 +1007,33 @@ function observeAndroidExplorerWindow(serial, expectedPackage) {
     adb: (device, args) => { const actual=args.join(" ")==="shell dumpsys window windows"?["shell","dumpsys","window","displays"]:args;const output = run("adb", ["-s", device, ...actual]); if (args[0] === "exec-out" && args[1] === "cat") hierarchy = output; return output; },
   });
   const hash = value => createHash("sha256").update(value).digest("hex");
-  const nodes = hierarchyTags(hierarchy).map(attributesOf).filter(a => a.visible !== "false" && a.displayed !== "false");
+  const nodes = androidExplorerVisibleNodes(hierarchy), boundary = androidExplorerFieldBoundary(nodes);
   // Detect a manual-interaction boundary before retaining any field values,
   // labels, native attributes or content-derived digests from that screen.
-  if (nodes.some(a => a.password === "true" || nativeRole(a,"node") === "textbox" || /WebView/.test(a.class ?? "")))
+  if (boundary.blocked)
     return {id:hash("manual-interaction:"+expectedPackage), label:"Manual interaction required", controls:[], blocked:true, scroll:null};
   const controls = [], semantics = []; let label = expectedPackage, blocked = false, scroll = null;
-  for (const a of nodes) {
+  for (const {a,withinField,isField} of nodes) {
+    // Omit input values, labels, attributes and descendants even from digests.
+    // A constant geometry marker preserves the excluded field's position.
+    if (isField) { semantics.push(["ordinary-search-filter-field",androidExplorerBounds(a.bounds)]); continue; }
+    if (withinField) continue;
     const role = nativeRole(a, "node"), name = a.text || a["content-desc"] || a["resource-id"] || "";
-    if (a.password === "true" || role === "textbox" || /WebView/.test(a.class ?? "")) blocked = true;
     semantics.push(Object.keys(a).sort().map(key=>[key,a[key]]));
-    if (a.scrollable === "true" && a.enabled !== "false" && !scroll) scroll = {id:hash(JSON.stringify(semantics.at(-1))),bounds:androidExplorerBounds(a.bounds)};
+    if (a.scrollable === "true" && a.enabled !== "false" && !scroll) {
+      const b=androidExplorerBounds(a.bounds),x=Math.floor((b[0]+b[2])/2),y1=Math.floor(b[1]+(b[3]-b[1])*0.3),y2=Math.floor(b[1]+(b[3]-b[1])*0.8);
+      if (!boundary.fields.some(f=>x>=f[0]&&x<f[2]&&y2>=f[1]&&y1<f[3])) scroll = {id:hash(JSON.stringify(semantics.at(-1))),bounds:b};
+    }
     if (!name) continue;
     exactText(name, 200);
     if (label === expectedPackage && role === "text" && a.clickable !== "true") label = name;
     if (controls.length >= 150) throw captureRefusal();
     const id = hash(JSON.stringify(semantics.at(-1)));
-    const navigable = a.enabled !== "false" && a.clickable === "true" && a.checkable !== "true" &&
+    let navigable = a.enabled !== "false" && a.clickable === "true" && a.checkable !== "true" &&
       ["button", "text", "tab", "link"].includes(role) && !!(a.text || a["content-desc"]);
     const bounds = navigable || a.scrollable === "true" ? androidExplorerBounds(a.bounds) : null;
+    if (navigable) { const x=Math.floor((bounds[0]+bounds[2])/2),y=Math.floor((bounds[1]+bounds[3])/2); if(boundary.fields.some(f=>x>=f[0]&&x<f[2]&&y>=f[1]&&y<f[3])) navigable=false; }
     controls.push({id, name, role, navigable, bounds});
-    if (a.scrollable === "true" && a.enabled !== "false" && !scroll) scroll = {id, bounds};
   }
   if (!controls.length) throw captureRefusal();
   return {id:hash(JSON.stringify(semantics)), label, controls, blocked, scroll};

@@ -29,8 +29,9 @@ is a separate operation admission, and hosted disclosure is another review.
 One step performs at most one navigation action. It reobserves the complete
 supported target screen and refuses a stale screen digest. Accessible named
 navigation controls must match the approved labels exactly; duplicates and
-known sensitive action labels are excluded. Forms, passwords, embedded web
-content and foreign package hierarchies stop traversal. Back and scrolling are
+known sensitive action labels are excluded. Passwords, recognized authentication
+or payment screens, unrecognized forms, embedded web content and foreign package
+hierarchies stop traversal. Back and scrolling are
 bounded and retain their observed path. The default UI budget is 12 actions,
 8 screens and 180 seconds, below protocol maxima of 24/12/300.
 
@@ -96,12 +97,36 @@ After the owner reviewed five detected controls, a separate single-use pilot
 performed one actual tap and stopped at a manual-interaction boundary, without
 creating a journey or uploading content. Its private evidence binds the earlier
 helper hash; it does not establish proposal generation in the owner app. The
-subsequent collector correction refuses such screens before retaining labels,
-field values or native attribute digests. Engine/native tests verify that
-boundary; physical acceptance of that correction remains pending.
+subsequent collector correction refuses protected/unrecognized screens before
+retaining labels, field values or native attribute digests. Engine/native tests
+verify that boundary. The later owner-approved ordinary-field run used the exact
+updated helper SHA `037429cca3b72952f5add72fda5905d125177c2d40b23f9c72f81c002a2c3633`,
+performed one tap and produced one schema/digest-validated journey and local test
+proposal. It then stopped at a changed screen before its next action. No input
+control was retained and nothing was uploaded. This establishes bounded actual
+navigation/proposal preparation, with no claim of exhaustive exploration,
+authentication/payment negative testing on the phone, hosted addition or release.
 
 When starter labels do not match, the retained review lists detected controls for
 explicit selection. Preparing another exploration checks the same open package
 with a new target ticket, clears local and disclosure consent, and requires a new
 bounded start. It does not silently broaden the previous session's authority.
 An uncertain add request must be recovered before replacing its page review.
+
+## Owner-approved ordinary field handling
+
+The owner approved navigation around ordinary search/filter fields on October 22.
+Only stable accessibility/identifier metadata can identify these fields; their
+current text cannot authorize that classification. Password, authentication and
+payment markers take precedence. Focused or unrecognized inputs still stop the
+session. Known authentication/payment headings also stop it; this is conservative
+metadata recognition, not a guarantee that every app's business behavior is known.
+
+Ordinary inputs and their descendants are excluded from retained controls,
+labels, values and attribute digests. Only a constant geometry marker contributes
+to view identity. Input-value changes alone therefore do not change that digest;
+navigation controls and other supported source still do. Taps cannot land in an
+excluded input rectangle, and scroll paths crossing one are not dispatched.
+No typing, field focus or submission command is added. Hidden subtrees are also
+excluded after complete hierarchy/package admission, without weakening that
+original admission. Input-boundary tests cover these cases explicitly.
