@@ -26,6 +26,19 @@ const allowedOrigins = new Set([
   "http://127.0.0.1:3001",
 ]);
 
+function validatedConnectorOrigin(origin) {
+  try {
+    const url = new URL(origin);
+    const customer = url.protocol === "https:" && !url.port &&
+      /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.vaettir\.app$/.test(url.hostname);
+    if (typeof origin !== "string" || url.origin !== origin ||
+      (!allowedOrigins.has(origin) && !customer)) throw Error();
+    return origin;
+  } catch {
+    throw new Error("--origin must be an exact supported Vaettir or development origin.");
+  }
+}
+
 function parseArguments(argv) {
   const values = {};
   for (let index = 0; index < argv.length; index += 1) {
@@ -555,6 +568,14 @@ async function handleAndroidWindowCapture(request, response, cors) {
 }
 
 const args = parseArguments(process.argv.slice(2));
+// A downloaded launcher binds this process to its one customer origin.
+// Preserve legacy/manual development startup when no origin was supplied;
+// never admit every tenant or reflect an arbitrary browser Origin header.
+if (Object.hasOwn(args, "origin")) {
+  const origin = validatedConnectorOrigin(args.origin);
+  allowedOrigins.clear();
+  allowedOrigins.add(origin);
+}
 const port = Number(args.port || 4774);
 const pairingCode =
   args["pairing-code"] || randomBytes(4).toString("hex").toUpperCase();

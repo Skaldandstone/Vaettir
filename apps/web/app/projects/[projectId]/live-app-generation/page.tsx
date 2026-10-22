@@ -709,6 +709,7 @@ export default function LiveAppGenerationPage() {
                           <code style={{ overflowWrap: "anywhere" }}>
                             {'node "vaettir-device-connector.mjs" --pairing-code '}
                             {pairingCode || "YOUR_PAIRING_CODE"}
+                            {" --origin "}{typeof window === "undefined" ? "" : window.location.origin}
                           </code>
                           <span className="text-muted" style={{ fontSize: 13 }}>
                             The pairing code is private. Do not share the

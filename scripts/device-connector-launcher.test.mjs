@@ -75,6 +75,15 @@ test("accepts loopback development but refuses remote HTTP and shell metacharact
     "https://evil&host.test",
     "https://evil%host.test",
     "https://vaettir.skaldandstone.com/path",
+    "https://attacker.example",
+    "https://atwist.vaettir.app.attacker.example",
+    "https://nested.atwist.vaettir.app",
+    "https://atwist.vaettir.app:8443",
+    "https://atwist.vaettir.app/",
+    "https://atwist.vaettir.app?origin=other",
+    "https://user@atwist.vaettir.app",
+    "http://atwist.vaettir.app",
+    "http://localhost:4774",
   ]) {
     assert.throws(() =>
       buildDeviceConnectorLauncher({
@@ -86,10 +95,22 @@ test("accepts loopback development but refuses remote HTTP and shell metacharact
   }
 });
 
+test("each launcher platform binds only the exact current customer origin", async () => {
+  for (const platform of ["windows", "macos", "linux"]) {
+    for (const origin of ["https://app.vaettir.app", "https://atwist.vaettir.app", "https://skaldandstone.vaettir.app", "https://future-customer.vaettir.app"]) {
+      const { events, state } = await syntheticBootstrap({ platform, origin });
+      assert.equal(state.exitCode, 0);
+      assert.equal(events.find(([name]) => name === "fetch")[1], `${origin}/connectors/vaettir-device-connector.mjs`);
+      assert.equal(events.find(([name]) => name === "spawn")[2].slice(-2).join("|"), `--origin|${origin}`);
+    }
+  }
+});
+
 // Execute only the generated bootstrap in an isolated, fully synthetic runtime.
 // No network, disk writes, downloaded connector or device capture is performed.
 async function syntheticBootstrap({
   platform = "windows",
+  origin = "https://vaettir.skaldandstone.com",
   version = "24.0.0",
   status = 200,
   contentType = "text/javascript",
@@ -103,7 +124,7 @@ async function syntheticBootstrap({
 } = {}) {
   const launcher = buildDeviceConnectorLauncher({
     platform,
-    origin: "https://vaettir.skaldandstone.com",
+    origin,
     pairingCode: "ABCDEF123456",
   });
   const command = launcher.content
@@ -203,7 +224,7 @@ test("all platform bootstraps use bounded no-redirect downloads and unique exclu
     assert.equal(spawn[1], "synthetic-node");
     assert.equal(
       spawn[2].join("|"),
-      "/owned/vaettir-device-unique/vaettir-device-connector.mjs|--pairing-code|ABCDEF123456",
+      "/owned/vaettir-device-unique/vaettir-device-connector.mjs|--pairing-code|ABCDEF123456|--origin|https://vaettir.skaldandstone.com",
     );
     assert.equal(spawn[3].shell, false);
     assert.equal(spawn[3].stdio, "inherit");
