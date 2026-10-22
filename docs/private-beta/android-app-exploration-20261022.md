@@ -1,0 +1,107 @@
+# Android app exploration
+
+APP-NAV-01 extends SSE-181 with the owner-requested flow: connect an app,
+explore normal navigation, review proposed tests, then add selected cases.
+The initial pilot uses Skald's sandbox and the owner-selected aTwist QA app.
+aTwist directory activation remains pending review.
+
+## Source behavior
+
+The single-file connector exposes a separate `/exploration/v1` protocol.
+Existing v2 paired health and capture endpoints retain their existing meaning.
+The exploration launcher uses local port 4775; it does not stop, replace or
+extract pairing information from an existing port 4774 capture helper.
+
+An explicit target check reads one authorized device's current package without
+reading its hierarchy. A single-use target ticket is bound to that device,
+observed package, browser origin and original project/account/session pins.
+The ticket expires after two minutes. Starting requires separate explicit local
+observation/navigation/test-account consent and exact allowed navigation labels.
+Those local pins and pairing do not attest a hosted account or source permission.
+
+The page checks current, locked, full-editor access before and after each local
+operation using an independently authenticated Clerk subject. Native account
+mapping is pinned after the first current read. A denial hides retained source
+and stops further local dispatch. Explicit restoration checks the same original
+scope. This metadata read still grants no processing permission: local consent
+is a separate operation admission, and hosted disclosure is another review.
+
+One step performs at most one navigation action. It reobserves the complete
+supported target screen and refuses a stale screen digest. Accessible named
+navigation controls must match the approved labels exactly; duplicates and
+known sensitive action labels are excluded. Forms, passwords, embedded web
+content and foreign package hierarchies stop traversal. Back and scrolling are
+bounded and retain their observed path. The default UI budget is 12 actions,
+8 screens and 180 seconds, below protocol maxima of 24/12/300.
+
+The Android adapter reads the display's exact `mCurrentFocus` package before
+and after hierarchy collection. This supports current Pixel Android output;
+the older `dumpsys window windows` command does not expose that field on the
+pilot device. This is an explicit reader choice, not an activity-name fallback.
+Hierarchy package, serial and complete text/count/byte admissions remain strict.
+Before/after focus observations are not atomic isolation. Navigation labels
+cannot guarantee an app's behavior, so a test account is required.
+
+There is no autonomous helper loop. The browser requests one bounded step at a
+time; Pause/Stop prevent the next request after an in-flight command completes.
+Sequence is consumed before an action, so uncertain outcomes are never replayed.
+A read can recover the retained local session without issuing another device
+command. Navigation authority expires; observations remain in helper memory until
+the process exits. This slice does not provide reload or helper-restart recovery.
+Keep an uncertain add request mounted for its exact retry.
+
+## Suggestions and addition
+
+Navigation proposals are deterministic and local, with no model call or AI
+credit charge. Every proposal contains its observed start, actions, destination
+and timestamps. Expected assertions need human review. Observations are not a
+test pass, business-rule verification or comprehensive coverage analysis.
+
+The reviewer sees the exact selected journey payload and separately approves
+its disclosure to the current project. Only selected paths are sent. The server
+validates their complete bounded continuity and digest, then rechecks and locks
+the original organization, membership, project and authenticated native account.
+It saves pending-review `IMPORTED` cases with source provenance, ordered steps,
+a version snapshot and an audit receipt in one transaction. A retry uses the
+same request and durable receipt. A new request for the same retained journey
+reuses the original case without replacing later human edits. Existing inventory
+matching across separate exploration sessions is not implemented.
+
+Client-reported observations are stored as local-reported provenance, not
+independently verified physical execution. No new schema migration, provider
+credential, directory activation, consent bypass or AI-sharing grant is added.
+
+## Validation and release boundary
+
+Focused engine/native-adapter/HTTP tests cover original scope, exact origins,
+bounded decoding, target observation, stale views, excluded controls, traversal,
+Pause/Stop, expiry and replay refusal. Real PostgreSQL tests cover selected case
+creation, version/provenance, concurrent retries, human edits, current access,
+tenant isolation, suspension and independent authentication. Browser fixtures
+mount the actual component and engine, exercise explicit disclosure, uncertain
+save recovery and account/access changes, and render both themes at 1280/390.
+Their native and hosted-save adapters are synthetic; those tests are not a
+physical-device or production acceptance claim.
+
+Physical and authenticated sandbox acceptance remain distinct release gates.
+The first actual pilot found a different foreground app and stopped before
+hierarchy collection or navigation. No customer content from that app was read.
+The second pilot admitted `com.atwist` on the authorized Pixel 9 Pro XL, observed
+four distinct screens and performed four bounded scrolling actions. It exhausted
+the approved starter labels with zero tap journeys; this is native observation
+and scrolling evidence, not successful automatic test suggestion acceptance.
+Further native source stays local until its exact selected disclosure is reviewed.
+
+After the owner reviewed five detected controls, a separate single-use pilot
+performed one actual tap and stopped at a manual-interaction boundary, without
+creating a journey or uploading content. Its private evidence binds the earlier
+helper hash; it does not establish proposal generation in the owner app. The
+subsequent collector correction refuses such screens before retaining labels,
+field values or native attribute digests. Engine/native tests verify that
+boundary; physical acceptance of that correction remains pending.
+
+When starter labels do not match, the retained review lists detected controls for
+explicit selection. Preparing another exploration checks the same open package
+with a new target ticket, clears local and disclosure consent, and requires a new
+bounded start. It does not silently broaden the previous session's authority.
+An uncertain add request must be recovered before replacing its page review.

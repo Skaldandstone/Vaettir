@@ -41,7 +41,7 @@ function validatedOrigin(origin: string): string {
 }
 
 /** First-party download only; no credentials, redirects or shared temp file. */
-function connectorBootstrap(connectorUrl: string, pairingCode: string, origin: string): string {
+function connectorBootstrap(connectorUrl: string, pairingCode: string, origin: string, port?: number): string {
   // Deliberately use single-quoted literals: the entire program is quoted by
   // cmd.exe and sh. Both input values have already passed strict validation.
   return [
@@ -76,7 +76,7 @@ function connectorBootstrap(connectorUrl: string, pairingCode: string, origin: s
     "try{fs.writeFileSync(descriptor,Buffer.concat(chunks));}finally{fs.closeSync(descriptor);}",
     "const child=spawnSync(process.execPath,[file,'--pairing-code','" +
       pairingCode +
-      "','--origin','" + origin + "'],{stdio:'inherit',shell:false});",
+      "','--origin','" + origin + "'" + (port === undefined ? "" : ",'--port','" + port + "'") + "],{stdio:'inherit',shell:false});",
     "if(child.error||child.signal||child.status===null)throw Error('start');",
     "process.exitCode=child.status;",
     "}catch{console.error('The helper could not start. Check Node 22+, your connection and your security product. Use the reviewed manual setup on the Vaettir page; do not disable protection.');process.exitCode=1;}",
@@ -97,15 +97,18 @@ export function buildDeviceConnectorLauncher({
   platform,
   origin,
   pairingCode,
+  port,
 }: {
   platform: DeviceConnectorPlatform;
   origin: string;
   pairingCode: string;
+  port?: number;
 }): { filename: string; content: string; mimeType: string } {
   const safeOrigin = validatedOrigin(origin);
   const safePairingCode = validatedPairingCode(pairingCode);
   const connectorUrl = `${safeOrigin}/connectors/vaettir-device-connector.mjs`;
-  const bootstrap = connectorBootstrap(connectorUrl, safePairingCode, safeOrigin);
+  if (port !== undefined && (!Number.isInteger(port) || port < 1024 || port > 65535)) throw Error("Unsupported local connector port.");
+  const bootstrap = connectorBootstrap(connectorUrl, safePairingCode, safeOrigin, port);
 
   if (platform === "windows") {
     return {
