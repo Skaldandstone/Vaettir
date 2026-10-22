@@ -72,7 +72,7 @@ try {
     await dialog().getByRole("alert").filter({ hasText: "catalogue could not" }).waitFor();
     await dialog().getByRole("button", { name: "Reload saved catalogue" }).focus();
     await page.getByRole("tooltip").filter({ hasText: "does not contact" }).waitFor(); await page.keyboard.press("Enter");
-    await choose(); await configure({ mode: "deferred" });
+    await choose(); await configure({ mode: "deferred-after" });
     await dialog().getByRole("button", { name: "Approve attachment" }).click();
     await page.waitForFunction(() => window.identityFixture.state().writes.length === 3);
     await configure({ projectId: "other-project", organizationId: "other-org" });
@@ -95,9 +95,36 @@ try {
   await dialog().getByRole("button", { name: "Approve attachment" }).click();
   await dialog().getByRole("alert").filter({ hasText: "storage is unavailable" }).waitFor();
   assert.equal((await state()).writes.length, 0, "No mutation without durable request retention");
+  for (const [theme, cleanupFailure] of ["dark", "light"].flatMap(theme => ["remove", "all"].map(failure => [theme, failure]))) {
+    await page.goto(origin); await page.evaluate(() => sessionStorage.clear()); await page.reload();
+    await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
+    await open(); await choose(); await configure({ cleanupFailure });
+    await dialog().getByRole("button", { name: "Approve attachment" }).click();
+    await dialog().getByRole("alert").filter({ hasText: "Attachment confirmed. Saved-request cleanup failed" }).waitFor();
+    assert.equal(await dialog().getByRole("button", { name: "Attachment confirmed", exact: true }).isDisabled(), true);
+    assert.equal(await dialog().getByRole("button", { name: "Retry saved attachment" }).count(), 0);
+    assert.equal((await state()).writes.length, 1);
+    await dialog().getByRole("button", { name: "Clear saved receipt" }).click();
+    await dialog().getByRole("alert").filter({ hasText: "no attachment was retried" }).waitFor();
+    assert.equal((await state()).writes.length, 1);
+    await page.keyboard.press("Escape"); await open();
+    assert.equal(await dialog().getByRole("button", { name: "Retry saved attachment" }).count(), 0);
+    await page.screenshot({ path: path.join(output, `confirmed-cleanup-${cleanupFailure}-${theme}.png`), fullPage: true });
+    await page.reload(); await open();
+    if (cleanupFailure === "remove") {
+      await dialog().getByRole("status").filter({ hasText: "attachment is confirmed" }).waitFor();
+      await dialog().getByRole("button", { name: "Clear saved receipt" }).click();
+      assert.equal(await page.evaluate(() => sessionStorage.length), 0);
+    } else {
+      await dialog().getByRole("status").filter({ hasText: "was submitted" }).waitFor();
+      assert.equal(await dialog().getByRole("button", { name: "Awaiting resolution" }).isDisabled(), true);
+      assert.equal(await page.evaluate(() => sessionStorage.length), 1);
+    }
+    assert.equal((await state()).writes.length, 0, "No replay after recovered confirmed/submitted record");
+  }
   assert.deepEqual(errors, []); assert.deepEqual(blocked, []);
   await writeFile(path.join(output, "result.json"), JSON.stringify({ result: "PASS", evidence: "Actual attachment component and custom-action hook; synthetic native-read/SDK/query transport. NOT provider, hosted or SQL proof.",
-    themes: ["dark", "light"], widths: [1280, 390], checks: ["explicit attachment approval", "no provider/setup/import controls", "long labels", "narrow/focus/Escape and keyboard tooltip", "unknown acknowledgement retained across close/reload", "exact request retry", "changed selection version and expiry/revocation denial", "read error keyboard recovery", "in-flight tenant change retention", "no mutation when request storage fails"], errors, blocked }, null, 2));
+    themes: ["dark", "light"], widths: [1280, 390], checks: ["explicit attachment approval", "no provider/setup/import controls", "long labels", "narrow/focus/Escape and keyboard tooltip", "unknown acknowledgement retained across close/reload", "exact request retry", "changed selection version and expiry/revocation denial", "read error keyboard recovery", "in-flight tenant change retention", "no mutation when initial storage fails", "matched success then remove failure retains confirmed outcome without retry", "all post-dispatch storage failures leave submitted record non-retryable after reload", "confirmed cleanup recovery without mutation"], errors, blocked }, null, 2));
   console.log(`PASS: reviewed attachment UI. Evidence: ${output}`);
 } catch (error) {
   await page.screenshot({ path: path.join(output, "failure.png"), fullPage: true });

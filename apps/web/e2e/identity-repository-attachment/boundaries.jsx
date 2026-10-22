@@ -34,10 +34,14 @@ export const trpcReact = {
     connectSelected: { useMutation: () => ({ mutateAsync: async input => {
       const mode = state.mode;
       notify({ writes: [...state.writes, structuredClone(input)] });
-      if (mode === "deferred") await new Promise(resolve => { finish = resolve; });
+      if (mode.startsWith("deferred")) await new Promise(resolve => { finish = resolve; });
       if (!state.allowed) throw Error("Synthetic revoked permission");
       notify({ attached: [...new Set([...state.attached, ...input.repositoryIds])] });
-      if (mode === "after") throw Error("Synthetic lost acknowledgement");
+      if (mode === "after" || mode === "deferred-after") throw Error("Synthetic lost acknowledgement");
+      if (state.cleanupFailure) {
+        Storage.prototype.removeItem = () => { throw Error("Synthetic post-ack cleanup failure"); };
+        if (state.cleanupFailure === "all") Storage.prototype.setItem = () => { throw Error("Synthetic post-dispatch write failure"); };
+      }
       return { connected: input.repositoryIds.length };
     } }) },
   },

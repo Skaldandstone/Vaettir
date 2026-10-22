@@ -45,25 +45,39 @@ export function ReviewedRepositoryAttachment({ projectId, onAttached }: { projec
   const connection = data?.connections.find(item => item.id === (ownReceipt?.input.id ?? connectionId));
   const fresh = !!connection && new Date(connection.expiresAt).getTime() > now;
   const selectionCurrent = !!connection && selectedVersion === connection.catalogVersion && selected.every(id => connection.repositories.some(repo => repo.id === id));
-  const retryable = fresh && ownReceipt && connection.catalogVersion === ownReceipt.input.catalogVersion && ownReceipt.input.repositoryIds.every(id => connection.repositories.some(repo => repo.id === id));
+  const retryable = fresh && ownReceipt?.phase === "unknown" && connection.catalogVersion === ownReceipt.input.catalogVersion && ownReceipt.input.repositoryIds.every(id => connection.repositories.some(repo => repo.id === id));
   async function attach() {
     // Event-time expiry check, never called during render; the displayed clock may be one tick old.
     // eslint-disable-next-line react-hooks/purity
     if (!owns() || !data || !connection || !fresh || new Date(connection.expiresAt).getTime() <= Date.now() || inFlight.current || loadedKey !== key || storageError ||
       (receipt && !retryable) || (!receipt && (!selectionCurrent || !selected.length || selected.length > 100))) return;
-    const request: ReviewedAttachmentReceipt = ownReceipt ?? { ...scope, input: { id: connection.id, repositoryIds: [...selected], catalogVersion: connection.catalogVersion, approved: true } };
+    const request: ReviewedAttachmentReceipt = ownReceipt ? { ...ownReceipt, phase: "submitted" } : { ...scope, phase: "submitted", input: { id: connection.id, repositoryIds: [...selected], catalogVersion: connection.catalogVersion, approved: true } };
     // Preserve only exact identifiers/version/approval, never provider tokens or content.
     try { sessionStorage.setItem(key, JSON.stringify(request)); } catch { setStorageError(true); return; }
     inFlight.current = true; setReceipt(request); setBusy(true); setError(""); setNotice("");
     try {
-      const result = await mutation.mutateAsync(request.input);
-      if (!result || Object.keys(result).length !== 1 || result.connected !== request.input.repositoryIds.length) throw Error("Unmatched attachment response");
-      if (!owns()) return; // Original stored request survives scope changes/unmount.
-      sessionStorage.removeItem(key); setReceipt(null); setSelected([]); setNotice(`${result.connected} repositories attached.`);
-      // A list refresh failure is not a failed attachment or permission to replay it.
-      try { await onAttached(); } catch { if (owns()) setError("Attachment confirmed. Saved references could not refresh."); }
-    } catch { if (owns()) setError("Attachment could not be confirmed. The exact request is retained; check saved references before retrying."); }
-    finally { inFlight.current = false; setBusy(false); }
+      try {
+        const result = await mutation.mutateAsync(request.input);
+        if (!result || Object.keys(result).length !== 1 || result.connected !== request.input.repositoryIds.length) throw Error("Unmatched attachment response");
+      } catch {
+        const unknown: ReviewedAttachmentReceipt = { ...request, phase: "unknown" };
+        let retained = false;
+        try { sessionStorage.setItem(key, JSON.stringify(unknown)); retained = true; } catch { /* Submitted stays non-retryable on reload. */ }
+        if (owns()) { setReceipt(retained ? unknown : request); setStorageError(!retained); setError("Attachment could not be confirmed. The exact request is retained; check saved references before retrying."); }
+        return;
+      }
+      // A matched acknowledgement is irreversible knowledge, independent of
+      // browser cleanup or list refresh. Neither failure may enable a replay.
+      const confirmed: ReviewedAttachmentReceipt = { ...request, phase: "confirmed" };
+      try { sessionStorage.setItem(key, JSON.stringify(confirmed)); } catch { /* Submitted also blocks replay after reload. */ }
+      let cleaned = false;
+      try { sessionStorage.removeItem(key); cleaned = true; } catch { /* Keep confirmed outcome separate from cleanup. */ }
+      if (!owns()) return;
+      setReceipt(cleaned ? null : confirmed); setStorageError(!cleaned); setSelected([]);
+      setNotice(`${request.input.repositoryIds.length} repositories attached.`);
+      if (!cleaned) setError("Attachment confirmed. Saved-request cleanup failed; do not retry the attachment.");
+      try { await onAttached(); } catch { if (owns() && cleaned) setError("Attachment confirmed. Saved references could not refresh."); }
+    } finally { inFlight.current = false; setBusy(false); }
   }
   if (!eligible) return actions.error ? <p role="alert">Could not check attachment access. <button type="button" onClick={() => actions.retry()}>Retry access check</button></p> : null;
   return <section aria-label="Previously reviewed repositories" style={{ marginBlock: 16, minWidth: 0 }}>
@@ -72,7 +86,7 @@ export function ReviewedRepositoryAttachment({ projectId, onAttached }: { projec
       <p className="text-muted">Choose from repositories previously reviewed by this account. No provider lookup or source read.</p>
       {storageError && <p role="alert">Saved-request storage is unavailable or needs review. No new attachment can start.</p>}
       {error && <p role="alert">{error}</p>}{notice && <p role="status">{notice}</p>}
-      {ownReceipt && <p role="status">A previous attachment is unresolved. Its exact selection and approval are retained, including after closing.</p>}
+      {ownReceipt && <p role="status">{ownReceipt.phase === "confirmed" ? "This attachment is confirmed. A saved cleanup record remains; it cannot be retried." : ownReceipt.phase === "submitted" ? "A previous attachment was submitted. Check saved references before further action; automatic replay is blocked." : "A previous attachment is unresolved. Its exact selection and approval are retained, including after closing."}</p>}
       {receipt && !ownReceipt && <p role="alert">The saved attachment belongs to the original workspace and account. Restore that scope to review it; no new request can start.</p>}
       {!data ? <p role={query.error ? "alert" : "status"}>{query.error ? "Reviewed catalogue could not be loaded." : "Checking reviewed catalogue…"}</p> :
         !data.connections.length ? <p>No current reviewed catalogue is available. An authorized editor must review it first.</p> : <>
@@ -84,12 +98,17 @@ export function ReviewedRepositoryAttachment({ projectId, onAttached }: { projec
               {connection.repositories.map(repo => <label key={repo.id} style={{ display: "flex", gap: 8, alignItems: "flex-start", overflowWrap: "anywhere" }}><input type="checkbox" checked={(ownReceipt?.input.repositoryIds ?? (selectionCurrent ? selected : [])).includes(repo.id)} onChange={() => { setSelectedVersion(connection.catalogVersion); setSelected(prior => !selectionCurrent ? [repo.id] : prior.includes(repo.id) ? prior.filter(id => id !== repo.id) : [...prior, repo.id]); }}/><span>{repo.name}<small style={{ display: "block" }}>{repo.url}</small></span></label>)}
             </fieldset></>}
         </>}
-      {ownReceipt && !retryable && <p role="alert">The original scope or catalogue is no longer available. The saved attempt remains unresolved; no new approval is inferred.</p>}
+      {ownReceipt?.phase === "unknown" && !retryable && <p role="alert">The original scope or catalogue is no longer available. The saved attempt remains unresolved; no new approval is inferred.</p>}
       {selected.length > 100 && <p role="alert">Select at most 100 repositories for this attachment.</p>}
       {!receipt && selected.length > 0 && !selectionCurrent && <p role="alert">The catalogue changed. Review and select repositories again before approving.</p>}
       <footer className="connection-footer" style={{ flexDirection: "row", justifyContent: "flex-end", flexWrap: "wrap", gap: 8 }}>
         <IconButton icon="refresh" label="Reload saved catalogue" tooltip="Reload previously reviewed choices. This does not contact the provider." disabled={busy || query.isFetching} onClick={() => { if (owns()) void query.refetch(); }}/>
-        <button type="button" className="btn-primary" disabled={busy || storageError || loadedKey !== key || !data || !fresh || (receipt ? !retryable : !selectionCurrent || !selected.length || selected.length > 100)} onClick={attach}>{busy ? "Attaching…" : receipt ? "Retry saved attachment" : "Approve attachment"}</button>
+        {ownReceipt?.phase === "confirmed" && <button type="button" className="btn-secondary" disabled={busy} onClick={() => {
+          if (!owns()) return;
+          try { sessionStorage.removeItem(key); setReceipt(null); setStorageError(false); setError(""); }
+          catch { setError("Attachment confirmed. Saved-request cleanup is still unavailable; no attachment was retried."); }
+        }}>Clear saved receipt</button>}
+        <button type="button" className="btn-primary" disabled={busy || storageError || loadedKey !== key || !data || !fresh || (receipt ? !retryable : !selectionCurrent || !selected.length || selected.length > 100)} onClick={attach}>{busy ? "Attaching…" : ownReceipt?.phase === "confirmed" ? "Attachment confirmed" : ownReceipt?.phase === "submitted" ? "Awaiting resolution" : receipt ? "Retry saved attachment" : "Approve attachment"}</button>
       </footer>
     </Modal>
   </section>;
