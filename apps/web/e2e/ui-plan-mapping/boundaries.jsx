@@ -13,6 +13,9 @@ const savedRequests = new Map();
 const sentRequests = [], responseListeners = new Set();
 let pendingResponse = null;
 const controlled = new URLSearchParams(location.search).has("controlled");
+const bulk = new URLSearchParams(location.search).has("bulk");
+const uploadPreviews = [], uploadSaves = [], retainedUploads = new Set();
+let failBulkAck = bulk;
 function respondLater(value) {
   if (!controlled) return value;
   return new Promise((resolve, reject) => {
@@ -62,9 +65,10 @@ const document = {
     { id: "submit", label: "Submit order", kind: "INTERACTION", from: "storefront", to: "checkout", quote: "Storefront --> CheckoutAPI : submits order", line: 5 },
   ],
 };
-const architecturePreview = () => ({
+const uploadHash = input => (input.fileName === "bulk-second.puml" ? "2" : "1").repeat(64);
+const architecturePreview = input => ({
   ...scope, organizationId: scope.organizationId, actorClerkUserId: scope.actorClerkUserId,
-  scopeHash: "e".repeat(64), document, cases, decisions: [...decisions], results: [], unprocessed: [],
+  scopeHash: "e".repeat(64), document: bulk ? (uploadPreviews.push(input.fileName), { ...document, fileName: input.fileName, hash: uploadHash(input) }) : document, cases, decisions: [...decisions], results: [], unprocessed: [],
   canSpend: true, maximumCredits: 12, batchCount: 1, balance: 0,
 });
 export const trpcReact = {
@@ -108,7 +112,13 @@ export const trpcReact = {
     documents: query(() => savedSource ? [{ ...document, savedAt: "2026-10-20T12:00:00Z" }] : []),
     preview: mutation(architecturePreview),
     openDocument: mutation(() => ({ fileName: document.fileName, content: "@startuml\ncomponent CheckoutAPI\n@enduml" })),
-    saveDocument: mutation(() => { savedSource = true; return { saved: true }; }),
+    saveDocument: mutation(input => {
+      savedSource = true;
+      if (!bulk) return { hash: document.hash };
+      uploadSaves.push(structuredClone(input)); retainedUploads.add(uploadHash(input));
+      if (input.fileName === "bulk-second.puml" && failBulkAck) { failBulkAck = false; throw Error("Synthetic lost save acknowledgement"); }
+      return { hash: uploadHash(input) };
+    }),
     analyzeBatch: mutation(reject), saveDraft: mutation(reject),
     decide: mutation(input => {
       sentRequests.push(structuredClone(input));
@@ -123,5 +133,5 @@ export const trpcReact = {
 };
 export function Evidence() {
   const [, refresh] = useState(0);
-  return <details><summary onClick={() => refresh(v => v + 1)}>Synthetic transport evidence</summary><pre data-testid="transport-evidence">{JSON.stringify({ template, saveCount, decisions, savedSource, sentRequests })}</pre></details>;
+  return <details><summary onClick={() => refresh(v => v + 1)}>Synthetic transport evidence</summary><pre data-testid="transport-evidence">{JSON.stringify({ template, saveCount, decisions, savedSource, sentRequests, uploadPreviews, uploadSaves, retainedUploadCount: retainedUploads.size })}</pre></details>;
 }

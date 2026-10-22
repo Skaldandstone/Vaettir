@@ -113,6 +113,44 @@ try {
   assert.equal(mappings.decisions.length, 1); assert.equal(mappings.savedSource, true);
   assert.equal(mappings.sentRequests.length, 2);
   assert.deepEqual(mappings.sentRequests[0], mappings.sentRequests[1], "Manual mapping retry preserves source, scope and request identity");
+  await page.goto(`${origin}/?screen=architecture&bulk`);
+  const queue = page.getByRole("region", { name: "Bulk architecture upload", exact: true });
+  const diagram = name => ({ name, mimeType: "text/plain", buffer: Buffer.from("@startuml\ncomponent Synthetic\n@enduml") });
+  await page.getByLabel("Diagram", { exact: true }).setInputFiles([
+    diagram("bulk-first.puml"), diagram("bulk-second.puml"),
+    { name: "too-large.svg", mimeType: "image/svg+xml", buffer: Buffer.alloc(1_000_001, 32) },
+    { name: "bad-encoding.puml", mimeType: "text/plain", buffer: Buffer.from([0xff, 0xfe, 0xff]) },
+    diagram("unsupported.txt"),
+  ]);
+  await visible(queue);
+  assert.equal(await queue.getByRole("button", { name: "Save reviewed versions", exact: true }).isEnabled(), false);
+  await queue.getByRole("button", { name: "Inspect selected diagrams", exact: true }).click();
+  await visible(queue.getByRole("button", { name: "Save 2 reviewed versions", exact: true }));
+  assert.equal(await queue.getByRole("alert").count(), 3);
+  await page.getByText("Synthetic transport evidence", { exact: true }).click();
+  const inspectedUploads = JSON.parse(await page.getByTestId("transport-evidence").innerText());
+  assert.deepEqual(inspectedUploads.uploadPreviews, ["bulk-first.puml", "bulk-second.puml"]);
+  assert.equal(inspectedUploads.uploadSaves.length, 0, "Inspection never saves or starts analysis");
+  await queue.getByRole("button", { name: "Save 2 reviewed versions", exact: true }).click();
+  await visible(queue.getByText("Synthetic lost save acknowledgement", { exact: true }));
+  await queue.getByRole("button", { name: "Save 1 reviewed version", exact: true }).click();
+  await visible(page.getByText("Reviewed versions saved. No AI processing or sharing was started.", { exact: true }));
+  await page.getByText("Synthetic transport evidence", { exact: true }).click();
+  await page.getByText("Synthetic transport evidence", { exact: true }).click();
+  const savedUploads = JSON.parse(await page.getByTestId("transport-evidence").innerText());
+  assert.equal(savedUploads.retainedUploadCount, 2);
+  assert.equal(savedUploads.uploadSaves.length, 3);
+  assert.deepEqual(savedUploads.uploadSaves[1], savedUploads.uploadSaves[2], "Lost acknowledgement retry retains the identical document");
+  await page.getByText("Synthetic transport evidence", { exact: true }).click();
+  await page.screenshot({ path: path.join(output, "architecture-bulk-dark.png"), fullPage: true });
+  await page.getByRole("button", { name: "Switch theme" }).click();
+  await page.screenshot({ path: path.join(output, "architecture-bulk-light.png"), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: path.join(output, "architecture-bulk-narrow.png"), fullPage: true });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), "Bulk diagram upload has no horizontal overflow");
+  await page.getByLabel("Diagram", { exact: true }).setInputFiles(Array.from({ length: 21 }, (_, index) => diagram(`limit-${index}.puml`)));
+  await visible(page.getByText("Choose up to 20 diagrams at a time. No files were inspected or saved.", { exact: true }));
+  assert.equal(await queue.count(), 0, "An over-capacity selection is rejected as a whole");
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(`${origin}/?screen=projects`);
   await visible(page.getByRole("heading", { name: "Projects", exact: true }));
@@ -138,7 +176,7 @@ try {
   await page.setViewportSize({ width: 1440, height: 1000 });
   assert.ok((await refreshButton.boundingBox()).width < 300, "Refresh stays content-sized on wide screens");
   assert.deepEqual(errors, []);
-  const report = { source: "actual PlanTemplateEditor, ArchitectureWorkbench, ProjectsPage and RepositoryReleaseDiscovery with synthetic transport", hostedAcceptance: false, checks: ["case selection, reordering, exact save and reload", "close/reopen retains draft and in-flight request", "pending versus lost-response display, identical retry and one commit", "two themes and 390px layout", "manual mapping retains link and source without AI", "compact project selector, search and keyboard tooltips", "single embedded release heading and content-sized refresh"], errors };
+  const report = { source: "actual PlanTemplateEditor, ArchitectureWorkbench, ProjectsPage and RepositoryReleaseDiscovery with synthetic transport", hostedAcceptance: false, checks: ["case selection, reordering, exact save and reload", "close/reopen retains draft and in-flight request", "pending versus lost-response display, identical retry and one commit", "two themes and 390px layout", "manual mapping retains link and source without AI", "bulk diagrams enforce per-file size, encoding and format before preview", "bulk preview never writes; partial save acknowledgement retries identical content without duplicate retention", "compact project selector, search and keyboard tooltips", "single embedded release heading and content-sized refresh"], errors };
   await writeFile(path.join(output, "evidence.json"), JSON.stringify(report, null, 2));
   console.log(JSON.stringify(report));
 } catch (error) {

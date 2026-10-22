@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ArchitectureMap } from "./ArchitectureMap";
+import { ArchitectureUploadQueue } from "./ArchitectureUploadQueue";
 import { ReadableSelect } from "./ui/ReadableSelect";
 import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "@vaettir/api/src/router";
@@ -49,8 +50,10 @@ export function ArchitectureWorkbench({
   } | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [approved, setApproved] = useState(false),
-    [busy, setBusy] = useState(false),
+    [operationBusy, setBusy] = useState(false),
     [message, setMessage] = useState("");
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const busy = operationBusy || bulkBusy;
   const [completed, setCompleted] = useState(0),
     [view, setView] = useState<"ELEMENTS" | "MAPPINGS" | "DRAFTS">("ELEMENTS");
   const [analyzing, setAnalyzing] = useState(false);
@@ -297,15 +300,22 @@ export function ArchitectureWorkbench({
       <details className="architecture-source-panel" style={panel} open={!current}>
         <summary>Architecture source{current && <span className="muted"> · {current.document.fileName}</span>}</summary>
         <div style={row}>
-          <label>
-            Diagram{" "}
-            <input
-              type="file"
-              accept=".puml,.plantuml,.pu,.svg"
-              disabled={busy}
-              onChange={(e) => void read(e.target.files?.[0])}
-            />
-          </label>
+          <ArchitectureUploadQueue
+            key={[projectId, project.data?.organizationId, actorClerkUserId].join(":")}
+            projectId={projectId}
+            organizationId={project.data?.organizationId ?? "pending"}
+            actorClerkUserId={actorClerkUserId}
+            disabled={busy}
+            scopeAvailable={!!project.data && !project.error && !project.isFetching && !project.isPaused}
+            onSingle={file => void read(file)}
+            onBusy={setBulkBusy}
+            onSaved={() => void documents.refetch()}
+            onOpen={(nextSource, nextPreview) => {
+              mountedGeneration.current++;
+              setSource(nextSource); setPreview(nextPreview);
+              setCompleted(nextPreview.results.length); setApproved(false); setMessage("");
+            }}
+          />
           {!!documents.data?.length && !project.error && (
             <label>
               Saved architecture{" "}
