@@ -246,6 +246,51 @@ describe.skipIf(!admitted)("directory journal on owned PostgreSQL", () => {
     await expect(f.caller.connectSelected(input)).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(await db.projectRepository.count({ where: { projectId: f.project.id } })).toBe(1);
   });
+  it("reviewed repository GitLab marker admission matches strict attachment semantics in real SQL", async () => {
+    const f = await reviewedRepositoryFixture();
+    const config = await db.repositoryProviderConfiguration.create({ data: { organizationId: f.org.id, provider: "gitlab",
+      origin: f.row.origin, clientId: "synthetic-no-provider", encryptedSecret: { synthetic: "not-a-secret" }, createdById: f.administrator.userId } });
+    const baseline = await f.caller.reviewedCatalogue({ projectId: f.project.id });
+    const input = { id: f.row.id, repositoryIds: ["repo"], approved: true as const, catalogVersion: baseline.connections[0]!.catalogVersion };
+    const marker = { accessMethod: "gitlab-token/v1", requestHash: "a".repeat(64) };
+    const malformed = [
+      { ...marker, extra: "must-not-be-admitted" }, { ...marker, extra: null }, { ...marker, extra: { nested: true } },
+      { ...marker, requestHash: "a".repeat(63) }, { ...marker, requestHash: "A".repeat(64) }, { ...marker, requestHash: 123 },
+      { ...marker, requestHash: null }, { accessMethod: marker.accessMethod }, { ...marker, accessMethod: "unknown" }, { ...marker, accessMethod: null },
+    ];
+    for (const encryptedVerifier of malformed) {
+      for (const configurationId of [null, config.id]) {
+        await db.repositoryConnection.update({ where: { id: f.row.id }, data: { encryptedVerifier, configurationId } });
+        // Prove the existing write handler denies first, then require read parity.
+        await expect(f.caller.connectSelected(input)).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+        expect((await f.caller.reviewedCatalogue({ projectId: f.project.id })).connections).toEqual([]);
+        expect(await db.projectRepository.count({ where: { projectId: f.project.id } })).toBe(0);
+      }
+    }
+    for (const encryptedVerifier of [Prisma.JsonNull, Prisma.DbNull, [], [marker], "gitlab-token/v1", {}]) {
+      await db.repositoryConnection.update({ where: { id: f.row.id }, data: { encryptedVerifier, configurationId: null } });
+      expect((await f.caller.reviewedCatalogue({ projectId: f.project.id })).connections).toEqual([]);
+      await expect(f.caller.connectSelected(input)).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    }
+    // A token marker may not masquerade as an OAuth configuration.
+    await db.repositoryConnection.update({ where: { id: f.row.id }, data: { encryptedVerifier: marker, configurationId: config.id } });
+    expect((await f.caller.reviewedCatalogue({ projectId: f.project.id })).connections).toEqual([]);
+    await expect(f.caller.connectSelected(input)).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    for (const valid of [
+      { encryptedVerifier: marker, configurationId: null },
+      { encryptedVerifier: Prisma.DbNull, configurationId: config.id },
+      { encryptedVerifier: { ciphertext: "synthetic", iv: "synthetic", authTag: "synthetic" }, configurationId: config.id },
+    ]) {
+      await db.repositoryConnection.update({ where: { id: f.row.id }, data: valid });
+      const result = await f.caller.reviewedCatalogue({ projectId: f.project.id });
+      expect(result.connections).toHaveLength(1); expect(result.connections[0]!.catalogVersion).toBe(input.catalogVersion);
+      expect(JSON.stringify(result)).not.toMatch(/encrypted|requestHash|ciphertext|not-a-secret|no-real-token/);
+      expect(await f.caller.connectSelected(input)).toEqual({ connected: 1 });
+      expect(await db.projectRepository.count({ where: { projectId: f.project.id } })).toBe(1);
+    }
+    const after = await db.repositoryConnection.findUniqueOrThrow({ where: { id: f.row.id } });
+    expect(after.catalogAt).toEqual(f.row.catalogAt); expect(after.tokenExpiresAt).toEqual(f.row.tokenExpiresAt);
+  });
   it("reviewed repository projection retains a SQL lock against concurrent connection rebinding", async () => {
     const f = await reviewedRepositoryFixture();
     let release!: () => void, reached!: () => void;

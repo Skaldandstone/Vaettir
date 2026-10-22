@@ -118,6 +118,18 @@ it.each(["expired", "old", "future", "credential"])("does not expose %s persiste
   if (fault === "credential") f.projected.credentialAvailable = false;
   expect((await f.caller().reviewedCatalogue({ projectId: "project" })).connections).toEqual([]);
 });
+it("keeps strict GitLab marker admission inside the boolean SQL projection", async () => {
+  const f = fixture(); f.projected.credentialAvailable = false;
+  expect((await f.caller().reviewedCatalogue({ projectId: "project" })).connections).toEqual([]);
+  const sql = f.tx.$queryRaw.mock.calls.map(([parts]) => parts.join("?")).find(value => value.includes('AS "credentialAvailable"'))!;
+  // Structural regression only; real PostgreSQL cases verify JSON semantics.
+  expect(sql).toContain(`(c."encryptedVerifier" - ARRAY['accessMethod','requestHash']) = '{}'::jsonb`);
+  expect(sql).toContain(`jsonb_typeof(c."encryptedVerifier")='object'`);
+  expect(sql).toContain(`c."configurationId" IS NULL`);
+  expect(sql).toContain(`ELSE c."configurationId" IS NOT NULL`);
+  expect(secrets.decrypt).not.toHaveBeenCalled();
+  expect(f.tx.projectRepository.create).not.toHaveBeenCalled();
+});
 it.each(["revoked", "seat", "subject", "project", "suspended"])("rejects %s at the final projection authorization check", async fault => {
   const f = fixture(); let calls = 0;
   policy.lock.mockImplementation(async () => {

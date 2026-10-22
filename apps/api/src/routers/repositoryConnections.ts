@@ -162,6 +162,7 @@ export const repositoryConnectionsRouter=router({
           CASE WHEN c.provider <> 'gitlab' THEN true
             WHEN jsonb_typeof(c."encryptedVerifier")='object' AND c."encryptedVerifier" ? 'accessMethod' THEN
               c."configurationId" IS NULL AND c."encryptedVerifier"->>'accessMethod'='gitlab-token/v1' AND
+              (c."encryptedVerifier" - ARRAY['accessMethod','requestHash']) = '{}'::jsonb AND
               jsonb_typeof(c."encryptedVerifier"->'requestHash')='string' AND c."encryptedVerifier"->>'requestHash' ~ '^[a-f0-9]{64}$'
             ELSE c."configurationId" IS NOT NULL END,false) AS "credentialAvailable"
         FROM "RepositoryConnection" c WHERE c."actorId"=${binding.actorId} AND c."projectId"=${binding.projectId}
