@@ -32,7 +32,7 @@
     "@types/react-dom": "^19.3.0",
     "@vaettir/api": "workspace:*",
     "@vaettir/db": "workspace:*",
-    "typescript": "^5.6.0",
+    "typescript": "^6.0.3",
     "vitest": "^5.0.0"
   }
 }
