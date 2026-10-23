@@ -6,6 +6,7 @@ import ts from "typescript";
 import { spawn } from "node:child_process";
 import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
+import { createAndroidExplorer } from "./android-exploration-lib.mjs";
 const source = readFileSync(
   new URL(
     "../apps/web/public/connectors/vaettir-device-connector.mjs",
@@ -308,6 +309,211 @@ test("hidden subtrees do not expose descendant source or affect retained screen 
   const after = f.api.observeAndroidExplorerWindow("SYNTHETIC", f.pkg);
   assert.equal(after.id, before.id);
   assert.doesNotMatch(JSON.stringify(after), /PRIVATE HIDDEN VALUE/);
+});
+
+const decoration = (bounds = "[210,100][300,180]", extra = "") =>
+  `<node package="com.vaettir.synthetic" class="android.widget.ImageView" resource-id="com.vaettir.synthetic:id/animation" text="" bounds="${bounds}" index="2" drawing-order="1" ${extra} />`;
+
+function explorationFixture() {
+  const f = fixture();
+  const scope = {
+    projectId: "synthetic",
+    organizationId: "org",
+    actorId: "actor",
+    sessionId: "login",
+  };
+  const origin = "http://localhost:3000";
+  const hash = (value) => createHash("sha256").update(value).digest("hex");
+  const explorer = createAndroidExplorer(
+    {
+      inspect: f.api.inspectAndroidExplorerTarget,
+      observe: f.api.observeAndroidExplorerWindow,
+      tap: (serial, bounds) =>
+        f.api.performAndroidExplorerCommand(serial, [
+          "shell",
+          "input",
+          "tap",
+          String((bounds[0] + bounds[2]) / 2),
+          String((bounds[1] + bounds[3]) / 2),
+        ]),
+      scroll: () => {
+        throw Error("No synthetic scroll expected");
+      },
+      back: () => {
+        throw Error("No synthetic back expected");
+      },
+    },
+    { hash, nonce: () => "a".repeat(48), now: () => Date.UTC(2026, 9, 23) },
+  );
+  f.xml = f.xml.replace("</hierarchy>", decoration() + "</hierarchy>");
+  const ticket = explorer.handle(
+    "inspect",
+    { serial: "SYNTHETIC", scope },
+    origin,
+  );
+  const state = explorer.handle(
+    "start",
+    {
+      ticket: ticket.ticket,
+      scope,
+      consent: { localObservation: true, navigation: true, testAccount: true },
+      navigationNames: ["Browse"],
+      limits: { actions: 6, screens: 5, seconds: 90 },
+    },
+    origin,
+  );
+  assert.equal(state.status, "ACTIVE");
+  return {
+    f,
+    next: () =>
+      explorer.handle(
+        "next",
+        {
+          id: state.id,
+          scope,
+          sequence: state.sequence,
+          requestId: "11111111-1111-4111-8111-111111111111",
+        },
+        origin,
+      ),
+  };
+}
+
+test("passive animation geometry and paint bookkeeping do not change screen identity", () => {
+  for (const className of [
+    "ImageView",
+    "ProgressBar",
+    "TextView",
+    "FrameLayout",
+  ]) {
+    const f = fixture();
+    f.xml = f.xml.replace(
+      "</hierarchy>",
+      decoration().replace("ImageView", className) + "</hierarchy>",
+    );
+    const before = f.api.observeAndroidExplorerWindow("SYNTHETIC", f.pkg);
+    f.xml = f.xml
+      .replace("[210,100][300,180]", "[220,110][310,190]")
+      .replace('index="2" drawing-order="1"', 'drawing-order="3" index="4"');
+    const after = f.api.observeAndroidExplorerWindow("SYNTHETIC", f.pkg);
+    assert.equal(after.id, before.id, className);
+    assert.equal(
+      after.controls.find((c) => c.name === "Browse").id,
+      before.controls.find((c) => c.name === "Browse").id,
+    );
+  }
+});
+
+test("actual adapter and engine continue through passive animation and dispatch only the stable approved target", () => {
+  const { f, next } = explorationFixture();
+  f.xml = f.xml.replace("[210,100][300,180]", "[220,110][310,190]");
+  const result = next();
+  assert.equal(result.status, "ACTIVE");
+  assert.equal(result.reason, null);
+  assert.equal(result.actionCount, 1);
+  assert.equal(result.screens.length, 1);
+  assert.deepEqual(
+    f.calls.filter((a) => a.includes("input")),
+    [["-s", "SYNTHETIC", "shell", "input", "tap", "100", "140"]],
+  );
+});
+
+test("stable screen identity never collapses distinct passive object observations", () => {
+  const f = fixture();
+  const first = decoration().replace('text=""', 'text="Decorative status"');
+  const second = first
+    .replace("[210,100][300,180]", "[310,100][400,180]")
+    .replace('index="2"', 'index="3"');
+  f.xml = f.xml.replace("</hierarchy>", first + second + "</hierarchy>");
+  const before = f.api.observeAndroidExplorerWindow("SYNTHETIC", f.pkg);
+  const objects = before.controls.filter((c) => c.name === "Decorative status");
+  assert.equal(objects.length, 2);
+  assert.notEqual(objects[0].id, objects[1].id);
+  f.xml = f.xml.replace("[210,100][300,180]", "[220,110][310,190]");
+  const after = f.api.observeAndroidExplorerWindow("SYNTHETIC", f.pkg);
+  assert.equal(after.id, before.id);
+  const moved = after.controls.filter((c) => c.name === "Decorative status");
+  assert.notEqual(moved[0].id, objects[0].id);
+  assert.equal(moved[1].id, objects[1].id);
+  assert.notEqual(moved[0].id, moved[1].id);
+});
+
+test("animation tolerance never admits changed actionable geometry, semantics, input boundaries or overlays", () => {
+  const changes = [
+    (xml) => xml.replace("[0,100][200,180]", "[10,100][210,180]"),
+    (xml) => xml.replace("[0,80][400,800]", "[0,90][400,800]"),
+    (xml) => xml.replace('text="Home"', 'text="Different screen"'),
+    (xml) => xml.replace('text="Browse"', 'text="Delete"'),
+    (xml) =>
+      xml.replace('clickable="true"', 'clickable="true" selected="true"'),
+    (xml) => xml.replace('enabled="true"', 'enabled="false"'),
+    (xml) => xml.replace("id/animation", "id/different_object"),
+    (xml) => xml.replace('index="2"', 'index="2" clickable="true"'),
+    (xml) => xml.replace('index="2"', 'index="2" long-clickable="true"'),
+    (xml) => xml.replace('index="2"', 'index="2" focusable="true"'),
+    (xml) =>
+      xml.replace(
+        "</hierarchy>",
+        '<node package="com.vaettir.synthetic" class="android.widget.EditText" hint="Search" bounds="[0,100][200,180]" /></hierarchy>',
+      ),
+    (xml) =>
+      xml.replace(
+        "</hierarchy>",
+        '<node package="com.vaettir.synthetic" class="android.widget.Button" text="Browse" bounds="[0,100][200,180]" clickable="true" /></hierarchy>',
+      ),
+  ];
+  for (const change of changes) {
+    const { f, next } = explorationFixture();
+    f.xml = change(f.xml);
+    assert.equal(next().reason, "SCREEN_CHANGED_REVIEW_REQUIRED");
+    assert.equal(
+      f.calls.some((a) => a.includes("input")),
+      false,
+    );
+  }
+  // Geometry remains strict even for an unnamed interactive/focusable object.
+  for (const attribute of [
+    'clickable="true"',
+    'long-clickable="true"',
+    'focusable="true"',
+    'checkable="true"',
+    'scrollable="true"',
+  ]) {
+    const f = fixture();
+    f.xml = f.xml.replace(
+      "</hierarchy>",
+      decoration("[210,100][300,180]", attribute) + "</hierarchy>",
+    );
+    const before = f.api.observeAndroidExplorerWindow("SYNTHETIC", f.pkg);
+    f.xml = f.xml.replace("[210,100][300,180]", "[220,110][310,190]");
+    assert.notEqual(
+      f.api.observeAndroidExplorerWindow("SYNTHETIC", f.pkg).id,
+      before.id,
+    );
+  }
+});
+
+test("animation does not bypass protected content or foreign foreground admission", () => {
+  for (const change of [
+    (xml) => xml.replace('text="Home"', 'text="Sign in"'),
+    (xml) => xml.replace("android.widget.ImageView", "android.webkit.WebView"),
+    (xml) => xml.replace('text="Browse"', 'password="true" text="Browse"'),
+  ]) {
+    const { f, next } = explorationFixture();
+    f.xml = change(f.xml).replace("[210,100][300,180]", "[220,110][310,190]");
+    assert.equal(next().reason, "SCREEN_CHANGED_REVIEW_REQUIRED");
+    assert.equal(
+      f.calls.some((a) => a.includes("input")),
+      false,
+    );
+  }
+  const { f, next } = explorationFixture();
+  f.window = "mCurrentFocus=Window{123abc u0 foreign.app/.Activity}\n";
+  assert.equal(next().reason, "TARGET_OR_OBSERVATION_UNAVAILABLE");
+  assert.equal(
+    f.calls.some((a) => a.includes("input")),
+    false,
+  );
 });
 test("real helper HTTP keeps exact origin/pairing, strict version and duplicate/oversize request refusal without native reads", async () => {
   const listener = createServer();
