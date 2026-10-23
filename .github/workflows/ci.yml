@@ -133,6 +133,24 @@ jobs:
       - name: Verify installed native image-processing runtime
         run: node scripts/check-image-runtime.mjs
 
+      - name: Verify signed Node and Brotli security runtime
+        run: |
+          node --test scripts/node-brotli-security.test.mjs
+          docker build --progress=plain --file scripts/Dockerfile.node-brotli-security --target proof --build-arg VAETTIR_SECURITY_SOURCE_COMMIT="$GITHUB_SHA" --output type=local,dest=.local/node-brotli-security .
+          tar --create --gzip --file "$RUNNER_TEMP/vaettir-node-brotli-security-proof.tar.gz" --directory .local/node-brotli-security proof
+          (cd "$RUNNER_TEMP" && sha256sum vaettir-node-brotli-security-proof.tar.gz > vaettir-node-brotli-security-proof.sha256)
+
+      - name: Retain isolated Node and Brotli security proof
+        uses: actions/upload-artifact@v6
+        with:
+          name: node-brotli-security-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/vaettir-node-brotli-security-proof.tar.gz
+            ${{ runner.temp }}/vaettir-node-brotli-security-proof.sha256
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
       - name: Verify restore-drill safety contracts
         run: pnpm test:restore
 

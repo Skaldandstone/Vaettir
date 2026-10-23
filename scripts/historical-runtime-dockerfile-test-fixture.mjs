@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { GIT_OPENSSL_DOCKERFILE_SHA256, restorePreGitOpensslDockerfileFixture } from "./git-openssl-dockerfile-inverse-fixture.mjs";
 import { EXPAT_290_DOCKERFILE_SHA256, restorePreExpat290DockerfileFixture } from "./expat-dockerfile-inverse-fixture.mjs";
+import { NODE_BROTLI_DOCKERFILE_SHA256, restorePreNodeBrotliDockerfileFixture } from "./node-brotli-dockerfile-inverse-fixture.mjs";
 export const HISTORICAL_DOCKERFILE_SHA256 =
   "06624ebd0b0fcc95a2c91c7501d7037eb11b830d4d273cb98c9f76dd0d2a9f34";
 export const ABSENCE_FIXED_DOCKERFILE_SHA256 =
@@ -21,7 +22,9 @@ export function historicalRuntimeDockerfileFixture(raw) {
   assert.equal(arguments.length, 1);
   assert.ok(Buffer.isBuffer(raw));
   const currentSourceHash = sha(raw);
-  if (currentSourceHash === EXPAT_290_DOCKERFILE_SHA256)
+  if (currentSourceHash === NODE_BROTLI_DOCKERFILE_SHA256)
+    raw = restorePreNodeBrotliDockerfileFixture(raw);
+  if (sha(raw) === EXPAT_290_DOCKERFILE_SHA256)
     raw = restorePreExpat290DockerfileFixture(raw);
   if (sha(raw) === GIT_OPENSSL_DOCKERFILE_SHA256)
     raw = restorePreGitOpensslDockerfileFixture(raw);
