@@ -79,6 +79,11 @@ async function requireServiceKey(ctx: Context & { user: NonNullable<Context["use
   if (!key) throw new TRPCError({ code: "FORBIDDEN", message: "A project service API key is required" });
 }
 
+async function requireWriteAccess(ctx: Context & { user: NonNullable<Context["user"]> }, projectId: string) {
+  const { membership } = await requireProjectAccess(ctx, projectId, "EDITOR");
+  if (membership.seatType !== "FULL") throw new TRPCError({ code: "FORBIDDEN", message: "A full workspace seat is required" });
+}
+
 export const unrealPlaytestsRouter = router({
   catalogs: protectedProcedure.input(z.object({ projectId: z.string() }))
     .output(z.array(z.object({ projectKey: z.string(), updatedAt: z.date(), maps: catalogSchema })))
@@ -90,7 +95,7 @@ export const unrealPlaytestsRouter = router({
 
   publishCatalog: protectedProcedure.input(z.object({ projectId: z.string(), projectKey: z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/), maps: catalogSchema }))
     .mutation(async ({ ctx, input }) => {
-      await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      await requireWriteAccess(ctx, input.projectId);
       await requireServiceKey(ctx, input.projectId);
       if (new Set(input.maps.map((map) => map.path)).size !== input.maps.length) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Catalog map paths must be unique" });
@@ -118,7 +123,7 @@ export const unrealPlaytestsRouter = router({
 
   saveBinding: protectedProcedure.input(z.object({ testCaseId: z.string(), config: unrealBindingSchema })).mutation(async ({ ctx, input }) => {
     const testCase = await ctx.prisma.testCase.findUniqueOrThrow({ where: { id: input.testCaseId }, select: { projectId: true, archived: true } });
-    await requireProjectAccess(ctx, testCase.projectId, "EDITOR");
+    await requireWriteAccess(ctx, testCase.projectId);
     if (testCase.archived) throw new TRPCError({ code: "BAD_REQUEST", message: "Archived cases cannot be bound" });
     await ctx.prisma.unrealPlaytestBinding.upsert({
       where: { testCaseId: input.testCaseId },
@@ -133,7 +138,7 @@ export const unrealPlaytestsRouter = router({
       where: { id: input.testCaseId },
       include: { steps: { orderBy: { order: "asc" } }, unrealPlaytestBinding: true, versions: { orderBy: { versionNumber: "desc" }, take: 1 } },
     });
-    await requireProjectAccess(ctx, testCase.projectId, "EDITOR");
+    await requireWriteAccess(ctx, testCase.projectId);
     if (testCase.archived || testCase.reviewStatus !== "APPROVED") {
       throw new TRPCError({ code: "BAD_REQUEST", message: "The test case must be active and approved" });
     }
@@ -176,7 +181,7 @@ export const unrealPlaytestsRouter = router({
   }),
 
   claimNext: protectedProcedure.input(z.object({ projectId: z.string(), projectKey: z.string() })).mutation(async ({ ctx, input }) => {
-    await requireProjectAccess(ctx, input.projectId, "EDITOR");
+    await requireWriteAccess(ctx, input.projectId);
     await requireServiceKey(ctx, input.projectId);
     // Conditional update makes concurrent polling workers race safely. No
     // automatic replay: a dead worker needs an explicit operator decision.
@@ -197,7 +202,7 @@ export const unrealPlaytestsRouter = router({
 
   complete: protectedProcedure.input(completionSchema).mutation(async ({ ctx, input }) => {
     const job = await ctx.prisma.unrealPlaytestJob.findUniqueOrThrow({ where: { id: input.jobId } });
-    await requireProjectAccess(ctx, job.projectId, "EDITOR");
+    await requireWriteAccess(ctx, job.projectId);
     await requireServiceKey(ctx, job.projectId);
     if (job.status !== "CLAIMED" || job.claimedById !== ctx.user.id) {
       throw new TRPCError({ code: "CONFLICT", message: "This service identity does not own the claimed job" });

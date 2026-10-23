@@ -79,6 +79,13 @@ apps' native tooling.
 
 ## Error tracking (Sentry)
 
+The current dependency cohort is Expo SDK 58, React Native 0.88 and React 19.3,
+with Expo modules aligned to the SDK's published compatibility manifest.
+Upgrading from the previous SDK 52 build requires a new native build. A passing
+JavaScript export or typecheck does not establish installed-device acceptance;
+sign-in, foreground privacy, push handling and Sentry scrubbing still need the
+normal device review before publishing a replacement build or OTA update.
+
 P10-05, mobile half. `@sentry/react-native` reports to the `vaettir-mobile`
 project in the `skald-and-stone` org (api and web have their own projects -
 see `NEEDS_ATTENTION.md`). Wiring:

@@ -110,6 +110,17 @@ describe("Vaettir to Unreal objective bridge", () => {
     }
   });
 
+  it("refuses writes from an editor with a read-only seat", async () => {
+    await prisma.membership.update({ where: { organizationId_userId: { organizationId: orgId, userId: editorId } }, data: { seatType: "READ_ONLY" } });
+    try {
+      const editor = await callerFor(editorId);
+      await expect(editor.unrealPlaytests.saveBinding({ testCaseId: caseId, config })).rejects.toMatchObject({ code: "FORBIDDEN" });
+      await expect(editor.unrealPlaytests.queue({ testCaseId: caseId })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    } finally {
+      await prisma.membership.update({ where: { organizationId_userId: { organizationId: orgId, userId: editorId } }, data: { seatType: "FULL" } });
+    }
+  });
+
   it("queues a frozen case, permits only a service claim, and links a missed objective to a failed TestRun", async () => {
     const editor = await callerFor(editorId);
     const queued = await editor.unrealPlaytests.queue({ testCaseId: caseId });

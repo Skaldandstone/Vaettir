@@ -6,7 +6,7 @@ This is a two-way editor/PIE integration, not packaged-game automation. A tester
 
 - The local Unreal operator chooses which `.uproject` and level to publish. The server stores map package paths, actor labels, tags, and positions, not a local filesystem path. The worker separately checks an explicit local map allowlist.
 - Vaettir rejects a queue request unless the selected level exists in that project's published catalog and every objective resolves to exactly one actor there. Text matches in the UI are suggestions; the tester confirms the binding.
-- A queued job contains the case/version and binding snapshot. Only a project service API key can claim or finish it, and only the claiming identity can finish it. A failed or malformed Unreal report becomes `ERROR`/`BLOCKED`, not a pass.
+- A queued job contains the case/version and binding snapshot. Worker requests must authenticate with a live workspace service API key for the project's organization; key ownership alone does not authorize a session. All writes require an editor role and full seat, and only the claiming identity can finish a job. A failed or malformed Unreal report becomes `ERROR`/`BLOCKED`, not a pass.
 - There is no remote shell command, automatic baseline acceptance, or silent fallback from objective test to exploratory walk. Worker setup and secret provisioning remain local.
 - A claimed job is not automatically retried if the worker crashes. An operator must investigate the local evidence and explicitly decide how to recover it. This is a technical-preview limitation.
 
@@ -14,7 +14,7 @@ This is a two-way editor/PIE integration, not packaged-game automation. A tester
 
 1. Apply the Prisma migration and deploy the matching Vaettir API and web build to the chosen environment. Do not point a worker at a Vaettir environment that lacks the new router.
 2. Install the matching UE 5.8 AgentToolkit build into the local project and enable PythonScriptPlugin for catalog export.
-3. Create a project-scoped Vaettir service API key and set `VAETTIR_API_KEY` in the worker process environment. Never put the key in a test case, shell history, Git, or the pitch deck.
+3. With administrator approval, provision a Vaettir workspace service API key and set `VAETTIR_API_KEY` in the worker process environment. The worker's project and map allowlists narrow its local targets; the credential itself is workspace-scoped. Never put the key in a test case, shell history, Git, or the pitch deck.
 4. In the toolkit repository, run `scripts/Publish-VaettirPlaytestCatalog.ps1` with the Vaettir API base URL (ending in `/api/trpc`), Vaettir project ID, local project key, physical `.uproject`, and one approved `/Game/...` map. Repeat for each approved map. The catalog is read-only and actor inventory can become stale after a level edit; republish after changes.
 5. In Vaettir, author or open the case, follow **Unreal playtest (technical preview)**, select the cataloged project and level, draft goals from the case's When steps if useful, confirm each actor, and save. Queue the saved binding.
 6. Run `scripts/Run-VaettirPlaytestJob.ps1` in the toolkit repository with the same API URL, project ID, project key, local `.uproject`, and `-AllowedMaps` containing the approved `/Game/...` path or paths. It handles one job and exits. Return to the Vaettir case to inspect the linked run.
