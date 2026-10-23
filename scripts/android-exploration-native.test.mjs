@@ -418,6 +418,26 @@ test("actual adapter and engine continue through passive animation and dispatch 
   );
 });
 
+test("stable screen identity never collapses distinct passive object observations", () => {
+  const f = fixture();
+  const first = decoration().replace('text=""', 'text="Decorative status"');
+  const second = first
+    .replace("[210,100][300,180]", "[310,100][400,180]")
+    .replace('index="2"', 'index="3"');
+  f.xml = f.xml.replace("</hierarchy>", first + second + "</hierarchy>");
+  const before = f.api.observeAndroidExplorerWindow("SYNTHETIC", f.pkg);
+  const objects = before.controls.filter((c) => c.name === "Decorative status");
+  assert.equal(objects.length, 2);
+  assert.notEqual(objects[0].id, objects[1].id);
+  f.xml = f.xml.replace("[210,100][300,180]", "[220,110][310,190]");
+  const after = f.api.observeAndroidExplorerWindow("SYNTHETIC", f.pkg);
+  assert.equal(after.id, before.id);
+  const moved = after.controls.filter((c) => c.name === "Decorative status");
+  assert.notEqual(moved[0].id, objects[0].id);
+  assert.equal(moved[1].id, objects[1].id);
+  assert.notEqual(moved[0].id, moved[1].id);
+});
+
 test("animation tolerance never admits changed actionable geometry, semantics, input boundaries or overlays", () => {
   const changes = [
     (xml) => xml.replace("[0,100][200,180]", "[10,100][210,180]"),

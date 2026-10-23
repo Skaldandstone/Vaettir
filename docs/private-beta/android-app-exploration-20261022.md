@@ -35,6 +35,9 @@ scrollable, checkable or focusable objects stays exact, even when unnamed or
 disabled. Search/filter exclusion geometry also stays exact. A moving navigation
 target, new overlay/control, changed content or protected screen still stops;
 there is no fuzzy matching, automatic retry or broader navigation authority.
+Individual object observation hashes retain their full native attributes,
+separately from this stable screen comparison, so identical decoration at two
+positions does not collapse to one observation identifier.
 Accessible named navigation controls must match the approved labels exactly; duplicates and
 known sensitive action labels are excluded. Passwords, recognized authentication
 or payment screens, unrecognized forms, embedded web content and foreign package

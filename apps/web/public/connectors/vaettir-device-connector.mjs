@@ -1103,7 +1103,8 @@ function observeAndroidExplorerWindow(serial, expectedPackage) {
     // Keep every attribute on interactive (even disabled/unnamed) objects, and
     // keep ordinary-field geometry above. Moving targets/scroll areas still stop.
     const interactive = ["clickable", "long-clickable", "scrollable", "checkable", "focusable"].some(key => a[key] === "true");
-    semantics.push(Object.keys(a).sort().filter(key => interactive || !["bounds", "index", "drawing-order"].includes(key)).map(key=>[key,a[key]]));
+    const attributes = Object.keys(a).sort().map(key=>[key,a[key]]);
+    semantics.push(attributes.filter(([key]) => interactive || !["bounds", "index", "drawing-order"].includes(key)));
     if (a.scrollable === "true" && a.enabled !== "false" && !scroll) {
       const b=androidExplorerBounds(a.bounds),x=Math.floor((b[0]+b[2])/2),y1=Math.floor(b[1]+(b[3]-b[1])*0.3),y2=Math.floor(b[1]+(b[3]-b[1])*0.8);
       if (!boundary.fields.some(f=>x>=f[0]&&x<f[2]&&y2>=f[1]&&y1<f[3])) scroll = {id:hash(JSON.stringify(semantics.at(-1))),bounds:b,target:androidExplorerObjectTarget(a,b,nodes,expectedPackage)};
@@ -1112,7 +1113,9 @@ function observeAndroidExplorerWindow(serial, expectedPackage) {
     exactText(name, 200);
     if (label === expectedPackage && role === "text" && a.clickable !== "true") label = name;
     if (controls.length >= 150) throw captureRefusal();
-    const id = hash(JSON.stringify(semantics.at(-1)));
+    // Object evidence keeps the full observed attributes; two otherwise equal
+    // passive objects at different positions must not collapse to one id.
+    const id = hash(JSON.stringify(attributes));
     let navigable = a.enabled !== "false" && a.clickable === "true" && a.checkable !== "true" &&
       ["button", "text", "tab", "link"].includes(role) && !!(a.text || a["content-desc"]);
     const bounds = navigable || a.scrollable === "true" ? androidExplorerBounds(a.bounds) : null;
