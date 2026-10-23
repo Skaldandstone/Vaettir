@@ -1,4 +1,4 @@
-// Quality Intelligence Platform â€” core data model.
+// Quality Intelligence Platform — core data model.
 //
 // Design principle: test PLAN TYPES and COMPLIANCE FRAMEWORKS are data, not
 // hardcoded enums. New plan shapes (a new compliance form, a new testing
