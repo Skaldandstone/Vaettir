@@ -29,10 +29,16 @@ export async function checkNodeSecurityRuntime() {
     "200010414141fcffff07002228f00b60f7f41f000000",
     "hex",
   );
-  assert.throws(() => brotliDecompressSync(invalid, { maxOutputLength: 256 }), {
-    code: "ERR__ERROR_FORMAT_BLOCK_SWITCH",
-    errno: -17,
-  });
+  // The upstream fixture emits a 16 MiB meta-block before its invalid switch.
+  // Keep a fixture-specific bound while allowing the decoder to reach the error.
+  const outputLimit = 16 * 1024 ** 2 + 256;
+  assert.throws(
+    () => brotliDecompressSync(invalid, { maxOutputLength: outputLimit }),
+    {
+      code: "ERR__ERROR_FORMAT_BLOCK_SWITCH",
+      errno: -17,
+    },
+  );
   const stream = createBrotliDecompress();
   let bytes = 0;
   await new Promise((accept, reject) => {
@@ -42,7 +48,7 @@ export async function checkNodeSecurityRuntime() {
     }, 5000);
     stream.on("data", (b) => {
       bytes += b.length;
-      if (bytes > 256) {
+      if (bytes > outputLimit) {
         clearTimeout(deadline);
         stream.destroy();
         reject(new Error("Brotli regression output exceeded"));
@@ -81,6 +87,8 @@ export async function checkNodeSecurityRuntime() {
     signaturePinnedBinary: true,
     invalidBlockSwitchSyncRejected: true,
     invalidBlockSwitchByteStreamRejected: true,
+    invalidStreamOutputBytes: bytes,
+    invalidStreamOutputLimit: outputLimit,
     error: -17,
     validRoundTrip: true,
     customerInput: false,
