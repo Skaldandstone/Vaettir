@@ -156,6 +156,10 @@ describe("commitImportedTestCases (real DB)", () => {
     expect(result).toMatchObject({ createdCount: 0, updatedCount: 0 });
     expect(result.skipped).toHaveLength(1);
     expect(result.skipped[0]?.reason).toContain("human edits");
+    expect((await prisma.importJob.findUniqueOrThrow({ where: { id: result.importJobId } })).status).toBe("SUCCEEDED");
+    const mixed = await commitImportedTestCases(prisma, { ...common(), rows: [base], skipped: [{ rowNumber: 99, reason: "Title is required" }] });
+    expect(mixed.skipped).toHaveLength(2);
+    expect((await prisma.importJob.findUniqueOrThrow({ where: { id: mixed.importJobId } })).status).toBe("FAILED");
     const after = await prisma.testCase.findUniqueOrThrow({ where: { id: original.id }, include: { steps: true, versions: true, source: true } });
     expect(after.title).toBe("Human title");
     expect(after.suitePath).toBe("/Curated");
@@ -186,6 +190,7 @@ describe("commitImportedTestCases (real DB)", () => {
     const result = await commitImportedTestCases(prisma, { ...common(), rows: [{ rowNumber: 21, title: "Source replacement", given: ["g"], when: ["w"], then: ["t"], priority: "HIGH", tags: [], externalId: "LEGACY-1" }], skipped: [] });
     expect(result).toMatchObject({ createdCount: 0, updatedCount: 0 });
     expect(result.skipped[0]?.reason).toContain("no verified source baseline");
+    expect((await prisma.importJob.findUniqueOrThrow({ where: { id: result.importJobId } })).status).toBe("FAILED");
     expect((await prisma.testCase.findUniqueOrThrow({ where: { id: legacy.id } })).title).toBe("Legacy edited case");
   });
 

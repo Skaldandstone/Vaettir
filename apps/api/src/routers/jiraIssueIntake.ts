@@ -46,6 +46,21 @@ async function liveConnection(tx:Prisma.TransactionClient,run:JiraIssueImportRun
   if(scope(run).some(p=>!approved.some(a=>a.id===p.id)))throw new TRPCError({code:"FORBIDDEN",message:"The issue-read scope is no longer approved."});
   return connection;
 }
+
+/** Reuse approved staged summaries, with fresh source authority at the write. */
+export async function jiraDefectSnapshot(tx:Prisma.TransactionClient,actorId:string,input:{projectId:string;organizationId:string;runId:string;runVersion:number;issueIds:string[]}){
+  const owned=await tx.jiraIssueImportRun.findFirst({where:{id:input.runId,actorId,projectId:input.projectId,organizationId:input.organizationId}});
+  if(!owned)throw new TRPCError({code:"NOT_FOUND"});
+  const run=await lockRun(tx,owned);active(run);
+  if(run.status!=="REVIEW"||run.version!==input.runVersion)throw new TRPCError({code:"CONFLICT",message:"Refresh the Jira summary preview before adding tasks."});
+  const connection=await liveConnection(tx,run);
+  const staged=issuesSchema.parse(run.issues);
+  const selected=input.issueIds.map(id=>staged.find(issue=>issue.id===id));
+  if(selected.some(issue=>!issue))throw new TRPCError({code:"BAD_REQUEST",message:"Select only issues from the reviewed Jira snapshot."});
+  const issues=selected.filter((issue):issue is z.infer<typeof jiraIssueSchema>=>!!issue);
+  if(issues.some(issue=>!scope(run).some(project=>project.id===issue.projectId)||new URL(issue.url).origin!==connection.providerOrigin))throw new TRPCError({code:"FORBIDDEN",message:"The staged Jira summary does not match the approved source scope."});
+  return {issues,site:connection.providerOrigin!,observedAt:run.updatedAt.toISOString()};
+}
 async function classify(tx:Prisma.TransactionClient,projectId:string,site:string,issue:z.infer<typeof jiraIssueSchema>){
   const binding=await tx.jiraIssueIdentity.findUnique({where:{projectId_providerOrigin_externalId:{projectId,providerOrigin:site,externalId:issue.id}},include:{requirement:true}});
   if(binding){

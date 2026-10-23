@@ -1,10 +1,10 @@
+import { reactBrowserScripts } from "./test-support/react-browser-runtime.mjs";
 // Actual React deletion wizard and native dialog, with synthetic RPC boundaries.
 /* global window,document,innerWidth */
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { readFileSync, mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
 import { before, after, test } from "node:test";
 const require = createRequire(
   new URL("../apps/web/package.json", import.meta.url),
@@ -41,18 +41,9 @@ const compiled = [
   .map(compile)
   .join("\n");
 const scripts = {
-  "/react.js": readFileSync(
-    join(
-      dirname(require.resolve("react/package.json")),
-      "umd/react.development.js",
-    ),
-  ),
-  "/react-dom.js": readFileSync(
-    join(
-      dirname(require.resolve("react-dom/package.json")),
-      "umd/react-dom.development.js",
-    ),
-  ),
+  ...reactBrowserScripts(),
+
+
 };
 const css = readFileSync(
   new URL("../apps/web/app/globals.css", import.meta.url),

@@ -23,7 +23,7 @@
     "test:native-source-transport": "node --test scripts/native-source-diagnostic-transport.test.mjs",
     "test:native-source-diagnostic-plan": "node --test scripts/native-source-diagnostic-plan.test.mjs",
     "test:restore": "node --test scripts/local-restore-drill.test.mjs",
-    "test:device-capture": "node --experimental-strip-types --test scripts/device-capture.test.mjs scripts/device-connector.test.mjs scripts/device-connector-launcher.test.mjs scripts/device-capture-guidance.test.mjs",
+    "test:device-capture": "node --experimental-strip-types --test scripts/device-capture.test.mjs scripts/device-connector.test.mjs scripts/device-connector-launcher.test.mjs scripts/device-capture-guidance.test.mjs scripts/android-exploration.test.mjs scripts/android-exploration-native.test.mjs",
     "test:invitation-email": "node --test scripts/clerk-invitation-template.test.mjs",
     "email:invitation:check": "node scripts/clerk-invitation-template.mjs check",
     "email:invitation:preview": "node scripts/clerk-invitation-template.mjs preview",
@@ -38,13 +38,13 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.7",
-    "@eslint/js": "^10.0.1",
+    "@eslint/js": "^9.39.5",
     "eslint": "^9.39.5",
-    "eslint-config-next": "^16.3.4",
-    "globals": "^17.12.0",
-    "prettier": "^3.3.0",
-    "turbo": "^2.10.12",
-    "typescript": "^5.6.0",
-    "typescript-eslint": "^8.69.0"
+    "eslint-config-next": "^16.4.0",
+    "globals": "^17.13.0",
+    "prettier": "^3.9.10",
+    "turbo": "^2.11.7",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.71.1"
   }
 }

@@ -22,13 +22,15 @@ function validatedOrigin(origin: string): string {
   const url = new URL(origin);
   // Match the connector's supported development origins. IPv6 loopback is
   // not currently in its CORS allowlist, so do not offer a non-pairable helper.
-  const loopback = ["localhost", "127.0.0.1"].includes(url.hostname);
+  const development = ["http://localhost:3000", "http://localhost:3001", "http://127.0.0.1:3000", "http://127.0.0.1:3001"].includes(origin);
+  const customer = url.protocol === "https:" && !url.port &&
+    /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.vaettir\.app$/.test(url.hostname);
   // These values are embedded in shell scripts. URL parsing alone permits
   // hostname characters that are unsafe in cmd/sh quoting.
   if (
     origin.length > 512 ||
     !/^[a-z0-9.:[\]-]+$/i.test(url.host) ||
-    (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) ||
+    (!development && !customer && origin !== "https://vaettir.skaldandstone.com") ||
     url.origin !== origin
   ) {
     throw new Error(
@@ -39,7 +41,7 @@ function validatedOrigin(origin: string): string {
 }
 
 /** First-party download only; no credentials, redirects or shared temp file. */
-function connectorBootstrap(connectorUrl: string, pairingCode: string): string {
+function connectorBootstrap(connectorUrl: string, pairingCode: string, origin: string, port?: number): string {
   // Deliberately use single-quoted literals: the entire program is quoted by
   // cmd.exe and sh. Both input values have already passed strict validation.
   return [
@@ -74,7 +76,7 @@ function connectorBootstrap(connectorUrl: string, pairingCode: string): string {
     "try{fs.writeFileSync(descriptor,Buffer.concat(chunks));}finally{fs.closeSync(descriptor);}",
     "const child=spawnSync(process.execPath,[file,'--pairing-code','" +
       pairingCode +
-      "'],{stdio:'inherit',shell:false});",
+      "','--origin','" + origin + "'" + (port === undefined ? "" : ",'--port','" + port + "'") + "],{stdio:'inherit',shell:false});",
     "if(child.error||child.signal||child.status===null)throw Error('start');",
     "process.exitCode=child.status;",
     "}catch{console.error('The helper could not start. Check Node 22+, your connection and your security product. Use the reviewed manual setup on the Vaettir page; do not disable protection.');process.exitCode=1;}",
@@ -95,15 +97,18 @@ export function buildDeviceConnectorLauncher({
   platform,
   origin,
   pairingCode,
+  port,
 }: {
   platform: DeviceConnectorPlatform;
   origin: string;
   pairingCode: string;
+  port?: number;
 }): { filename: string; content: string; mimeType: string } {
   const safeOrigin = validatedOrigin(origin);
   const safePairingCode = validatedPairingCode(pairingCode);
   const connectorUrl = `${safeOrigin}/connectors/vaettir-device-connector.mjs`;
-  const bootstrap = connectorBootstrap(connectorUrl, safePairingCode);
+  if (port !== undefined && (!Number.isInteger(port) || port < 1024 || port > 65535)) throw Error("Unsupported local connector port.");
+  const bootstrap = connectorBootstrap(connectorUrl, safePairingCode, safeOrigin, port);
 
   if (platform === "windows") {
     return {

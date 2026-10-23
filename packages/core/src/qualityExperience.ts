@@ -167,6 +167,7 @@ export function automationTargetForFramework(family: string | null | undefined):
     JEST: "JEST_VITEST", VITEST: "JEST_VITEST", MOCHA: "MOCHA_CHAI", PYTEST: "PYTEST",
     JUNIT: "JUNIT5", TESTNG: "TESTNG", UNITY_TEST: "UNITY_TEST_FRAMEWORK", GODOT_TEST: "GODOT_GDUNIT4",
     APPIUM: "APPIUM_WEBDRIVERIO", FLUTTER_TEST: "FLUTTER_INTEGRATION_TEST",
+    "android-exploration": "UI_AUTOMATOR",
   };
   const direct = ["MAESTRO", "PLAYWRIGHT", "CYPRESS", "XCUITEST", "XCTEST", "SWIFT_TESTING", "ESPRESSO", "COMPOSE_UI", "UI_AUTOMATOR", "ROBOLECTRIC", "DETOX", "NUNIT", "XUNIT_DOTNET", "MSTEST", "POSTMAN", "PACT", "UNREAL_AUTOMATION"];
   return family ? Object.hasOwn(targets, family) ? targets[family]! : direct.includes(family) ? family : null : null;

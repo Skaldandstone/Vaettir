@@ -8,6 +8,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, existsSync, readdi
 import { createServer } from "node:net";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { baselineCommit, identityMigrations, readBaselineHashes, assertMigrationBoundary } from "./identity-migration-boundary.mjs";
 
 assert.equal(process.platform, "win32", "Use the documented Windows PostgreSQL fixture");
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -43,7 +44,7 @@ await new Promise((done, reject) => { reservation.once("error", reject); reserva
 const port = reservation.address().port;
 await new Promise(done => reservation.close(done));
 assert.notEqual(port, 5432, "Existing local database port is out of scope");
-const files = ["scripts/identity-directory-postgres.mjs", "scripts/identity-migration-canary.sql", "apps/api/src/services/identityDirectoryStore.integration.test.ts",
+const files = ["scripts/identity-directory-postgres.mjs", "scripts/identity-migration-boundary.mjs", "scripts/identity-migration-canary.sql", "apps/api/src/services/identityDirectoryStore.integration.test.ts",
   "apps/api/src/services/identityDirectorySettings.ts", "apps/api/src/services/identityDirectoryMappingSchema.ts", "apps/api/src/services/testPlanGovernance.ts", "apps/api/src/routers/testPlanGovernance.ts",
   "apps/api/src/services/identityProviderSetup.ts", "apps/api/src/routers/requirements.ts", "apps/api/src/routers/architecture.ts", "apps/api/src/routers/testCases.ts", "apps/api/src/routers/caseFields.ts",
   "apps/api/src/routers/reportSnapshots.ts", "apps/api/src/routers/repositoryConnections.ts",
@@ -59,8 +60,10 @@ const migrationNames = readdirSync(migrationsRoot, { withFileTypes: true }).filt
 assert.ok(migrationNames.length > 0 && migrationNames.every(name => /^[0-9]{14}_[a-z0-9_]+$/.test(name)), "Unexpected migration inventory");
 const migrationHashes = Object.fromEntries(migrationNames.map(name => [name,
   createHash("sha256").update(readFileSync(join(migrationsRoot, name, "migration.sql"))).digest("hex")]));
+const baselineHashes = readBaselineHashes(root);
+const baselineNames = assertMigrationBoundary(migrationHashes, baselineHashes);
 const owner = { purpose: "identity-directory-postgres-fixture", fixture, data, database, port,
-  migrationMode, migrationHashes, testSelection: reviewedAttachmentOnly ? "reviewed repository" : "all",
+  migrationMode, baselineCommit, baselineHashes, migrationHashes, testSelection: reviewedAttachmentOnly ? "reviewed repository" : "all",
   source: run("git", ["rev-parse", "HEAD"]).trim(), postgresVersion: run(join(pgBin, "pg_ctl.exe"), ["--version"]).trim(),
   fileHashes: Object.fromEntries(files.map(file => [file, createHash("sha256").update(readFileSync(join(root, file))).digest("hex")])) };
 writeFileSync(join(fixture, "owner.json"), JSON.stringify(owner, null, 2));
@@ -89,9 +92,7 @@ try {
       mkdirSync(join(migrations, name));
       copyFileSync(join(migrationsRoot, name, "migration.sql"), join(migrations, name, "migration.sql"));
     };
-    const identityMigrations = ["20261021190000_identity_access_draft", "20261022025000_identity_directory_observations", "20261022060000_identity_access_policy", "20261022070000_identity_directory_mappings", "20261022080000_identity_provider_binding", "20261022090000_identity_manual_run_authorization"];
-    assert.deepEqual(migrationNames.slice(-identityMigrations.length), identityMigrations, "Review upgrade boundary when migration inventory changes");
-    migrationNames.slice(0, -identityMigrations.length).forEach(copyMigration);
+    baselineNames.forEach(copyMigration);
     const deploy = () => run(process.execPath, [prismaCli, "migrate", "deploy", "--schema", schema], { cwd: fixture, env: testEnv });
     writeFileSync(join(fixture, "baseline-migrations.txt"), deploy());
     psql(readFileSync(join(root, "scripts/identity-migration-canary.sql"), "utf8"));
@@ -130,7 +131,7 @@ try {
     assert.deepEqual(readDraft(), draftBefore, "Directory migration must preserve draft revision and contents");
     assert.equal(psql('SELECT (SELECT count(*) FROM "IdentityDirectoryConnection") + (SELECT count(*) FROM "IdentityDirectorySubject") + (SELECT count(*) FROM "IdentityDirectoryReceipt");').trim(), "0", "Migration must not activate connections or create grants");
     writeFileSync(join(fixture, "native-after.json"), JSON.stringify(nativeAfter, null, 2));
-    writeFileSync(join(fixture, "upgrade-checks.json"), JSON.stringify({ migrations: receipts.length,
+    writeFileSync(join(fixture, "upgrade-checks.json"), JSON.stringify({ baselineCommit, baselineMigrations: baselineNames.length, identityMigrations: identityMigrations.length, migrations: receipts.length,
       nativeRowsUnchanged: true, draftUnchanged: true, journalEmpty: true, redeployNoOp: true }, null, 2));
   } else {
   // Known previous identity checkpoint, rather than any live database dump.

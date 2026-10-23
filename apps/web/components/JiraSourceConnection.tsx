@@ -13,7 +13,7 @@ const field={display:"grid",gap:6} as const;
 const actions={display:"flex",gap:8,flexWrap:"wrap"} as const;
 const inputStyle={width:"100%",minWidth:0,boxSizing:"border-box"} as const;
 
-export function JiraSourceConnection({projectId,onClose}:{projectId:string;onClose:()=>void}){
+export function JiraSourceConnection({projectId,onClose,purpose="requirements",onDefectsSaved,onDefectWorkingChange}:{projectId:string;onClose:()=>void;purpose?:"requirements"|"defects";onDefectsSaved?:()=>void;onDefectWorkingChange?:(working:boolean)=>void}){
   const utils=trpcReact.useUtils();
   const capabilities=trpcReact.jiraConnections.capabilities.useQuery({projectId});
   const recent=trpcReact.jiraConnections.mine.useQuery({projectId},{enabled:capabilities.isSuccess&&capabilities.data.canConnect});
@@ -88,7 +88,7 @@ export function JiraSourceConnection({projectId,onClose}:{projectId:string;onClo
       <div style={actions}><button type="button" className="btn-secondary" disabled={busy} onClick={()=>setStep("projects")}>Back</button><button type="button" disabled={busy} onClick={async()=>{const request=approvalId??crypto.randomUUID();setApprovalId(request);try{await approve.mutateAsync({id,version:listing.version,projectIds:choices.map(p=>p.id),requestId:request,approved:true});await recent.refetch();setStep("done");}catch{setError("Scope could not be saved. Retry, or refresh the list and review if access or choices changed.");}}}>{approve.isPending?"Saving…":"Approve and save source scope"}</button></div>
     </>}
     {step==="done"&&<><p role="status">Jira source scope saved. Issues have not been read or imported.</p><button type="button" disabled={busy||!recent.isSuccess||!recent.data?.find(c=>c.id===id)?.approvedProjects.length} onClick={()=>setStep("issues")}>Preview Jira issues</button><button type="button" className="btn-secondary" onClick={onClose}>Done</button></>}
-    {step==="issues"&&<JiraIssueIntake connectionId={id} projects={recent.data?.find(c=>c.id===id)?.approvedProjects??[]} onBack={()=>setStep("access")}/>}
+    {step==="issues"&&<JiraIssueIntake connectionId={id} projectId={projectId} purpose={purpose} onDefectsSaved={onDefectsSaved} onDefectWorkingChange={onDefectWorkingChange} projects={recent.data?.find(c=>c.id===id)?.approvedProjects??[]} onBack={()=>setStep("access")}/>}
     {step==="exports"&&<><p>Add an exported specification or ticket as text, then review its evidence. This does not connect a Jira account.</p><PopulationDocuments projectId={projectId}/><button type="button" className="btn-secondary" onClick={()=>setStep("access")}>Back to connection</button></>}
   </div>;
 }

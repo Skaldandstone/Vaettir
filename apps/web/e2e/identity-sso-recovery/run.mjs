@@ -2,7 +2,7 @@
 /* global window, document, innerWidth, MouseEvent */
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -10,8 +10,10 @@ const web = path.resolve(fileURLToPath(new URL("../../", import.meta.url)));
 const require = createRequire(path.join(web, "package.json"));
 const { build } = createRequire(createRequire(require.resolve("vitest")).resolve("vite"))("esbuild");
 const { chromium } = require("@playwright/test");
-const output = path.join(web, "../../.local/identity-sso-recovery-ui");
-await mkdir(output, { recursive: true });
+const outputPrefix = path.join(web, "../../.local/identity-sso-recovery-ui-");
+await mkdir(path.dirname(outputPrefix), { recursive: true });
+const output = await mkdtemp(outputPrefix);
+console.log(`Fresh retained evidence: ${output}`);
 const bundle = await build({ entryPoints: [path.join(web, "e2e/identity-sso-recovery/fixture.jsx")], outfile: path.join(output, "fixture.js"),
   bundle: true, write: false, jsx: "automatic", platform: "browser", nodePaths: [path.join(web, "node_modules")],
   plugins: [{ name: "synthetic-boundaries", setup(build) {

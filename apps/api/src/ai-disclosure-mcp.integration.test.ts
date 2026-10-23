@@ -27,10 +27,20 @@ describe.skipIf(!enabled)(
   "packaged MCP -> HTTPS -> durable PostgreSQL grant",
   () => {
     it("reads approved counts and stops after the customer revokes the grant", async () => {
+      // Resolve from this test file, rather than letting the test runner treat
+      // a literal import outside its app root as a root-relative module ID.
+      const clientModule = new URL(
+        "../../../integrations/ai/node_modules/@modelcontextprotocol/sdk/dist/esm/client/index.js",
+        import.meta.url,
+      );
+      const transportModule = new URL(
+        "../../../integrations/ai/node_modules/@modelcontextprotocol/sdk/dist/esm/client/stdio.js",
+        import.meta.url,
+      );
       const { Client } =
-        await import("../../../integrations/ai/node_modules/@modelcontextprotocol/sdk/dist/esm/client/index.js");
+        await import(/* @vite-ignore */ clientModule.href);
       const { StdioClientTransport } =
-        await import("../../../integrations/ai/node_modules/@modelcontextprotocol/sdk/dist/esm/client/stdio.js");
+        await import(/* @vite-ignore */ transportModule.href);
       const proof = new URL(
         "../../../.local/ai-plugin-grants-20261016/tls-" + randomUUID() + "/",
         import.meta.url,

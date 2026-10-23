@@ -52,6 +52,7 @@ describe("verified Clerk identity survives native membership reread", () => {
     expect(context.user).toEqual(user);
     expect(context.authenticatedClerkSubject).toBe("clerk-original");
     expect(mocks.mirror).toHaveBeenCalledWith("clerk-original");
+    expect(context.authenticatedApiKeyId).toBeNull();
     expect(mocks.reread).toHaveBeenCalledWith({ where: { id: user.id }, include: { memberships: true } });
   });
   it("refuses a native mapping changed between mirror resolution and the context reread", async () => {
@@ -82,6 +83,7 @@ describe("verified Clerk identity survives native membership reread", () => {
     expect(context.user).toEqual(service);
     expect(context.authenticatedClerkSubject).toBeNull();
     expect(mocks.verify).not.toHaveBeenCalled();
+    expect(context.authenticatedApiKeyId).toBe("key-synthetic");
     expect(mocks.mirror).not.toHaveBeenCalled();
     expect(mocks.serviceUser).toHaveBeenCalledWith({ where: { id: service.id }, include: { memberships: true } });
   });

@@ -6,6 +6,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { prisma } from "@vaettir/db";
 import { appRouter } from "../router.js";
+import { HUMAN_EDIT_SKIP_REASON } from "../services/importOutcome.js";
 
 const RUN_ID = `importjobs-test-${Date.now()}`;
 
@@ -84,6 +85,18 @@ async function caller() {
 }
 
 describe("importJobs (real DB, real router)", () => {
+  it("shows retained row reasons without rewriting old jobs and refuses another tenant", async () => {
+    const errors = [{ rowNumber: 2, reason: HUMAN_EDIT_SKIP_REASON }];
+    const job = await prisma.importJob.create({ data: { projectId, source: "CSV", status: "FAILED", fieldMapping: {}, skippedCount: 1, errors } });
+    const c = await caller();
+    const list = await c.importJobs.list({ projectId });
+    expect(list.find(row => row.id === job.id)).toMatchObject({ status: "FAILED", statusLabel: "Needs review", skippedRows: errors });
+    expect((await prisma.importJob.findUniqueOrThrow({ where: { id: job.id } })).status).toBe("FAILED");
+    const foreign = await prisma.organization.create({ data: { name: "Other synthetic tenant", slug: `${RUN_ID}-other`, planTierId: (await prisma.planTier.findUniqueOrThrow({ where: { key: "free" } })).id } });
+    const other = await prisma.project.create({ data: { name: "Other synthetic project", slug: `${RUN_ID}-other`, organizationId: foreign.id } });
+    try { await expect(c.importJobs.list({ projectId: other.id })).rejects.toMatchObject({ code: "FORBIDDEN" }); }
+    finally { await prisma.project.delete({ where: { id: other.id } }); await prisma.organization.delete({ where: { id: foreign.id } }); }
+  });
   it("previewCsv auto-suggests the case name and every recognized procedure column", async () => {
     const c = await caller();
     const preview = await c.importJobs.previewCsv({ projectId, csvText: CSV });

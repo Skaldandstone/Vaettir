@@ -1,10 +1,10 @@
+import { reactBrowserScripts } from "./test-support/react-browser-runtime.mjs";
 // Real ReactDOM controls, synthetic RPC only, with all external network blocked.
 /* global React,ReactDOM,document */
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { readFileSync, mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
 import { before, after, test } from "node:test";
 const require = createRequire(new URL("../apps/web/package.json", import.meta.url));
 const ts = require("typescript"), { chromium } = require("@playwright/test");
@@ -14,8 +14,9 @@ compiled = compiled.replace(/^import .* from "@vaettir\/core";$/m, `const normal
  .replace(/^import .* from "..\/lib\/trpcReact";$/m, "const trpcReact=window.trpc;");
 assert.ok(!/^\s*import /m.test(compiled));
 const scripts = {
-  "/react.js": readFileSync(join(dirname(require.resolve("react/package.json")), "umd/react.development.js")),
-  "/react-dom.js": readFileSync(join(dirname(require.resolve("react-dom/package.json")), "umd/react-dom.development.js")),
+  ...reactBrowserScripts(),
+
+
 };
 const stylesheet = readFileSync(new URL("../apps/web/app/globals.css", import.meta.url));
 const screenshots = process.env.VAETTIR_DOMAIN_SCREENSHOT_DIR;

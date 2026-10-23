@@ -10,7 +10,7 @@ const sections = [
   {
     "title": "What the importer reads and sends",
     "paragraphs": [
-      "After you approve access and select a spreadsheet, your browser reads its title, identifier, worksheet names and identifiers, and worksheet dimensions. It reads formatted cell values from the worksheets you select. Google supplies the account selection, permission and file-picker interfaces.",
+      "After you approve access and select a spreadsheet, your browser reads its title, identifier, worksheet names and identifiers, and worksheet dimensions. It reads formatted cell values from the worksheets you select. Google supplies the account selection, permission and file-picker interfaces. The isolated file picker sends Google the Vaettir site origin to validate the restricted browser key; its referrer does not include your project path, query parameters or worksheet content.",
       "Before reading worksheet content, Vaettir asks you to approve sending selected worksheets to your current Vaettir project for import review. Those worksheet contents and source identifiers are sent to Vaettir to parse fields and prepare the preview. No test cases, historical run results or import-history records are saved until you explicitly confirm the import. Choose only content you are authorized to share with that project and its members."
     ]
   },

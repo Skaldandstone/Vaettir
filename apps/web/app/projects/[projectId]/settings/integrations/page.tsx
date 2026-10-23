@@ -8,6 +8,7 @@ import { AtlassianQualitySettings } from "@/components/AtlassianQualitySettings"
 import { ProjectRepositories } from "@/components/ProjectRepositories";
 import { repositoryDisplayName } from "@/lib/repository-display";
 import { AiDisclosureSettings } from "@/components/AiDisclosureSettings";
+import { JiraTrackerConnection } from "@/components/JiraTrackerConnection";
 
 export default function ProjectIntegrationsPage() {
   const tabId = useId();
@@ -27,7 +28,7 @@ export default function ProjectIntegrationsPage() {
       <span aria-current="page">Integrations</span>
     </nav>
     <h1>Project integrations</h1>
-    <p className="text-muted">Manage this project’s saved repository connections.</p>
+    <p className="text-muted">Manage this project’s repository, tracker and sharing connections.</p>
     <details style={{marginBottom:16}}><summary>Connection and source access</summary><p>Account authorization and saved repository membership are separate. Source reads and AI processing still require their own approval.</p></details>
     {!ready && <p role={query.error || access.query.error ? "alert" : "status"}>
       Project access could not yet be verified. Existing connection drafts remain mounted but withheld.
@@ -41,6 +42,11 @@ export default function ProjectIntegrationsPage() {
       <ProjectRepositories key={projectId} projectId={projectId} canEdit={ready && access.canEdit} />
       </section>
       <section role="tabpanel" id={`${tabId}-panel-${encodeURIComponent("Jira & Confluence")}`} aria-labelledby={`${tabId}-tab-${encodeURIComponent("Jira & Confluence")}`} hidden={tab !== "Jira & Confluence"}>
+      <section className="panel" aria-label="Jira defect tracker connection">
+        <h2>Connect a Jira defect tracker</h2>
+        <p>Start here to verify Jira Cloud access, choose projects, and review issue summaries as defect-map tasks. No requirements are created, and Jira is not modified. Sharing Vaettir quality information back to Jira or Confluence is managed separately below.</p>
+        <JiraTrackerConnection projectId={projectId} canEdit={ready && access.canEdit} />
+      </section>
       {access.origin && <AtlassianQualitySettings key={`${projectId}:${access.origin.clerkActorId}`} projectId={projectId} organizationId={access.origin.organizationId} canConfigure={ready && access.canConfigure} />}
       </section>
       <section role="tabpanel" id={`${tabId}-panel-${encodeURIComponent("AI sharing")}`} aria-labelledby={`${tabId}-tab-${encodeURIComponent("AI sharing")}`} hidden={tab !== "AI sharing"}>

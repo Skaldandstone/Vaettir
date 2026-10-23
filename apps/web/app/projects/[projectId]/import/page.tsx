@@ -224,9 +224,9 @@ export default function ImportPage() {
       {!canEdit && (
         <p>{loaded ? "A full-seat Owner, Admin, or Editor can import cases and CI results." : "Checking project access…"}</p>
       )}
-      {canImport && <MigrationWizard key={importScope} projectId={projectId} onCommitted={() => void utils.importJobs.list.invalidate({ projectId })} />}
+      {canImport && <MigrationWizard key={`cases:${importScope}`} projectId={projectId} onCommitted={() => void utils.importJobs.list.invalidate({ projectId })} />}
       {canImport && <HistoricalResultsImport projectId={projectId} actorScope={actorScope} />}
-      {canImport && <details key={importScope} className="panel"><summary>Automated JUnit XML reports</summary><BackfillSection projectId={projectId} defaultBranch={defaultBranch} /></details>}
+      {canImport && <details key={`junit:${importScope}`} className="panel"><summary>Automated JUnit XML reports</summary><BackfillSection projectId={projectId} defaultBranch={defaultBranch} /></details>}
 
       {jobs.length > 0 && (
         <div style={{ marginTop: 24 }}>
@@ -234,10 +234,14 @@ export default function ImportPage() {
           <ul style={{ listStyle: "none", padding: 0 }}>
             {jobs.map((j) => (
               <li key={j.id} style={{ borderBottom: "1px solid var(--line)", padding: "6px 0", fontSize: 13 }}>
-                <strong>{j.status}</strong> — {j.source} {j.sourceLabel && `(${j.sourceLabel})`} — {j.createdCount} created
+                <strong>{j.statusLabel ?? j.status}</strong> — {j.source} {j.sourceLabel && `(${j.sourceLabel})`} — {j.createdCount} created
                 {j.updatedCount > 0 && `, ${j.updatedCount} updated`}
                 {j.skippedCount > 0 && `, ${j.skippedCount} skipped`}
                 <span className="text-muted"> · {j.createdByName ?? "unknown"} · {new Date(j.createdAt).toLocaleString()}</span>
+                {j.skippedCount > 0 && <details style={{ marginTop: 8 }}>
+                  <summary>Review {j.skippedCount} skipped row(s)</summary>
+                  {j.skippedRows?.length ? <ul style={{ overflowWrap: "anywhere" }}>{j.skippedRows.map((row, index) => <li key={`${row.rowNumber}:${index}`}>Row {row.rowNumber}: {row.reason}</li>)}</ul> : <p>Row details are unavailable for this older import.</p>}
+                </details>}
               </li>
             ))}
           </ul>

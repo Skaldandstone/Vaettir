@@ -12,19 +12,25 @@ const web = path.resolve(fileURLToPath(new URL("../../", import.meta.url)));
 const require = createRequire(path.join(web, "package.json"));
 const viteRequire = createRequire(createRequire(require.resolve("vitest")).resolve("vite"));
 const { build } = viteRequire("esbuild"), { chromium } = require("@playwright/test");
-const output = path.join(web, "../../.local/google-sheets-import-20261021/ui-with-history");
+const output = process.argv[2] ? path.resolve(process.argv[2]) : path.join(web, "../../.local/google-sheets-picker-20261021/import-ui");
 await mkdir(output, { recursive: true });
 const inputs = ["components/GoogleSheetsPrivacyNotice.tsx", "app/google-sheets-privacy/page.tsx", "middleware.ts", "components/Sidebar.tsx", "app/layout.tsx", "lib/auth-return.test.mjs", "components/MigrationWizard.tsx", "components/GoogleSheetsImportSource.tsx", "lib/google-sheets-import.ts", "../api/src/services/csvFieldMapping.ts", "app/globals.css", "app/workbench.css", "e2e/google-sheets/fixture.jsx", "e2e/google-sheets/boundary.jsx", "e2e/google-sheets/run.mjs", "../../pnpm-lock.yaml"];
 const hashes = async () => Object.fromEntries(await Promise.all(inputs.map(async file => [file, createHash("sha256").update(await readFile(path.join(web, file))).digest("hex")])));
 inputs.push("components/HistoricalResultsImport.tsx", "app/projects/[projectId]/import/page.tsx");
+inputs.push("lib/google-picker-frame.ts", "lib/google-picker-document.ts", "app/connections/google-sheets/picker/route.ts");
 const sourceHashes = await hashes();
 const result = await build({
   entryPoints: [path.join(web, "e2e/google-sheets/fixture.jsx")], outfile: "fixture.js", bundle: true, write: false, jsx: "automatic", platform: "browser", nodePaths: [path.join(web, "node_modules")], alias: { "@": web },
-  plugins: [{ name: "synthetic-transport", setup(builder) { builder.onResolve({ filter: /\/trpcReact$/ }, () => ({ path: path.join(web, "e2e/google-sheets/boundary.jsx") })); } }],
+  plugins: [{ name: "synthetic-transport", setup(builder) { builder.onResolve({ filter: /(?:\/trpcReact|\/use-project-permissions|next\/navigation|@clerk\/nextjs)$/ }, () => ({ path: path.join(web, "e2e/google-sheets/boundary.jsx") })); } }],
 });
 const css = (await readFile(path.join(web, "app/globals.css"), "utf8")).replace(/^@import[^\r\n]+\r?\n/, "") + "\n" + await readFile(path.join(web, "app/workbench.css"), "utf8");
+const pickerRouteBuild = await build({ entryPoints: [path.join(web, "app/connections/google-sheets/picker/route.ts")], bundle: true, write: false, platform: "node", format: "esm", alias: { "@": web } });
+const { GET: pickerDocument } = await import("data:text/javascript;base64," + Buffer.from(pickerRouteBuild.outputFiles[0].text).toString("base64"));
 const server = createServer((req, res) => {
-  if (req.url === "/bundle.js") { res.setHeader("Content-Type", "application/javascript"); res.end(result.outputFiles[0].text); }
+  // Exercise the real isolated document, including an upstream no-referrer
+  // header. Its local meta exception must not change the parent document.
+  if (req.url === "/connections/google-sheets/picker") { const response = pickerDocument(); response.headers.forEach((v, k) => res.setHeader(k, v)); res.setHeader("Referrer-Policy", "no-referrer"); response.text().then(body => res.end(body)); }
+  else if (req.url === "/bundle.js") { res.setHeader("Content-Type", "application/javascript"); res.end(result.outputFiles[0].text); }
   else { res.setHeader("Content-Type", "text/html"); res.end(`<!doctype html><html data-theme="dark"><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style></head><body><div id="root"></div><script src="/bundle.js"></script></body></html>`); }
 });
 await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
@@ -35,7 +41,11 @@ const errors = [], network = [];
 page.on("pageerror", error => errors.push(error.message));
 await page.route("https://**/*", async route => {
   const url = new URL(route.request().url()); network.push(url.origin + url.pathname);
-  if (["https://accounts.google.com/gsi/client", "https://apis.google.com/js/api.js"].includes(url.origin + url.pathname)) { await route.fulfill({ contentType: "text/javascript", body: "/* local provider substitute */" }); return; }
+  if (url.origin + url.pathname === "https://accounts.google.com/gsi/client") { await route.fulfill({ contentType: "text/javascript", body: "/* local GIS substitute is in the component fixture */" }); return; }
+  if (url.origin + url.pathname === "https://apis.google.com/js/api.js") {
+    assert.equal(route.request().headers().referer, origin + "/", "Picker receives only the origin, never project/query data");
+    await route.fulfill({ contentType: "text/javascript", body: `window.gapi={load:(_name,options)=>options.callback()};window.google={picker:{DocsView:class{setMimeTypes(){return this}},PickerBuilder:class{addView(){return this}setOAuthToken(){return this}setDeveloperKey(){return this}setAppId(){return this}setOrigin(){return this}setCallback(callback){this.callback=callback;return this}build(){return{dispose(){},setVisible:()=>this.callback({action:"picked",docs:[{id:"synthetic_book",mimeType:"application/vnd.google-apps.spreadsheet"}]})}}}}};` }); return;
+  }
   if (url.origin === "https://sheets.googleapis.com") {
     assert.equal(route.request().method(), "GET");
     const flags = new URL(page.url()).searchParams;
@@ -46,6 +56,42 @@ await page.route("https://**/*", async route => {
   throw new Error(`Unexpected outbound origin: ${url.origin}`);
 });
 try {
+  // Render the actual route, including all siblings and history invalidation.
+  // A wizard-only fixture cannot detect duplicate keys in the parent page.
+  for (const conflict of [false, true]) {
+    await page.goto(`${origin}/page${conflict ? "?conflict" : ""}`);
+    await page.getByRole("button", { name: "Google Sheets Choose a spreadsheet", exact: false }).click();
+    await page.getByRole("checkbox", { name: /I approve reading/ }).check();
+    await page.getByRole("button", { name: "Load Google connection", exact: true }).click();
+    await page.getByRole("button", { name: "Authorize Google and choose a spreadsheet", exact: true }).click();
+    await page.getByRole("button", { name: "Read selected tabs and preview", exact: true }).click();
+    await page.getByRole("button", { name: "Review import scope", exact: true }).click();
+    await page.getByRole("button", { name: "Import selected worksheets", exact: true }).click();
+    await page.getByRole("heading", { name: conflict ? "Import finished with skipped rows" : "Import complete", exact: true }).waitFor();
+    await page.getByRole("heading", { name: "Import history", exact: true }).waitFor();
+    assert.equal(await page.getByRole("heading", { name: "Migration assistant", exact: true }).count(), 1, "History refresh must retain exactly one wizard");
+    assert.equal(await page.evaluate(() => window.sheetFixture.commits.length), 1);
+    if (conflict) {
+      const reason = "Row 2: Case changed since its last import; source updates were not applied. Review the human edits and source changes.";
+      await page.getByText("Needs review", { exact: true }).waitFor();
+      await page.getByText("Review 1 skipped row(s)", { exact: true }).click();
+      assert.equal(await page.getByText(reason, { exact: true }).count(), 2, "Completion and retained history both show the exact row reason");
+      for (const width of [1280, 390]) {
+        await page.setViewportSize({ width, height: 960 });
+        for (const theme of ["dark", "light"]) {
+          await page.evaluate(value => { document.documentElement.dataset.theme = value; }, theme);
+          assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+          await page.screenshot({ path: path.join(output, `completion-${theme}-${width}.png`), fullPage: true });
+        }
+      }
+    }
+    await page.getByRole("button", { name: "Import another", exact: true }).click();
+    assert.equal(await page.getByRole("heading", { name: "Migration assistant", exact: true }).count(), 1);
+    assert.equal(await page.getByRole("button", { name: "Google Sheets Choose a spreadsheet", exact: false }).count(), 1);
+    assert.equal(await page.evaluate(() => window.sheetFixture.commits.length), 1, "Re-entry does not issue another write");
+    assert.equal(await page.evaluate(() => window.sheetFixture.ai), 0);
+  }
+  await page.setViewportSize({ width: 1280, height: 960 });
   await page.goto(origin);
   await page.getByRole("button", { name: "Google Sheets Choose a spreadsheet", exact: false }).click();
   await page.getByRole("checkbox", { name: /I approve reading/ }).check();
@@ -212,7 +258,7 @@ try {
   assert.equal(await page.evaluate(() => window.sheetFixture.commits.length), 0);
   assert.deepEqual(errors, []);
   assert.deepEqual(await hashes(), sourceHashes, "Source inputs stayed unchanged during fixture verification");
-  const evidence = { at: new Date().toISOString(), sourceHashes, bundleSha256: createHash("sha256").update(result.outputFiles[0].text).digest("hex"), actualComponents: true, realGoogleAuthorization: false, hostedAcceptance: false, checks: ["two-tab picker, select/deselect", "actual parser auto-mapping and row preview", "zero writes before explicit import", "one multi-tab commit payload without provider credential", "zero AI analysis calls", "back navigation retains mapping", "light, dark and 390px layout", "OAuth cancel fails closed without writes", "cancel during delayed API preview prevents further tabs and late mappings", "missing title blocks both mixed and all-unmapped selections until explicit repair or deselection", "unconfigured provider fails closed", "approved Google data notice renders in both themes and at390px", "historical file columns/date/status review with blank date, stale approval reset and explicit commit", "historical Excel tab selection and run deep link", "historical review renders in both themes at desktop and390px"], errors, network };
+  const evidence = { at: new Date().toISOString(), sourceHashes, bundleSha256: createHash("sha256").update(result.outputFiles[0].text).digest("hex"), actualComponents: true, realGoogleAuthorization: false, hostedAcceptance: false, checks: ["actual import route retains one completed wizard after history invalidation", "protected rows show exact reasons in completion and retained history", "explicit re-entry adds no writes or AI calls", "completion and row reasons render in both themes at1280 and390px", "two-tab picker, select/deselect", "actual parser auto-mapping and row preview", "zero writes before explicit import", "one multi-tab commit payload without provider credential", "zero AI analysis calls", "back navigation retains mapping", "light, dark and 390px layout", "OAuth cancel fails closed without writes", "cancel during delayed API preview prevents further tabs and late mappings", "missing title blocks both mixed and all-unmapped selections until explicit repair or deselection", "unconfigured provider fails closed", "approved Google data notice renders in both themes and at390px", "historical file columns/date/status review with blank date, stale approval reset and explicit commit", "historical Excel tab selection and run deep link", "historical review renders in both themes at desktop and390px"], errors, network };
   await writeFile(path.join(output, "evidence.json"), JSON.stringify(evidence, null, 2)); console.log(JSON.stringify(evidence));
 } catch (error) { await page.screenshot({ path: path.join(output, "failure.png"), fullPage: true }); console.error(await page.locator("body").innerText()); throw error; }
 finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }

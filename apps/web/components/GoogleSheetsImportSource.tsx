@@ -3,25 +3,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { trpcReact } from "@/lib/trpcReact";
 import { GOOGLE_SHEETS_SCOPE, GOOGLE_SHEET_MIME, readSheetBook, readSheetSnapshot, sheetId, validSheetToken, type GoogleSheetSnapshot, type SheetBook } from "@/lib/google-sheets-import";
+import { openGooglePickerFrame } from "@/lib/google-picker-frame";
 
 type TokenResponse = { access_token?: string; scope?: string; expires_in?: number | string; error?: string };
-interface Picker { setVisible(visible: boolean): void; dispose(): void }
-interface PickerBuilder {
-  addView(view: unknown): PickerBuilder; setOAuthToken(token: string): PickerBuilder;
-  setDeveloperKey(key: string): PickerBuilder; setAppId(id: string): PickerBuilder;
-  setOrigin(origin: string): PickerBuilder;
-  setCallback(callback: (data: { action: string; docs?: { id?: string; mimeType?: string }[] }) => void): PickerBuilder;
-  build(): Picker;
-}
+interface Picker { dispose(): void }
 interface GoogleRuntime {
   google: {
     accounts: { oauth2: { initTokenClient(config: {
       client_id: string; scope: string; include_granted_scopes: boolean;
       callback(response: TokenResponse): void; error_callback(): void;
     }): { requestAccessToken(options: { prompt: string }): void } } };
-    picker: { DocsView: new () => { setMimeTypes(mime: string): unknown }; PickerBuilder: new () => PickerBuilder };
   };
-  gapi: { load(name: string, options: { callback(): void; onerror(): void; timeout: number; ontimeout(): void }): void };
 }
 let libraries: Promise<void> | undefined;
 function loadScript(src: string) {
@@ -35,10 +27,8 @@ function loadScript(src: string) {
   });
 }
 function loadGoogle() {
-  libraries ??= Promise.all([loadScript("https://accounts.google.com/gsi/client"), loadScript("https://apis.google.com/js/api.js")])
-    .then(() => new Promise<void>((resolve, reject) => {
-      (window as unknown as GoogleRuntime).gapi.load("picker", { callback: resolve, onerror: () => reject(new Error("Google Picker could not load.")), timeout: 15000, ontimeout: () => reject(new Error("Google Picker timed out.")) });
-    })).catch(error => { libraries = undefined; throw error; });
+  libraries ??= loadScript("https://accounts.google.com/gsi/client")
+    .catch(error => { libraries = undefined; throw error; });
   return libraries;
 }
 
@@ -100,12 +90,10 @@ export function GoogleSheetsImportSource({ projectId, disabled, onSnapshots, max
             const lifetime = Math.min(Number(response.expires_in), 3600) * 1000 - 30000;
             credential.current = { token, expires: Date.now() + lifetime };
             expiry.current = setTimeout(() => { if (!operation.signal.aborted) { clearAccess(); setBook(null); setBusy(false); setError("Google access expired. Authorize again to choose your sheet."); } }, lifetime);
-            const view = new google.picker.DocsView().setMimeTypes(GOOGLE_SHEET_MIME);
-            picker.current = new google.picker.PickerBuilder().addView(view)
-              .setOAuthToken(token).setDeveloperKey(config.data!.apiKey).setAppId(config.data!.appId)
-              .setOrigin(window.location.origin).setCallback(data => {
+            picker.current = openGooglePickerFrame({ token, apiKey: config.data!.apiKey, appId: config.data!.appId, expires: Date.now() + lifetime }, data => {
                 if (operation.signal.aborted) return;
                 if (data.action === "cancel") { cancel(); return; }
+                if (data.action === "error") { fail(); return; }
                 if (data.action !== "picked") return;
                 void (async () => {
                   if (data.docs?.length !== 1 || data.docs[0]?.mimeType !== GOOGLE_SHEET_MIME) throw new Error("Invalid selection");
@@ -115,8 +103,7 @@ export function GoogleSheetsImportSource({ projectId, disabled, onSnapshots, max
                   if (operation.signal.aborted) return;
                   setBook(selectedBook); setSelected(selectedBook.tabs.slice(0, maxWorksheets).map(tab => tab.id)); setBusy(false);
                 })().catch(fail);
-              }).build();
-            picker.current.setVisible(true);
+              });
           } catch { fail(); }
         },
       }).requestAccessToken({ prompt: "consent select_account" });

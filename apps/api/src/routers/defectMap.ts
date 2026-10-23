@@ -20,6 +20,7 @@ import {
   type Context,
 } from "../trpc.js";
 import { liveEditor } from "./jiraConnections.js";
+import { jiraDefectSnapshot } from "./jiraIssueIntake.js";
 
 const digest = (value: string) =>
   createHash("sha256").update(value).digest("hex");
@@ -29,6 +30,18 @@ const projectInput = z
 const batchInput = projectInput.extend({
   batch: defectBatchSchema,
   approveMetadataRead: z.literal(true),
+});
+const jiraInput = projectInput.extend({
+  runId: z.string().min(1).max(120),
+  runVersion: z.number().int().min(1),
+  issueIds: z.array(z.string().regex(/^[1-9]\d{0,31}$/)).min(1).max(100).refine(ids => new Set(ids).size === ids.length),
+  approveMetadataRead: z.literal(true),
+}).strict();
+const jiraCommitInput = jiraInput.extend({
+  version: z.number().int().min(0),
+  previewHash: z.string().regex(/^[a-f0-9]{64}$/),
+  requestId: z.string().uuid(),
+  approveImport: z.literal(true),
 });
 const boundedBatch = batchInput.refine(
   (input) => Buffer.byteLength(JSON.stringify(input.batch)) <= 150_000,
@@ -61,6 +74,20 @@ function preview(
     });
   }
 }
+
+async function jiraBatch(tx:Prisma.TransactionClient,actorId:string,organizationId:string,input:z.infer<typeof jiraInput>){
+  const snapshot=await jiraDefectSnapshot(tx,actorId,{...input,organizationId});
+  const oversized=snapshot.issues.find(issue=>issue.title.trim().length>180);
+  if(oversized)throw new TRPCError({code:"BAD_REQUEST",message:`${oversized.key} exceeds the defect map's 180-character title capacity. Deselect it to review the other summaries; no title was truncated.`});
+  const site=digest(snapshot.site).slice(0,24);
+  const scope=(projectId:string)=>`jira-site-${site}:${projectId}`;
+  return defectBatchSchema.parse({
+    sources:[...new Set(snapshot.issues.map(issue=>issue.projectId))].sort().map(projectId=>({provider:"jira",scope:scope(projectId),status:"available",observedAt:snapshot.observedAt})),
+    signals:[],
+    tasks:snapshot.issues.map(issue=>({provider:"jira",scope:scope(issue.projectId),externalId:issue.id,title:issue.title,url:issue.url,status:"unknown",observedAt:snapshot.observedAt})),
+  });
+}
+const jiraPreviewHash=(version:number,input:z.infer<typeof jiraInput>,batch:z.infer<typeof defectBatchSchema>)=>digest(JSON.stringify([version,input.runId,input.runVersion,[...input.issueIds].sort(),batch]));
 
 async function access<T>(
   ctx: Context & { user: NonNullable<Context["user"]> },
@@ -197,12 +224,36 @@ export const defectMapRouter = router({
         ...current,
         map: buildDefectMap(current.document, digest),
         capabilities: {
-          ingestion: "reviewed_metadata_export" as const,
+          ingestion: "reviewed_metadata_export_and_jira_snapshot" as const,
           liveSync: "unavailable" as const,
           aiUsed: false,
           credits: 0,
         },
       };
+    }),
+  ),
+  previewJira: protectedProcedure.input(jiraInput).mutation(({ctx,input})=>
+    access(ctx,input.projectId,true,async(tx,orgId)=>{
+      const batch=await jiraBatch(tx,ctx.user.id,orgId,input);
+      const current=await state(tx,input.projectId,orgId),result=preview(current.document,batch);
+      return {version:current.version,previewHash:jiraPreviewHash(current.version,input,batch),changes:result.changes,tasks:batch.tasks,credits:0};
+    }),
+  ),
+  approveJira: protectedProcedure.input(jiraCommitInput).mutation(({ctx,input})=>
+    access(ctx,input.projectId,true,async(tx,orgId)=>{
+      const requestHash=digest(JSON.stringify([input.version,input.runId,input.runVersion,[...input.issueIds].sort(),input.previewHash]));
+      // A receipt can acknowledge an already completed write after source access
+      // expires. It exposes no summaries and never starts another write or read.
+      const prior=await retry(tx,input.projectId,ctx.user.id,input.requestId,"jira_snapshot",requestHash);
+      if(prior){await state(tx,input.projectId,orgId);return prior;}
+      const batch=await jiraBatch(tx,ctx.user.id,orgId,input);
+      if(jiraPreviewHash(input.version,input,batch)!==input.previewHash)throw conflict();
+      const current=await state(tx,input.projectId,orgId);
+      if(current.version!==input.version)throw conflict();
+      const result=preview(current.document,batch);
+      const receipt=await save(tx,input.projectId,orgId,result.document,input.version,ctx.user.id,input.requestId,"jira_snapshot",requestHash);
+      await tx.auditLog.create({data:{organizationId:orgId,projectId:input.projectId,actorId:ctx.user.id,entityType:"DefectMap",entityId:input.projectId,action:"UPDATE",summary:"Imported reviewed Jira issue summaries as defect-map tasks",metadata:{runId:input.runId,runVersion:input.runVersion,issueIds:[...input.issueIds].sort(),requestId:input.requestId,previewHash:input.previewHash,appliedVersion:receipt.appliedVersion}}});
+      return receipt;
     }),
   ),
   previewImport: protectedProcedure

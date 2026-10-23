@@ -13,7 +13,7 @@ export function TestTypeDistribution({ cases }: { cases: readonly { testType: st
       {entries.map(([type, count], index) => {
         const percent = count / cases.length * 100;
         const start = entries.slice(0, index).reduce((sum, [, amount]) => sum + amount, 0) / cases.length * 100;
-        return <circle key={type} cx="80" cy="80" r="60" fill="none" stroke={colors[index % colors.length]} strokeWidth="18" pathLength="100" strokeDasharray={`${percent} ${100 - percent}`} strokeDashoffset={-start} transform="rotate(-90 80 80)"><title>{inspectorLabel(type)}: {count} ({Math.round(percent)}%)</title></circle>;
+        return <circle key={type} cx="80" cy="80" r="60" fill="none" stroke={colors[index % colors.length]} strokeWidth="18" pathLength="100" strokeDasharray={`${percent} ${100 - percent}`} strokeDashoffset={-start} transform="rotate(-90 80 80)"><title>{`${inspectorLabel(type)}: ${count} (${Math.round(percent)}%)`}</title></circle>;
       })}
       <text x="80" y="77" textAnchor="middle" className="test-type-total">{cases.length.toLocaleString()}</text>
       <text x="80" y="98" textAnchor="middle" className="test-type-caption">cases</text>

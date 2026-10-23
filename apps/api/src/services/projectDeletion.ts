@@ -23,6 +23,8 @@ const labels: Record<string, string> = {
   testPlans: "Test plans",
   requirements: "Requirements",
   testRuns: "Test runs",
+  unrealPlaytestJobs: "Unreal playtest history",
+  unrealPlaytestCatalogs: "Unreal map and actor catalogs",
   importJobs: "Import history",
   reverseEngineerJobs: "Generation jobs",
   customFrameworkHeuristics: "Framework settings",

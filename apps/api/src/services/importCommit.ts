@@ -1,6 +1,7 @@
 import { type PrismaClient } from "@vaettir/db";
 import { z } from "zod";
 import { recordAudit } from "./auditLog.js";
+import { completedImportStatus, HUMAN_EDIT_SKIP_REASON } from "./importOutcome.js";
 import { snapshotTestCaseVersion } from "./testCaseVersion.js";
 import {
   inferTestCaseType,
@@ -218,7 +219,7 @@ export async function commitImportedTestCasesInTransaction(
         })),
       });
       if (!sameSnapshot(live, baseline.data)) {
-        return { kind: "conflict" as const, reason: "Case changed since its last import; source updates were not applied. Review the human edits and source changes." };
+        return { kind: "conflict" as const, reason: HUMAN_EDIT_SKIP_REASON };
       }
       if (sameSnapshot(incoming, baseline.data)) {
         return { kind: "unchanged" as const };
@@ -322,10 +323,7 @@ export async function commitImportedTestCasesInTransaction(
       sourceLabel: args.sourceLabel,
       fieldMapping: args.fieldMapping,
       testPlanId: args.testPlanId,
-      status:
-        skipped.length > 0 && created.length === 0 && updated.length === 0
-          ? "FAILED"
-          : "SUCCEEDED",
+      status: completedImportStatus({ createdCount: created.length, updatedCount: updated.length, skippedCount: skipped.length, errors: skipped }),
       createdCount: created.length,
       updatedCount: updated.length,
       skippedCount: skipped.length,

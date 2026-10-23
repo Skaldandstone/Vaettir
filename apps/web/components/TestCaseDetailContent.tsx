@@ -1251,7 +1251,10 @@ function TestCaseInspector({
         {(!readOnly || customActions.allows("cases.write")) && (
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
             <a href={onEditHref ?? `/projects/${projectId}/test-cases/${tc.id}/edit`}>Edit case</a>
-            {!readOnly && <TestCaseClone key={tc.id} projectId={projectId} caseId={tc.id} onChanged={onChanged} />}
+            {!readOnly && <>
+              <a href={`/projects/${projectId}/test-cases/${tc.id}/unreal`}>Unreal playtest (technical preview)</a>
+              <TestCaseClone key={tc.id} projectId={projectId} caseId={tc.id} onChanged={onChanged} />
+            </>}
           </div>
         )}
       </div>
@@ -1748,7 +1751,11 @@ function TestCaseInspector({
         <AutomationDraftSection
           key={tc.id}
           testCaseId={tc.id}
-          sourceFramework={tc.source?.frameworkFamily ?? undefined}
+          sourceFramework={
+            tc.source?.frameworkFamily === "CUSTOM"
+              ? tc.source.framework
+              : (tc.source?.frameworkFamily ?? undefined)
+          }
           readOnly={readOnly}
         />
       </section>

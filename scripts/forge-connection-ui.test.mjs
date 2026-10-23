@@ -1,3 +1,4 @@
+import { reactBrowserScripts } from "./test-support/react-browser-runtime.mjs";
 // Actual ReactDOM interaction test with synthetic Clerk/RPC boundaries.
 // No external network, browser profile, real sign-in or customer write is used.
 /* global calls, document, mode:writable, auth:writable, catalog:writable, redraw, finish */
@@ -5,7 +6,6 @@ import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
 import {readFileSync,mkdirSync} from 'node:fs';
 import {createRequire} from 'node:module';
-import {dirname,join} from 'node:path';
 import {after,before,test} from 'node:test';
 const require=createRequire(new URL('../apps/web/package.json',import.meta.url));
 const ts=require('typescript'),{chromium}=require('@playwright/test');
@@ -17,9 +17,10 @@ compiled=compiled.replace(/^import .* from "react";$/m,'const {useEffect,useRef,
  .replace(/^import .* from "@\/lib\/trpcReact";$/m,'const trpcReact=window.trpc;');
 assert.ok(!/^\s*import /m.test(compiled),'All external imports must be mocked');
 const scripts={
+  ...reactBrowserScripts(),
  '/styles.css':readFileSync(new URL('../apps/web/app/globals.css',import.meta.url),'utf8').replace(/^@import.*$/m,''),
- '/react.js':readFileSync(join(dirname(require.resolve('react/package.json')),'umd/react.development.js')),
- '/react-dom.js':readFileSync(join(dirname(require.resolve('react-dom/package.json')),'umd/react-dom.development.js')),
+
+
 };
 const boot=`
 window.token='x'.repeat(90);

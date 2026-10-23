@@ -9,7 +9,7 @@ import * as rows from "./qa-strategy-fields";
 import type { PlanCustomFieldsEditor } from "../components/PlanCustomFieldsEditor";
 type Renderer = NonNullable<React.ComponentProps<typeof PlanCustomFieldsEditor>["renderFields"]>;
 // Only host props and handlers traversed by this synthetic element harness.
-type ElementProps = { children?: React.ReactNode; inputMode?: string; style?: React.CSSProperties; value?: unknown; "aria-invalid"?: boolean; "aria-label"?: string; hidden?: boolean; disabled?: boolean; onChange?: (event: { target: { value: string } }) => void; onClick?: () => void };
+type ElementProps = { ref?: (node: { inert: boolean }) => void; children?: React.ReactNode; inputMode?: string; style?: React.CSSProperties; value?: unknown; "aria-invalid"?: boolean; "aria-label"?: string; hidden?: boolean; disabled?: boolean; onChange?: (event: { target: { value: string } }) => void; onClick?: () => void };
 type Element = React.ReactElement<ElementProps>;
 type SyntheticDraft = { baseline: ReturnType<typeof base>; origin: ReturnType<typeof base>["origin"]; values: fields.PlanMetadataDraft; reason: string; confirmed: boolean };
 type SyntheticEditor = { open: boolean; busy: boolean; readable: boolean; pending: { input: { requestId: string } } | null; notice: string; problem: string | null; canSave: boolean; draft: SyntheticDraft; draftRef: { current: SyntheticDraft | null }; reads: { fresh: ReturnType<typeof base> }; canHandleDraft: () => boolean; show: () => void; close: () => void; review: () => void; commit: () => void; change: (patch: Partial<Pick<SyntheticDraft, "values" | "reason" | "confirmed">>) => void };
@@ -59,7 +59,7 @@ it("specialized renderer remains present through pending/private loss with inert
   h.editor.pending = { input: { requestId: "retained" } }; const hiddenPending = elements(h.render(renderer)).find(node => node.type === "div" && node.props.hidden === true)!;
   expect(hiddenPending).toBeTruthy(); expect(calls.at(-1)![2].active).toBe(false); const pendingSetter = calls.at(-1)![1]; pendingSetter({ ...calls.at(-1)![0], areas: ["should not apply"] }); expect(h.editor.draft.values.changes).toEqual([]);
   h.editor.readable = false; const hiddenPrivate = elements(h.render(renderer)).find(node => node.type === "div" && node.props.hidden === true)!;
-  const node = { inert: false }, ref: unknown = Object.getOwnPropertyDescriptor(hiddenPrivate, "ref")?.value;
+  const node = { inert: false }, ref: unknown = hiddenPrivate.props.ref;
   if (typeof ref !== "function") throw Error("Expected actual inert ref callback");
   ref(node); expect(node.inert).toBe(true); expect(calls.at(-1)![2].projectId).toBe("original-project");
 });

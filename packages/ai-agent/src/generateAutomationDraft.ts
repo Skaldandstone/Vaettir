@@ -111,8 +111,7 @@ const FRAMEWORK_RULES: Record<AutomationFramework, string> = {
     "Emit one C# MSTest test. Include the supplied automation id verbatim in TestCategory or Description and a vaettir-id comment. Do not invent production APIs.",
   POSTMAN:
     "Emit one Postman Collection v2.1 JSON item or pm.test script as requested by context. Include the supplied automation id verbatim in the request/test name and metadata. URLs, credentials, and environment values must be variables or TODOs.",
-  PACT:
-    "Emit one consumer Pact test in the language implied by context. Include the supplied automation id verbatim in the interaction description and a vaettir-id comment. Provider states and payloads must be grounded in the reviewed case.",
+  PACT: "Emit one consumer Pact test in the language implied by context. Include the supplied automation id verbatim in the interaction description and a vaettir-id comment. Provider states and payloads must be grounded in the reviewed case.",
   REST_ASSURED:
     "Emit one Java REST Assured test. Include the supplied automation id verbatim in @DisplayName and a vaettir-id comment. Base URLs, authentication, and payload schemas must be grounded or explicit TODOs.",
   UNITY_TEST_FRAMEWORK:
@@ -145,7 +144,8 @@ ${JSON.stringify(
   null,
   2,
 )}
-Produce a reviewable automation draft. Ground every concrete selector, route, identifier, dependency, and helper in the supplied information. Use conspicuous TODO placeholders for missing integration details. Never claim the draft was executed or validated.`;
+Produce a reviewable automation draft. Ground every concrete selector, route, identifier, dependency, and helper in the supplied information. Use conspicuous TODO placeholders for missing integration details. Never claim the draft was executed or validated.
+For Android observations, distinguish the native object identifier and selector from a hashed observation id. Resolve a unique current selector before acting; BOUNDS_ONLY is an observed position, not a durable replay locator. ADB commands and connector HTTP calls are not the app's backend requests. NOT_CAPTURED network evidence must remain an explicit TODO; never invent methods, endpoints, statuses or responses. A suggested replacement object or path is unapproved until a reviewer accepts it and a retry verifies the original expected result. Preserve original assertions when a step fails; never silently alter expectations to make it pass. Do not generate automatic selector fallbacks or catch-and-ignore assertions from a healing suggestion.`;
 }
 
 const EMIT_TOOL: Anthropic.Tool = {
@@ -218,8 +218,13 @@ export async function generateAutomationDraft(
       `Agent returned ${parsed.framework} for requested ${input.framework}`,
     );
   }
-  if (parsed.automationId !== input.automationId || !parsed.code.includes(input.automationId)) {
-    throw new Error("Agent omitted or changed the stable Vaettir automation id");
+  if (
+    parsed.automationId !== input.automationId ||
+    !parsed.code.includes(input.automationId)
+  ) {
+    throw new Error(
+      "Agent omitted or changed the stable Vaettir automation id",
+    );
   }
   return parsed;
 }

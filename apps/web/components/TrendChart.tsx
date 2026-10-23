@@ -50,7 +50,7 @@ export function TrendChart({
           <g key={i}>
             <circle cx={c.x} cy={c.y} r={3} fill={color} />
             <title>
-              {c.point.label}: {formatValue(c.point.value!)}
+              {`${c.point.label}: ${formatValue(c.point.value!)}`}
             </title>
           </g>
         ),

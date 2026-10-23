@@ -22,7 +22,10 @@
       ]
     },
     "allowJs": true,
-    "incremental": true
+    "incremental": true,
+    "types": [
+      "node"
+    ]
   },
   "include": [
     "next-env.d.ts",

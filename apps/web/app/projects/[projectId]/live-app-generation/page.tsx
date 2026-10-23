@@ -6,6 +6,7 @@ import { useAuth } from "@clerk/nextjs";
 import { downloadFile } from "@/lib/download";
 import { DeviceHelperBlockedLaunchGuidance } from "@/components/DeviceHelperBlockedLaunchGuidance";
 import { DeviceHelperSetupStatus } from "@/components/DeviceHelperSetupStatus";
+import { AndroidAppExploration } from "@/components/AndroidAppExploration";
 import {
   buildDeviceConnectorLauncher,
   createDeviceConnectorPairingCode,
@@ -488,12 +489,11 @@ export default function LiveAppGenerationPage() {
         Experimental — early access
       </div>
       <p>
-        Observe a web app or capture a real Android/iOS screen, then draft BDD
-        test cases grounded in the controls that were actually present. Nothing
-        is saved until you review each draft.
+        Connect an Android test app to explore approved navigation and review proposed tests.
+        Web and iOS capture tools are also available. Nothing is saved until you review and add it.
       </p>
 
-      <DeviceHelperSetupStatus
+      {captureMode !== "android" && <DeviceHelperSetupStatus
         intent={{
           kind: "CURRENT_METADATA_ONLY",
           projectId,
@@ -503,7 +503,7 @@ export default function LiveAppGenerationPage() {
           reportedBlocked: connectorStatus === "blocked",
         }}
         onReportedBlocked={cancelHelperSetupChecks}
-      />
+      />}
 
       {readOnly && (
         <p className="text-muted" style={{ fontSize: 13 }}>
@@ -533,9 +533,13 @@ export default function LiveAppGenerationPage() {
               </button>
             ))}
           </div>
+          {captureMode === "android" && <AndroidAppExploration pairingCode={pairingCode} currentScope={() => {
+            const value = currentCaptureClientScope();
+            return value?.mode === "android" ? {scope:{projectId:value.projectId, organizationId:value.organizationId, actorId:value.clerkActorId, sessionId:value.sessionId},epochKey:JSON.stringify(value)} : null;
+          }} />}
           <div
             style={{
-              display: "grid",
+              display: captureMode === "android" ? "none" : "grid",
               gap: 8,
               maxWidth: 720,
               border: "1px dashed var(--ember)",
@@ -709,6 +713,7 @@ export default function LiveAppGenerationPage() {
                           <code style={{ overflowWrap: "anywhere" }}>
                             {'node "vaettir-device-connector.mjs" --pairing-code '}
                             {pairingCode || "YOUR_PAIRING_CODE"}
+                            {" --origin "}{typeof window === "undefined" ? "" : window.location.origin}
                           </code>
                           <span className="text-muted" style={{ fontSize: 13 }}>
                             The pairing code is private. Do not share the

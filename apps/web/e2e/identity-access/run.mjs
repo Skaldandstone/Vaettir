@@ -1,7 +1,7 @@
 // Actual component, synthetic transport. NOT hosted/provider/SQL acceptance.
 /* global document, innerWidth */
 import { createRequire } from "node:module";
-import { readFile, mkdir, writeFile } from "node:fs/promises";
+import { readFile, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -13,8 +13,10 @@ const { build } = viteRequire("esbuild"), { chromium } = require("@playwright/te
 const previewOnly = process.argv.includes("--preview-only");
 const publicationOnly = process.argv.includes("--publication-only");
 const directoryOnly = process.argv.includes("--directory-only");
-const output = path.join(web, directoryOnly ? "../../.local/identity-directory-recovery-ui" : publicationOnly ? "../../.local/identity-publication-ui" : previewOnly ? "../../.local/identity-draft-preview-ui" : "../../.local/identity-access-ui");
-await mkdir(output, { recursive: true });
+const outputPrefix = path.join(web, directoryOnly ? "../../.local/identity-directory-recovery-ui-" : publicationOnly ? "../../.local/identity-publication-ui-" : previewOnly ? "../../.local/identity-draft-preview-ui-" : "../../.local/identity-access-ui-");
+await mkdir(path.dirname(outputPrefix), { recursive: true });
+const output = await mkdtemp(outputPrefix);
+console.log(`Fresh retained evidence: ${output}`);
 const bundle = await build({ entryPoints: [path.join(web, "e2e/identity-access/fixture.tsx")], outfile: path.join(output, "fixture.js"), bundle: true, write: false, jsx: "automatic", platform: "browser", nodePaths: [path.join(web, "node_modules")] });
 const css = (await readFile(path.join(web, "app/globals.css"), "utf8")).replace(/^@import[^\r\n]+\r?\n/, "") + "\n" + await readFile(path.join(web, "app/workbench.css"), "utf8") + "\n" + bundle.outputFiles.find(file => file.path.endsWith(".css")).text;
 const server = createServer((req, res) => {
