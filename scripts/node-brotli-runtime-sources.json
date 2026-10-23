@@ -42,6 +42,7 @@
         "bytes": 9821,
         "sha256": "3c1e4587947e4c61dd9c7c4619b1ae12d6bedbfd3c33c23981bf31269e18d52c"
       }
-    ]
+    ],
+    "baselineBinaryVersion": "1.1.0-2+b7"
   }
 }

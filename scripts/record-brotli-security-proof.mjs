@@ -49,6 +49,22 @@ function inspect(file) {
   return { soname, needed, exports };
 }
 const libraries = [];
+const baselinePackage = Object.fromEntries(
+  [
+    ["binaryVersion", "${Version}"],
+    ["sourceVersion", "${source:Version}"],
+    ["architecture", "${Architecture}"],
+  ].map(([name, field]) => [
+    name,
+    execFileSync("dpkg-query", ["-W", "-f=" + field, "libbrotli1"], {
+      encoding: "utf8",
+      timeout: 10000,
+    }).trim(),
+  ]),
+);
+assert.equal(baselinePackage.binaryVersion, pin.brotli.baselineBinaryVersion);
+assert.equal(baselinePackage.sourceVersion, pin.brotli.sourceVersion);
+assert.equal(baselinePackage.architecture, "amd64");
 for (const name of ["libbrotlicommon", "libbrotlidec", "libbrotlienc"]) {
   const baseline = "/usr/lib/x86_64-linux-gnu/" + name + ".so.1.1.0",
     file = join(build, "runtime/usr/lib/x86_64-linux-gnu", name + ".so.1.1.0"),
@@ -101,6 +117,7 @@ const proof = {
   purpose: "node-brotli-security-proof/v1",
   sourceCommit,
   sourceVersion: pin.brotli.sourceVersion,
+  baselinePackage,
   testCorpusCommit: corpus.commit,
   testCorpusFiles: corpus.fileCount,
   testCorpusBytes: corpus.totalBytes,

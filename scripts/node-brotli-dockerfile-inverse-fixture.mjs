@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 export const NODE_BROTLI_DOCKERFILE_SHA256 =
-  "f1798e46692f2d6457b6d19701658d458665a731f9480d5096a73bebdabfd091";
+  "37f053f2a97c3e13854527012221d80df5adb8e008d2ba5f3ae661deb3b13b3e";
 const prior =
   "401ae9ef8a65cd212f52d999864695ff210db6dddd947a83f8420f3830917374";
 const hunks = [
@@ -18,7 +18,8 @@ const hunks = [
       "    && apt-get install -y --no-install-recommends openssl ca-certificates perl-base libpcre2-8-0 build-essential binutils cmake debhelper pkg-config gpg gpgv debian-keyring libbrotli1 \\",
       "    && dpkg --compare-versions \"$(dpkg-query -W -f='${Version}' perl-base)\" ge '5.40.1-6+deb13u1' \\",
       "    && dpkg --compare-versions \"$(dpkg-query -W -f='${Version}' libpcre2-8-0)\" ge '10.46-1~deb13u3' \\",
-      "    && test \"$(dpkg-query -W -f='${Version}' libbrotli1)\" = 1.1.0-2 \\",
+      "    && test \"$(dpkg-query -W -f='${Version}' libbrotli1)\" = 1.1.0-2+b7 \\",
+      "    && test \"$(dpkg-query -W -f='${source:Version}' libbrotli1)\" = 1.1.0-2 \\",
       "    && rm -rf /var/lib/apt/lists/*",
       "WORKDIR /build",
       "COPY scripts/fetch-node-brotli-sources.mjs scripts/node-brotli-runtime-sources.json scripts/build-node-brotli-security.sh scripts/check-node-security-runtime.mjs scripts/check-brotli-block-switch.c scripts/record-brotli-security-proof.mjs scripts/retain-brotli-test-corpus.mjs scripts/brotli-runtime-test-corpus.json /build/scripts/",
@@ -32,7 +33,7 @@ const hunks = [
     ],
   },
   {
-    start: 211,
+    start: 212,
     lines: [
       "",
       "# Replace only the signed Node runtime after verifying the maintained baseline.",
