@@ -1,0 +1,19 @@
+import { z } from "zod";
+import { recordedExecutionTrendInput } from "./recordedExecutionTrendSchema.js";
+import { manualDashboardExclusionReasons } from "./manualRunDashboardAssembly.js";
+export const manualRunDashboardInputSchema = recordedExecutionTrendInput;
+const count = z.number().int().min(0).max(100000);
+const counts = z.object({ runs: count, trustedRuns: count, excludedRuns: count, inProgressTrustedRuns: count, plannedInstances: count, recordedInstances: count, remainingInstances: count, partialStepInstances: count, ignoredOutsideScopeResultRows: count, outcomes: z.object({ PASS: count, FAIL: count, BLOCKED: count, SKIP: count, FLAKY: count }).strict(), exclusions: z.object({ UNSUPPORTED_FROZEN_SCOPE: count, AMBIGUOUS_RESULT: count, UNTRACKED_RESULT: count, HEAD_PROJECTION_MISMATCH: count }).strict() }).strict();
+function coherent(value: z.infer<typeof counts>) {
+  return value.runs <= 20000 && value.runs === value.trustedRuns + value.excludedRuns && value.excludedRuns === manualDashboardExclusionReasons.reduce((sum, reason) => sum + value.exclusions[reason], 0) && value.recordedInstances === Object.values(value.outcomes).reduce((sum, number) => sum + number, 0) && value.plannedInstances === value.recordedInstances + value.remainingInstances && value.partialStepInstances <= value.remainingInstances && value.inProgressTrustedRuns <= value.trustedRuns;
+}
+export const manualRunDashboardOutputSchema = z.object({ projectId: z.string().min(1).max(200), organizationId: z.string().min(1).max(200), clerkActorId: z.string().min(1).max(200), requestKey: z.string().min(1).max(5600), asOf: z.string().datetime(), scope: z.object({ start: z.string().max(10), end: z.string().max(10), platform: z.string().max(300).optional(), environment: z.string().max(2000).optional(), build: z.string().max(300).optional() }).strict(), totals: counts, days: z.array(counts.extend({ day: z.string().max(10) }).strict()).max(90), limitations: z.array(z.string().max(4000)).max(20) }).strict().superRefine((value, ctx) => {
+  const scope = manualRunDashboardInputSchema.safeParse({ projectId: value.projectId, originalOrganizationId: value.organizationId, ...value.scope });
+  const expectedDays: string[] = [];
+  if (scope.success) for (let date = Date.parse(value.scope.start); date <= Date.parse(value.scope.end); date += 86400000) expectedDays.push(new Date(date).toISOString().slice(0, 10));
+  if (!scope.success || expectedDays.length !== value.days.length || expectedDays.some((day, index) => value.days[index]?.day !== day)) ctx.addIssue({ code: "custom", message: "Manual dashboard does not contain the complete ordered applied UTC window." });
+  if (!coherent(value.totals) || value.days.some(day => !coherent(day)) || new Set(value.days.map(day => day.day)).size !== value.days.length) ctx.addIssue({ code: "custom", message: "Manual dashboard counts or UTC days are inconsistent." });
+  for (const key of ["runs", "trustedRuns", "excludedRuns", "inProgressTrustedRuns", "plannedInstances", "recordedInstances", "remainingInstances", "partialStepInstances", "ignoredOutsideScopeResultRows"] as const) if (value.totals[key] !== value.days.reduce((sum, day) => sum + day[key], 0)) ctx.addIssue({ code: "custom", message: "Manual dashboard daily totals do not cover the entire selected scope." });
+  for (const status of ["PASS", "FAIL", "BLOCKED", "SKIP", "FLAKY"] as const) if (value.totals.outcomes[status] !== value.days.reduce((sum, day) => sum + day.outcomes[status], 0)) ctx.addIssue({ code: "custom", message: "Manual dashboard daily outcomes disagree." });
+  for (const reason of manualDashboardExclusionReasons) if (value.totals.exclusions[reason] !== value.days.reduce((sum, day) => sum + day.exclusions[reason], 0)) ctx.addIssue({ code: "custom", message: "Manual dashboard daily exclusions disagree." });
+});

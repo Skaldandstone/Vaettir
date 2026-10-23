@@ -1,0 +1,76 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { integrationStatus } from "./integration-status.ts";
+
+test("saved integration settings never establish connected or verified access", () => {
+  for (const kind of ["slack", "webhook", "tickets", "signal"]) {
+    assert.equal(integrationStatus({ configured: false, kind }).label, "Not configured");
+    const status = integrationStatus({ configured: true, kind });
+    assert.match(status.label, /unverified/);
+    assert.equal(status.tone, "neutral");
+    assert.doesNotMatch(status.label, /Connected|Access verified/);
+  }
+});
+
+test("historical evidence is qualified and delivery failure is never hidden", () => {
+  const observedAt = "2026-09-30T12:00:00Z";
+  assert.equal(integrationStatus({ configured: true, kind: "tickets", observedAt }).label, "Status sync recorded");
+  assert.equal(integrationStatus({ configured: true, kind: "slack", observedAt }).label, "Digest sent previously");
+  assert.deepEqual(integrationStatus({ configured: true, kind: "webhook", observedAt, deliverySucceeded: false }), { label: "Last delivery failed", tone: "warning" });
+  assert.deepEqual(integrationStatus({ configured: true, kind: "webhook", observedAt, deliverySucceeded: true }), { label: "Last delivery succeeded", tone: "success" });
+  assert.equal(integrationStatus({ configured: true, kind: "webhook", observedAt, deliverySucceeded: null }).label, "Configured · Delivery unverified");
+  assert.equal(integrationStatus({ configured: true, kind: "signal", webhookRequired: true }).label, "Webhook setup required");
+  assert.equal(integrationStatus({ configured: true, kind: "tickets", observedAt: "invalid date" }).label, "Configured · Access unverified");
+});
+
+test("integration project actions open scoped source modules in place with honest legacy counts", () => {
+  const page = readFileSync(new URL("../app/settings/integrations/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /<Modal open=\{Boolean\(active\)\}/);
+  assert.match(page, /project\.list\.useQuery/);
+  assert.match(page, /selectedProject = projectsQuery\.isSuccess \? projectsQuery\.data\?\.find/);
+  assert.match(page, /projectsQuery\.isSuccess && projectsQuery\.data\?\.map/);
+  assert.match(page, /<SourceConnectionChips projectId=\{selectedProject\.id\}/);
+  assert.match(page, /<ProductionSignalChips projectId=\{selectedProject\.id\}/);
+  assert.match(page, /Choose another project/);
+  assert.match(page, /Could not load projects/);
+  assert.match(page, /not included in the legacy counts/);
+  assert.doesNotMatch(page, /row\.configured \? "Connected"/);
+  assert.doesNotMatch(page, /href=\{row\.href\}/);
+});
+
+test("registered repository chips open existing provider flows only for editors", () => {
+  const component = readFileSync(new URL("../components/ProjectRepositories.tsx", import.meta.url), "utf8");
+  assert.match(component, /canEdit&&knownProvider\?<button/);
+  assert.match(component, /onClick=\{\(\)=>chooseProvider\(knownProvider\)\}/);
+  assert.match(component, /if\(busy\|\|!canEdit\|\|!ready\)\{cancelRepositoryAuthorization\(intent\);return/);
+  assert.match(component, /Registered · Access unverified/);
+  assert.match(component, /visited\.map\(id=><div key=\{id\} hidden=\{provider!==id\}><RepositoryConnectionContent projectId=\{projectId\} provider=\{id\}/);
+  assert.match(component, /query\.refetch\(\)/);
+});
+
+test("repository and alert chips do not offer cached access after a failed refresh", () => {
+  const repositories = readFileSync(new URL("../components/ProjectRepositories.tsx", import.meta.url), "utf8");
+  assert.match(repositories, /ready=query\.isSuccess&&!query.error&&!query.isFetching&&!query.isPaused/);
+  assert.match(repositories, /repositories=ready\?query\.data:undefined/);
+  assert.match(repositories, /canEdit&&ready&&/);
+  assert.match(repositories, /hidden=\{!canEdit\|\|!ready\}/);
+  assert.match(repositories, /Retry repository access/);
+  assert.doesNotMatch(repositories, /query\.data\?\.map/);
+  const signals = readFileSync(new URL("../components/ProductionSignalChips.tsx", import.meta.url), "utf8");
+  assert.match(signals, /ready = readiness\.isSuccess \? readiness\.data : undefined/);
+  assert.match(signals, /disabled=\{!ready\}/);
+  assert.match(signals, /Retry signal setup/);
+  assert.match(signals, /Setup unavailable/);
+  assert.match(signals, /available=\{Boolean\(ready\)\}/);
+  assert.match(signals, /if \(!available\) return <Modal/);
+  assert.match(signals, /canSave = Boolean\(available &&/);
+});
+
+test("selectable provider chips have a visible selected state and wrap at mobile widths", () => {
+  const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(css, /\.source-connection-chip\[aria-pressed="true"\].*background: var\(--frost-dim\)/);
+  assert.match(css, /\.source-connection-chip \{ max-width: 100%; min-width: 0; box-sizing: border-box; \}/);
+  assert.match(css, /\.source-connection-chip > span:not\(\.source-provider-mark\).*overflow-wrap: anywhere/);
+  assert.match(css, /\.source-connection-chip:disabled.*cursor: not-allowed/);
+});

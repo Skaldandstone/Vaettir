@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "vaettir": {
+      "command": "node",
+      "args": [
+        "./dist/server.mjs"
+      ],
+      "cwd": ".",
+      "env_vars": [
+        "VAETTIR_AI_BASE_URL",
+        "VAETTIR_AI_TOKEN"
+      ]
+    }
+  }
+}

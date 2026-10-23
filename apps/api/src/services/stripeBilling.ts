@@ -1,6 +1,8 @@
 import type Stripe from "stripe";
 import type { PrismaClient } from "@vaettir/db";
 import { getStripeRuntime } from "./stripeConfig.js";
+import {CREDIT_TOPUP_PACKS,type CreditTopupPackKey} from "./creditPacks.js";
+export {CREDIT_TOPUP_PACKS,type CreditTopupPackKey} from "./creditPacks.js";
 
 // P12-05: real Stripe subscription billing, wired against sandbox/test mode
 // (see stripeConfig.ts) on direct instruction to get this running now with
@@ -25,12 +27,6 @@ export class BillingNotConfiguredError extends Error {
 // tiers (which need a real Stripe Price already configured, see
 // PlanTier.stripePriceId), a one-time ad-hoc price needs nothing set up in
 // the Stripe dashboard first.
-export const CREDIT_TOPUP_PACKS = {
-  "500": { credits: 500, priceUsdCents: 1000 },
-  "2000": { credits: 2000, priceUsdCents: 3500 },
-  "10000": { credits: 10_000, priceUsdCents: 15_000 },
-} as const;
-export type CreditTopupPackKey = keyof typeof CREDIT_TOPUP_PACKS;
 
 async function getFullSeatCount(prisma: PrismaClient, organizationId: string): Promise<number> {
   return prisma.membership.count({ where: { organizationId, seatType: "FULL" } });
@@ -206,12 +202,9 @@ export async function handleStripeWebhookEvent(prisma: PrismaClient, event: Stri
       // session has no planTierId/subscription to fall through to below.
       const topupCredits = session.metadata?.vaettirTopupCredits;
       if (topupCredits) {
-        const amount = Number(topupCredits);
-        if (!Number.isFinite(amount) || amount <= 0) return { handled: false, reason: "invalid topup credit amount in metadata" };
-        await prisma.aiCreditTransaction.create({
-          data: { organizationId, type: "TOPUP", amount, description: `Purchased ${amount.toLocaleString()} credits (Stripe checkout ${session.id})` },
-        });
-        return { handled: true };
+        // Unreviewed legacy metadata is not a financial authorization. The
+        // dedicated credit route reconciles immutable intent + cleared payment.
+        return {handled:false,reason:"Legacy credit checkout requires payment review; no automatic grant."};
       }
 
       const planTierId = session.metadata?.vaettirPlanTierId;

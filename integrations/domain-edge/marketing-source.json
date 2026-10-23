@@ -1,0 +1,61 @@
+{
+  "capturedAt": "2026-10-17T02:24:55.057Z",
+  "source": "https://skaldandstone.com",
+  "assets": [
+    {
+      "source": "https://skaldandstone.com/vaettir/",
+      "output": "index.html",
+      "sha256": "6653ed8e9caa382eda56049c37ff5f7f87d57f107b188f708da05abc35010404",
+      "bytes": 9506
+    },
+    {
+      "source": "https://skaldandstone.com/favicon.svg",
+      "output": "favicon.svg",
+      "sha256": "4d25edf26353b963d41537259bb8116cdbb3210298425e00720a930dbd372725",
+      "bytes": 749
+    },
+    {
+      "source": "https://skaldandstone.com/assets/project.css",
+      "output": "assets/project.css",
+      "sha256": "164dd21b8bd6d879edbda5a2550ac9206d5c3dc5e7ac6933a9fbb1275c2f433b",
+      "bytes": 8995
+    },
+    {
+      "source": "https://skaldandstone.com/vaettir/style.css",
+      "output": "vaettir/style.css",
+      "sha256": "2f6727601d280fbafc0e1a04834fc12921273ece827c4fb36bf7813c15994f97",
+      "bytes": 9036
+    },
+    {
+      "source": "https://skaldandstone.com/vaettir/evidence-field-v1.webp",
+      "output": "vaettir/evidence-field-v1.webp",
+      "sha256": "9ed79a610510496dbc87a3386fafb5e5f20c076f46603b86e7377807c0f5c2cc",
+      "bytes": 34810
+    },
+    {
+      "source": "https://skaldandstone.com/assets/legal-v1.css",
+      "output": "assets/legal-v1.css",
+      "sha256": "693a4050f5c8b06e4625a425b4d9c273e621971fe502b4882a5bc2537216bde7",
+      "bytes": 985
+    },
+    {
+      "source": "https://skaldandstone.com/assets/accessibility.css",
+      "output": "assets/accessibility.css",
+      "sha256": "026e8b3ce49c03392c15de8a73f89b8bd60aa7fdc6e79688486deba117b9781a",
+      "bytes": 643
+    },
+    {
+      "source": "https://skaldandstone.com/assets/access-request.css",
+      "output": "assets/access-request.css",
+      "sha256": "3c200adfe4f455ddc0bfc14557ba3e21f2c93b2893b8d5ecd3a92ce67cb946b9",
+      "bytes": 3119
+    },
+    {
+      "source": "https://skaldandstone.com/assets/access-request.js",
+      "output": "assets/access-request.js",
+      "sha256": "5923e325c0f58c8d3c8616c579b7838281892d55125d4b8e8508fa89dfed5446",
+      "bytes": 4130
+    }
+  ],
+  "finalHomepageSha256": "9cc96e4c09ec8d9b9a459782d42679d88d08ecb77b5b9b6beb433c58be7e29dd"
+}

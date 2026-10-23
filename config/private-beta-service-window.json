@@ -1,0 +1,17 @@
+{
+  "timezone": "America/Los_Angeles",
+  "start": "08:00",
+  "stop": "01:00",
+  "startExpression": "cron(0 8 * * ? *)",
+  "stopExpression": "cron(0 1 * * ? *)",
+  "publicCopy": "Awake 8:00am – 1:00am Pacific",
+  "schedulerGroup": "cost-audit-restop",
+  "targets": [
+    "rds-start-vaettir-postgres",
+    "ecs-start-vaettir-api",
+    "ecs-start-vaettir-web",
+    "rds-stop-vaettir-postgres",
+    "ecs-stop-vaettir-api",
+    "ecs-stop-vaettir-web"
+  ]
+}

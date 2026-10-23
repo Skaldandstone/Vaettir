@@ -1,8 +1,8 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 
 async function gotoKallTestPlans(page: import("@playwright/test").Page) {
   await page.goto("/projects");
-  await page.locator("li", { hasText: "Kall" }).getByRole("link", { name: "Kall" }).click();
+  await page.locator("li", { hasText: "Beta fixture" }).getByRole("link", { name: "Beta fixture" }).click();
   await page.getByRole("link", { name: /test plans/i }).click();
   await expect(page.getByRole("heading", { name: "Test Plans" })).toBeVisible();
 }
@@ -11,7 +11,7 @@ test.describe("Test plans", () => {
   test("quick-creating a plan by name adds it to the list", async ({ page }) => {
     const name = `E2E plan ${Date.now()}`;
     await gotoKallTestPlans(page);
-    const input = page.getByPlaceholder("Plan name, press Enter…");
+    const input = page.getByLabel("Plan name", { exact: true });
     await input.fill(name);
     await input.press("Enter");
     await expect(page.getByText(name)).toBeVisible();
@@ -20,7 +20,7 @@ test.describe("Test plans", () => {
   test("searching filters the plan list by name", async ({ page }) => {
     const name = `E2E searchable plan ${Date.now()}`;
     await gotoKallTestPlans(page);
-    const input = page.getByPlaceholder("Plan name, press Enter…");
+    const input = page.getByLabel("Plan name", { exact: true });
     await input.fill(name);
     await input.press("Enter");
     await page.getByPlaceholder("Search plans…").fill(name.slice(0, 12));
@@ -30,7 +30,7 @@ test.describe("Test plans", () => {
   test("opening a plan navigates to its detail page", async ({ page }) => {
     const name = `E2E detail plan ${Date.now()}`;
     await gotoKallTestPlans(page);
-    const input = page.getByPlaceholder("Plan name, press Enter…");
+    const input = page.getByLabel("Plan name", { exact: true });
     await input.fill(name);
     await input.press("Enter");
     await page.getByText(name).click();
@@ -48,7 +48,7 @@ test.describe("Test plans", () => {
 test.describe("Requirements & acceptance criteria", () => {
   async function gotoKallRequirements(page: import("@playwright/test").Page) {
     await page.goto("/projects");
-    await page.locator("li", { hasText: "Kall" }).getByRole("link", { name: "Kall" }).click();
+    await page.locator("li", { hasText: "Beta fixture" }).getByRole("link", { name: "Beta fixture" }).click();
     await page.getByRole("link", { name: /requirements/i }).click();
     await expect(page.getByRole("heading", { name: "Requirements" })).toBeVisible();
   }

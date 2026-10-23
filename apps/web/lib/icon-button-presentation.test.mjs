@@ -1,0 +1,54 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
+import vm from "node:vm";
+import React from "react";
+import {renderToStaticMarkup} from "react-dom/server";
+import ts from "typescript";
+function declaration(file,name) {const source=readFileSync(new URL(file,import.meta.url),"utf8"),ast=ts.createSourceFile(file,source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);return ast.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text===name).getText(ast).replace(/^export /,"");}
+function fixture(props={}) {
+  const state=[];let cursor=0;
+  const scope=vm.createContext({React,useId:()=>"synthetic-tooltip",useEffect:()=>{},useRef:initial=>{const index=cursor++;return state[index]??(state[index]={current:initial});},useState: initial=>{const index=cursor++;if(!(index in state))state[index]=initial;return [state[index],value=>state[index]=value];}});
+  vm.runInContext(ts.transpileModule(declaration("../components/ui/Workspace.tsx","Icon")+declaration("../components/ui/IconButton.tsx","IconButton"),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None,jsx:ts.JsxEmit.React}}).outputText,scope);
+  return {render:()=>{cursor=0;return scope.IconButton({label:"Copy folder",icon:"copy",...props});}};
+}
+test("actual icon control preserves native attributes, accessible name and original action",()=>{
+  const events=[],action=event=>events.push(event),h=fixture({disabled:true,onClick:action,"aria-describedby":"original-help"}),node=h.render(),button=node.props.children[0],html=renderToStaticMarkup(node);
+  assert.equal(button.type,"button");assert.equal(button.props.type,"button");assert.equal(button.props.disabled,true);assert.equal(button.props["aria-label"],"Copy folder");assert.equal(button.props["aria-describedby"],"original-help");assert.match(html,/<svg/);assert.doesNotMatch(html,/role="tooltip"|title=/);
+  const event={type:"click"};button.props.onClick(event);assert.deepEqual(events,[event]);
+});
+test("actual tooltip opens on hover or focus, preserves the existing description and dismisses on Escape",()=>{
+  const h=fixture({"aria-describedby":"original-help"});let node=h.render();node.props.onPointerEnter({currentTarget:null});node=h.render();assert.equal(node.props.children[1].props.role,"tooltip");assert.equal(node.props.children[0].props["aria-describedby"],"original-help synthetic-tooltip");
+  let stopped=0,prevented=0;node.props.children[0].props.onKeyDown({key:"Escape",preventDefault:()=>prevented++,stopPropagation:()=>stopped++});assert.equal(stopped,1);assert.equal(prevented,1);assert.equal(h.render().props.children[1],false);
+  node=h.render();node.props.onPointerLeave();node.props.children[0].props.onFocus({});node=h.render();assert.equal(node.props.children[1].props.children,"Copy folder");node.props.children[0].props.onBlur({});assert.equal(h.render().props.children[1],false);
+});
+test("actual focus/blur/key callbacks remain forwarded without making a tooltip an approval",()=>{
+  const events=[],h=fixture({onFocus:()=>events.push("focus"),onBlur:()=>events.push("blur"),onKeyDown:e=>events.push(e.key)});let node=h.render();node.props.children[0].props.onFocus({});node=h.render();node.props.children[0].props.onKeyDown({key:"Enter"});node.props.children[0].props.onBlur({});assert.deepEqual(events,["focus","Enter","blur"]);
+});
+
+test("after dismissing the tooltip, a second Escape remains available to the native dialog",()=>{
+  let stopped=0,prevented=0,forwarded=0;
+  const h=fixture({onKeyDown:e=>{if(e.key==="Escape")forwarded++;}});
+  let node=h.render();node.props.children[0].props.onFocus({});node=h.render();
+  const event=()=>({key:"Escape",preventDefault:()=>prevented++,stopPropagation:()=>stopped++});
+  node.props.children[0].props.onKeyDown(event());node=h.render();
+  assert.equal(node.props.children[1],false);
+  node.props.children[0].props.onKeyDown(event());
+  assert.equal(prevented,1);assert.equal(stopped,1);assert.equal(forwarded,2);
+});
+
+test("click hides its prior hover tooltip before opening tools while forwarding the original event once",()=>{
+  const events=[],h=fixture({onClick:e=>events.push(e)});let node=h.render();node.props.onPointerEnter({currentTarget:null});node=h.render();assert.equal(node.props.children[1].props.role,"tooltip");
+  const event={type:"click"};node.props.children[0].props.onClick(event);assert.deepEqual(events,[event]);assert.equal(h.render().props.children[1],false);
+  node=h.render();node.props.onPointerLeave();node.props.onPointerEnter({currentTarget:null});assert.equal(h.render().props.children[1].props.role,"tooltip");
+});
+
+test("help-only activation opens help without an action, while native submit still dismisses it",()=>{
+  const h=fixture({label:"Keyboard ordering help",icon:"help",tooltip:"Choose a suite, then use Up/Down."});
+  let node=h.render();node.props.children[0].props.onClick({currentTarget:null});node=h.render();
+  assert.equal(node.props.children[1].props.role,"tooltip");
+  assert.equal(node.props.children[1].props.children,"Choose a suite, then use Up/Down.");
+  node.props.children[0].props.onBlur({});assert.equal(h.render().props.children[1],false);
+  const submit=fixture({type:"submit"});node=submit.render();node.props.children[0].props.onFocus({});node=submit.render();
+  assert.equal(node.props.children[1].props.role,"tooltip");node.props.children[0].props.onClick({});assert.equal(submit.render().props.children[1],false);
+});

@@ -1,4 +1,6 @@
 import * as Sentry from "@sentry/node";
+import { withoutForgeCredentials, withoutForgeConnectionData } from "./services/forgeTelemetry.js";
+import { redactAiDisclosureEvent } from "./services/aiDisclosureTelemetry.js";
 
 // P10-05: imported first (before any other module) in server.ts so
 // Sentry's instrumentation is active before anything else runs. Inert
@@ -14,13 +16,25 @@ import * as Sentry from "@sentry/node";
 // flag used to verify capture end-to-end) or by setting SENTRY_ENVIRONMENT.
 const dsn = process.env.SENTRY_DSN;
 const sentryWanted =
-  process.env.NODE_ENV === "production" || Boolean(process.env.SENTRY_ENVIRONMENT) || process.env.SENTRY_DEBUG === "1";
+  process.env.NODE_ENV === "production" ||
+  Boolean(process.env.SENTRY_ENVIRONMENT) ||
+  process.env.SENTRY_DEBUG === "1";
 if (dsn && sentryWanted) {
   Sentry.init({
     dsn,
-    environment: process.env.SENTRY_ENVIRONMENT ?? process.env.NODE_ENV ?? "development",
+    environment:
+      process.env.SENTRY_ENVIRONMENT ?? process.env.NODE_ENV ?? "development",
     tracesSampleRate: 0.1,
     debug: process.env.SENTRY_DEBUG === "1",
+    beforeSend(event) {
+      if (event.request?.headers)
+        event.request.headers = withoutForgeCredentials(event.request.headers);
+      if (event.request?.headers) {
+        for (const name of Object.keys(event.request.headers))
+          if (name.toLowerCase().startsWith("x-vaettir-")) delete event.request.headers[name];
+      }
+      return redactAiDisclosureEvent(withoutForgeConnectionData(event));
+    },
   });
 
   process.on("unhandledRejection", (reason) => Sentry.captureException(reason));

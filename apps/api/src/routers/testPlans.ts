@@ -4,9 +4,22 @@ import { generateQaStrategyDraft } from "@vaettir/ai-agent";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { recordAudit } from "../services/auditLog.js";
 import { snapshotTestPlanVersion } from "../services/testPlanVersion.js";
+import { lockCaseFieldProject } from "../services/caseFields.js";
+import { setLegacyCriterionVerdict } from "../services/testPlanGovernance.js";
+import { readTestPlanDetail, readTestPlanHistory, legacyPlanCustomFieldRecord } from "../services/testPlanReads.js";
 import { refreshReleaseReadiness } from "../services/releaseReadiness.js";
-import { chargeAiCredits, InsufficientAiCreditsError, meterAiCall } from "../services/aiCredits.js";
+import {
+  chargeAiCredits,
+  InsufficientAiCreditsError,
+  meterAiCall,
+} from "../services/aiCredits.js";
 import { getCommitLog } from "../services/changeImpact.js";
+import {
+  executionTemplateHash,
+  readPlanExecutionTemplate,
+  requireCurrentPlanAccess,
+  testPlanExecutionTemplateSchema,
+} from "../services/testPlanExecution.js";
 
 const acceptanceCriterionOutput = z.object({
   id: z.string(),
@@ -15,7 +28,213 @@ const acceptanceCriterionOutput = z.object({
   requirementId: z.string().nullable(),
 });
 
+const QA_STRATEGY_TYPE = {
+  key: "qa-strategy",
+  name: "QA Strategy",
+  category: "QUALITY_STRATEGY" as const,
+  description:
+    "Holistic strategy plan: scope, risk areas, environments, tooling, staffing.",
+  fieldSchema: {
+    type: "object",
+    properties: {
+      riskAreas: { type: "array", items: { type: "string" } },
+      environments: { type: "array", items: { type: "string" } },
+      entryCriteria: { type: "array", items: { type: "string" } },
+      exitCriteria: { type: "array", items: { type: "string" } },
+    },
+  },
+};
+
 export const testPlansRouter = router({
+  executionTemplate: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        search: z.string().trim().max(200).optional(),
+        cursor: z.string().min(1).max(200).optional(),
+      }),
+    )
+    .output(
+      z.object({
+        projectId: z.string(),
+        template: testPlanExecutionTemplateSchema.nullable(),
+        templateHash: z.string(),
+        cases: z.array(z.object({ id: z.string(), title: z.string() })),
+        caseLimitReached: z.boolean(),
+        nextCursor: z.string().nullable(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const plan = await ctx.prisma.testPlan.findUnique({
+        where: { id: input.id },
+        select: { projectId: true, executionTemplate: true },
+      });
+      if (!plan)
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Test plan not found",
+        });
+      await requireProjectAccess(ctx, plan.projectId);
+      await requireCurrentPlanAccess(ctx.prisma, ctx.user.id, plan.projectId);
+      const cases = await ctx.prisma.testCase.findMany({
+        where: {
+          projectId: plan.projectId,
+          archived: false,
+          title: input.search
+            ? { contains: input.search, mode: "insensitive" }
+            : undefined,
+          id: input.cursor ? { gt: input.cursor } : undefined,
+        },
+        select: { id: true, title: true },
+        orderBy: { id: "asc" },
+        take: 501,
+      });
+      const template = readPlanExecutionTemplate(plan.executionTemplate);
+      // Retain selected saved identities even if outside the bounded first page.
+      const visible = cases.slice(0, 500);
+      const missing =
+        template?.testCaseIds.filter(
+          (id) => !visible.some((c) => c.id === id),
+        ) ?? [];
+      const selected = missing.length
+        ? await ctx.prisma.testCase.findMany({
+            where: {
+              projectId: plan.projectId,
+              archived: false,
+              id: { in: missing },
+            },
+            select: { id: true, title: true },
+          })
+        : [];
+      return {
+        projectId: plan.projectId,
+        template,
+        templateHash: executionTemplateHash(plan.executionTemplate),
+        cases: [...visible, ...selected],
+        caseLimitReached: cases.length > 500,
+        nextCursor: cases.length > 500 ? visible[visible.length - 1]!.id : null,
+      };
+    }),
+
+  saveExecutionTemplate: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        expectedTemplateHash: z.string().regex(/^[a-f0-9]{64}$/),
+        template: testPlanExecutionTemplateSchema,
+      }),
+    )
+    .output(
+      z.object({
+        template: testPlanExecutionTemplateSchema,
+        templateHash: z.string(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const found = await ctx.prisma.testPlan.findUnique({
+        where: { id: input.id },
+        select: { projectId: true },
+      });
+      if (!found)
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Test plan not found",
+        });
+      const { membership, project } = await requireProjectAccess(
+        ctx,
+        found.projectId,
+        "EDITOR",
+      );
+      if (membership.seatType !== "FULL")
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "A full editor seat is required.",
+        });
+      return ctx.prisma.$transaction(
+        async (tx) => {
+          // Match governed writes: project scope precedes the plan and the
+          // audit's project foreign-key check. No automatic retry is inferred.
+          await lockCaseFieldProject(tx, ctx.user.id, found.projectId);
+          const lockedProject = await tx.project.findUniqueOrThrow({
+            where: { id: found.projectId },
+            select: { organizationId: true },
+          });
+          if (lockedProject.organizationId !== project.organizationId)
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "Project ownership changed. Refresh before saving this configuration.",
+            });
+          await tx.$queryRaw`SELECT id FROM "TestPlan" WHERE id = ${input.id} FOR UPDATE`;
+          const plan = await tx.testPlan.findUniqueOrThrow({
+            where: { id: input.id },
+          });
+          if (plan.projectId !== found.projectId)
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "The plan changed projects. Refresh before saving this configuration.",
+            });
+          await requireCurrentPlanAccess(tx, ctx.user.id, plan.projectId, true);
+          if (plan.status === "ARCHIVED")
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message:
+                "Archived plans cannot be reconfigured. Restore the plan before making changes.",
+            });
+          readPlanExecutionTemplate(plan.executionTemplate);
+          const currentHash = executionTemplateHash(plan.executionTemplate);
+          if (currentHash !== input.expectedTemplateHash)
+            throw new TRPCError({
+              code: "CONFLICT",
+              message:
+                "This plan's configuration changed. Refresh and review before saving; no changes were made.",
+            });
+          const cases = await tx.testCase.count({
+            where: {
+              projectId: found.projectId,
+              archived: false,
+              id: { in: input.template.testCaseIds },
+            },
+          });
+          if (cases !== input.template.testCaseIds.length)
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message:
+                "A selected case is missing, archived, or outside this project. Nothing was saved.",
+            });
+          const templateHash = executionTemplateHash(input.template);
+          if (templateHash === currentHash)
+            return { template: input.template, templateHash };
+          const updated = await tx.testPlan.update({
+            where: { id: input.id },
+            data: {
+              executionTemplate: input.template,
+              updatedById: ctx.user.id,
+            },
+          });
+          await snapshotTestPlanVersion(tx, {
+            testPlanId: plan.id,
+            name: plan.name,
+            description: plan.description,
+            status: plan.status,
+            customFields: plan.customFields,
+            executionTemplate: updated.executionTemplate,
+            actorId: ctx.user.id,
+          });
+          await recordAudit(tx as never, {
+            organizationId: project.organizationId,
+            projectId: found.projectId,
+            actorId: ctx.user.id,
+            entityType: "TestPlan",
+            entityId: plan.id,
+            action: "UPDATE",
+            summary: `Updated reviewed execution configuration for test plan "${plan.name}"`,
+          });
+          return { template: input.template, templateHash };
+        },
+        { timeout: 20000 },
+      );
+    }),
+
   list: protectedProcedure
     .input(z.object({ projectId: z.string() }))
     .output(
@@ -55,7 +274,11 @@ export const testPlansRouter = router({
         }),
       ),
     )
-    .query(({ ctx }) => ctx.prisma.testPlanType.findMany({ orderBy: [{ isBuiltIn: "desc" }, { name: "asc" }] })),
+    .query(({ ctx }) =>
+      ctx.prisma.testPlanType.findMany({
+        orderBy: [{ isBuiltIn: "desc" }, { name: "asc" }],
+      }),
+    ),
 
   // P3-09: the "add your own compliance form" flow -- an org admin builds a
   // new plan shape (a field list, not a JSON Schema doc they hand-write) and
@@ -72,7 +295,13 @@ export const testPlansRouter = router({
       z.object({
         key: z.string().min(1),
         name: z.string().min(1),
-        category: z.enum(["FUNCTIONAL", "QUALITY_STRATEGY", "COMPLIANCE", "RELEASE_READINESS", "CUSTOM"]),
+        category: z.enum([
+          "FUNCTIONAL",
+          "QUALITY_STRATEGY",
+          "COMPLIANCE",
+          "RELEASE_READINESS",
+          "CUSTOM",
+        ]),
         description: z.string().optional(),
         fields: z
           .array(
@@ -85,13 +314,24 @@ export const testPlansRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const existing = await ctx.prisma.testPlanType.findUnique({ where: { key: input.key } });
+      const existing = await ctx.prisma.testPlanType.findUnique({
+        where: { key: input.key },
+      });
       if (existing) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: `A plan type with key "${input.key}" already exists` });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `A plan type with key "${input.key}" already exists`,
+        });
       }
-      const properties: Record<string, { type: string; items?: { type: string } }> = {};
+      const properties: Record<
+        string,
+        { type: string; items?: { type: string } }
+      > = {};
       for (const f of input.fields) {
-        properties[f.key] = f.type === "array" ? { type: "array", items: { type: "string" } } : { type: f.type };
+        properties[f.key] =
+          f.type === "array"
+            ? { type: "array", items: { type: "string" } }
+            : { type: f.type };
       }
       return ctx.prisma.testPlanType.create({
         data: {
@@ -115,7 +355,7 @@ export const testPlansRouter = router({
         description: z.string().nullable(),
         status: z.string(),
         releaseId: z.string().nullable(),
-        customFields: z.record(z.unknown()),
+        customFields: z.unknown(),
         testPlanType: z.object({
           id: z.string(),
           key: z.string(),
@@ -125,49 +365,20 @@ export const testPlansRouter = router({
         }),
         strategyId: z.string().nullable(),
         strategyName: z.string().nullable(),
-        linkedPlans: z.array(z.object({ id: z.string(), name: z.string(), status: z.string() })),
+        linkedPlans: z.array(
+          z.object({ id: z.string(), name: z.string(), status: z.string() }),
+        ),
         acceptanceCriteria: z.array(acceptanceCriterionOutput),
       }),
     )
-    .query(async ({ ctx, input }) => {
-      const plan = await ctx.prisma.testPlan.findUniqueOrThrow({
-        where: { id: input.id },
-        include: {
-          testPlanType: true,
-          acceptanceCriteria: { orderBy: { createdAt: "asc" } },
-          strategy: { select: { name: true } },
-          linkedPlans: { select: { id: true, name: true, status: true }, orderBy: { updatedAt: "desc" } },
-        },
-      });
-      await requireProjectAccess(ctx, plan.projectId);
-      return {
-        id: plan.id,
-        projectId: plan.projectId,
-        name: plan.name,
-        description: plan.description,
-        status: plan.status,
-        releaseId: plan.releaseId,
-        customFields: plan.customFields as Record<string, unknown>,
-        testPlanType: {
-          id: plan.testPlanType.id,
-          key: plan.testPlanType.key,
-          name: plan.testPlanType.name,
-          category: plan.testPlanType.category,
-          fieldSchema: plan.testPlanType.fieldSchema,
-        },
-        strategyId: plan.strategyId,
-        strategyName: plan.strategy?.name ?? null,
-        linkedPlans: plan.linkedPlans,
-        acceptanceCriteria: plan.acceptanceCriteria,
-      };
-    }),
+    .query(({ ctx, input }) => readTestPlanDetail(ctx.prisma, ctx.user.id, input.id, { clerkActorId: ctx.user.clerkUserId })),
 
   create: protectedProcedure
     .input(
       z.object({
         projectId: z.string(),
-        testPlanTypeId: z.string(),
-        name: z.string(),
+        testPlanTypeId: z.string().min(1).optional(),
+        name: z.string().trim().min(1).max(200),
         description: z.string().optional(),
         customFields: z.record(z.unknown()).default({}),
       }),
@@ -176,34 +387,57 @@ export const testPlansRouter = router({
     // useMutation wrapper, P1-15) - no caller reads beyond the id.
     .output(z.object({ id: z.string(), name: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const { project } = await requireProjectAccess(ctx, input.projectId, "EDITOR");
-      const created = await ctx.prisma.testPlan.create({
-        data: {
-          projectId: input.projectId,
-          testPlanTypeId: input.testPlanTypeId,
-          name: input.name,
-          description: input.description,
-          customFields: input.customFields as never,
-          createdById: ctx.user.id,
-          updatedById: ctx.user.id,
-        },
-      });
-      await recordAudit(ctx.prisma, {
-        organizationId: project.organizationId,
-        projectId: input.projectId,
-        actorId: ctx.user.id,
-        entityType: "TestPlan",
-        entityId: created.id,
-        action: "CREATE",
-        summary: `Created test plan "${created.name}"`,
-      });
-      await snapshotTestPlanVersion(ctx.prisma, {
-        testPlanId: created.id,
-        name: created.name,
-        description: created.description,
-        status: created.status,
-        customFields: created.customFields,
-        actorId: ctx.user.id,
+      const { project } = await requireProjectAccess(
+        ctx,
+        input.projectId,
+        "EDITOR",
+      );
+      const created = await ctx.prisma.$transaction(async (tx) => {
+        await lockCaseFieldProject(tx, ctx.user.id, input.projectId);
+        await requireCurrentPlanAccess(tx, ctx.user.id, input.projectId, true);
+        const currentProject = await tx.project.findUniqueOrThrow({
+          where: { id: input.projectId }, select: { organizationId: true },
+        });
+        if (currentProject.organizationId !== project.organizationId)
+          throw new TRPCError({ code: "CONFLICT", message: "Project ownership changed. Refresh before creating a plan." });
+        // Ordinary manual plans must not depend on an out-of-band global seed.
+        // Never overwrite an existing type's schema or custom definition.
+        const planType = input.testPlanTypeId
+          ? await tx.testPlanType.findUnique({ where: { id: input.testPlanTypeId } })
+          : await tx.testPlanType.upsert({
+              where: { key: "functional" }, update: {},
+              create: { key: "functional", name: "Functional", category: "FUNCTIONAL", description: "Feature-level behavior verification.", fieldSchema: { type: "object", properties: {} }, isBuiltIn: true },
+            });
+        if (!planType)
+          throw new TRPCError({ code: "NOT_FOUND", message: "Plan type is unavailable. Refresh and choose another type." });
+        if (!input.testPlanTypeId && (!planType.isBuiltIn || planType.category !== "FUNCTIONAL"))
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "The default plan type needs administrator review. Select an existing plan type instead." });
+        const plan = await tx.testPlan.create({
+          data: {
+            projectId: input.projectId,
+            testPlanTypeId: planType.id,
+            name: input.name,
+            description: input.description,
+            customFields: input.customFields as never,
+            createdById: ctx.user.id,
+            updatedById: ctx.user.id,
+          },
+        });
+        await snapshotTestPlanVersion(tx, {
+          testPlanId: plan.id,
+          name: plan.name,
+          description: plan.description,
+          status: plan.status,
+          customFields: plan.customFields,
+          executionTemplate: plan.executionTemplate,
+          actorId: ctx.user.id,
+        });
+        await tx.auditLog.create({ data: {
+          organizationId: project.organizationId, projectId: input.projectId,
+          actorId: ctx.user.id, entityType: "TestPlan", entityId: plan.id,
+          action: "CREATE", summary: `Created test plan "${plan.name}"`,
+        } });
+        return plan;
       });
       return created;
     }),
@@ -212,72 +446,32 @@ export const testPlansRouter = router({
     .input(
       z.object({
         id: z.string(),
-        name: z.string().min(1),
+        name: z.string().min(1).optional(),
         description: z.string().optional(),
         status: z.enum(["DRAFT", "ACTIVE", "IN_REVIEW", "APPROVED"]),
-        customFields: z.record(z.unknown()).default({}),
+        customFields: legacyPlanCustomFieldRecord.optional(),
       }),
     )
-    .mutation(async ({ ctx, input }) => {
-      const existing = await ctx.prisma.testPlan.findUniqueOrThrow({
-        where: { id: input.id },
-        select: { projectId: true },
-      });
-      const { project } = await requireProjectAccess(ctx, existing.projectId, "EDITOR");
-      const updated = await ctx.prisma.testPlan.update({
-        where: { id: input.id },
-        data: {
-          name: input.name,
-          description: input.description,
-          status: input.status,
-          customFields: input.customFields as never,
-          updatedById: ctx.user.id,
-        },
-      });
-      await recordAudit(ctx.prisma, {
-        organizationId: project.organizationId,
-        projectId: existing.projectId,
-        actorId: ctx.user.id,
-        entityType: "TestPlan",
-        entityId: input.id,
-        action: "UPDATE",
-        summary: `Updated test plan "${updated.name}" (status: ${updated.status})`,
-      });
-      await snapshotTestPlanVersion(ctx.prisma, {
-        testPlanId: updated.id,
-        name: updated.name,
-        description: updated.description,
-        status: updated.status,
-        customFields: updated.customFields,
-        actorId: ctx.user.id,
-      });
-      return updated;
+    .mutation(() => {
+      // Cached clients do not supply a complete current revision, original
+      // native reader or durable UUID. Never partially apply a mixed update,
+      // guess those missing preconditions, or look up a private legacy body.
+      throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Legacy whole-plan writes no longer accept changes. Review the current plan and use testPlanGovernance.editPlanHeader, testPlanGovernance.setPlanStatus or testPlanGovernance.editPlanCustomFields for the exact operation. An earlier unacknowledged legacy request may already have applied and may lack a durable receipt. Refresh the plan and inspect available history before a new reviewed request; do not automatically resubmit.",
+        });
     }),
 
   setRelease: protectedProcedure
-    .input(z.object({ testPlanId: z.string(), releaseId: z.string().nullable() }))
-    .mutation(async ({ ctx, input }) => {
-      const plan = await ctx.prisma.testPlan.findUniqueOrThrow({
-        where: { id: input.testPlanId },
-        select: { projectId: true, releaseId: true },
+    .input(
+      z.object({ testPlanId: z.string(), releaseId: z.string().nullable() }),
+    )
+    .mutation(() => {
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message: "Legacy plan release assignment writes no longer accept changes. Review the current plan and use testPlanGovernance.detachAttachedPlan or testPlanGovernance.attachUnassignedPlan for the exact operation. An earlier unacknowledged legacy request may already have applied and may lack a durable receipt. Refresh the current plan and inspect available history before a deliberate new reviewed request; do not automatically resubmit.",
       });
-      await requireProjectAccess(ctx, plan.projectId, "EDITOR");
-      if (input.releaseId) {
-        const release = await ctx.prisma.release.findUniqueOrThrow({ where: { id: input.releaseId } });
-        if (release.projectId !== plan.projectId) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "That release does not belong to this project" });
-        }
-      }
-      const updated = await ctx.prisma.testPlan.update({
-        where: { id: input.testPlanId },
-        data: { releaseId: input.releaseId, updatedById: ctx.user.id },
-        select: { id: true, releaseId: true },
-      });
-      // Both sides move: the release that lost the plan's criteria and the
-      // one that gained them.
-      refreshReleaseReadiness(ctx.prisma, plan.releaseId);
-      refreshReleaseReadiness(ctx.prisma, input.releaseId);
-      return updated;
     }),
 
   // P4-02: drafts a starter QA strategy from a short user prompt plus a real
@@ -304,29 +498,61 @@ export const testPlansRouter = router({
     )
     .output(
       z.object({
+        testPlanTypeId: z.string(),
         riskAreas: z.array(z.string()),
         environments: z.array(z.string()),
         entryCriteria: z.array(z.string()),
         exitCriteria: z.array(z.string()),
         // Surfaced back so the review UI can show exactly what real
         // commits the draft was grounded in, not just trust it silently.
-        groundedInCommits: z.array(z.object({ sha: z.string(), subject: z.string() })).optional(),
+        groundedInCommits: z
+          .array(z.object({ sha: z.string(), subject: z.string() }))
+          .optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId, "EDITOR");
-      const project = await ctx.prisma.project.findUniqueOrThrow({
-        where: { id: input.projectId },
-        select: { name: true, organizationId: true, repoUrl: true, defaultBranch: true },
-      });
+      const [project, qaStrategyType] = await Promise.all([
+        ctx.prisma.project.findUniqueOrThrow({
+          where: { id: input.projectId },
+          select: {
+            name: true,
+            organizationId: true,
+            repoUrl: true,
+            defaultBranch: true,
+          },
+        }),
+        ctx.prisma.testPlanType.upsert({
+          where: { key: QA_STRATEGY_TYPE.key },
+          create: {
+            ...QA_STRATEGY_TYPE,
+            fieldSchema: QA_STRATEGY_TYPE.fieldSchema as never,
+            isBuiltIn: true,
+          },
+          update: {
+            ...QA_STRATEGY_TYPE,
+            fieldSchema: QA_STRATEGY_TYPE.fieldSchema as never,
+            isBuiltIn: true,
+          },
+          select: { id: true },
+        }),
+      ]);
 
       let changesSummary: string | undefined;
       let groundedInCommits: { sha: string; subject: string }[] | undefined;
       if (input.headRef) {
         if (!project.repoUrl) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "This project has no repo connected to ground generation in" });
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "This project has no repo connected to ground generation in",
+          });
         }
-        const commits = await getCommitLog(project.repoUrl, input.baseRef ?? project.defaultBranch, input.headRef);
+        const commits = await getCommitLog(
+          project.repoUrl,
+          input.baseRef ?? project.defaultBranch,
+          input.headRef,
+        );
         if (commits.length === 0) {
           throw new TRPCError({
             code: "BAD_REQUEST",
@@ -334,25 +560,38 @@ export const testPlansRouter = router({
           });
         }
         groundedInCommits = commits;
-        changesSummary = commits.map((c) => `- ${c.sha} ${c.subject}`).join("\n");
+        changesSummary = commits
+          .map((c) => `- ${c.sha} ${c.subject}`)
+          .join("\n");
       }
 
-      const charge = await chargeAiCredits(ctx.prisma, project.organizationId, "generateQaStrategyDraft").catch((e: unknown) => {
+      const charge = await chargeAiCredits(
+        ctx.prisma,
+        project.organizationId,
+        "generateQaStrategyDraft",
+      ).catch((e: unknown) => {
         if (e instanceof InsufficientAiCreditsError) {
           throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
         }
         throw e;
       });
-      const [testTypeGroups, frameworkGroups, totalTestCases] = await Promise.all([
-        ctx.prisma.testCase.groupBy({ by: ["testType"], where: { projectId: input.projectId }, _count: true }),
-        ctx.prisma.testCaseSource.groupBy({
-          by: ["frameworkFamily"],
-          where: { testCase: { projectId: input.projectId } },
-          _count: true,
-        }),
-        ctx.prisma.testCase.count({ where: { projectId: input.projectId } }),
-      ]);
-      const testTypeCounts = Object.fromEntries(testTypeGroups.map((g) => [g.testType, g._count]));
+      const [testTypeGroups, frameworkGroups, totalTestCases] =
+        await Promise.all([
+          ctx.prisma.testCase.groupBy({
+            by: ["testType"],
+            where: { projectId: input.projectId },
+            _count: true,
+          }),
+          ctx.prisma.testCaseSource.groupBy({
+            by: ["frameworkFamily"],
+            where: { testCase: { projectId: input.projectId } },
+            _count: true,
+          }),
+          ctx.prisma.testCase.count({ where: { projectId: input.projectId } }),
+        ]);
+      const testTypeCounts = Object.fromEntries(
+        testTypeGroups.map((g) => [g.testType, g._count]),
+      );
       const frameworksInUse = frameworkGroups.map((g) => g.frameworkFamily);
 
       const draft = await meterAiCall(ctx.prisma, charge, () =>
@@ -365,7 +604,7 @@ export const testPlansRouter = router({
           changesSummary,
         }),
       );
-      return { ...draft, groundedInCommits };
+      return { testPlanTypeId: qaStrategyType.id, ...draft, groundedInCommits };
     }),
 
   // P4-03: rule-based risk-area suggestions, cross-referencing structured
@@ -393,15 +632,28 @@ export const testPlansRouter = router({
     .query(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
 
-      const SEVERITY_WEIGHT: Record<string, number> = { CRITICAL: 3, HIGH: 2, MEDIUM: 1, LOW: 0 };
-      const suggestions: { area: string; rationale: string; source: "RISK_FLAG" | "FAILURE_RATE" | "COMPLIANCE_GAP" }[] = [];
+      const SEVERITY_WEIGHT: Record<string, number> = {
+        CRITICAL: 3,
+        HIGH: 2,
+        MEDIUM: 1,
+        LOW: 0,
+      };
+      const suggestions: {
+        area: string;
+        rationale: string;
+        source: "RISK_FLAG" | "FAILURE_RATE" | "COMPLIANCE_GAP";
+      }[] = [];
 
       const openFlags = await ctx.prisma.riskFlag.findMany({
         where: { release: { projectId: input.projectId }, resolvedAt: null },
         orderBy: { createdAt: "desc" },
         take: 50,
       });
-      openFlags.sort((a, b) => (SEVERITY_WEIGHT[b.severity] ?? 0) - (SEVERITY_WEIGHT[a.severity] ?? 0));
+      openFlags.sort(
+        (a, b) =>
+          (SEVERITY_WEIGHT[b.severity] ?? 0) -
+          (SEVERITY_WEIGHT[a.severity] ?? 0),
+      );
       for (const f of openFlags.slice(0, 5)) {
         suggestions.push({
           area: f.relatedFilePath ?? f.description.slice(0, 80),
@@ -412,14 +664,25 @@ export const testPlansRouter = router({
 
       const recentResults = await ctx.prisma.testResult.findMany({
         where: { testCase: { projectId: input.projectId } },
-        include: { testCase: { select: { id: true, title: true } }, testRun: { select: { startedAt: true } } },
+        include: {
+          testCase: { select: { id: true, title: true } },
+          testRun: { select: { startedAt: true } },
+        },
         orderBy: { testRun: { startedAt: "desc" } },
         take: 1000,
       });
-      const byTestCase = new Map<string, { title: string; pass: number; fail: number }>();
+      const byTestCase = new Map<
+        string,
+        { title: string; pass: number; fail: number }
+      >();
       for (const r of recentResults) {
-        if (!r.testCase || (r.status !== "PASS" && r.status !== "FAIL")) continue;
-        const entry = byTestCase.get(r.testCase.id) ?? { title: r.testCase.title, pass: 0, fail: 0 };
+        if (!r.testCase || (r.status !== "PASS" && r.status !== "FAIL"))
+          continue;
+        const entry = byTestCase.get(r.testCase.id) ?? {
+          title: r.testCase.title,
+          pass: 0,
+          fail: 0,
+        };
         // Cap at each test case's most recent 20 results -- recentResults is
         // already ordered newest-first, so once a case has 20 counted here
         // any further (older) result for it is outside the lookback window.
@@ -430,7 +693,12 @@ export const testPlansRouter = router({
         byTestCase.set(r.testCase.id, entry);
       }
       const failureRateFlags = [...byTestCase.entries()]
-        .map(([id, e]) => ({ id, title: e.title, total: e.pass + e.fail, failRate: e.fail / (e.pass + e.fail) }))
+        .map(([id, e]) => ({
+          id,
+          title: e.title,
+          total: e.pass + e.fail,
+          failRate: e.fail / (e.pass + e.fail),
+        }))
         .filter((e) => e.total >= 3 && e.failRate >= 0.3)
         .sort((a, b) => b.failRate - a.failRate)
         .slice(0, 5);
@@ -442,21 +710,32 @@ export const testPlansRouter = router({
         });
       }
 
-      const frameworksInUse = await ctx.prisma.testCaseComplianceControl.findMany({
-        where: { testCase: { projectId: input.projectId } },
-        select: { control: { select: { frameworkId: true } } },
-        distinct: ["controlId"],
-      });
-      const frameworkIds = [...new Set(frameworksInUse.map((f) => f.control.frameworkId))];
+      const frameworksInUse =
+        await ctx.prisma.testCaseComplianceControl.findMany({
+          where: { testCase: { projectId: input.projectId } },
+          select: { control: { select: { frameworkId: true } } },
+          distinct: ["controlId"],
+        });
+      const frameworkIds = [
+        ...new Set(frameworksInUse.map((f) => f.control.frameworkId)),
+      ];
       if (frameworkIds.length > 0) {
         const controls = await ctx.prisma.complianceControl.findMany({
           where: { frameworkId: { in: frameworkIds } },
           include: {
             framework: { select: { name: true } },
-            _count: { select: { testCases: { where: { testCase: { projectId: input.projectId } } } } },
+            _count: {
+              select: {
+                testCases: {
+                  where: { testCase: { projectId: input.projectId } },
+                },
+              },
+            },
           },
         });
-        const gaps = controls.filter((c) => c._count.testCases === 0).slice(0, 5);
+        const gaps = controls
+          .filter((c) => c._count.testCases === 0)
+          .slice(0, 5);
         for (const c of gaps) {
           suggestions.push({
             area: `${c.framework.name} - ${c.code}`,
@@ -485,38 +764,60 @@ export const testPlansRouter = router({
     .input(z.object({ projectId: z.string() }))
     .output(
       z.object({
-        passRate: z.object({ passed: z.number(), failed: z.number(), skipped: z.number(), total: z.number() }),
-        latestCoverage: z.object({ linesCovered: z.number(), linesTotal: z.number(), createdAt: z.date() }).nullable(),
-        openRiskFlags: z.object({ critical: z.number(), high: z.number(), medium: z.number(), low: z.number() }),
+        passRate: z.object({
+          passed: z.number(),
+          failed: z.number(),
+          skipped: z.number(),
+          total: z.number(),
+        }),
+        latestCoverage: z
+          .object({
+            linesCovered: z.number(),
+            linesTotal: z.number(),
+            createdAt: z.date(),
+          })
+          .nullable(),
+        openRiskFlags: z.object({
+          critical: z.number(),
+          high: z.number(),
+          medium: z.number(),
+          low: z.number(),
+        }),
         flakyTestCount: z.number(),
       }),
     )
     .query(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
 
-      const [recentResults, latestCoverage, openFlags, flakyTestCount] = await Promise.all([
-        ctx.prisma.testResult.findMany({
-          // testRun.projectId, not testCase.projectId -- an unmatched
-          // result (no linked TestCase yet, the common case right after
-          // P5-01 ingestion before P5-04/P5-14 catch up) still belongs to
-          // this project's pass-rate signal. Filtering on the TestCase
-          // relation would silently drop every unmatched result instead.
-          where: { testRun: { projectId: input.projectId } },
-          select: { status: true },
-          orderBy: { testRun: { startedAt: "desc" } },
-          take: 200,
-        }),
-        ctx.prisma.coverageReport.findFirst({
-          where: { projectId: input.projectId },
-          orderBy: { createdAt: "desc" },
-          select: { linesCovered: true, linesTotal: true, createdAt: true },
-        }),
-        ctx.prisma.riskFlag.findMany({
-          where: { release: { projectId: input.projectId }, resolvedAt: null },
-          select: { severity: true },
-        }),
-        ctx.prisma.testCase.count({ where: { projectId: input.projectId, isFlaky: true } }),
-      ]);
+      const [recentResults, latestCoverage, openFlags, flakyTestCount] =
+        await Promise.all([
+          ctx.prisma.testResult.findMany({
+            // testRun.projectId, not testCase.projectId -- an unmatched
+            // result (no linked TestCase yet, the common case right after
+            // P5-01 ingestion before P5-04/P5-14 catch up) still belongs to
+            // this project's pass-rate signal. Filtering on the TestCase
+            // relation would silently drop every unmatched result instead.
+            where: { testRun: { projectId: input.projectId } },
+            select: { status: true },
+            orderBy: { testRun: { startedAt: "desc" } },
+            take: 200,
+          }),
+          ctx.prisma.coverageReport.findFirst({
+            where: { projectId: input.projectId },
+            orderBy: { createdAt: "desc" },
+            select: { linesCovered: true, linesTotal: true, createdAt: true },
+          }),
+          ctx.prisma.riskFlag.findMany({
+            where: {
+              release: { projectId: input.projectId },
+              resolvedAt: null,
+            },
+            select: { severity: true },
+          }),
+          ctx.prisma.testCase.count({
+            where: { projectId: input.projectId, isFlaky: true },
+          }),
+        ]);
 
       return {
         passRate: {
@@ -548,36 +849,28 @@ export const testPlansRouter = router({
           name: z.string(),
           description: z.string().nullable(),
           status: z.string(),
-          customFields: z.record(z.unknown()),
+          customFields: z.unknown(),
+          executionTemplate: z.unknown(),
           createdAt: z.date(),
-          createdBy: z.object({ id: z.string(), name: z.string().nullable(), email: z.string() }).nullable(),
+          createdBy: z
+            .object({
+              id: z.string(),
+              name: z.string().nullable(),
+              email: z.string(),
+            })
+            .nullable(),
         }),
       ),
     )
-    .query(async ({ ctx, input }) => {
-      const plan = await ctx.prisma.testPlan.findUniqueOrThrow({ where: { id: input.testPlanId }, select: { projectId: true } });
-      await requireProjectAccess(ctx, plan.projectId);
-      const versions = await ctx.prisma.testPlanVersion.findMany({
-        where: { testPlanId: input.testPlanId },
-        include: { createdBy: { select: { id: true, name: true, email: true } } },
-        orderBy: { versionNumber: "desc" },
-      });
-      return versions.map((v) => ({
-        versionNumber: v.versionNumber,
-        name: v.name,
-        description: v.description,
-        status: v.status,
-        customFields: v.customFields as Record<string, unknown>,
-        createdAt: v.createdAt,
-        createdBy: v.createdBy,
-      }));
-    }),
+    .query(({ ctx, input }) => readTestPlanHistory(ctx.prisma, ctx.user.id, input.testPlanId, { clerkActorId: ctx.user.clerkUserId })),
 
   // P4-04: the strategy picker's data source -- every QUALITY_STRATEGY-type
   // plan in the project a plan could link up to. Excludes the plan being
   // edited itself (a strategy can't support itself) when `excludeId` is given.
   strategiesInProject: protectedProcedure
-    .input(z.object({ projectId: z.string(), excludeId: z.string().optional() }))
+    .input(
+      z.object({ projectId: z.string(), excludeId: z.string().optional() }),
+    )
     .output(z.array(z.object({ id: z.string(), name: z.string() })))
     .query(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
@@ -598,7 +891,9 @@ export const testPlansRouter = router({
   // QUALITY_STRATEGY-category plan can be the target -- linking a plan to
   // some other functional plan wouldn't mean anything here.
   setStrategyLink: protectedProcedure
-    .input(z.object({ testPlanId: z.string(), strategyId: z.string().nullable() }))
+    .input(
+      z.object({ testPlanId: z.string(), strategyId: z.string().nullable() }),
+    )
     .mutation(async ({ ctx, input }) => {
       const plan = await ctx.prisma.testPlan.findUniqueOrThrow({
         where: { id: input.testPlanId },
@@ -607,17 +902,26 @@ export const testPlansRouter = router({
       await requireProjectAccess(ctx, plan.projectId, "EDITOR");
       if (input.strategyId) {
         if (input.strategyId === input.testPlanId) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "A plan can't support itself as a strategy" });
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "A plan can't support itself as a strategy",
+          });
         }
         const strategy = await ctx.prisma.testPlan.findUnique({
           where: { id: input.strategyId },
           include: { testPlanType: { select: { category: true } } },
         });
         if (!strategy || strategy.projectId !== plan.projectId) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "That strategy does not belong to this project" });
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "That strategy does not belong to this project",
+          });
         }
         if (strategy.testPlanType.category !== "QUALITY_STRATEGY") {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Only a QA strategy plan can be linked as a strategy" });
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Only a QA strategy plan can be linked as a strategy",
+          });
         }
       }
       return ctx.prisma.testPlan.update({
@@ -636,21 +940,15 @@ export const testPlansRouter = router({
       }),
     )
     .output(acceptanceCriterionOutput)
-    .mutation(async ({ ctx, input }) => {
-      const plan = await ctx.prisma.testPlan.findUniqueOrThrow({
-        where: { id: input.testPlanId },
-        select: { projectId: true, releaseId: true },
+    .mutation(async (): Promise<z.infer<typeof acceptanceCriterionOutput>> => {
+      // Preserve the old public input/output contract, but never infer missing
+      // reviewed revisions or replay identity from a cached legacy request.
+      // No project/criterion lookup occurs, including for an unrelated ID.
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message:
+          "Legacy criterion additions no longer accept writes. Review the current plan and use testPlanGovernance.addCriterion. An earlier unacknowledged legacy request may already have applied and may lack a durable receipt. Refresh the plan and inspect available history before a new reviewed request; do not automatically resubmit.",
       });
-      await requireProjectAccess(ctx, plan.projectId, "EDITOR");
-      const created = await ctx.prisma.acceptanceCriterion.create({
-        data: {
-          testPlanId: input.testPlanId,
-          description: input.description,
-          requirementId: input.requirementId,
-        },
-      });
-      refreshReleaseReadiness(ctx.prisma, plan.releaseId);
-      return created;
     }),
 
   updateAcceptanceCriterion: protectedProcedure
@@ -666,26 +964,33 @@ export const testPlansRouter = router({
     .mutation(async ({ ctx, input }) => {
       const criterion = await ctx.prisma.acceptanceCriterion.findUniqueOrThrow({
         where: { id: input.id },
-        include: { testPlan: { select: { projectId: true, releaseId: true } } },
+        select: {
+          testPlanId: true,
+          testPlan: { select: { projectId: true, releaseId: true } },
+        },
       });
       await requireProjectAccess(ctx, criterion.testPlan.projectId, "EDITOR");
-      const updated = await ctx.prisma.acceptanceCriterion.update({
-        where: { id: input.id },
-        data: { description: input.description, status: input.status, requirementId: input.requirementId },
-      });
+      const updated = await setLegacyCriterionVerdict(
+        ctx.prisma,
+        ctx.user.id,
+        {
+          ...input,
+          projectId: criterion.testPlan.projectId,
+          testPlanId: criterion.testPlanId,
+        },
+        { clerkActorId: ctx.user.clerkUserId },
+      );
       refreshReleaseReadiness(ctx.prisma, criterion.testPlan.releaseId);
       return updated;
     }),
 
   deleteAcceptanceCriterion: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .mutation(async ({ ctx, input }) => {
-      const criterion = await ctx.prisma.acceptanceCriterion.findUniqueOrThrow({
-        where: { id: input.id },
-        include: { testPlan: { select: { projectId: true, releaseId: true } } },
+    .mutation(async (): Promise<void> => {
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message:
+          "Legacy criterion removals no longer accept writes. Review the current criterion and use testPlanGovernance.deleteCriterion. An earlier unacknowledged legacy request may already have applied and may lack a durable receipt. Refresh the plan and inspect available history before a new reviewed request; do not automatically resubmit.",
       });
-      await requireProjectAccess(ctx, criterion.testPlan.projectId, "EDITOR");
-      await ctx.prisma.acceptanceCriterion.delete({ where: { id: input.id } });
-      refreshReleaseReadiness(ctx.prisma, criterion.testPlan.releaseId);
     }),
 });

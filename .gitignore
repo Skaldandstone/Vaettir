@@ -16,6 +16,7 @@ apps/web/e2e/.auth/
 apps/web/playwright-report/
 apps/web/test-results/
 /.local/
+/.release-assets/
 /apps/mobile/android/
 /apps/mobile/ios/
 *.jks

@@ -1,0 +1,5 @@
+packages:
+  - "."
+overrides:
+  # GHSA-c8x8-7fp4-3x9w: Atlaskit currently pins a vulnerable paste handler.
+  prosemirror-view: 1.42.3

@@ -1,7 +1,9 @@
 "use client";
+import { roleLabel } from "@/lib/membership";
 
 import { useState } from "react";
 import { useParams } from "next/navigation";
+import { useAuth } from "@clerk/nextjs";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 
 // P1-15: the three reads are react-query hooks (retry: false so a
@@ -14,6 +16,7 @@ import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 export default function AdminOrganizationDetailPage() {
   const params = useParams<{ id: string }>();
   const organizationId = params.id;
+  const auth=useAuth();
   const utils = trpcReact.useUtils();
 
   const orgQuery = trpcReact.admin.getOrganization.useQuery({ organizationId }, { retry: false });
@@ -28,6 +31,7 @@ export default function AdminOrganizationDetailPage() {
   const [error, setError] = useState<string | null>(null);
 
   const adjustPlanTierMutation = trpcReact.admin.adjustPlanTier.useMutation();
+  const unlimitedSeatsMutation=trpcReact.admin.unlimitedPrivateBetaSeats.useMutation({retry:false});
   const resendInviteMutation = trpcReact.admin.resendInvite.useMutation();
   const suspendMutation = trpcReact.admin.suspendOrganization.useMutation();
   const reactivateMutation = trpcReact.admin.reactivateOrganization.useMutation();
@@ -50,6 +54,22 @@ export default function AdminOrganizationDetailPage() {
   const [confirmSlug, setConfirmSlug] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [deleteResult, setDeleteResult] = useState<RouterOutputs["admin"]["hardDeleteOrganization"] | null>(null);
+  const reportErasureScope = deletePreview?.organizationId === organizationId
+    && deletePreview.reportScope?.originalOrganizationId === organizationId
+    && deletePreview.reportScope.basis === "ORIGINAL_ORGANIZATION"
+    ? deletePreview.reportScope : null;
+  const manualCaseErasureScope = deletePreview?.organizationId === organizationId
+    && deletePreview.manualCaseResultScope?.originalOrganizationId === organizationId
+    && deletePreview.manualCaseResultScope.basis === "ORIGINAL_ORGANIZATION"
+    ? deletePreview.manualCaseResultScope : null;
+  const projectKeyErasureScope = deletePreview?.organizationId === organizationId
+    && deletePreview.projectCaseKeyScope?.originalOrganizationId === organizationId
+    && deletePreview.projectCaseKeyScope.basis === "ORIGINAL_ORGANIZATION"
+    ? deletePreview.projectCaseKeyScope : null;
+  const deletionReviewReady = !!reportErasureScope && !reportErasureScope.blocked
+    && !!manualCaseErasureScope && !manualCaseErasureScope.blocked
+    && !!projectKeyErasureScope && !projectKeyErasureScope.blocked
+    && org?.id === organizationId && !orgQuery.error && !orgQuery.isFetching && !orgQuery.isPaused;
 
   async function loadAll() {
     setPlanTierOverride(null);
@@ -81,6 +101,14 @@ export default function AdminOrganizationDetailPage() {
     } finally {
       setBusy(false);
     }
+  }
+  async function enableUnlimitedSeats(){
+    const r=requireReason();
+    if(!r||!org||!auth.isLoaded||!auth.isSignedIn||!auth.userId||orgQuery.isFetching||orgQuery.isPaused||busy)return;
+    setBusy(true);setError(null);
+    try{await unlimitedSeatsMutation.mutateAsync({organizationId:org.id,expectedPlanTierId:org.planTierId,expectedClerkActorId:auth.userId,reason:r});await loadAll();}
+    catch(e){setError(e instanceof Error?e.message:"Seat exception was not confirmed. Refresh workspace state before retrying.");}
+    finally{setBusy(false);}
   }
 
   async function resendInvite(invitationId: string) {
@@ -158,6 +186,9 @@ export default function AdminOrganizationDetailPage() {
     setError(null);
     try {
       const preview = await utils.admin.previewOrgHardDelete.fetch({ organizationId });
+      if (preview.organizationId !== organizationId || preview.reportScope?.originalOrganizationId !== organizationId) {
+        throw new Error("Deletion preview scope could not be verified. Nothing was deleted.");
+      }
       setDeletePreview(preview);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -169,6 +200,10 @@ export default function AdminOrganizationDetailPage() {
   async function confirmHardDelete() {
     const r = requireReason();
     if (!r || !org || !deletePreview) return;
+    if (!deletionReviewReady) {
+      setError("Current organization and original report, history and project-key ownership must be verified and reconciled before deletion.");
+      return;
+    }
     if (confirmSlug !== org.slug) {
       setError(`Confirmation text must exactly match the organization's slug ("${org.slug}")`);
       return;
@@ -269,6 +304,7 @@ export default function AdminOrganizationDetailPage() {
           </button>
           <span>currently {org.planTierName}</span>
         </div>
+        {planTiers.find(t=>t.id===org.planTierId)?.key==="private-beta"&&<details style={{marginTop:12}}><summary>Private workspace seat exception</summary><p>Only a current staff owner can remove this workspace’s full and read-only seat caps. Pricing, features, included credits and balances stay unchanged; no invitations are sent.</p><button type="button" onClick={()=>void enableUnlimitedSeats()} disabled={busy||!auth.isLoaded||!auth.isSignedIn||orgQuery.isFetching||orgQuery.isPaused}>Enable unlimited seats for this workspace</button></details>}
       </section>
 
       <section style={{ margin: "20px 0" }}>
@@ -288,7 +324,7 @@ export default function AdminOrganizationDetailPage() {
               <tr key={m.membershipId} style={{ borderTop: "1px solid var(--border, #333)" }}>
                 <td>{m.email}</td>
                 <td>{m.name ?? "—"}</td>
-                <td>{m.role}</td>
+                <td>{roleLabel(m.role)}</td>
                 <td>{m.seatType}</td>
                 <td>
                   <button onClick={() => deactivateMember(m.membershipId)} disabled={busy}>
@@ -310,7 +346,7 @@ export default function AdminOrganizationDetailPage() {
               <tr key={inv.id} style={{ borderTop: "1px solid var(--border, #333)" }}>
                 <td>{inv.email}</td>
                 <td>
-                  {inv.role} / {inv.seatType}
+                  {roleLabel(inv.role)} / {inv.seatType}
                 </td>
                 <td>expires {new Date(inv.expiresAt).toLocaleDateString()}</td>
                 <td>
@@ -352,7 +388,7 @@ export default function AdminOrganizationDetailPage() {
               .filter((m) => m.membershipId !== previousOwnerMembershipId)
               .map((m) => (
                 <option key={m.membershipId} value={m.membershipId}>
-                  {m.email} ({m.role})
+                  {m.email} ({roleLabel(m.role)})
                 </option>
               ))}
           </select>
@@ -405,6 +441,67 @@ export default function AdminOrganizationDetailPage() {
                   </li>
                 ))}
             </ul>
+            <section aria-label="Report ownership in deletion preview">
+              <h4>Original report ownership</h4>
+              {!reportErasureScope ? (
+                <p role="alert">Report ownership could not be verified. Refresh the preview; deletion is blocked.</p>
+              ) : (
+                <>
+                  <p>Report counts follow their original organization, including retained reports on projects that now belong elsewhere. Those other projects are not deleted.</p>
+                  <ul>
+                    {Object.entries(reportErasureScope.originalRecordsOnReparentedProjects).map(([model, count]) => (
+                      <li key={model}>{model} on moved projects: {count}</li>
+                    ))}
+                  </ul>
+                  {reportErasureScope.blocked && (
+                    <div role="alert">
+                      <p>Deletion blocked: foreign-original report ownership must be explicitly reconciled first. No records have been deleted by this preview.</p>
+                      <ul>
+                        {Object.entries(reportErasureScope.unsupportedForeignOriginalRecordsOnCurrentProjects).map(([model, count]) => (
+                          <li key={model}>{model} owned elsewhere: {count}</li>
+                        ))}
+                        <li>Foreign snapshots referencing original definitions: {reportErasureScope.unsupportedForeignSnapshotsReferencingOriginalDefinitions}</li>
+                      </ul>
+                    </div>
+                  )}
+                  <ul>{reportErasureScope.limitations.map((note) => <li key={note}>{note}</li>)}</ul>
+                </>
+              )}
+            </section>
+            <section aria-label="Whole-case history ownership in deletion preview">
+              <h4>Original whole-case observation history</h4>
+              {!manualCaseErasureScope ? (
+                <p role="alert">Original history ownership is unavailable. Refresh the preview; deletion is blocked.</p>
+              ) : (
+                <>
+                  <p>Recorded whole-case heads: {deletePreview.rowCounts.ManualCaseResultHead}. Immutable observation revisions: {deletePreview.rowCounts.ManualCaseResultRevision}.</p>
+                  <p>Complete erasure limits: {manualCaseErasureScope.limits.heads} heads and {manualCaseErasureScope.limits.revisions} revisions. Counts are not truncated; exceeding either limit blocks deletion.</p>
+                  {manualCaseErasureScope.blocked && <p role="alert">Deletion blocked: unsupported original history scope or inventory must be reconciled first. No records have been deleted by this preview. Unsupported native tuples: {manualCaseErasureScope.unsupportedOriginalScopeTuples}.</p>}
+                  <ul>{manualCaseErasureScope.limitations.map(note => <li key={note}>{note}</li>)}</ul>
+                </>
+              )}
+            </section>
+            <section aria-label="Project-key history ownership in deletion preview">
+              <h4>Original project-key history</h4>
+              {!projectKeyErasureScope ? (
+                <p role="alert">Project-key ownership is unavailable. Refresh the preview; deletion is blocked.</p>
+              ) : (
+                <>
+                  <p>Key aliases: {deletePreview.rowCounts.ProjectCaseKeyAlias}. Immutable key-change receipts: {deletePreview.rowCounts.ProjectCaseKeyWrite}.</p>
+                  <p>Counts follow the original organization, including key history on moved or removed projects. History owned elsewhere stays reserved even when a current project is removed; its original organization must erase it.</p>
+                  <ul>{Object.entries(projectKeyErasureScope.originalRecordsOnReparentedProjects).map(([model, count]) => <li key={model}>{model} on moved projects: {count}</li>)}</ul>
+                  <ul>{Object.entries(projectKeyErasureScope.originalRecordsOnRemovedProjects).map(([model, count]) => <li key={model}>{model} on removed projects: {count}</li>)}</ul>
+                  <ul>{Object.entries(projectKeyErasureScope.foreignOriginalRecordsOnCurrentProjects).map(([model, count]) => <li key={model}>{model} owned elsewhere and retained: {count}</li>)}</ul>
+                  <p>Complete limits: {projectKeyErasureScope.limits.aliases} aliases and {projectKeyErasureScope.limits.writes} key-change receipts. Counts are not truncated; exceeding either limit blocks deletion.</p>
+                  {projectKeyErasureScope.blocked && (
+                    <div role="alert">
+                      <p>Deletion blocked: the complete original project-key inventory is unavailable or exceeds its bound. Nothing has been deleted by this preview.</p>
+                    </div>
+                  )}
+                  <ul>{projectKeyErasureScope.limitations.map(note => <li key={note}>{note}</li>)}</ul>
+                </>
+              )}
+            </section>
             <label>
               Type the organization&apos;s slug (<code>{org.slug}</code>) to confirm
               <input value={confirmSlug} onChange={(e) => setConfirmSlug(e.target.value)} style={{ width: "100%" }} />
@@ -421,7 +518,7 @@ export default function AdminOrganizationDetailPage() {
               </button>
               <button
                 onClick={confirmHardDelete}
-                disabled={deleting || confirmSlug !== org.slug}
+                disabled={deleting || !deletionReviewReady || confirmSlug !== org.slug}
                 style={{ color: "var(--ember)" }}
               >
                 {deleting ? "Deleting…" : "Permanently delete"}

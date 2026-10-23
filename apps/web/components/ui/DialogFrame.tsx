@@ -1,7 +1,11 @@
 "use client";
 
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useSyncExternalStore, type ReactNode, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
+
+const subscribeToClientMount = () => () => undefined;
+const clientMountedSnapshot = () => true;
+const serverMountedSnapshot = () => false;
 
 /** Native modality keeps background controls inert and contains keyboard focus. */
 export function DialogFrame({
@@ -12,6 +16,8 @@ export function DialogFrame({
   label,
   labelledBy,
   dismissible = true,
+  style,
+  keepMounted = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -20,8 +26,19 @@ export function DialogFrame({
   label?: string;
   labelledBy?: string;
   dismissible?: boolean;
+  style?: CSSProperties;
+  keepMounted?: boolean;
 }) {
+  // The server and initial hydration must both omit the portal. Retained
+  // children mount after hydration, then keep the same owner across closes.
+  const clientMounted = useSyncExternalStore(subscribeToClientMount, clientMountedSnapshot, serverMountedSnapshot);
   const ref = useRef<HTMLDialogElement>(null);
+  useLayoutEffect(() => {
+    // React 18 treats the JSX inert boolean as an unknown attribute and omits
+    // it. Set the native property at commit, before retained content can focus.
+    const dialog = ref.current;
+    if (dialog) dialog.inert = !open;
+  }, [open, keepMounted, clientMounted]);
   useEffect(() => {
     const dialog = ref.current;
     if (!open || !dialog) return;
@@ -35,16 +52,58 @@ export function DialogFrame({
       dialog.close();
       if (opener?.isConnected) opener.focus({ preventScroll: true });
     };
-  }, [open]);
+  }, [open, clientMounted]);
 
-  if (!open || typeof document === "undefined") return null;
+  if (!clientMounted) return null;
+  if ((!open && !keepMounted) || typeof document === "undefined") return null;
   return createPortal(
     <dialog
       ref={ref}
+      style={!open ? { ...style, display: "none" } : style}
+      hidden={!open}
       className={`native-dialog ${className}`}
       aria-label={label}
       aria-labelledby={labelledBy}
       onKeyDown={(event) => {
+        // Portalled nested dialogs bubble through React ancestors. Only the
+        // dialog which owns the focused control may handle its navigation.
+        if (
+          event.target instanceof Element &&
+          event.target.closest("dialog") !== event.currentTarget
+        )
+          return;
+        if (event.key === "Tab") {
+          // Native modality keeps the background inert. Explicit endpoint
+          // wrapping also keeps focus in the dialog across browser variants.
+          const controls = Array.from(
+            event.currentTarget.querySelectorAll<HTMLElement>(
+              "button, [href], input, select, textarea, summary, iframe, audio[controls], video[controls], [tabindex]",
+            ),
+          ).filter(
+            (control) =>
+              control.tabIndex >= 0 &&
+              !control.matches(":disabled") &&
+              control.getClientRects().length > 0 &&
+              !control.closest('[hidden], [inert], [aria-hidden="true"]'),
+          );
+          const first = controls[0];
+          const last = controls[controls.length - 1];
+          if (!first || !last) {
+            event.preventDefault();
+            event.currentTarget.focus();
+          } else if (
+            event.shiftKey &&
+            (document.activeElement === first ||
+              document.activeElement === event.currentTarget)
+          ) {
+            event.preventDefault();
+            last.focus();
+          } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first.focus();
+          }
+          return;
+        }
         if (event.key !== "Escape") return;
         // Keep Escape local to the topmost dialog, including embedded browsers.
         event.preventDefault();

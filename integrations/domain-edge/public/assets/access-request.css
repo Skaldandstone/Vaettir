@@ -1,0 +1,56 @@
+.access-request-trigger { cursor: pointer; }
+.access-request-button { display: inline-flex; align-items: center; justify-content: center; padding: .76rem 1rem; border: 1px solid currentColor; color: inherit; text-decoration: none; font: 600 .7rem/1 "JetBrains Mono", ui-monospace, monospace; }
+
+.access-request-dialog {
+  width: min(40rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 2rem);
+  padding: 0;
+  border: 1px solid #6d624d;
+  border-radius: 12px;
+  background: #f3eee2;
+  color: #28251e;
+  box-shadow: 0 30px 90px rgba(10, 9, 6, .38);
+}
+
+.access-request-dialog::backdrop { background: rgba(13, 12, 9, .72); backdrop-filter: blur(4px); }
+.access-request-dialog__inner { padding: clamp(1.25rem, 4vw, 2.25rem); }
+.access-request-dialog__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1.5rem; }
+.access-request-dialog h2 { margin: 0; font: 600 clamp(1.7rem, 5vw, 2.4rem)/1.1 Fraunces, Georgia, serif; }
+.access-request-dialog p { margin: .65rem 0 0; color: #5f594d; line-height: 1.55; }
+.access-request-dialog__close { border: 0; background: transparent; color: inherit; padding: .3rem; font: 1.5rem/1 sans-serif; cursor: pointer; }
+.access-request-form { display: grid; gap: 1rem; margin-top: 1.5rem; }
+.access-request-form label { display: grid; gap: .38rem; font: 600 .78rem/1.3 "JetBrains Mono", ui-monospace, monospace; letter-spacing: .04em; }
+.access-request-form input,
+.access-request-form select,
+.access-request-form textarea {
+  width: 100%;
+  border: 1px solid #aaa08b;
+  border-radius: 5px;
+  padding: .72rem .78rem;
+  background: #fffdf7;
+  color: #28251e;
+  font: 1rem/1.4 system-ui, sans-serif;
+}
+.access-request-form textarea { min-height: 7rem; resize: vertical; }
+.access-request-form input:focus,
+.access-request-form select:focus,
+.access-request-form textarea:focus { outline: 3px solid rgba(185, 138, 58, .38); border-color: #8c6424; }
+.access-request-form__privacy { font-size: .78rem; }
+.access-request-form__privacy a { color: inherit; }
+.access-request-form__submit { justify-self: start; border: 0; border-radius: 4px; padding: .82rem 1.1rem; background: #b98a3a; color: #17140f; font: 700 .78rem/1 "JetBrains Mono", ui-monospace, monospace; cursor: pointer; }
+.access-request-form__submit[disabled] { cursor: wait; opacity: .65; }
+.access-request-form__status { min-height: 1.5rem; margin: 0; font-weight: 600; }
+.access-request-form__status[data-state="error"] { color: #8e2f25; }
+.access-request-honeypot { position: absolute !important; left: -10000px !important; width: 1px !important; height: 1px !important; overflow: hidden !important; }
+
+@media (prefers-color-scheme: dark) {
+  .access-request-dialog { background: #211f18; color: #eee8d9; border-color: #665c49; }
+  .access-request-dialog p { color: #bbb19d; }
+  .access-request-form input,
+  .access-request-form select,
+  .access-request-form textarea { background: #17160f; color: #eee8d9; border-color: #665e50; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .access-request-dialog::backdrop { backdrop-filter: none; }
+}

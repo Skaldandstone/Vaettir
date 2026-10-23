@@ -146,7 +146,7 @@ export function extractJsTsTestStructure(content: string): ExtractedTestStructur
 // `expect(...)` same as Jest/Vitest) -- bodySnippet already carries them
 // as part of the full test body source, which is what the agent reads.
 export function registerJsTsEvaluators(): void {
-  for (const family of ["JEST", "VITEST", "MOCHA", "CYPRESS", "PLAYWRIGHT"] as const) {
+  for (const family of ["JEST", "VITEST", "MOCHA", "CYPRESS", "PLAYWRIGHT", "APPIUM", "DETOX"] as const) {
     registerFrameworkEvaluator({ family, extract: (content: string) => extractJsTsTestStructure(content) });
   }
 }

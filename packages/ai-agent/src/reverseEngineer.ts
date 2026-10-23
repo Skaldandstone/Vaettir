@@ -9,6 +9,8 @@ import {
 import { registerJsTsEvaluators } from "./evaluators/jsTsEvaluator.js";
 import { registerPytestEvaluator } from "./evaluators/pytestEvaluator.js";
 import { registerJavaEvaluators } from "./evaluators/javaEvaluator.js";
+import { registerMobileEvaluators } from "./evaluators/mobileEvaluator.js";
+import { registerExtendedNativeEvaluators } from "./evaluators/extendedNativeEvaluator.js";
 import { traceAnthropicCall } from "./tracing.js";
 
 // P5-11/P5-07/P5-08/P5-09/P5-10: registers every native evaluator once at
@@ -17,6 +19,8 @@ import { traceAnthropicCall } from "./tracing.js";
 registerJsTsEvaluators();
 registerPytestEvaluator();
 registerJavaEvaluators();
+registerMobileEvaluators();
+registerExtendedNativeEvaluators();
 
 const AgentResponseSchema = z.object({ testCases: z.array(ReverseEngineeredTestCaseSchema) });
 

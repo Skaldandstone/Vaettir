@@ -1,0 +1,13 @@
+{
+  "name": "vaettir-domain-edge",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test worker.test.mjs",
+    "check": "wrangler deploy --dry-run",
+    "types": "wrangler types",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": { "wrangler": "4.151.1" }
+}

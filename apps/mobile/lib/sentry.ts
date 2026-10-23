@@ -26,6 +26,7 @@ import * as Updates from "expo-updates";
 // nothing that says whose session it was.
 
 const dsn = Constants.expoConfig?.extra?.sentryDsn as string | undefined;
+const releaseCommit = Constants.expoConfig?.extra?.releaseCommit as string | undefined;
 const debugOptIn = process.env.EXPO_PUBLIC_SENTRY_DEBUG === "1";
 
 /** Strip anything that could identify a person or leak a credential. */
@@ -61,6 +62,7 @@ export function initSentry(): void {
     dsn,
     enabled: Boolean(dsn) && (!__DEV__ || debugOptIn),
     environment,
+    release: releaseCommit && /^[a-f0-9]{40}$/i.test(releaseCommit) ? releaseCommit : undefined,
     sendDefaultPii: false,
     tracesSampleRate: 0,
     maxBreadcrumbs: 0,

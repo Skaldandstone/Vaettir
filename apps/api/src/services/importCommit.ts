@@ -1,14 +1,40 @@
-import type { PrismaClient } from "@vaettir/db";
+import { type PrismaClient } from "@vaettir/db";
+import { z } from "zod";
 import { recordAudit } from "./auditLog.js";
+import { completedImportStatus, HUMAN_EDIT_SKIP_REASON } from "./importOutcome.js";
 import { snapshotTestCaseVersion } from "./testCaseVersion.js";
+import {
+  inferTestCaseType,
+  normalizeAutomationStatus,
+  normalizeTestType,
+  type InferredAutomationStatus,
+  type InferredTestCaseType,
+} from "./csvFieldMapping.js";
 
 // P11-05: the one write path every file-based importer shares. Started
 // life inline in importJobs.commitCsv (P11-01/P11-11); pulled out here so
 // the Xray importer gets the exact same create-vs-update-by-external-id,
 // version-snapshot, ImportJob-row and audit behavior instead of a second
-// copy that could drift. Structured steps are new here (CSV rows never
-// carried them); on an update they are replaced wholesale, matching how a
-// re-import is meant to make the case look like the source again.
+// copy that could drift. Existing rows are reconciled against the last
+// imported snapshot; source changes never silently replace human edits.
+
+const importedSnapshotSchema = z.object({
+  title: z.string(), background: z.string().nullable(),
+  given: z.array(z.string()), when: z.array(z.string()), then: z.array(z.string()),
+  tags: z.array(z.string()), priority: z.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"]),
+  testType: z.string(), automationStatus: z.string(), suitePath: z.string().nullable(),
+  steps: z.array(z.object({
+    order: z.number().int(), action: z.string(),
+    expectedActionOrData: z.string().nullable(), expectedResult: z.string().nullable(),
+    expectedResponse: z.string().nullable(),
+    mediaAttachmentIds: z.array(z.string()).default([]),
+  })),
+}).strict();
+type ImportedSnapshot = z.infer<typeof importedSnapshotSchema>;
+
+function sameSnapshot(a: ImportedSnapshot, b: ImportedSnapshot) {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
 
 export interface ImportedTestCaseRow {
   rowNumber: number;
@@ -19,9 +45,17 @@ export interface ImportedTestCaseRow {
   then: string[];
   priority: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
   tags: string[];
+  testType?: InferredTestCaseType | string;
+  automationStatus?: InferredAutomationStatus | string;
   suitePath?: string | null;
   externalId?: string;
-  steps?: { action: string; expectedActionOrData: string | null; expectedResult: string | null }[];
+  reviewRequired?: boolean;
+  reviewReasons?: string[];
+  steps?: {
+    action: string;
+    expectedActionOrData: string | null;
+    expectedResult: string | null;
+  }[];
 }
 
 export interface CommitImportArgs {
@@ -51,29 +85,60 @@ export interface CommitImportResult {
   skipped: { rowNumber: number; reason: string }[];
 }
 
-export async function commitImportedTestCases(prisma: PrismaClient, args: CommitImportArgs): Promise<CommitImportResult> {
+export async function commitImportedTestCases(
+  prisma: PrismaClient,
+  args: CommitImportArgs,
+): Promise<CommitImportResult> {
+  // Keep the source baseline, case changes, version snapshots and job outcome
+  // indivisible. A failed import must never leave edited cases without the
+  // corresponding version and audit/job record.
+  if (args.rows.length > 2_500) throw new Error("Import exceeds the 2,500-case batch limit; split the file and retry.");
+  return prisma.$transaction(
+    tx => commitImportedTestCasesInTransaction(tx as unknown as PrismaClient, args),
+    { timeout: 120_000 },
+  );
+}
+
+// For callers that must atomically validate additional scope and retain a
+// durable operation receipt. The caller must already own a DB transaction.
+export async function commitImportedTestCasesInTransaction(
+  prisma: PrismaClient,
+  args: CommitImportArgs,
+): Promise<CommitImportResult> {
   const keyFor = (raw: string) => `${args.keyPrefix}:${args.projectId}:${raw}`;
-  const rowsWithExternalId = args.rows.filter((r): r is ImportedTestCaseRow & { externalId: string } => Boolean(r.externalId));
+  const rowsWithExternalId = args.rows.filter(
+    (r): r is ImportedTestCaseRow & { externalId: string } =>
+      Boolean(r.externalId),
+  );
   const existingSources =
     rowsWithExternalId.length > 0
       ? await prisma.testCaseSource.findMany({
-          where: { externalTestId: { in: rowsWithExternalId.map((r) => keyFor(r.externalId)) } },
+          where: {
+            externalTestId: {
+              in: rowsWithExternalId.map((r) => keyFor(r.externalId)),
+            },
+          },
         })
       : [];
-  const sourceByKey = new Map(existingSources.map((s) => [s.externalTestId!, s]));
-
-  const updateRowNumbers = new Set(
-    rowsWithExternalId.filter((r) => sourceByKey.has(keyFor(r.externalId))).map((r) => r.rowNumber),
+  const sourceByKey = new Map(
+    existingSources.map((s) => [s.externalTestId!, s]),
   );
-  // A Cucumber outline can expand one source row into several cases that
-  // share an externalId; only the first can be an in-place update, the
-  // rest are created (and would need their own ids to re-sync - accepted).
+
+  // A source identity maps to one case. Expanded outlines must carry stable
+  // distinct ids (e.g. #2), otherwise additional rows are review-only.
   const seenUpdateKeys = new Set<string>();
+  const seenIncomingKeys = new Set<string>();
+  const skipped = [...args.skipped];
   const toUpdate: ImportedTestCaseRow[] = [];
   const toCreate: ImportedTestCaseRow[] = [];
   for (const r of args.rows) {
     const key = r.externalId ? keyFor(r.externalId) : null;
-    if (key && updateRowNumbers.has(r.rowNumber) && !seenUpdateKeys.has(key)) {
+    if (key && seenIncomingKeys.has(key)) {
+      skipped.push({ rowNumber: r.rowNumber, reason: "Duplicate source identity in this import; the additional row was not created." });
+      continue;
+    }
+    if (key) seenIncomingKeys.add(key);
+    if (key && sourceByKey.has(key) && !seenUpdateKeys.has(key)) {
       seenUpdateKeys.add(key);
       toUpdate.push(r);
     } else {
@@ -88,32 +153,105 @@ export async function commitImportedTestCases(prisma: PrismaClient, args: Commit
       expectedActionOrData: s.expectedActionOrData,
       expectedResult: s.expectedResult,
       expectedResponse: null,
+      mediaAttachmentIds: [],
     }));
 
-  const updated = await prisma.$transaction(
-    toUpdate.map((r) => {
-      const source = sourceByKey.get(keyFor(r.externalId!))!;
-      return prisma.testCase.update({
-        where: { id: source.testCaseId },
+  const classification = (r: ImportedTestCaseRow) => ({
+    testType:
+      normalizeTestType(r.testType) ??
+      inferTestCaseType({
+        title: r.title,
+        given: r.given,
+        when: r.when,
+        then: r.then,
+        tags: r.tags,
+      }),
+    automationStatus:
+      normalizeAutomationStatus(r.automationStatus) ?? ("MANUAL" as const),
+  });
+
+  const snapshotFromRow = (r: ImportedTestCaseRow): ImportedSnapshot => ({
+    title: r.title,
+    background: r.background ?? null,
+    given: r.given,
+    when: r.when,
+    then: r.then,
+    tags: r.tags,
+    priority: r.priority,
+    ...classification(r),
+    suitePath: r.suitePath ?? null,
+    steps: stepsData(r),
+  });
+
+  const updated = [] as Awaited<ReturnType<typeof prisma.testCase.findMany<{ include: { steps: true } }>>>;
+  for (const row of toUpdate) {
+    const source = sourceByKey.get(keyFor(row.externalId!))!;
+    const incoming = snapshotFromRow(row);
+    const result = await (async () => {
+      const tx = prisma;
+      // An editor's committed change must be visible before we compare
+      // against the last source snapshot. A later editor waits for this
+      // transaction and remains the last intentional human write.
+      await tx.$queryRaw`SELECT id FROM "TestCase" WHERE id = ${source.testCaseId} AND "projectId" = ${args.projectId} FOR UPDATE`;
+      const current = await tx.testCase.findFirst({
+        where: { id: source.testCaseId, projectId: args.projectId, origin: "IMPORTED" },
+        include: { steps: { orderBy: { order: "asc" } }, source: true },
+      });
+      if (!current || !current.source || current.source.externalTestId !== keyFor(row.externalId!)) {
+        return { kind: "conflict" as const, reason: "Imported case identity changed or is outside this project; review manually." };
+      }
+      const baseline = importedSnapshotSchema.safeParse(current.source.importSnapshot);
+      if (!baseline.success) {
+        return { kind: "conflict" as const, reason: "Existing imported case has no verified source baseline; review manually before replacing edits." };
+      }
+      const live = importedSnapshotSchema.parse({
+        title: current.title, background: current.background,
+        given: current.given, when: current.when, then: current.then,
+        tags: current.tags, priority: current.priority,
+        testType: current.testType, automationStatus: current.automationStatus,
+        suitePath: current.suitePath,
+        steps: current.steps.map(step => ({
+          order: step.order, action: step.action,
+          expectedActionOrData: step.expectedActionOrData,
+          expectedResult: step.expectedResult,
+          expectedResponse: step.expectedResponse,
+          mediaAttachmentIds: step.mediaAttachmentIds,
+        })),
+      });
+      if (!sameSnapshot(live, baseline.data)) {
+        return { kind: "conflict" as const, reason: HUMAN_EDIT_SKIP_REASON };
+      }
+      if (sameSnapshot(incoming, baseline.data)) {
+        return { kind: "unchanged" as const };
+      }
+      const changed = await tx.testCase.update({
+        where: { id: current.id },
         data: {
-          title: r.title,
-          background: r.background ?? null,
-          given: r.given,
-          when: r.when,
-          then: r.then,
-          tags: r.tags,
-          priority: r.priority,
-          suitePath: r.suitePath ?? undefined,
+          title: incoming.title,
+          background: incoming.background,
+          given: incoming.given,
+          when: incoming.when,
+          then: incoming.then,
+          tags: incoming.tags,
+          priority: incoming.priority,
+          testType: incoming.testType as never,
+          automationStatus: incoming.automationStatus as never,
+          suitePath: incoming.suitePath,
+          ...(row.reviewRequired ? { reviewStatus: "PENDING_REVIEW" as const, reviewedById: null, reviewedAt: null,
+            reviewNote: current.reviewNote ?? row.reviewReasons?.join("\n").slice(0, 4000) ?? "Automatic import suggestions require review." } : {}),
           updatedById: args.actorId,
-          source: { update: { lastSyncedAt: new Date() } },
-          steps: { deleteMany: {}, create: stepsData(r) },
+          source: { update: { importSnapshot: incoming, lastSyncedAt: new Date() } },
+          steps: { deleteMany: {}, create: incoming.steps },
         },
         include: { steps: { orderBy: { order: "asc" } } },
       });
-    }),
-  );
+      return { kind: "updated" as const, changed };
+    })();
+    if (result.kind === "updated") updated.push(result.changed);
+    if (result.kind === "conflict") skipped.push({ rowNumber: row.rowNumber, reason: result.reason });
+  }
 
-  const created = await prisma.$transaction(
+  const created = await Promise.all(
     toCreate.map((r) =>
       prisma.testCase.create({
         data: {
@@ -125,10 +263,12 @@ export async function commitImportedTestCases(prisma: PrismaClient, args: Commit
           when: r.when,
           then: r.then,
           tags: r.tags,
-          testType: "FUNCTIONAL",
+          ...classification(r),
           priority: r.priority,
           suitePath: r.suitePath ?? undefined,
           origin: "IMPORTED",
+          ...(r.reviewRequired ? { reviewStatus: "PENDING_REVIEW" as const,
+            reviewNote: r.reviewReasons?.join("\n").slice(0, 4000) ?? "Automatic import suggestions require review." } : {}),
           createdById: args.actorId,
           updatedById: args.actorId,
           steps: { create: stepsData(r) },
@@ -141,6 +281,7 @@ export async function commitImportedTestCases(prisma: PrismaClient, args: Commit
                     frameworkFamily: "CUSTOM",
                     externalTestId: keyFor(r.externalId),
                     lastSyncedAt: new Date(),
+                    importSnapshot: snapshotFromRow(r),
                   },
                 },
               }
@@ -182,11 +323,11 @@ export async function commitImportedTestCases(prisma: PrismaClient, args: Commit
       sourceLabel: args.sourceLabel,
       fieldMapping: args.fieldMapping,
       testPlanId: args.testPlanId,
-      status: args.skipped.length > 0 && created.length === 0 && updated.length === 0 ? "FAILED" : "SUCCEEDED",
+      status: completedImportStatus({ createdCount: created.length, updatedCount: updated.length, skippedCount: skipped.length, errors: skipped }),
       createdCount: created.length,
       updatedCount: updated.length,
-      skippedCount: args.skipped.length,
-      errors: args.skipped,
+      skippedCount: skipped.length,
+      errors: skipped,
       createdById: args.actorId,
       completedAt: new Date(),
     },
@@ -205,5 +346,10 @@ export async function commitImportedTestCases(prisma: PrismaClient, args: Commit
     });
   }
 
-  return { importJobId: importJob.id, createdCount: created.length, updatedCount: updated.length, skipped: args.skipped };
+  return {
+    importJobId: importJob.id,
+    createdCount: created.length,
+    updatedCount: updated.length,
+    skipped,
+  };
 }

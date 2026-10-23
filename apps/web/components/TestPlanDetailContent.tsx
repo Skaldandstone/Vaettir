@@ -1,91 +1,24 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
+import { useAuth } from "@clerk/nextjs";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
+import { PlanExecutionModal } from "./PlanExecutionModal";
+import { PlanTemplateEditor } from "./PlanTemplateEditor";
+import { CriterionDescriptionEditor } from "./CriterionDescriptionEditor";
+import { CriterionVerdictEditor } from "./CriterionVerdictEditor";
+import { PlanGovernanceHistory } from "./PlanGovernanceHistory";
+import { GovernedCriterionCollection } from "./GovernedCriterionCollection";
+import { PlanHeaderEditor } from "./PlanHeaderEditor";
+import { PlanStatusEditor } from "./PlanStatusEditor";
+import { PlanCustomFieldsEditor } from "./PlanCustomFieldsEditor";
+import { describeRetainedPlanValue } from "@/lib/plan-custom-fields";
+import { planMetadataChanges } from "@/lib/plan-root-metadata";
+import { editStrategyRow, qaStrategyFingerprint, qaStrategyList, removeStrategyRow, sameStrategyRowValues, sameStrategySuggestionScope, strategyRows } from "@/lib/qa-strategy-fields";
 
 type Plan = RouterOutputs["testPlans"]["byId"];
-type FieldSchema = { type?: string; properties?: Record<string, { type?: string; items?: { type?: string } }> };
 
-const STATUSES = ["DRAFT", "ACTIVE", "IN_REVIEW", "APPROVED"];
-const CRITERION_STATUSES = ["PENDING", "MET", "NOT_MET", "AT_RISK"];
-
-// Renders one input per property in the plan type's fieldSchema (a small
-// subset of JSON Schema: string/number/boolean, and array-of-string as a
-// comma-separated field). Good enough for the seeded built-in plan types;
-// extend if a custom plan type needs a richer property type.
-function CustomFieldsForm({
-  schema,
-  values,
-  onChange,
-}: {
-  schema: FieldSchema;
-  values: Record<string, unknown>;
-  onChange: (values: Record<string, unknown>) => void;
-}) {
-  const properties = schema.properties ?? {};
-  const keys = Object.keys(properties);
-  if (keys.length === 0) return null;
-
-  return (
-    <div style={{ display: "grid", gap: 10 }}>
-      {keys.map((key) => {
-        const prop = properties[key];
-        const value = values[key];
-        if (prop?.type === "array") {
-          const arr = Array.isArray(value) ? (value as string[]) : [];
-          return (
-            <label key={key}>
-              {key} <span style={{ color: "var(--muted-dim)" }}>(comma-separated)</span>
-              <input
-                value={arr.join(", ")}
-                onChange={(e) =>
-                  onChange({
-                    ...values,
-                    [key]: e.target.value
-                      .split(",")
-                      .map((s) => s.trim())
-                      .filter(Boolean),
-                  })
-                }
-                style={{ width: "100%" }}
-              />
-            </label>
-          );
-        }
-        if (prop?.type === "number") {
-          return (
-            <label key={key}>
-              {key}
-              <input
-                type="number"
-                value={typeof value === "number" ? value : ""}
-                onChange={(e) => onChange({ ...values, [key]: e.target.value === "" ? undefined : Number(e.target.value) })}
-                style={{ width: "100%" }}
-              />
-            </label>
-          );
-        }
-        return (
-          <label key={key}>
-            {key}
-            <input
-              value={typeof value === "string" ? value : ""}
-              onChange={(e) => onChange({ ...values, [key]: e.target.value })}
-              style={{ width: "100%" }}
-            />
-          </label>
-        );
-      })}
-    </div>
-  );
-}
-
-// P4-01: a repeatable-row editor for one array-of-string field -- one row
-// per item, add/remove buttons, rather than the generic CustomFieldsForm's
-// single comma-separated text input for the same data. Comma-separated is
-// fine for a quick built-in type nobody's staring at for long; a QA
-// strategy's risk areas/entry/exit criteria are exactly the fields someone
-// is meant to sit down and think through one at a time.
+// P4-01: dedicated QA-strategy rows retain their exact string contents.
 function StringListField({
   label,
   hint,
@@ -99,26 +32,39 @@ function StringListField({
   values: string[];
   onChange: (values: string[]) => void;
 }) {
+  const prefix = useId();
+  const snapshot = (generation: number) => {
+    let nextId = 0;
+    const rows = strategyRows(values, () => `${prefix}:${generation}:${nextId++}`);
+    return { rows, generation, nextId };
+  };
+  const [state, setState] = useState(() => snapshot(0)), rows = state.rows;
+  // A genuinely changed external list is a new snapshot. Do not guess which
+  // identical strings moved. A same-value echo keeps the opaque local row IDs.
+  if (!sameStrategyRowValues(rows, values)) { setState(snapshot(state.generation + 1)); }
+  const change = (next: typeof rows, nextId = state.nextId) => { setState({ ...state, rows: next, nextId }); onChange(next.map(row => row.value)); };
   return (
     <div>
       <div style={{ fontWeight: 600 }}>{label}</div>
       <p className="text-muted" style={{ fontSize: 12, marginTop: 2, marginBottom: 8 }}>
         {hint}
       </p>
-      {values.map((v, i) => (
-        <div key={i} style={{ display: "flex", gap: 6, marginBottom: 6 }}>
-          <input
-            value={v}
-            onChange={(e) => onChange(values.map((vv, j) => (j === i ? e.target.value : vv)))}
+      {rows.map((row, i) => (
+        <div key={row.id} style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+          <textarea
+            rows={2}
+            aria-label={`${label} ${i + 1}`}
+            value={row.value}
+            onChange={(e) => change(editStrategyRow(rows, row.id, e.target.value))}
             placeholder={placeholder}
             style={{ flex: 1 }}
           />
-          <button className="btn-secondary" onClick={() => onChange(values.filter((_, j) => j !== i))}>
+          <button type="button" className="btn-secondary" aria-label={`Remove ${label} row ${i + 1}`} onClick={() => change(removeStrategyRow(rows, row.id))}>
             Remove
           </button>
         </div>
       ))}
-      <button className="btn-secondary" style={{ fontSize: 12 }} onClick={() => onChange([...values, ""])}>
+      <button type="button" className="btn-secondary" style={{ fontSize: 12 }} onClick={() => change([...rows, { id: `${prefix}:${state.generation}:${state.nextId}`, value: "" }], state.nextId + 1)}>
         + Add {label.toLowerCase().replace(/s$/, "")}
       </button>
     </div>
@@ -126,7 +72,7 @@ function StringListField({
 }
 
 // P4-01: the QA Strategy plan type's own guided form, in place of the
-// generic CustomFieldsForm, since this is the plan type the roadmap calls
+// generic PlanCustomFieldsForm, since this is the plan type the roadmap calls
 // out by name for a "structured, guided form rather than raw JSON." Every
 // other plan type (built-in or custom, per P3-09) still gets the generic
 // renderer -- this one earns a dedicated form because its four fields are
@@ -141,36 +87,57 @@ function SuggestRiskAreasButton({
   projectId,
   existing,
   onAdd,
+  fingerprint,
+  active = true,
 }: {
   projectId: string;
   existing: string[];
   onAdd: (areas: string[]) => void;
+  fingerprint: string;
+  active?: boolean;
 }) {
   const utils = trpcReact.useUtils();
+  const auth = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const latest = useRef({ ready: false, fingerprint, actorId: auth.userId, sessionId: auth.sessionId, existing, onAdd, generation: 0 });
+  const ready = active && !!auth.isLoaded && !!auth.isSignedIn;
+  useLayoutEffect(() => {
+    latest.current = { ready, fingerprint, actorId: auth.userId, sessionId: auth.sessionId, existing, onAdd, generation: latest.current.generation + 1 };
+    // A transient loss/recovery must not reauthorize an earlier pending read.
+    setLoading(false);
+    return () => { latest.current = { ...latest.current, ready: false, generation: latest.current.generation + 1 }; };
+  }, [ready, fingerprint, auth.userId, auth.sessionId, existing, onAdd]);
 
   async function suggest() {
+    const original = latest.current;
+    if (!original.ready || !original.actorId || !original.sessionId) return;
     setLoading(true);
     setError(null);
     try {
       const suggestions = await utils.testPlans.suggestRiskAreas.fetch({ projectId });
-      const newAreas = suggestions.map((s) => s.area).filter((a) => !existing.includes(a));
-      if (newAreas.length > 0) onAdd(newAreas);
+      if (!sameStrategySuggestionScope(original, latest.current)) {
+        // Refuse silently rather than overwrite a newer generation's notice.
+        // The persistent explanation below makes this refusal policy visible.
+        return;
+      }
+      const newAreas = suggestions.map((s) => s.area).filter((a) => !latest.current.existing.includes(a));
+      if (newAreas.length > 0) latest.current.onAdd(newAreas);
       else if (suggestions.length === 0) setError("No open risk flags, failing tests, or compliance gaps found to suggest from.");
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (latest.current.ready && latest.current.generation === original.generation) setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setLoading(false);
+      if (latest.current.ready && latest.current.generation === original.generation) setLoading(false);
     }
   }
 
   return (
     <div style={{ marginTop: 4 }}>
-      <button className="btn-secondary" style={{ fontSize: 12 }} onClick={suggest} disabled={loading}>
+      <button type="button" className="btn-secondary" style={{ fontSize: 12 }} onClick={suggest} disabled={loading || !ready}>
         {loading ? "Checking…" : "Suggest from existing data"}
       </button>
       {error && <span className="text-muted" style={{ fontSize: 12, marginLeft: 8 }}>{error}</span>}
+      <p className="text-muted" style={{ fontSize: 12 }}>Suggestions apply only while these exact strategy fields and the original signed-in session remain current. If that context changes, the earlier response is not added and cannot replace a newer notice. Retry with the retained current fields.</p>
     </div>
   );
 }
@@ -179,54 +146,33 @@ function QaStrategyForm({
   projectId,
   values,
   onChange,
+  active = true,
 }: {
   projectId: string;
   values: Record<string, unknown>;
   onChange: (values: Record<string, unknown>) => void;
+  active?: boolean;
 }) {
-  const asStringArray = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
-  const riskAreas = asStringArray(values.riskAreas);
-  const environments = asStringArray(values.environments);
-  const entryCriteria = asStringArray(values.entryCriteria);
-  const exitCriteria = asStringArray(values.exitCriteria);
+  const fingerprint = qaStrategyFingerprint(projectId, values);
+  const fields = [
+    { key: "riskAreas", label: "Risk areas", hint: "Parts of the product most likely to break, or most costly if they do.", placeholder: "e.g. Checkout payment flow" },
+    { key: "environments", label: "Environments", hint: "Where this strategy's testing actually runs.", placeholder: "e.g. Staging, iOS 17 physical device" },
+    { key: "entryCriteria", label: "Entry criteria", hint: "What must be true before testing under this strategy can start.", placeholder: "e.g. Feature flag enabled in staging" },
+    { key: "exitCriteria", label: "Exit criteria", hint: "What must be true to call this strategy's testing done.", placeholder: "e.g. Zero open Sev1 risk flags" },
+  ];
 
   return (
     <div style={{ display: "grid", gap: 18 }}>
-      <div>
-        <StringListField
-          label="Risk areas"
-          hint="Parts of the product most likely to break, or most costly if they do."
-          placeholder="e.g. Checkout payment flow"
-          values={riskAreas}
-          onChange={(v) => onChange({ ...values, riskAreas: v })}
-        />
-        <SuggestRiskAreasButton
-          projectId={projectId}
-          existing={riskAreas}
-          onAdd={(areas) => onChange({ ...values, riskAreas: [...riskAreas, ...areas] })}
-        />
-      </div>
-      <StringListField
-        label="Environments"
-        hint="Where this strategy's testing actually runs."
-        placeholder="e.g. Staging, iOS 17 physical device"
-        values={environments}
-        onChange={(v) => onChange({ ...values, environments: v })}
-      />
-      <StringListField
-        label="Entry criteria"
-        hint="What must be true before testing under this strategy can start."
-        placeholder="e.g. Feature flag enabled in staging"
-        values={entryCriteria}
-        onChange={(v) => onChange({ ...values, entryCriteria: v })}
-      />
-      <StringListField
-        label="Exit criteria"
-        hint="What must be true to call this strategy's testing done."
-        placeholder="e.g. Zero open Sev1 risk flags"
-        values={exitCriteria}
-        onChange={(v) => onChange({ ...values, exitCriteria: v })}
-      />
+      {fields.map(field => {
+        const list = qaStrategyList(values, field.key);
+        return <section key={field.key}>
+          {list.kind === "retained" ? <><h3>{field.label}</h3><p role="status">The complete native value is not a supported string list. It is retained read-only; no items were filtered or replaced.</p><pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{describeRetainedPlanValue(list.raw, true)}</pre></> : <>
+            {list.kind === "missing" && <p className="text-muted">Not set. Add a row deliberately to initialize this list.</p>}
+            <StringListField label={field.label} hint={field.hint} placeholder={field.placeholder} values={list.items} onChange={items => onChange({ ...values, [field.key]: items })} />
+            {field.key === "riskAreas" && <SuggestRiskAreasButton projectId={projectId} active={active} existing={list.items} fingerprint={fingerprint} onAdd={areas => onChange({ ...values, riskAreas: [...list.items, ...areas] })} />}
+          </>}
+        </section>;
+      })}
     </div>
   );
 }
@@ -240,6 +186,11 @@ function VersionHistorySection({ testPlanId }: { testPlanId: string }) {
   const historyQuery = trpcReact.testPlans.history.useQuery({ testPlanId });
   const versions = historyQuery.data ?? [];
   const loading = historyQuery.isPending;
+  function executionSummary(value: unknown): string | null {
+    if (!value || typeof value !== "object" || !("version" in value) || value.version !== 1 || !("testCaseIds" in value) || !Array.isArray(value.testCaseIds) || !("configurations" in value) || !Array.isArray(value.configurations) || value.testCaseIds.length > 500 || value.configurations.length > 20) return null;
+    const names = value.configurations.map(item => item && typeof item === "object" && "name" in item && typeof item.name === "string" ? item.name.slice(0, 120) : "Unnamed configuration");
+    return `${value.testCaseIds.length} execution cases; ${names.length} configurations${names.length ? `: ${names.join(", ")}` : ""}`;
+  }
 
   function changesFrom(version: RouterOutputs["testPlans"]["history"][number], index: number): string[] {
     const prev = versions[index + 1]; // desc order -- the next array entry is the prior version
@@ -248,18 +199,15 @@ function VersionHistorySection({ testPlanId }: { testPlanId: string }) {
     if (version.name !== prev.name) changes.push(`name: "${prev.name}" → "${version.name}"`);
     if (version.description !== prev.description) changes.push("description changed");
     if (version.status !== prev.status) changes.push(`status: ${prev.status} → ${version.status}`);
-    const allKeys = new Set([...Object.keys(version.customFields), ...Object.keys(prev.customFields)]);
-    for (const k of allKeys) {
-      if (JSON.stringify(version.customFields[k]) !== JSON.stringify(prev.customFields[k])) {
-        changes.push(`${k} changed`);
-      }
-    }
+    if (JSON.stringify(version.executionTemplate) !== JSON.stringify(prev.executionTemplate)) changes.push("execution cases/configurations changed");
+    changes.push(...planMetadataChanges(version.customFields, prev.customFields));
     return changes.length > 0 ? changes : ["No changes"];
   }
 
   return (
     <div style={{ marginBottom: 24 }}>
       <h2>History</h2>
+      {historyQuery.error && <p role="alert">History could not be refreshed: {historyQuery.error.message}. No empty or complete history is inferred. <button type="button" onClick={() => void historyQuery.refetch()}>Retry history</button></p>}
       {loading && <p>Loading…</p>}
       {!loading && (
         <ul style={{ listStyle: "none", padding: 0 }}>
@@ -277,9 +225,10 @@ function VersionHistorySection({ testPlanId }: { testPlanId: string }) {
                   <li key={j}>{c}</li>
                 ))}
               </ul>
+              {executionSummary(v.executionTemplate) && <p className="text-muted" style={{ fontSize: 12, overflowWrap: "anywhere" }}>{executionSummary(v.executionTemplate)}</p>}
             </li>
           ))}
-          {versions.length === 0 && <p className="text-muted">No history yet.</p>}
+          {versions.length === 0 && !historyQuery.error && <p className="text-muted">No history yet.</p>}
         </ul>
       )}
     </div>
@@ -432,6 +381,18 @@ function StrategyLinkSection({
         </div>
       ) : readOnly ? (
         <p className="text-muted">Not linked to a strategy.</p>
+      ) : candidatesQuery.error ? (
+        <p role="alert">
+          Available strategies could not be refreshed. Retry before choosing a strategy.{" "}
+          <button type="button" className="btn-secondary" disabled={saving || candidatesQuery.isFetching} onClick={() => void candidatesQuery.refetch()}>Retry strategies</button>
+        </p>
+      ) : candidatesQuery.isPaused ? (
+        <p role="status">
+          Strategy listing is paused.{" "}
+          <button type="button" className="btn-secondary" disabled={saving} onClick={() => void candidatesQuery.refetch()}>Retry strategies</button>
+        </p>
+      ) : candidatesQuery.isPending || candidatesQuery.isLoading || candidatesQuery.isFetching ? (
+        <p role="status">Loading available strategies…</p>
       ) : candidates.length === 0 ? (
         <p className="text-muted">No QA strategy plans exist in this project yet.</p>
       ) : (
@@ -560,204 +521,109 @@ function TestCaseQualityReviewSection({ testPlanId, projectId }: { testPlanId: s
 
 export function TestPlanDetailContent({
   id,
+  projectId: routeProjectId,
   onChanged,
   readOnly = false,
 }: {
   id: string;
+  projectId?: string;
   onChanged?: () => void;
   readOnly?: boolean;
 }) {
-  // P1-15: plan + requirements are queries (requirements dependent on the
-  // plan's projectId). The editable header fields live in a local draft
-  // layered over the plan row: untouched fields always show the latest
-  // server value, edited ones keep the user's text until save clears the
-  // draft - so a refetch after adding a criterion no longer wipes an
-  // in-progress name/description edit the way the old load() reseed did.
+  // Keep each reviewed controller mounted through unavailable parent reads.
+  // Route/project metadata discovers scope only; native echoes authorize it.
   const utils = trpcReact.useUtils();
+  const auth = useAuth();
   const planQuery = trpcReact.testPlans.byId.useQuery({ id });
-  const plan: Plan | null = planQuery.data ?? null;
-  const requirementsQuery = trpcReact.requirements.list.useQuery(
-    { projectId: plan?.projectId ?? "" },
-    { enabled: plan !== null },
-  );
-  const requirements = requirementsQuery.data ?? [];
-  const updateMutation = trpcReact.testPlans.update.useMutation();
-  const addCriterionMutation = trpcReact.testPlans.addAcceptanceCriterion.useMutation();
-  const updateCriterionMutation = trpcReact.testPlans.updateAcceptanceCriterion.useMutation();
-  const deleteCriterionMutation = trpcReact.testPlans.deleteAcceptanceCriterion.useMutation();
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  type Draft = { name?: string; description?: string; status?: string; customFields?: Record<string, unknown> };
-  const [draft, setDraft] = useState<Draft>({});
-  const name = draft.name ?? plan?.name ?? "";
-  const description = draft.description ?? plan?.description ?? "";
-  const status = draft.status ?? plan?.status ?? "DRAFT";
-  const customFields = draft.customFields ?? plan?.customFields ?? {};
-  const setName = (v: string) => setDraft((d) => ({ ...d, name: v }));
-  const setDescription = (v: string) => setDraft((d) => ({ ...d, description: v }));
-  const setStatus = (v: string) => setDraft((d) => ({ ...d, status: v }));
-  const setCustomFields = (v: Record<string, unknown>) => setDraft((d) => ({ ...d, customFields: v }));
-
-  const [newCriterion, setNewCriterion] = useState("");
-  const [newCriterionRequirementId, setNewCriterionRequirementId] = useState("");
+  const scopeMismatch = !!routeProjectId && !!planQuery.data && planQuery.data.projectId !== routeProjectId;
+  const plan: Plan | null = scopeMismatch ? null : planQuery.data ?? null;
+  const [discovery, setDiscovery] = useState<{ id: string; projectId: string; typeKey: string } | null>(null);
+  if (plan && discovery?.id !== id) setDiscovery({ id, projectId: plan.projectId, typeKey: plan.testPlanType.key });
+  const controlProjectId = routeProjectId ?? (discovery?.id === id ? discovery.projectId : plan?.projectId);
+  const projectDiscovery = trpcReact.project.byId.useQuery({ id: controlProjectId ?? "pending" }, { enabled: !!controlProjectId && auth.isLoaded && !!auth.isSignedIn, retry: false, staleTime: 0, refetchOnWindowFocus: false });
+  const organizationId = projectDiscovery.data && projectDiscovery.data.id === controlProjectId ? projectDiscovery.data.organizationId : "";
+  const description = plan?.description;
+  const status = plan?.status;
+  const [executionOpen, setExecutionOpen] = useState(false);
 
   function load() {
     void utils.testPlans.byId.invalidate({ id });
     void utils.testPlans.history.invalidate({ testPlanId: id });
   }
 
-  async function save() {
-    setSaving(true);
-    setError(null);
-    setSaved(false);
-    try {
-      await updateMutation.mutateAsync({ id, name, description: description || undefined, status: status as never, customFields });
-      setSaved(true);
-      setDraft({});
-      load();
-      onChanged?.();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function addCriterion() {
-    if (!newCriterion) return;
-    try {
-      await addCriterionMutation.mutateAsync({
-        testPlanId: id,
-        description: newCriterion,
-        requirementId: newCriterionRequirementId || undefined,
-      });
-      setNewCriterion("");
-      setNewCriterionRequirementId("");
-      load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }
-
-  async function updateCriterionStatus(criterionId: string, description: string, requirementId: string | null, statusValue: string) {
-    await updateCriterionMutation.mutateAsync({ id: criterionId, description, status: statusValue as never, requirementId });
-    load();
-  }
-
-  async function removeCriterion(criterionId: string) {
-    await deleteCriterionMutation.mutateAsync({ id: criterionId });
-    load();
-  }
-
-  const loadError = planQuery.error?.message ?? requirementsQuery.error?.message ?? null;
-  if (error ?? loadError) return <p style={{ color: "var(--ember)" }}>{error ?? loadError}</p>;
-  if (!plan) return <p>Loading…</p>;
+  const fieldsRenderer = (plan?.testPlanType.key ?? (discovery?.id === id ? discovery.typeKey : null)) === "qa-strategy" && controlProjectId
+    ? (values: Record<string, unknown>, onChange: (values: Record<string, unknown>) => void, context: { active: boolean; projectId: string; testPlanId: string }) => <QaStrategyForm projectId={context.projectId} active={context.active} values={values} onChange={onChange} /> : undefined;
+  const reviewedControls = controlProjectId ? <section className="plan-edit-actions" key={`reviewed:${controlProjectId}:${id}`}>
+    <PlanHeaderEditor key={`${controlProjectId}:${id}`} projectId={controlProjectId} testPlanId={id} readOnly={readOnly} onChanged={() => { load(); onChanged?.(); }} />
+    <PlanStatusEditor key={`status:${controlProjectId}:${id}`} projectId={controlProjectId} testPlanId={id} organizationId={organizationId} readOnly={readOnly} onChanged={() => { load(); onChanged?.(); }} />
+    <PlanCustomFieldsEditor key={`fields:${controlProjectId}:${id}`} projectId={controlProjectId} testPlanId={id} organizationId={organizationId} readOnly={readOnly} renderFields={fieldsRenderer} onChanged={() => { load(); onChanged?.(); }} />
+  </section> : null;
+  const loadError = scopeMismatch ? "This plan does not belong to the route’s selected project. No unrelated plan body is shown." : planQuery.error?.message ?? null;
+  // Retain the same child owner through unavailable parent metadata. Closing
+  // its visible dialog does not discard held draft/body/UUID state and grants
+  // no new save/start authority to the legacy execution path.
+  const executionControls = controlProjectId ? <PlanExecutionModal key={id}
+    open={executionOpen && !!plan && auth.isLoaded && !!auth.isSignedIn && !readOnly && !loadError}
+    onClose={() => setExecutionOpen(false)} id={id} projectId={controlProjectId}
+    organizationId={organizationId || undefined}
+    onSaved={() => { load(); onChanged?.(); }} /> : null;
+  const templateControls = controlProjectId ? <div className="workspace-toolbar plan-primary-actions">
+    <PlanTemplateEditor key={`template:${controlProjectId}:${id}`} projectId={controlProjectId} testPlanId={id} organizationId={organizationId} readOnly={readOnly || !plan || !!loadError || !auth.isSignedIn} onChanged={() => { load(); onChanged?.(); }} />
+    {!readOnly && !!plan && !loadError && <button className="btn-secondary" onClick={() => setExecutionOpen(true)}>Run plan</button>}
+  </div> : null;
+  if (!plan) return <div className="plan-workbench">{executionControls}{templateControls}{reviewedControls}<p role={loadError ? "alert" : undefined}>{loadError ?? "Loading saved plan…"}</p></div>;
 
   return (
-    <div>
-      <h1 style={{ marginBottom: 2 }}>{plan.name}</h1>
-      <p style={{ color: "var(--muted)" }}>{plan.testPlanType.name} plan</p>
+    <div className="plan-workbench">
+      {executionControls}
+      {templateControls}
+      {loadError && <div role="alert" style={{ color: "var(--ember)", marginBottom: 12 }}>
+        <p>{loadError}</p>
+        <p>Your mounted drafts remain here. A failed response is not proof that a save was rejected.</p>
+        <button type="button" className="btn-secondary" onClick={load}>Refresh saved plan without clearing drafts</button>
+      </div>}
+      <header className="plan-workbench-header">
+        <div><p className="workspace-eyebrow">{plan.testPlanType.name} plan · {status}</p><h1>{plan.name}</h1>{description && <p className="muted">{description}</p>}</div>
+      </header>
+      <details className="plan-workbench-section"><summary>Plan settings</summary>{reviewedControls}
+        <details><summary>Additional fields</summary><pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{describeRetainedPlanValue(plan.customFields, true)}</pre></details>
+      </details>
 
-      {readOnly ? (
+      {readOnly && (
         <div style={{ display: "grid", gap: 6, marginBottom: 24 }}>
           {description && <p style={{ color: "var(--muted)" }}>{description}</p>}
           <p className="text-muted" style={{ fontSize: 13 }}>
             Status: {status} · You have read-only access to this organization — editing is hidden.
           </p>
         </div>
-      ) : (
-        <div style={{ display: "grid", gap: 10, marginBottom: 24 }}>
-          <label>
-            Name
-            <input value={name} onChange={(e) => setName(e.target.value)} style={{ width: "100%" }} />
-          </label>
-          <label>
-            Description
-            <textarea value={description} onChange={(e) => setDescription(e.target.value)} style={{ width: "100%" }} rows={3} />
-          </label>
-          <label>
-            Status
-            <select value={status} onChange={(e) => setStatus(e.target.value)}>
-              {STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          {plan.testPlanType.key === "qa-strategy" ? (
-            <QaStrategyForm projectId={plan.projectId} values={customFields} onChange={setCustomFields} />
-          ) : (
-            <CustomFieldsForm schema={plan.testPlanType.fieldSchema as FieldSchema} values={customFields} onChange={setCustomFields} />
-          )}
-
-          <button onClick={save} disabled={saving || !name}>
-            {saving ? "Saving…" : "Save"}
-          </button>
-          {saved && <p style={{ color: "var(--frost)" }}>Saved.</p>}
-        </div>
       )}
-
       {plan.testPlanType.key === "qa-strategy" && <StrategySignalsSection projectId={plan.projectId} />}
 
       <StrategyLinkSection plan={plan} projectId={plan.projectId} onChanged={load} readOnly={readOnly} />
-
-      <VersionHistorySection testPlanId={id} />
-
-      <TestCaseQualityReviewSection testPlanId={id} projectId={plan.projectId} />
-
+      <section className="plan-workbench-section">
       <h2>Acceptance criteria</h2>
       <ul style={{ listStyle: "none", padding: 0 }}>
         {plan.acceptanceCriteria.map((c) => (
           <li key={c.id} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
-            <span style={{ flex: 1 }}>{c.description}</span>
-            {readOnly ? (
+            <div style={{ flex: 1, minWidth: 0, overflowWrap: "anywhere" }}>
+              <span style={{ whiteSpace: "pre-wrap" }}>{c.description}</span>{" "}
+              <span hidden={readOnly}><CriterionDescriptionEditor projectId={plan.projectId} testPlanId={id} criterionId={c.id} onChanged={load} /></span>
+            </div>
+            <div hidden={readOnly}><CriterionVerdictEditor projectId={plan.projectId} testPlanId={id} criterionId={c.id} status={c.status} onChanged={load} /></div>
+            {readOnly && (
               <span className="text-muted" style={{ fontSize: 12 }}>{c.status}</span>
-            ) : (
-              <>
-                <select
-                  value={c.status}
-                  onChange={(e) => updateCriterionStatus(c.id, c.description, c.requirementId, e.target.value)}
-                >
-                  {CRITERION_STATUSES.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
-                <button onClick={() => removeCriterion(c.id)}>Remove</button>
-              </>
             )}
           </li>
         ))}
         {plan.acceptanceCriteria.length === 0 && <p style={{ color: "var(--muted)" }}>No acceptance criteria yet.</p>}
       </ul>
-
-      {!readOnly && (
-        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-          <input
-            value={newCriterion}
-            onChange={(e) => setNewCriterion(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && addCriterion()}
-            placeholder="New acceptance criterion, press Enter…"
-            style={{ flex: 1 }}
-          />
-          <select value={newCriterionRequirementId} onChange={(e) => setNewCriterionRequirementId(e.target.value)}>
-            <option value="">(no linked requirement)</option>
-            {requirements.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.title}
-              </option>
-            ))}
-          </select>
-          <button onClick={addCriterion} disabled={!newCriterion}>
-            + Add
-          </button>
-        </div>
-      )}
+      <GovernedCriterionCollection key={`${plan.projectId}:${id}`} projectId={plan.projectId} testPlanId={id} readOnly={readOnly} onChanged={load} />
+      </section>
+      <details className="plan-workbench-section"><summary>Quality review</summary><TestCaseQualityReviewSection testPlanId={id} projectId={plan.projectId} /></details>
+      <details className="plan-workbench-section"><summary>Activity & history</summary>
+        <VersionHistorySection testPlanId={id} />
+        <PlanGovernanceHistory projectId={plan.projectId} testPlanId={id} />
+      </details>
     </div>
   );
 }

@@ -1,0 +1,10 @@
+// Synthetic test/preview fixture only; no customer data or runtime proof.
+export function summaryFixture() {
+  const blank = () => ({ runs: 0, trustedRuns: 0, excludedRuns: 0, inProgressTrustedRuns: 0, plannedInstances: 0, recordedInstances: 0, remainingInstances: 0, partialStepInstances: 0, ignoredOutsideScopeResultRows: 0, outcomes: { PASS: 0, FAIL: 0, BLOCKED: 0, SKIP: 0, FLAKY: 0 }, exclusions: { UNSUPPORTED_FROZEN_SCOPE: 0, AMBIGUOUS_RESULT: 0, UNTRACKED_RESULT: 0, HEAD_PROJECTION_MISMATCH: 0 } });
+  const first = { ...blank(), day: "2026-01-01", runs: 1, trustedRuns: 1, inProgressTrustedRuns: 1, plannedInstances: 851, recordedInstances: 3, remainingInstances: 848, partialStepInstances: 1, ignoredOutsideScopeResultRows: 2, outcomes: { PASS: 1, FAIL: 0, BLOCKED: 1, SKIP: 1, FLAKY: 0 } };
+  const second = { ...blank(), day: "2026-01-02", runs: 2, trustedRuns: 1, excludedRuns: 1, plannedInstances: 851, remainingInstances: 851, exclusions: { ...blank().exclusions, UNSUPPORTED_FROZEN_SCOPE: 1 } };
+  const totals = { ...blank(), runs: 3, trustedRuns: 2, excludedRuns: 1, inProgressTrustedRuns: 1, plannedInstances: 1702, recordedInstances: 3, remainingInstances: 1699, partialStepInstances: 1, ignoredOutsideScopeResultRows: 2, outcomes: first.outcomes, exclusions: second.exclusions };
+  const input = { projectId: "synthetic-project", originalOrganizationId: "synthetic-org", start: "2026-01-01", end: "2026-01-02", platform: "Synthetic platform", environment: "=SUM(A1)\nSynthetic bench", build: "Synthetic build" };
+  const requestKey = `manual-case-heads:${JSON.stringify(input)}`;
+  return { value: { projectId: input.projectId, organizationId: input.originalOrganizationId, clerkActorId: "synthetic-actor", requestKey, asOf: "2026-01-02T12:00:00.000Z", scope: { start: input.start, end: input.end, environment: input.environment, platform: input.platform, build: input.build }, totals, days: [first, second], limitations: ["Status-only synthetic aggregate, not readiness or history", "Missing whole-case verdict may include attempted partial steps"] }, input, requestKey };
+}

@@ -1,0 +1,39 @@
+# Builder proof only, never an API/Web deployment image. Preserve the exact
+# maintained distribution, compiler/package rules, signatures and native tests.
+FROM public.ecr.aws/docker/library/node:22-trixie-slim@sha256:b26b04c123d9ff8ab646ceb18b9d75a1173acf64b9a401094b906d27b29338d4 AS maintained-native-environment
+RUN apt-get update --error-on=any \
+    && apt-get install -y --no-install-recommends build-essential g++-14-for-host gettext dpkg-dev xz-utils file quilt autoconf gawk debhelper rdfind symlinks netbase gperf bison linux-libc-dev libaudit-dev libcap-dev libselinux1-dev binutils-for-host python3 libidn2-0 libgd-dev perl po-debconf bzip2 pkgconf gpgv debian-keyring libbrotli-dev libbz2-dev libpng-dev libtool libx11-dev x11proto-core-dev zlib1g-dev meson ninja-build unzip \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /build
+ARG VAETTIR_RELEASE_COMMIT
+ARG VAETTIR_NATIVE_JOBS=2
+ENV VAETTIR_NATIVE_JOBS=$VAETTIR_NATIVE_JOBS
+RUN node -e "if(!/^[a-f0-9]{40}$/.test(process.argv[1]))process.exit(1)" "$VAETTIR_RELEASE_COMMIT"
+COPY scripts/runtime-security-sources.json scripts/fetch-runtime-security-sources.mjs scripts/fetch-freetype-test-corpus.mjs scripts/build-maintained-runtime.sh scripts/runtime-build-proof.mjs scripts/watch-native-build-logs.mjs /build/scripts/
+# Use the existing image build user, not a new account or a privileged test
+# exception. Inputs/evidence are owned by that same unprivileged user.
+RUN chown -R node:node /build
+USER node
+RUN node /build/scripts/fetch-runtime-security-sources.mjs /build/glibc-sources glibc \
+    && node /build/scripts/fetch-runtime-security-sources.mjs /build/freetype-sources freetype \
+    && node /build/scripts/fetch-freetype-test-corpus.mjs /build/freetype-standard-corpus
+FROM maintained-native-environment AS maintained-native
+RUN --network=none node /build/scripts/watch-native-build-logs.mjs /build/scripts/build-maintained-runtime.sh /build/scripts/runtime-security-sources.json /build/glibc-sources /build/freetype-sources /build/runtime-security /build/scripts/runtime-build-proof.mjs /build/freetype-standard-corpus
+
+FROM scratch AS runtime-security-proof
+ARG VAETTIR_RELEASE_COMMIT
+LABEL vaettir.artifact-purpose="maintained-native-package-proof" vaettir.runtime-eligible="false" vaettir.source-commit=$VAETTIR_RELEASE_COMMIT
+COPY --from=maintained-native /build/runtime-security/glibc/libc6_2.41-12+deb13u4+vaettir1_amd64.deb /proof/packages/
+COPY --from=maintained-native /build/runtime-security/glibc/libc-bin_2.41-12+deb13u4+vaettir1_amd64.deb /proof/packages/
+COPY --from=maintained-native /build/runtime-security/freetype/libfreetype6_2.13.3+dfsg-1+deb13u1+vaettir1_amd64.deb /proof/packages/
+COPY --from=maintained-native /build/runtime-security/glibc/*.json /proof/receipts/
+COPY --from=maintained-native /build/runtime-security/freetype/*.json /proof/receipts/
+COPY --from=maintained-native /build/runtime-security/glibc/*.status /proof/glibc/
+COPY --from=maintained-native /build/runtime-security/glibc/*.sum /proof/glibc/
+COPY --from=maintained-native /build/runtime-security/glibc/*.log /proof/glibc/
+COPY --from=maintained-native /build/runtime-security/freetype/*.status /proof/freetype/
+COPY --from=maintained-native /build/runtime-security/freetype/*.log /proof/freetype/
+COPY --from=maintained-native /build/runtime-security/freetype/freetype-acceptance-gap.txt /proof/freetype/
+COPY --from=maintained-native /build/glibc-sources /proof/sources/glibc/
+COPY --from=maintained-native /build/freetype-sources /proof/sources/freetype/
+COPY --from=maintained-native /build/freetype-standard-corpus /proof/sources/freetype-standard-corpus/

@@ -1,13 +1,61 @@
+import { createHash } from "node:crypto";
+import { assertApprovedAnalysisReservation, isDefinitiveAnalysisSpendRefusal, currentApprovedAnalysisSpend } from "../services/approvedAnalysisSpend.js";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { TestCaseStepInputSchema, resolveStepFieldLabels, type StepFieldKey } from "@vaettir/core";
-import { assessTestCaseRisk, reviewTestCaseQuality, type TestCaseForReview } from "@vaettir/ai-agent";
+import {
+  TestCaseStepInputSchema,
+  resolveStepFieldLabels,
+  type StepFieldKey,
+  caseProcedureExportSchema,
+  MAX_PROCEDURE_EXPORT_CASES,
+} from "@vaettir/core";
+import {
+  assessTestCaseRisk,
+  AutomationDraftSchema,
+  AutomationFrameworkSchema,
+  generateAutomationDraft,
+  reviewTestCaseQuality,
+  type TestCaseForReview,
+} from "@vaettir/ai-agent";
 import { Prisma } from "@vaettir/db";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { recordAudit } from "../services/auditLog.js";
-import { chargeAiCredits, InsufficientAiCreditsError, meterAiCall } from "../services/aiCredits.js";
+import { buildCaseRiskInput as riskInput } from "../services/caseRiskInput.js";
+import {
+  chargeAiCredits,
+  AI_OPERATION_COSTS,
+  getAiCreditBalance,
+  InsufficientAiCreditsError,
+  meterAiCall,
+} from "../services/aiCredits.js";
 import { parseTestCaseCsv } from "../services/testCaseCsvImport.js";
+import { captureCaseProcedureExport } from "../services/caseProcedureExport.js";
+import { assertCaseFieldAuthoring, lockCaseFieldProject } from "../services/caseFields.js";
+import { lockCurrentCaseFieldActor } from "../services/caseFieldReadScope.js";
+import { caseFieldValues } from "../services/caseFieldSchema.js";
+import { commitImportedTestCasesInTransaction } from "../services/importCommit.js";
+import { testCaseContentRevision } from "../services/testCaseContentRevision.js";
 import { snapshotTestCaseVersion } from "../services/testCaseVersion.js";
+import { ensureCaseEvidenceNotRetained } from "../services/caseEvidenceRetention.js";
+import { requireCurrentPlanAccess } from "../services/testPlanExecution.js";
+import { liveCaseDisplayId, resolveProjectCaseReference } from "../services/projectCaseKeys.js";
+import {
+  validationDomainSchema,
+  verificationProfileSchema,
+} from "../services/physicalValidation.js";
+
+const prioritySchema = z.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"]);
+const priorityDecisionSchema = z.object({
+  mode: z.enum(["MATCH_RISK", "BUSINESS_OVERRIDE", "MANUAL"]),
+  from: prioritySchema,
+  to: prioritySchema,
+  rationale: z.string().nullable().optional(),
+  riskSeverity: z
+    .enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"])
+    .nullable()
+    .optional(),
+  riskScore: z.number().nullable().optional(),
+});
 
 const stepOutputSchema = z.object({
   order: z.number(),
@@ -15,7 +63,51 @@ const stepOutputSchema = z.object({
   expectedActionOrData: z.string().nullable(),
   expectedResult: z.string().nullable(),
   expectedResponse: z.string().nullable(),
+  mediaAttachmentIds: z.array(z.string()),
 });
+
+function stepMediaIds(steps: Array<{ mediaAttachmentIds?: string[] }>) {
+  return [...new Set(steps.flatMap((step) => step.mediaAttachmentIds ?? []))];
+}
+
+function assertSharedStepProject(tc: {
+  projectId: string;
+  sharedStepGroup: { projectId: string } | null;
+}) {
+  if (tc.sharedStepGroup && tc.sharedStepGroup.projectId !== tc.projectId) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        "This case references a shared step group from another project. Review the case's step library before continuing.",
+    });
+  }
+}
+
+function stepRevision(
+  steps: Array<{
+    order: number;
+    action: string;
+    expectedActionOrData: string | null;
+    expectedResult: string | null;
+    expectedResponse: string | null;
+    mediaAttachmentIds: string[];
+  }>,
+) {
+  return createHash("sha256")
+    .update(
+      JSON.stringify(
+        steps.map((step) => ({
+          order: step.order,
+          action: step.action,
+          expectedActionOrData: step.expectedActionOrData,
+          expectedResult: step.expectedResult,
+          expectedResponse: step.expectedResponse,
+          mediaAttachmentIds: step.mediaAttachmentIds,
+        })),
+      ),
+    )
+    .digest("hex");
+}
 
 // Shared by create and update: the fields that make up a test case's
 // content, independent of which record it belongs to.
@@ -35,22 +127,40 @@ const testCaseContentSchema = z.object({
   testType: z.string(),
   priority: z.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"]).default("MEDIUM"),
   suitePath: z.string().optional(),
+  validationDomain: validationDomainSchema.optional(),
+  verificationProfile: verificationProfileSchema.optional(),
+  customFields: caseFieldValues.optional(),
+  expectedFieldSchemaHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  expectedCustomFieldRevision: z.string().regex(/^[a-f0-9]{64}$/).optional(),
 });
 
 function requireAtLeastOneFormat(v: z.infer<typeof testCaseContentSchema>) {
-  return (v.given.length > 0 && v.when.length > 0 && v.then.length > 0) || v.steps.length > 0 || Boolean(v.sharedStepGroupId);
+  return (
+    (v.given.length > 0 && v.when.length > 0 && v.then.length > 0) ||
+    v.steps.length > 0 ||
+    Boolean(v.sharedStepGroupId)
+  );
 }
-const AT_LEAST_ONE_FORMAT_MESSAGE = "Provide given/when/then, at least one structured step, or a shared step library";
+const AT_LEAST_ONE_FORMAT_MESSAGE =
+  "Provide given/when/then, at least one structured step, or a shared step library";
 
 export const testCasesRouter = router({
   list: protectedProcedure
-    .input(z.object({ projectId: z.string(), includeArchived: z.boolean().default(false) }))
+    .input(
+      z.object({
+        projectId: z.string(),
+        includeArchived: z.boolean().default(false),
+      }),
+    )
     .output(
       z.array(
         z.object({
           id: z.string(),
+          displayId: z.string(),
+          caseNumber: z.number().int(),
           title: z.string(),
           testType: z.string(),
+          automationStatus: z.string(),
           priority: z.string(),
           tags: z.array(z.string()),
           origin: z.string(),
@@ -59,20 +169,28 @@ export const testCasesRouter = router({
           suitePath: z.string().nullable(),
           archived: z.boolean(),
           isFlaky: z.boolean(),
+          riskSeverity: z.string().nullable(),
+          riskScore: z.number().nullable(),
         }),
       ),
     )
     .query(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
       const cases = await ctx.prisma.testCase.findMany({
-        where: { projectId: input.projectId, ...(input.includeArchived ? {} : { archived: false }) },
-        include: { source: true, testPlan: true },
+        where: {
+          projectId: input.projectId,
+          ...(input.includeArchived ? {} : { archived: false }),
+        },
+        include: { source: true, testPlan: true, project: { select: { caseKey: true } } },
         orderBy: { updatedAt: "desc" },
       });
       return cases.map((tc) => ({
         id: tc.id,
+        displayId: liveCaseDisplayId(tc.project.caseKey, tc.caseNumber),
+        caseNumber: tc.caseNumber,
         title: tc.title,
         testType: tc.testType,
+        automationStatus: tc.automationStatus,
         priority: tc.priority,
         tags: tc.tags,
         origin: tc.origin,
@@ -81,39 +199,100 @@ export const testCasesRouter = router({
         suitePath: tc.suitePath,
         archived: tc.archived,
         isFlaky: tc.isFlaky,
+        riskSeverity: tc.riskSeverity,
+        riskScore: tc.riskScore,
       }));
     }),
 
-  // P11-07-adjacent (2026-08-27 competitor parity audit): importCsv existed
-  // with no matching export - every competitor researched supports both
-  // directions. Returns the exact same field shape importCsv's header set
-  // expects (title/given/when/then/priority/tags), so export -> import is
-  // genuinely round-trippable, not just "data out" with no way back in.
-  // The actual CSV string construction happens client-side (same pattern
-  // P3-04's compliance report export already uses) - this returns
-  // structured data, not a pre-formatted file.
+  // Spreadsheet summary only, not a lossless backup/interchange: structured
+  // steps, shared procedures and some metadata are not represented by this
+  // legacy CSV. exportProcedure preserves the supported procedure content.
   exportCsv: protectedProcedure
-    .input(z.object({ projectId: z.string(), includeArchived: z.boolean().default(false) }))
+    .input(
+      z.object({
+        projectId: z.string(),
+        includeArchived: z.boolean().default(false),
+      }),
+    )
     .output(
       z.array(
         z.object({
+          id: z.string(),
+          displayId: z.string(),
+          caseNumber: z.number().int().positive(),
           title: z.string(),
           given: z.array(z.string()),
           when: z.array(z.string()),
           then: z.array(z.string()),
+          testType: z.string(),
+          automationStatus: z.string(),
           priority: z.string(),
+          riskScore: z.number().nullable(),
+          riskSeverity: z.string().nullable(),
+          origin: z.string(),
+          suitePath: z.string().nullable(),
           tags: z.array(z.string()),
         }),
       ),
     )
     .query(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
+      const project = await ctx.prisma.project.findUniqueOrThrow({ where: { id: input.projectId }, select: { caseKey: true } });
       const cases = await ctx.prisma.testCase.findMany({
-        where: { projectId: input.projectId, ...(input.includeArchived ? {} : { archived: false }) },
+        where: {
+          projectId: input.projectId,
+          ...(input.includeArchived ? {} : { archived: false }),
+        },
         orderBy: { title: "asc" },
-        select: { title: true, given: true, when: true, then: true, priority: true, tags: true },
+        select: {
+          id: true,
+          displayId: true,
+          caseNumber: true,
+          title: true,
+          given: true,
+          when: true,
+          then: true,
+          testType: true,
+          automationStatus: true,
+          priority: true,
+          riskScore: true,
+          riskSeverity: true,
+          origin: true,
+          suitePath: true,
+          tags: true,
+        },
       });
-      return cases;
+      return cases.map(tc => ({ ...tc, displayId: liveCaseDisplayId(project.caseKey, tc.caseNumber) }));
+    }),
+
+  exportProcedure: protectedProcedure
+    .input(
+      z
+        .object({
+          projectId: z.string().min(1),
+          ids: z
+            .array(z.string().min(1))
+            .min(1)
+            .max(MAX_PROCEDURE_EXPORT_CASES)
+            .refine(
+              (ids) => new Set(ids).size === ids.length,
+              "Choose each case once",
+            ),
+          scope: z.enum(["selected", "filtered"]),
+          includeArchived: z.boolean().default(false),
+        })
+        .strict(),
+    )
+    .output(caseProcedureExportSchema)
+    .query(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId);
+      return ctx.prisma.$transaction(
+        (db) => captureCaseProcedureExport(db, input),
+        {
+          isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
+          timeout: 30_000,
+        },
+      );
     }),
 
   // .output() bounds the inferred type to this schema instead of Prisma's
@@ -124,15 +303,21 @@ export const testCasesRouter = router({
     .output(
       z.object({
         id: z.string(),
+        displayId: z.string(),
+        caseNumber: z.number().int(),
         title: z.string(),
         background: z.string().nullable(),
         given: z.array(z.string()),
         when: z.array(z.string()),
         then: z.array(z.string()),
         steps: z.array(stepOutputSchema),
+        stepRevision: z.string(),
+        caseRevision: z.string().length(64),
         sharedStepGroupId: z.string().nullable(),
         sharedStepGroupName: z.string().nullable(),
         stepFieldLabels: z.record(z.string()),
+        validationDomain: validationDomainSchema,
+        verificationProfile: verificationProfileSchema,
         tags: z.array(z.string()),
         testType: z.string(),
         priority: z.string(),
@@ -154,6 +339,7 @@ export const testCasesRouter = router({
             filePath: z.string(),
             functionName: z.string().nullable(),
             framework: z.string(),
+            frameworkFamily: z.string().nullable(),
           })
           .nullable(),
         // The frozen AI output this case last got from the agent -- see the
@@ -178,42 +364,58 @@ export const testCasesRouter = router({
           source: true,
           steps: { orderBy: { order: "asc" } },
           sharedStepGroup: true,
-          project: { include: { organization: { select: { stepFieldLabels: true } } } },
+          project: {
+            include: { organization: { select: { stepFieldLabels: true } } },
+          },
           reviewedBy: { select: { name: true, email: true } },
         },
       });
       await requireProjectAccess(ctx, tc.projectId);
+      assertSharedStepProject(tc);
       // A case linked to a shared step group defers entirely to its
       // steps (see the schema comment on TestCase.sharedStepGroupId) -
       // resolved live here, not duplicated onto the case, so an edit to
       // the group is instantly reflected on every case that uses it.
       const resolvedSteps = tc.sharedStepGroup
-        ? (tc.sharedStepGroup.steps as Array<{
-            order: number;
-            action: string;
-            expectedActionOrData: string | null;
-            expectedResult: string | null;
-            expectedResponse: string | null;
-          }>)
+        ? (
+            tc.sharedStepGroup.steps as Array<{
+              order: number;
+              action: string;
+              expectedActionOrData: string | null;
+              expectedResult: string | null;
+              expectedResponse: string | null;
+            }>
+          ).map((s) => ({ ...s, mediaAttachmentIds: [] }))
         : tc.steps.map((s) => ({
             order: s.order,
             action: s.action,
             expectedActionOrData: s.expectedActionOrData,
             expectedResult: s.expectedResult,
             expectedResponse: s.expectedResponse,
+            mediaAttachmentIds: s.mediaAttachmentIds,
           }));
       return {
         id: tc.id,
+        displayId: liveCaseDisplayId(tc.project.caseKey, tc.caseNumber),
+        caseNumber: tc.caseNumber,
         title: tc.title,
         background: tc.background,
         given: tc.given,
         when: tc.when,
         then: tc.then,
         steps: resolvedSteps,
+        stepRevision: stepRevision(tc.steps),
+        caseRevision: testCaseContentRevision(tc),
+        validationDomain: tc.validationDomain,
+        verificationProfile: verificationProfileSchema.parse(
+          tc.verificationProfile,
+        ),
         sharedStepGroupId: tc.sharedStepGroupId,
         sharedStepGroupName: tc.sharedStepGroup?.name ?? null,
         stepFieldLabels: resolveStepFieldLabels(
-          tc.project.organization.stepFieldLabels as Partial<Record<StepFieldKey, string>> | null,
+          tc.project.organization.stepFieldLabels as Partial<
+            Record<StepFieldKey, string>
+          > | null,
         ),
         tags: tc.tags,
         testType: tc.testType,
@@ -221,7 +423,9 @@ export const testCasesRouter = router({
         origin: tc.origin,
         confidence: tc.confidence,
         reviewStatus: tc.reviewStatus,
-        reviewedByName: tc.reviewedBy ? (tc.reviewedBy.name ?? tc.reviewedBy.email) : null,
+        reviewedByName: tc.reviewedBy
+          ? (tc.reviewedBy.name ?? tc.reviewedBy.email)
+          : null,
         reviewedAt: tc.reviewedAt,
         reviewNote: tc.reviewNote,
         riskSeverity: tc.riskSeverity,
@@ -232,7 +436,12 @@ export const testCasesRouter = router({
         flakyDetectedAt: tc.flakyDetectedAt,
         suitePath: tc.suitePath,
         source: tc.source
-          ? { filePath: tc.source.filePath, functionName: tc.source.functionName, framework: tc.source.framework }
+          ? {
+              filePath: tc.source.filePath,
+              functionName: tc.source.functionName,
+              framework: tc.source.framework,
+              frameworkFamily: tc.source.frameworkFamily,
+            }
           : null,
         aiSnapshot: tc.aiSnapshot as {
           title: string;
@@ -243,6 +452,33 @@ export const testCasesRouter = router({
           tags: string[];
         } | null,
       };
+    }),
+
+  // Human references are project-scoped. Never look up an ID globally and
+  // disclose a case from another workspace or infer access from the prefix.
+  byDisplayId: protectedProcedure
+    .input(
+      z
+        .object({
+          projectId: z.string().min(1),
+          displayId: z
+            .string()
+            .trim()
+            .toLowerCase()
+            .regex(/^[a-z][a-z0-9-]{0,23}-[0-9]{2,}$/),
+        })
+        .strict(),
+    )
+    .query(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId);
+      if (!ctx.authenticatedClerkSubject) throw new TRPCError({ code: "FORBIDDEN", message: "Current signed-in account access is required." });
+      const found = await resolveProjectCaseReference(ctx.prisma, ctx.user.id, input.projectId, input.displayId, { clerkActorId: ctx.authenticatedClerkSubject });
+      if (!found)
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Test case not found in this project.",
+        });
+      return found;
     }),
 
   // Test cases can be authored two ways -- BDD (given/when/then) and/or the
@@ -258,20 +494,18 @@ export const testCasesRouter = router({
       z.array(
         z.object({
           id: z.string(),
+          displayId: z.string(),
           title: z.string(),
           confidence: z.number().nullable(),
           sourceFilePath: z.string().nullable(),
         }),
       ),
     )
-    .query(async ({ ctx, input }) => {
-      await requireProjectAccess(ctx, input.projectId);
-      const cases = await ctx.prisma.testCase.findMany({
-        where: { projectId: input.projectId, reviewStatus: "PENDING_REVIEW" },
-        include: { source: true },
-        orderBy: { confidence: "asc" },
+    .query(() => {
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message: "Use the current native-reader caseReview.page/count workflow. The legacy unbounded pending-review read is unavailable.",
       });
-      return cases.map((c) => ({ id: c.id, title: c.title, confidence: c.confidence, sourceFilePath: c.source?.filePath ?? null }));
     }),
 
   // .output() bounds the inferred type (TS2589 once react-query's useMutation
@@ -280,141 +514,593 @@ export const testCasesRouter = router({
   approve: protectedProcedure
     .input(z.object({ id: z.string(), note: z.string().optional() }))
     .output(z.object({ id: z.string(), reviewStatus: z.string() }))
-    .mutation(async ({ ctx, input }) => {
-      const existing = await ctx.prisma.testCase.findUniqueOrThrow({ where: { id: input.id }, select: { projectId: true, title: true } });
-      const { project } = await requireProjectAccess(ctx, existing.projectId, "EDITOR");
-      const updated = await ctx.prisma.testCase.update({
-        where: { id: input.id },
-        data: { reviewStatus: "APPROVED", reviewedById: ctx.user.id, reviewedAt: new Date(), reviewNote: input.note, updatedById: ctx.user.id },
+    .mutation(() => {
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message: "Use caseReview.decide after reviewing the complete supported pending snapshot. This legacy write has no exact UUID recovery; an earlier uncertain response is not proof that it failed. Inspect current saved state before making a new decision.",
       });
-      await recordAudit(ctx.prisma, {
-        organizationId: project.organizationId,
-        projectId: existing.projectId,
-        actorId: ctx.user.id,
-        entityType: "TestCase",
-        entityId: input.id,
-        action: "UPDATE",
-        summary: `Approved test case "${existing.title}"`,
-        metadata: input.note ? { note: input.note } : undefined,
-      });
-      return updated;
     }),
 
   reject: protectedProcedure
     .input(z.object({ id: z.string(), note: z.string().optional() }))
     .output(z.object({ id: z.string(), reviewStatus: z.string() }))
-    .mutation(async ({ ctx, input }) => {
-      const existing = await ctx.prisma.testCase.findUniqueOrThrow({ where: { id: input.id }, select: { projectId: true, title: true } });
-      const { project } = await requireProjectAccess(ctx, existing.projectId, "EDITOR");
-      const updated = await ctx.prisma.testCase.update({
+    .mutation(() => {
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message: "Use caseReview.decide after reviewing the complete supported pending snapshot. This legacy write has no exact UUID recovery; an earlier uncertain response is not proof that it failed. Inspect current saved state before making a new decision.",
+      });
+    }),
+
+  prioritySuggestion: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const tc = await ctx.prisma.testCase.findUniqueOrThrow({
         where: { id: input.id },
-        data: { reviewStatus: "REJECTED", reviewedById: ctx.user.id, reviewedAt: new Date(), reviewNote: input.note, updatedById: ctx.user.id },
+        include: { source: { select: { filePath: true } } },
       });
-      await recordAudit(ctx.prisma, {
-        organizationId: project.organizationId,
-        projectId: existing.projectId,
-        actorId: ctx.user.id,
-        entityType: "TestCase",
-        entityId: input.id,
-        action: "UPDATE",
-        summary: `Rejected test case "${existing.title}"`,
-        metadata: input.note ? { note: input.note } : undefined,
+      const { project, membership } = await requireProjectAccess(
+        ctx,
+        tc.projectId,
+      );
+      const review = await ctx.prisma.testCaseRiskReview.findFirst({
+        where: { testCaseId: input.id, status: "READY" },
+        orderBy: { createdAt: "desc" },
+        select: { inputHash: true, content: true },
       });
-      return updated;
+      const reviewContent = z
+        .object({ severity: prioritySchema, riskScore: z.number() })
+        .safeParse(review?.content);
+      const riskNeedsReview =
+        !!review &&
+        (review.inputHash !== riskInput(tc).hash ||
+          !reviewContent.success ||
+          reviewContent.data.severity !== tc.riskSeverity ||
+          Math.round(reviewContent.data.riskScore) !== tc.riskScore);
+      const decision = await ctx.prisma.auditLog.findFirst({
+        where: {
+          organizationId: project.organizationId,
+          projectId: tc.projectId,
+          entityType: "TestCasePriority",
+          entityId: input.id,
+        },
+        orderBy: { createdAt: "desc" },
+        select: { metadata: true, createdAt: true },
+      });
+      const parsed = priorityDecisionSchema.safeParse(decision?.metadata);
+      return {
+        currentPriority: tc.priority,
+        suggestedPriority:
+          tc.riskScore === null || riskNeedsReview ? null : tc.riskSeverity,
+        riskNeedsReview,
+        riskSeverity: tc.riskSeverity,
+        riskScore: tc.riskScore,
+        riskAssessedAt: tc.riskAssessedAt,
+        canEdit: ["OWNER", "ADMIN", "EDITOR"].includes(membership.role),
+        latestDecision:
+          parsed.success && parsed.data.to === tc.priority
+            ? { ...parsed.data, createdAt: decision!.createdAt }
+            : null,
+      };
+    }),
+
+  decidePriority: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        mode: z.enum(["MATCH_RISK", "BUSINESS_OVERRIDE"]),
+        priority: z.enum(["HIGH", "CRITICAL"]).optional(),
+        rationale: z.string().trim().min(10).max(500).optional(),
+        expectedPriority: prioritySchema,
+        expectedRiskSeverity: z
+          .enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"])
+          .nullable(),
+        expectedRiskScore: z.number().int().min(0).max(100).nullable(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const caseRef = await ctx.prisma.testCase.findUniqueOrThrow({
+        where: { id: input.id },
+        select: { projectId: true },
+      });
+      const { project } = await requireProjectAccess(
+        ctx,
+        caseRef.projectId,
+        "EDITOR",
+      );
+      if (
+        input.mode === "BUSINESS_OVERRIDE" &&
+        (!input.priority || !input.rationale)
+      ) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Choose high or critical priority and explain the business need.",
+        });
+      }
+      const updated = await ctx.prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${caseRef.projectId}))::text`;
+        const current = await tx.testCase.findUniqueOrThrow({
+          where: { id: input.id },
+          include: { steps: true, source: { select: { filePath: true } } },
+        });
+        if (
+          current.priority !== input.expectedPriority ||
+          current.riskSeverity !== input.expectedRiskSeverity ||
+          current.riskScore !== input.expectedRiskScore
+        ) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              "Priority or risk changed. Refresh the suggestion before deciding.",
+          });
+        }
+        if (current.riskScore === null || current.riskSeverity === null) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Assess risk before using its priority suggestion.",
+          });
+        }
+        const review = await tx.testCaseRiskReview.findFirst({
+          where: { testCaseId: input.id, status: "READY" },
+          orderBy: { createdAt: "desc" },
+          select: { inputHash: true, content: true },
+        });
+        if (review) {
+          const saved = z
+            .object({ severity: prioritySchema, riskScore: z.number() })
+            .safeParse(review.content);
+          if (
+            review.inputHash !== riskInput(current).hash ||
+            !saved.success ||
+            saved.data.severity !== current.riskSeverity ||
+            Math.round(saved.data.riskScore) !== current.riskScore
+          ) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message:
+                "The risk review is stale or differs from the case. Reassess risk before changing priority from it.",
+            });
+          }
+        }
+        const next =
+          input.mode === "MATCH_RISK" ? current.riskSeverity : input.priority!;
+        const changed = await tx.testCase.update({
+          where: { id: input.id },
+          data: { priority: next, updatedById: ctx.user.id },
+        });
+        await tx.auditLog.create({
+          data: {
+            organizationId: project.organizationId,
+            projectId: caseRef.projectId,
+            actorId: ctx.user.id,
+            entityType: "TestCasePriority",
+            entityId: input.id,
+            action: "UPDATE",
+            summary:
+              input.mode === "MATCH_RISK"
+                ? `Accepted risk-derived priority ${next}`
+                : `Set business priority ${next}`,
+            metadata: {
+              mode: input.mode,
+              from: current.priority,
+              to: next,
+              rationale:
+                input.mode === "BUSINESS_OVERRIDE" ? input.rationale : null,
+              riskSeverity: current.riskSeverity,
+              riskScore: current.riskScore,
+            },
+          },
+        });
+        await snapshotTestCaseVersion(tx, {
+          testCaseId: changed.id,
+          title: changed.title,
+          background: changed.background,
+          given: changed.given,
+          when: changed.when,
+          then: changed.then,
+          steps: current.steps.map((step) => ({
+            order: step.order,
+            action: step.action,
+            expectedActionOrData: step.expectedActionOrData,
+            expectedResult: step.expectedResult,
+            expectedResponse: step.expectedResponse,
+            mediaAttachmentIds: step.mediaAttachmentIds,
+          })),
+          tags: changed.tags,
+          priority: changed.priority,
+          testType: changed.testType,
+          actorId: ctx.user.id,
+        });
+        return { ...changed, steps: current.steps };
+      });
+      return { priority: updated.priority };
+    }),
+
+  riskPreview: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const tc = await ctx.prisma.testCase.findUniqueOrThrow({
+        where: { id: input.id },
+        include: { source: { select: { filePath: true } } },
+      });
+      const { project, membership } = await requireProjectAccess(
+        ctx,
+        tc.projectId,
+      );
+      const { hash } = riskInput(tc);
+      const saved = await ctx.prisma.testCaseRiskReview.findUnique({
+        where: { testCaseId_inputHash: { testCaseId: tc.id, inputHash: hash } },
+      });
+      return {
+        balance: await getAiCreditBalance(ctx.prisma, project.organizationId),
+        cost: AI_OPERATION_COSTS.assessTestCaseRisk,
+        canSpend:
+          membership.seatType === "FULL" &&
+          ["OWNER", "ADMIN", "EDITOR"].includes(membership.role),
+        inputHash: hash,
+        savedStatus: saved?.status ?? null,
+        alreadyAssessed: tc.riskAssessedAt !== null,
+      };
+    }),
+
+  riskReviews: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const testCase = await ctx.prisma.testCase.findUniqueOrThrow({
+        where: { id: input.id },
+        select: { projectId: true },
+      });
+      await requireProjectAccess(ctx, testCase.projectId);
+      const reviews = await ctx.prisma.testCaseRiskReview.findMany({
+        where: { testCaseId: input.id },
+        select: {
+          id: true,
+          inputHash: true,
+          status: true,
+          content: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+        orderBy: { createdAt: "desc" },
+        take: 10,
+      });
+      const savedSchema = z.object({
+        severity: z.string(),
+        riskScore: z.number(),
+        rationale: z.string(),
+      });
+      return reviews.map((review) => {
+        const saved = savedSchema.safeParse(review.content);
+        return {
+          id: review.id,
+          inputHash: review.inputHash,
+          status: review.status,
+          severity: saved.success ? saved.data.severity : null,
+          riskScore: saved.success ? saved.data.riskScore : null,
+          rationale: saved.success ? saved.data.rationale : null,
+          createdAt: review.createdAt,
+          updatedAt: review.updatedAt,
+        };
+      });
     }),
 
   assessRisk: protectedProcedure
-    .input(z.object({ id: z.string() }))
-    .output(z.object({ riskSeverity: z.string().nullable(), riskScore: z.number().nullable(), riskRationale: z.string().nullable() }))
+    .input(
+      z.object({
+        id: z.string(),
+        expectedHash: z.string().length(64),
+        approved: z.literal(true),
+      }),
+    )
+    .output(
+      z.object({
+        riskSeverity: z.string().nullable(),
+        riskScore: z.number().nullable(),
+        riskRationale: z.string().nullable(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       const tc = await ctx.prisma.testCase.findUniqueOrThrow({
         where: { id: input.id },
         include: { source: { select: { filePath: true } } },
       });
-      const { project } = await requireProjectAccess(ctx, tc.projectId, "EDITOR");
-
-      const charge = await chargeAiCredits(ctx.prisma, project.organizationId, "assessTestCaseRisk").catch((e: unknown) => {
-        if (e instanceof InsufficientAiCreditsError) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
-        }
-        throw e;
-      });
-
-      const assessment = await meterAiCall(ctx.prisma, charge, () =>
-        assessTestCaseRisk({
-          title: tc.title,
-          given: tc.given,
-          when: tc.when,
-          then: tc.then,
-          testType: tc.testType,
-          sourceFilePath: tc.source?.filePath,
-        }),
+      const { project, membership } = await requireProjectAccess(
+        ctx,
+        tc.projectId,
+        "EDITOR",
       );
-
-      const updated = await ctx.prisma.testCase.update({
-        where: { id: input.id },
-        data: {
+      if (membership.seatType !== "FULL")
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message:
+            "A full editor seat is required. Ask your workspace administrator for access.",
+        });
+      const { data, hash } = riskInput(tc);
+      if (hash !== input.expectedHash)
+        throw new TRPCError({
+          code: "CONFLICT",
+          message:
+            "The case changed. Review the updated risk preview before continuing.",
+        });
+      const key = { testCaseId: tc.id, inputHash: hash };
+      const previous = await ctx.prisma.testCaseRiskReview.findUnique({
+        where: { testCaseId_inputHash: key },
+      });
+      if (previous?.content) {
+        const saved = previous.content as {
+          severity: string;
+          riskScore: number;
+          rationale: string;
+        };
+        return {
+          riskSeverity: saved.severity,
+          riskScore: Math.round(saved.riskScore),
+          riskRationale: saved.rationale,
+        };
+      }
+      if (previous)
+        throw new TRPCError({
+          code: "CONFLICT",
+          message:
+            "Risk review already started or needs reconciliation. No new credits were charged.",
+        });
+      await assertApprovedAnalysisReservation(ctx.prisma,tc.id,hash);
+      const reservation = await ctx.prisma.testCaseRiskReview
+        .create({
+          data: {
+            testCaseId: tc.id,
+            inputHash: hash,
+            createdById: ctx.user.id,
+          },
+        })
+        .catch((error: unknown) => {
+          if (
+            error instanceof Prisma.PrismaClientKnownRequestError &&
+            error.code === "P2002"
+          )
+            throw new TRPCError({
+              code: "CONFLICT",
+              message:
+                "Another risk review already started. No new credits were charged.",
+            });
+          throw error;
+        });
+      try {
+        const charge = await chargeAiCredits(
+          ctx.prisma,
+          project.organizationId,
+          "assessTestCaseRisk",
+          `Risk review ${reservation.id}`,
+        );
+        const assessment = await meterAiCall(ctx.prisma, charge, () =>
+          assessTestCaseRisk(data, currentApprovedAnalysisSpend() ? { timeout: 90000, maxRetries: 0 } : undefined),
+        );
+        await ctx.prisma.$transaction(async (db) => {
+          await db.testCaseRiskReview.update({
+            where: { id: reservation.id },
+            data: { status: "READY", content: assessment },
+          });
+          // A human may edit the case while the provider is working. Retain
+          // the paid review but never apply stale output over that edit.
+          const fresh = await db.testCase.findUniqueOrThrow({
+            where: { id: tc.id },
+            include: { source: { select: { filePath: true } } },
+          });
+          if (riskInput(fresh).hash === hash)
+            await db.testCase.updateMany({
+              // The snapshot predates the paid call. Any intervening human edit,
+              // including a risk-only override, keeps the review as a saved
+              // suggestion instead of silently replacing the case's fields.
+              where: {
+                id: tc.id,
+                updatedAt: tc.updatedAt,
+                riskSeverity: tc.riskSeverity,
+                riskScore: tc.riskScore,
+                riskRationale: tc.riskRationale,
+                riskAssessedAt: tc.riskAssessedAt,
+              },
+              data: {
+                riskSeverity: assessment.severity,
+                riskScore: Math.round(assessment.riskScore),
+                riskRationale: assessment.rationale,
+                riskAssessedAt: new Date(),
+                updatedById: ctx.user.id,
+              },
+            });
+        });
+        return {
           riskSeverity: assessment.severity,
           riskScore: Math.round(assessment.riskScore),
           riskRationale: assessment.rationale,
-          riskAssessedAt: new Date(),
-          updatedById: ctx.user.id,
-        },
-      });
-      return { riskSeverity: updated.riskSeverity, riskScore: updated.riskScore, riskRationale: updated.riskRationale };
+        };
+      } catch (error) {
+        if (error instanceof InsufficientAiCreditsError || isDefinitiveAnalysisSpendRefusal(error)) {
+          await ctx.prisma.testCaseRiskReview.delete({
+            where: { id: reservation.id },
+          });
+          throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Approved analysis spending was refused.", cause: error });
+        }
+        await ctx.prisma.testCaseRiskReview.updateMany({
+          where: { id: reservation.id, status: "GENERATING" },
+          data: { status: "NEEDS_RECONCILIATION" },
+        });
+        throw error;
+      }
     }),
 
-  // Assesses every not-yet-assessed case in a project, sequentially (not
-  // Promise.all) to avoid firing a burst of concurrent LLM calls from one
-  // click -- this is a manual bulk action from a settings-style page, not
-  // latency-sensitive, so sequential + a sane cap is the simple, safe
-  // choice over adding real concurrency control for no real benefit yet.
-  assessProjectRisk: protectedProcedure
-    .input(z.object({ projectId: z.string(), limit: z.number().min(1).max(50).default(20) }))
-    .output(z.object({ assessedCount: z.number(), failedCount: z.number() }))
-    .mutation(async ({ ctx, input }) => {
-      const { project } = await requireProjectAccess(ctx, input.projectId, "EDITOR");
-      const unassessed = await ctx.prisma.testCase.findMany({
-        where: { projectId: input.projectId, riskAssessedAt: null },
-        include: { source: { select: { filePath: true } } },
-        take: input.limit,
+  automationDraft: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const tc = await ctx.prisma.testCase.findUniqueOrThrow({
+        where: { id: input.id },
       });
+      await requireProjectAccess(ctx, tc.projectId);
+      const saved = await ctx.prisma.automationDraft.findFirst({
+        where: { testCaseId: tc.id, status: { in: ["GENERATING", "READY"] } },
+      });
+      return saved
+        ? {
+            id: saved.id,
+            status: saved.status,
+            createdAt: saved.createdAt,
+            content: saved.content
+              ? AutomationDraftSchema.parse(saved.content)
+              : null,
+          }
+        : null;
+    }),
 
-      let assessedCount = 0;
-      let failedCount = 0;
-      for (const tc of unassessed) {
-        try {
-          // Charge (and stop the batch, not just this case) the moment
-          // credits run out -- partial progress on the batch is kept
-          // rather than the whole mutation failing outright.
-          const charge = await chargeAiCredits(ctx.prisma, project.organizationId, "assessTestCaseRisk");
-          const assessment = await meterAiCall(ctx.prisma, charge, () =>
-            assessTestCaseRisk({
-              title: tc.title,
-              given: tc.given,
-              when: tc.when,
-              then: tc.then,
-              testType: tc.testType,
-              sourceFilePath: tc.source?.filePath,
-            }),
-          );
-          await ctx.prisma.testCase.update({
-            where: { id: tc.id },
-            data: {
-              riskSeverity: assessment.severity,
-              riskScore: Math.round(assessment.riskScore),
-              riskRationale: assessment.rationale,
-              riskAssessedAt: new Date(),
-              updatedById: ctx.user.id,
-            },
+  rejectAutomationDraft: protectedProcedure
+    .input(z.object({ id: z.string(), draftId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const tc = await ctx.prisma.testCase.findUniqueOrThrow({
+        where: { id: input.id },
+      });
+      const { membership } = await requireProjectAccess(
+        ctx,
+        tc.projectId,
+        "EDITOR",
+      );
+      if (membership.seatType !== "FULL")
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "A full editor seat is required.",
+        });
+      const result = await ctx.prisma.automationDraft.updateMany({
+        where: { id: input.draftId, testCaseId: tc.id, status: "READY" },
+        data: {
+          status: "REJECTED",
+          rejectedById: ctx.user.id,
+          rejectedAt: new Date(),
+        },
+      });
+      if (!result.count)
+        throw new TRPCError({
+          code: "CONFLICT",
+          message:
+            "Draft changed or is still generating. Refresh before rejecting.",
+        });
+      return { rejected: true };
+    }),
+
+  generateAutomationDraft: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        framework: AutomationFrameworkSchema,
+        projectContext: z.string().trim().max(12_000).optional(),
+      }),
+    )
+    .output(AutomationDraftSchema)
+    .mutation(async ({ ctx, input }) => {
+      const tc = await ctx.prisma.testCase.findUniqueOrThrow({
+        where: { id: input.id },
+        include: {
+          source: { select: { filePath: true } },
+          steps: { orderBy: { order: "asc" } },
+          sharedStepGroup: true,
+          project: { select: { id: true, name: true, organizationId: true } },
+        },
+      });
+      const { membership } = await requireProjectAccess(
+        ctx,
+        tc.projectId,
+        "EDITOR",
+      );
+      if (membership.seatType !== "FULL")
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "A full editor seat is required.",
+        });
+      assertSharedStepProject(tc);
+      const existing = await ctx.prisma.automationDraft.findFirst({
+        where: { testCaseId: tc.id, status: { in: ["GENERATING", "READY"] } },
+      });
+      if (existing?.content)
+        return AutomationDraftSchema.parse(existing.content);
+      if (existing)
+        throw new TRPCError({
+          code: "CONFLICT",
+          message:
+            "A draft is already generating. Reopen this case to check it; no new credits were charged.",
+        });
+      const saved = await ctx.prisma.automationDraft
+        .create({
+          data: {
+            testCaseId: tc.id,
+            framework: input.framework,
+            createdById: ctx.user.id,
+          },
+        })
+        .catch((error: unknown) => {
+          if (
+            error instanceof Prisma.PrismaClientKnownRequestError &&
+            error.code === "P2002"
+          ) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message:
+                "Another request already started this draft. No new credits were charged.",
+            });
+          }
+          throw error;
+        });
+      let generated = false;
+      try {
+        const charge = await chargeAiCredits(
+          ctx.prisma,
+          tc.project.organizationId,
+          "generateAutomationDraft",
+          `${input.framework} draft for TestCase ${tc.id}`,
+        ).catch((error: unknown) => {
+          if (error instanceof InsufficientAiCreditsError) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: error.message,
+            });
+          }
+          throw error;
+        });
+        const sharedSteps = tc.sharedStepGroup
+          ? (tc.sharedStepGroup.steps as Array<{
+              action: string;
+              expectedActionOrData?: string | null;
+              expectedResult?: string | null;
+              expectedResponse?: string | null;
+            }>)
+          : tc.steps;
+        const draft = await meterAiCall(ctx.prisma, charge, () =>
+          generateAutomationDraft({
+            framework: input.framework,
+            automationId: `VAE-${tc.id}`,
+            projectName: tc.project.name,
+            title: tc.title,
+            background: tc.background,
+            given: tc.given,
+            when: tc.when,
+            then: tc.then,
+            structuredSteps: sharedSteps,
+            sourceFilePath: tc.source?.filePath,
+            projectContext: input.projectContext,
+          }),
+        );
+        generated = true;
+        await ctx.prisma.automationDraft.update({
+          where: { id: saved.id },
+          data: { status: "READY", content: draft },
+        });
+        return draft;
+      } catch (error) {
+        // Never remove an already persisted paid result.
+        // If storage failed after generation, keep the reservation to prevent
+        // a retry from charging again. An operator must reconcile that failure.
+        if (!generated)
+          await ctx.prisma.automationDraft.updateMany({
+            where: { id: saved.id, status: "GENERATING" },
+            data: { status: "FAILED" },
           });
-          assessedCount++;
-        } catch (e) {
-          failedCount++;
-          if (e instanceof InsufficientAiCreditsError) break;
-        }
+        throw error;
       }
-      return { assessedCount, failedCount };
     }),
 
   // 2026-09-02: no procedure anywhere queried TestCase scoped to a
@@ -426,10 +1112,17 @@ export const testCasesRouter = router({
     .input(z.object({ testPlanId: z.string() }))
     .output(z.array(z.object({ id: z.string(), title: z.string() })))
     .query(async ({ ctx, input }) => {
-      const plan = await ctx.prisma.testPlan.findUniqueOrThrow({ where: { id: input.testPlanId }, select: { projectId: true } });
+      const plan = await ctx.prisma.testPlan.findUniqueOrThrow({
+        where: { id: input.testPlanId },
+        select: { projectId: true },
+      });
       await requireProjectAccess(ctx, plan.projectId);
       const cases = await ctx.prisma.testCase.findMany({
-        where: { testPlanId: input.testPlanId, archived: false },
+        where: {
+          testPlanId: input.testPlanId,
+          projectId: plan.projectId,
+          archived: false,
+        },
         select: { id: true, title: true },
         orderBy: { createdAt: "asc" },
       });
@@ -439,7 +1132,7 @@ export const testCasesRouter = router({
   // Scans every (non-archived) case in a plan in a single AI call rather
   // than per-case, since the point is spotting patterns *across* cases
   // (near-duplicate coverage) that a one-case-at-a-time pass could never
-  // see - unlike assessProjectRisk above, this can't be a sequential loop.
+  // see - unlike selected-case risk assessment, this can't be a sequential loop.
   // Capped at 30 cases per call: keeps the prompt a reasonable size and
   // caps the cost of one click: a plan with more than 30 needs more than
   // one pass, surfaced via `truncated` rather than silently only
@@ -449,31 +1142,56 @@ export const testCasesRouter = router({
     .output(
       z.object({
         issues: z.array(
-          z.object({ testCaseId: z.string(), issueType: z.string(), description: z.string(), suggestion: z.string() }),
+          z.object({
+            testCaseId: z.string(),
+            issueType: z.string(),
+            description: z.string(),
+            suggestion: z.string(),
+          }),
         ),
-        duplicateGroups: z.array(z.object({ testCaseIds: z.array(z.string()), reason: z.string() })),
+        duplicateGroups: z.array(
+          z.object({ testCaseIds: z.array(z.string()), reason: z.string() }),
+        ),
         reviewedCount: z.number(),
         truncated: z.boolean(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const plan = await ctx.prisma.testPlan.findUniqueOrThrow({ where: { id: input.testPlanId }, select: { projectId: true } });
-      const { project } = await requireProjectAccess(ctx, plan.projectId, "EDITOR");
+      const plan = await ctx.prisma.testPlan.findUniqueOrThrow({
+        where: { id: input.testPlanId },
+        select: { projectId: true },
+      });
+      const { project } = await requireProjectAccess(
+        ctx,
+        plan.projectId,
+        "EDITOR",
+      );
 
       const REVIEW_LIMIT = 30;
       const allCases = await ctx.prisma.testCase.findMany({
         where: { testPlanId: input.testPlanId, archived: false },
-        include: { steps: { orderBy: { order: "asc" } }, sharedStepGroup: true },
+        include: {
+          steps: { orderBy: { order: "asc" } },
+          sharedStepGroup: true,
+        },
         orderBy: { createdAt: "asc" },
         take: REVIEW_LIMIT + 1,
       });
       const truncated = allCases.length > REVIEW_LIMIT;
       const cases = allCases.slice(0, REVIEW_LIMIT);
+      for (const tc of cases) assertSharedStepProject(tc);
       if (cases.length === 0) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "This test plan has no test cases to review." });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "This test plan has no test cases to review.",
+        });
       }
 
-      const charge = await chargeAiCredits(ctx.prisma, project.organizationId, "reviewTestCaseQuality").catch((e: unknown) => {
+      const charge = await chargeAiCredits(
+        ctx.prisma,
+        project.organizationId,
+        "reviewTestCaseQuality",
+      ).catch((e: unknown) => {
         if (e instanceof InsufficientAiCreditsError) {
           throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
         }
@@ -487,11 +1205,19 @@ export const testCasesRouter = router({
         when: tc.when,
         then: tc.then,
         steps: tc.sharedStepGroup
-          ? (tc.sharedStepGroup.steps as Array<{ action: string; expectedResult: string | null }>)
-          : tc.steps.map((s) => ({ action: s.action, expectedResult: s.expectedResult })),
+          ? (tc.sharedStepGroup.steps as Array<{
+              action: string;
+              expectedResult: string | null;
+            }>)
+          : tc.steps.map((s) => ({
+              action: s.action,
+              expectedResult: s.expectedResult,
+            })),
       }));
 
-      const review = await meterAiCall(ctx.prisma, charge, () => reviewTestCaseQuality(forReview));
+      const review = await meterAiCall(ctx.prisma, charge, () =>
+        reviewTestCaseQuality(forReview),
+      );
       const validIds = new Set(cases.map((c) => c.id));
       return {
         // The AI is instructed to only use real ids, but it's cheap
@@ -499,7 +1225,10 @@ export const testCasesRouter = router({
         // id reach the UI and fail to link anywhere.
         issues: review.issues.filter((i) => validIds.has(i.testCaseId)),
         duplicateGroups: review.duplicateGroups
-          .map((g) => ({ ...g, testCaseIds: g.testCaseIds.filter((id) => validIds.has(id)) }))
+          .map((g) => ({
+            ...g,
+            testCaseIds: g.testCaseIds.filter((id) => validIds.has(id)),
+          }))
           .filter((g) => g.testCaseIds.length >= 2),
         reviewedCount: cases.length,
         truncated,
@@ -514,100 +1243,168 @@ export const testCasesRouter = router({
   // detail view calls this out and links to the editor instead of hiding
   // the gap.
   quickCreate: protectedProcedure
-    .input(z.object({ projectId: z.string(), title: z.string().min(1), suitePath: z.string().optional() }))
+    .input(
+      z.object({
+        projectId: z.string(),
+        title: z.string().min(1),
+        suitePath: z.string().optional(),
+      }),
+    )
     .output(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const { project } = await requireProjectAccess(ctx, input.projectId, "EDITOR");
-      const created = await ctx.prisma.testCase.create({
-        data: {
-          projectId: input.projectId,
-          title: input.title,
-          testType: "FUNCTIONAL",
-          suitePath: input.suitePath || undefined,
-          createdById: ctx.user.id,
-          updatedById: ctx.user.id,
-        },
-        select: { id: true },
+      const { project } = await requireProjectAccess(
+        ctx,
+        input.projectId,
+        "EDITOR",
+      );
+      return ctx.prisma.$transaction(async (tx) => {
+        await requireCurrentPlanAccess(tx, ctx.user.id, input.projectId, true);
+        await assertCaseFieldAuthoring(tx, ctx.user.id, input.projectId, {}, { clerkActorId: ctx.user.clerkUserId });
+        const created = await tx.testCase.create({
+          data: {
+            projectId: input.projectId,
+            title: input.title,
+            testType: "FUNCTIONAL",
+            suitePath: input.suitePath || undefined,
+            createdById: ctx.user.id,
+            updatedById: ctx.user.id,
+          },
+          select: { id: true },
+        });
+        await tx.auditLog.create({
+          data: {
+            organizationId: project.organizationId,
+            projectId: input.projectId,
+            actorId: ctx.user.id,
+            entityType: "TestCase",
+            entityId: created.id,
+            action: "CREATE",
+            summary: `Created test case "${input.title}"`,
+          },
+        });
+        return created;
       });
-      await recordAudit(ctx.prisma, {
-        organizationId: project.organizationId,
-        projectId: input.projectId,
-        actorId: ctx.user.id,
-        entityType: "TestCase",
-        entityId: created.id,
-        action: "CREATE",
-        summary: `Created test case "${input.title}"`,
-      });
-      return created;
     }),
 
   create: protectedProcedure
-    .input(testCaseContentSchema.extend({ projectId: z.string() }).refine(requireAtLeastOneFormat, {
-      message: AT_LEAST_ONE_FORMAT_MESSAGE,
-    }))
+    .input(
+      testCaseContentSchema
+        .extend({ projectId: z.string() })
+        .refine(requireAtLeastOneFormat, {
+          message: AT_LEAST_ONE_FORMAT_MESSAGE,
+        }),
+    )
     .mutation(async ({ ctx, input }) => {
-      const { project } = await requireProjectAccess(ctx, input.projectId, "EDITOR");
-      const created = await ctx.prisma.testCase.create({
-        data: {
-          projectId: input.projectId,
-          testPlanId: input.testPlanId,
-          title: input.title,
-          background: input.background,
-          given: input.given,
-          when: input.when,
-          then: input.then,
-          tags: input.tags,
-          testType: input.testType as never,
-          priority: input.priority,
-          suitePath: input.suitePath || undefined,
-          createdById: ctx.user.id,
-          updatedById: ctx.user.id,
-          sharedStepGroupId: input.sharedStepGroupId || undefined,
-          // A case linked to a shared group defers entirely to it - see
-          // the schema comment on sharedStepGroupId - so it owns no
-          // structured steps of its own.
-          steps: input.sharedStepGroupId
-            ? undefined
-            : {
-                create: input.steps.map((s, i) => ({
-                  order: i,
-                  action: s.action,
-                  expectedActionOrData: s.expectedActionOrData ?? undefined,
-                  expectedResult: s.expectedResult ?? undefined,
-                  expectedResponse: s.expectedResponse ?? undefined,
-                })),
-              },
-        },
+      const { project } = await requireProjectAccess(
+        ctx,
+        input.projectId,
+        "EDITOR",
+      );
+      if (stepMediaIds(input.steps).length > 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Save the case before linking image or video attachments to steps.",
+        });
+      }
+      return ctx.prisma.$transaction(async (tx) => {
+        await requireCurrentPlanAccess(tx, ctx.user.id, input.projectId, true);
+        if (
+          input.testPlanId &&
+          !(await tx.testPlan.findFirst({
+            where: { id: input.testPlanId, projectId: input.projectId },
+            select: { id: true },
+          }))
+        ) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Choose a test plan in this project.",
+          });
+        }
+        if (
+          input.sharedStepGroupId &&
+          !(await tx.sharedStepGroup.findFirst({
+            where: { id: input.sharedStepGroupId, projectId: input.projectId, archivedAt: null },
+            select: { id: true },
+          }))
+        ) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Choose a shared step library in this project.",
+          });
+        }
+        const customFields = await assertCaseFieldAuthoring(tx, ctx.user.id, input.projectId, { values: input.customFields, expectedSchemaHash: input.expectedFieldSchemaHash }, { clerkActorId: ctx.user.clerkUserId });
+        const created = await tx.testCase.create({
+          data: {
+            projectId: input.projectId,
+            testPlanId: input.testPlanId,
+            customFields: customFields as Prisma.InputJsonValue,
+            title: input.title,
+            background: input.background,
+            given: input.given,
+            when: input.when,
+            then: input.then,
+            tags: input.tags,
+            testType: input.testType as never,
+            validationDomain: input.validationDomain,
+            verificationProfile: input.verificationProfile,
+            priority: input.priority,
+            suitePath: input.suitePath || undefined,
+            createdById: ctx.user.id,
+            updatedById: ctx.user.id,
+            sharedStepGroupId: input.sharedStepGroupId || undefined,
+            // A case linked to a shared group defers entirely to it - see
+            // the schema comment on sharedStepGroupId - so it owns no
+            // structured steps of its own.
+            steps: input.sharedStepGroupId
+              ? undefined
+              : {
+                  create: input.steps.map((s, i) => ({
+                    order: i,
+                    action: s.action,
+                    expectedActionOrData: s.expectedActionOrData ?? undefined,
+                    expectedResult: s.expectedResult ?? undefined,
+                    expectedResponse: s.expectedResponse ?? undefined,
+                    mediaAttachmentIds: [],
+                  })),
+                },
+          },
+        });
+        const fieldDefinition = await tx.project.findUniqueOrThrow({ where: { id: input.projectId }, select: { organizationId: true, caseFieldSchema: true, caseFieldSchemaVersion: true } });
+        await tx.auditLog.create({
+          data: {
+            organizationId: fieldDefinition.organizationId,
+            projectId: input.projectId,
+            actorId: ctx.user.id,
+            entityType: "TestCase",
+            entityId: created.id,
+            action: "CREATE",
+            summary: `Created test case "${created.title}"`,
+            metadata: { fieldEvidence: { version: 1, beforeValues: {}, afterValues: customFields, schema: fieldDefinition.caseFieldSchema, schemaVersion: fieldDefinition.caseFieldSchemaVersion, recoverySupported: true } } as Prisma.InputJsonValue,
+          },
+        });
+        await snapshotTestCaseVersion(tx, {
+          testCaseId: created.id,
+          title: created.title,
+          background: created.background,
+          given: created.given,
+          when: created.when,
+          then: created.then,
+          steps: input.steps.map((s, i) => ({
+            order: i,
+            action: s.action,
+            expectedActionOrData: s.expectedActionOrData ?? null,
+            expectedResult: s.expectedResult ?? null,
+            expectedResponse: s.expectedResponse ?? null,
+            mediaAttachmentIds: [],
+          })),
+          tags: created.tags,
+          priority: created.priority,
+          testType: created.testType,
+          actorId: ctx.user.id,
+        });
+        return created;
       });
-      await recordAudit(ctx.prisma, {
-        organizationId: project.organizationId,
-        projectId: input.projectId,
-        actorId: ctx.user.id,
-        entityType: "TestCase",
-        entityId: created.id,
-        action: "CREATE",
-        summary: `Created test case "${created.title}"`,
-      });
-      await snapshotTestCaseVersion(ctx.prisma, {
-        testCaseId: created.id,
-        title: created.title,
-        background: created.background,
-        given: created.given,
-        when: created.when,
-        then: created.then,
-        steps: input.steps.map((s, i) => ({
-          order: i,
-          action: s.action,
-          expectedActionOrData: s.expectedActionOrData ?? null,
-          expectedResult: s.expectedResult ?? null,
-          expectedResponse: s.expectedResponse ?? null,
-        })),
-        tags: created.tags,
-        priority: created.priority,
-        testType: created.testType,
-        actorId: ctx.user.id,
-      });
-      return created;
     }),
 
   // P11-07: the generic catch-all importer for a spreadsheet-tracked suite
@@ -619,86 +1416,151 @@ export const testCasesRouter = router({
   // human-authored-elsewhere content skips the AI trust gate (lands
   // APPROVED, not PENDING_REVIEW).
   importCsv: protectedProcedure
-    .input(z.object({ projectId: z.string(), csvText: z.string().min(1), testPlanId: z.string().optional() }))
+    .input(
+      z.object({
+        projectId: z.string(),
+        csvText: z.string().min(1).max(10_000_000),
+        testPlanId: z.string().optional(),
+      }),
+    )
     .output(
       z.object({
         createdCount: z.number(),
-        skipped: z.array(z.object({ rowNumber: z.number(), reason: z.string() })),
+        skipped: z.array(
+          z.object({ rowNumber: z.number(), reason: z.string() }),
+        ),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const { project } = await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      const { project } = await requireProjectAccess(
+        ctx,
+        input.projectId,
+        "EDITOR",
+      );
 
       let parsed;
       try {
         parsed = parseTestCaseCsv(input.csvText);
       } catch (e) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : String(e) });
-      }
-
-      const created = await ctx.prisma.$transaction(
-        parsed.cases.map((c) =>
-          ctx.prisma.testCase.create({
-            data: {
-              projectId: input.projectId,
-              testPlanId: input.testPlanId,
-              title: c.title,
-              given: c.given,
-              when: c.when,
-              then: c.then,
-              tags: c.tags,
-              testType: "FUNCTIONAL",
-              priority: c.priority,
-              origin: "IMPORTED",
-              createdById: ctx.user.id,
-              updatedById: ctx.user.id,
-            },
-          }),
-        ),
-      );
-
-      if (created.length > 0) {
-        await recordAudit(ctx.prisma, {
-          organizationId: project.organizationId,
-          projectId: input.projectId,
-          actorId: ctx.user.id,
-          entityType: "TestCase",
-          entityId: created[0]!.id,
-          action: "CREATE",
-          summary: `Imported ${created.length} test case(s) from CSV`,
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: e instanceof Error ? e.message : String(e),
         });
-        await Promise.all(
-          created.map((c) =>
-            snapshotTestCaseVersion(ctx.prisma, {
-              testCaseId: c.id,
-              title: c.title,
-              background: c.background,
-              given: c.given,
-              when: c.when,
-              then: c.then,
-              steps: [],
-              tags: c.tags,
-              priority: c.priority,
-              testType: c.testType,
-              actorId: ctx.user.id,
-            }),
-          ),
-        );
       }
 
-      return { createdCount: created.length, skipped: parsed.skipped };
+      if (parsed.cases.length > 2_500)
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Import exceeds the 2,500-case batch limit; split the file and retry.",
+        });
+      const requestHash = createHash("sha256")
+        .update(
+          JSON.stringify({
+            actorId: ctx.user.id,
+            projectId: input.projectId,
+            testPlanId: input.testPlanId ?? null,
+            csvText: input.csvText,
+          }),
+        )
+        .digest("hex");
+      return ctx.prisma.$transaction(
+        async (tx) => {
+          // Serialize same-project retries, then recheck current authorization and
+          // plan tenancy before looking up a receipt or creating any records.
+          await tx.$queryRaw`SELECT id FROM "Project" WHERE id = ${input.projectId} FOR UPDATE`;
+          await requireCurrentPlanAccess(
+            tx,
+            ctx.user.id,
+            input.projectId,
+            true,
+          );
+          if (input.testPlanId) {
+            const plan = await tx.testPlan.findFirst({
+              where: { id: input.testPlanId, projectId: input.projectId },
+              select: { id: true },
+            });
+            if (!plan)
+              throw new TRPCError({
+                code: "FORBIDDEN",
+                message: "The test plan must belong to this project.",
+              });
+          }
+          const previous = await tx.importJob.findFirst({
+            where: {
+              projectId: input.projectId,
+              source: "CSV",
+              createdById: ctx.user.id,
+              fieldMapping: { path: ["legacyRetryHash"], equals: requestHash },
+            },
+            orderBy: { createdAt: "desc" },
+          });
+          if (previous)
+            return {
+              createdCount: previous.createdCount,
+              skipped: z
+                .array(z.object({ rowNumber: z.number(), reason: z.string() }))
+                .parse(previous.errors),
+            };
+          const result = await commitImportedTestCasesInTransaction(
+            tx as unknown as typeof ctx.prisma,
+            {
+              projectId: input.projectId,
+              organizationId: project.organizationId,
+              actorId: ctx.user.id,
+              rows: parsed.cases.map((row) => ({
+                ...row,
+                testType: "FUNCTIONAL",
+                externalId: `${requestHash}:${row.rowNumber}`,
+              })),
+              skipped: parsed.skipped,
+              source: "CSV",
+              sourceLabel: "CSV import",
+              keyPrefix: "legacy-csv",
+              framework: "csv",
+              testPlanId: input.testPlanId,
+              fieldMapping: { legacyRetryHash: requestHash },
+            },
+          );
+          return { createdCount: result.createdCount, skipped: result.skipped };
+        },
+        { timeout: 120_000 },
+      );
     }),
 
   update: protectedProcedure
-    .input(testCaseContentSchema.extend({ id: z.string() }).refine(requireAtLeastOneFormat, {
-      message: AT_LEAST_ONE_FORMAT_MESSAGE,
-    }))
+    .input(
+      testCaseContentSchema
+        .extend({
+          id: z.string(),
+          expectedSuitePath: z.string().nullable().optional(),
+          expectedPriority: prioritySchema.optional(),
+          expectedStepRevision: z.string().length(64).optional(),
+          expectedCaseRevision: z.string().length(64).optional(),
+        })
+        .refine(requireAtLeastOneFormat, {
+          message: AT_LEAST_ONE_FORMAT_MESSAGE,
+        }),
+    )
     .mutation(async ({ ctx, input }) => {
       const existing = await ctx.prisma.testCase.findUniqueOrThrow({
         where: { id: input.id },
-        select: { projectId: true, origin: true, title: true, given: true, when: true, then: true },
+        select: {
+          projectId: true,
+          origin: true,
+          priority: true,
+          title: true,
+          given: true,
+          when: true,
+          then: true,
+          suitePath: true,
+        },
       });
-      const { project } = await requireProjectAccess(ctx, existing.projectId, "EDITOR");
+      const { project } = await requireProjectAccess(
+        ctx,
+        existing.projectId,
+        "EDITOR",
+      );
 
       // P2-07: a human correcting the AI's own output is the raw material
       // for tightening the system prompt later -- capture it only when the
@@ -710,13 +1572,138 @@ export const testCasesRouter = router({
         JSON.stringify(existing.given) !== JSON.stringify(input.given) ||
         JSON.stringify(existing.when) !== JSON.stringify(input.when) ||
         JSON.stringify(existing.then) !== JSON.stringify(input.then);
-      const shouldCaptureFeedback = existing.origin === "AI_REVERSE_ENGINEERED" && contentChanged;
+      const shouldCaptureFeedback =
+        existing.origin === "AI_REVERSE_ENGINEERED" && contentChanged;
 
       // Steps don't have stable client-side ids yet (the form just edits an
       // ordered list), so replace-all is simpler and correct here; revisit
       // if per-step history/comments ever need steps to persist identity
       // across an edit.
       const updated = await ctx.prisma.$transaction(async (tx) => {
+        await lockCaseFieldProject(tx, ctx.user.id, existing.projectId);
+        // Pin the independent authenticated identity before any case/body lock,
+        // feedback, version or audit work; the later authoring check reuses it.
+        await lockCurrentCaseFieldActor(tx, ctx.user.id, { clerkActorId: ctx.user.clerkUserId });
+        const currentPlacement = await tx.testCase.findUniqueOrThrow({
+          where: { id: input.id },
+          select: { suitePath: true, priority: true },
+        });
+        if (
+          currentPlacement.suitePath !== existing.suitePath ||
+          (input.expectedSuitePath !== undefined &&
+            currentPlacement.suitePath !== input.expectedSuitePath)
+        ) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              "This case moved since it was opened. Refresh before saving.",
+          });
+        }
+        if (
+          input.expectedPriority !== undefined &&
+          currentPlacement.priority !== input.expectedPriority
+        ) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              "Priority changed since this case was opened. Refresh before saving to preserve the newer decision.",
+          });
+        }
+        if (
+          input.expectedPriority === undefined &&
+          input.priority !== currentPlacement.priority
+        ) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              "Refresh the case before changing priority so newer decisions are preserved.",
+          });
+        }
+        const priorSteps = await tx.testCaseStep.findMany({
+          where: { testCaseId: input.id },
+          orderBy: { order: "asc" },
+        });
+        if (
+          (input.expectedStepRevision &&
+            stepRevision(priorSteps) !== input.expectedStepRevision) ||
+          (!input.expectedStepRevision &&
+            priorSteps.some((step) => step.mediaAttachmentIds.length > 0))
+        ) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              "This case's steps or media changed since it was opened. Refresh the editor before saving.",
+          });
+        }
+        await tx.$queryRaw`SELECT id FROM "TestCase" WHERE id = ${input.id} FOR UPDATE`;
+        const currentContent = await tx.testCase.findUniqueOrThrow({
+          where: { id: input.id },
+          include: {
+            steps: { orderBy: { order: "asc" } },
+            sharedStepGroup: true,
+          },
+        });
+        if (
+          !input.expectedCaseRevision ||
+          testCaseContentRevision(currentContent) !== input.expectedCaseRevision
+        ) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              "This case's content changed or this editor has no full comparison baseline. Refresh the editor before saving; your draft has not been applied.",
+          });
+        }
+        await requireCurrentPlanAccess(
+          tx,
+          ctx.user.id,
+          existing.projectId,
+          true,
+        );
+        if (
+          input.testPlanId &&
+          !(await tx.testPlan.findFirst({
+            where: { id: input.testPlanId, projectId: existing.projectId },
+            select: { id: true },
+          }))
+        ) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "The test plan must belong to this project.",
+          });
+        }
+        if (
+          input.sharedStepGroupId &&
+          !(await tx.sharedStepGroup.findFirst({
+            where: {
+              id: input.sharedStepGroupId,
+              projectId: existing.projectId,
+              archivedAt: null,
+            },
+            select: { id: true },
+          }))
+        ) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "The shared step library must belong to this project.",
+          });
+        }
+        const ids = stepMediaIds(input.steps);
+        if (ids.length > 0) {
+          const attachments = await tx.testCaseAttachment.findMany({
+            where: { id: { in: ids }, testCaseId: input.id },
+            select: { id: true, contentType: true },
+          });
+          if (
+            attachments.length !== ids.length ||
+            attachments.some((a) => !/^(image|video)\//i.test(a.contentType))
+          ) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message:
+                "Each step image or video must be an attachment on this test case.",
+            });
+          }
+        }
         if (shouldCaptureFeedback) {
           await tx.aiEditFeedback.create({
             data: {
@@ -734,10 +1721,12 @@ export const testCasesRouter = router({
             },
           });
         }
+        const approvedCustomFields = await assertCaseFieldAuthoring(tx, ctx.user.id, existing.projectId, { caseId: input.id, values: input.customFields, expectedSchemaHash: input.expectedFieldSchemaHash, expectedValueHash: input.expectedCustomFieldRevision }, { clerkActorId: ctx.user.clerkUserId });
         await tx.testCaseStep.deleteMany({ where: { testCaseId: input.id } });
-        return tx.testCase.update({
+        const changed = await tx.testCase.update({
           where: { id: input.id },
           data: {
+            customFields: input.customFields === undefined ? undefined : approvedCustomFields as Prisma.InputJsonValue,
             testPlanId: input.testPlanId,
             title: input.title,
             background: input.background,
@@ -746,6 +1735,8 @@ export const testCasesRouter = router({
             then: input.then,
             tags: input.tags,
             testType: input.testType as never,
+            validationDomain: input.validationDomain,
+            verificationProfile: input.verificationProfile,
             priority: input.priority,
             // Update (unlike create) needs to distinguish "field omitted,
             // leave alone" (undefined) from "field submitted empty, clear
@@ -764,38 +1755,63 @@ export const testCasesRouter = router({
                     expectedActionOrData: s.expectedActionOrData ?? undefined,
                     expectedResult: s.expectedResult ?? undefined,
                     expectedResponse: s.expectedResponse ?? undefined,
+                    mediaAttachmentIds: s.mediaAttachmentIds ?? [],
                   })),
                 },
           },
         });
-      });
-      await recordAudit(ctx.prisma, {
-        organizationId: project.organizationId,
-        projectId: existing.projectId,
-        actorId: ctx.user.id,
-        entityType: "TestCase",
-        entityId: input.id,
-        action: "UPDATE",
-        summary: `Updated test case "${updated.title}"`,
-      });
-      await snapshotTestCaseVersion(ctx.prisma, {
-        testCaseId: updated.id,
-        title: updated.title,
-        background: updated.background,
-        given: updated.given,
-        when: updated.when,
-        then: updated.then,
-        steps: input.steps.map((s, i) => ({
-          order: i,
-          action: s.action,
-          expectedActionOrData: s.expectedActionOrData ?? null,
-          expectedResult: s.expectedResult ?? null,
-          expectedResponse: s.expectedResponse ?? null,
-        })),
-        tags: updated.tags,
-        priority: updated.priority,
-        testType: updated.testType,
-        actorId: ctx.user.id,
+        if (currentPlacement.priority !== changed.priority)
+          await tx.auditLog.create({
+            data: {
+              organizationId: project.organizationId,
+              projectId: existing.projectId,
+              actorId: ctx.user.id,
+              entityType: "TestCasePriority",
+              entityId: input.id,
+              action: "UPDATE",
+              summary: `Manually set priority ${changed.priority}`,
+              metadata: {
+                mode: "MANUAL",
+                from: currentPlacement.priority,
+                to: changed.priority,
+                rationale: null,
+                riskSeverity: changed.riskSeverity,
+                riskScore: changed.riskScore,
+              },
+            },
+          });
+        const fieldDefinition = await tx.project.findUniqueOrThrow({ where: { id: existing.projectId }, select: { organizationId: true, caseFieldSchema: true, caseFieldSchemaVersion: true } });
+        await recordAudit(tx as unknown as typeof ctx.prisma, {
+          organizationId: fieldDefinition.organizationId,
+          projectId: existing.projectId,
+          actorId: ctx.user.id,
+          entityType: "TestCase",
+          entityId: input.id,
+          action: "UPDATE",
+          summary: `Updated test case "${changed.title}"`,
+          metadata: { fieldEvidence: { version: 1, beforeValues: currentContent.customFields, afterValues: changed.customFields, schema: fieldDefinition.caseFieldSchema, schemaVersion: fieldDefinition.caseFieldSchemaVersion, recoverySupported: true } },
+        });
+        await snapshotTestCaseVersion(tx, {
+          testCaseId: changed.id,
+          title: changed.title,
+          background: changed.background,
+          given: changed.given,
+          when: changed.when,
+          then: changed.then,
+          steps: input.steps.map((s, i) => ({
+            order: i,
+            action: s.action,
+            expectedActionOrData: s.expectedActionOrData ?? null,
+            expectedResult: s.expectedResult ?? null,
+            expectedResponse: s.expectedResponse ?? null,
+            mediaAttachmentIds: s.mediaAttachmentIds ?? [],
+          })),
+          tags: changed.tags,
+          priority: changed.priority,
+          testType: changed.testType,
+          actorId: ctx.user.id,
+        });
+        return changed;
       });
       return updated;
     }),
@@ -804,28 +1820,90 @@ export const testCasesRouter = router({
   // tree's "Unassigned" bucket. Pass null/"" to clear back to unassigned
   // (or the derived source-file location, if it has one).
   setSuite: protectedProcedure
-    .input(z.object({ id: z.string(), suitePath: z.string().nullable() }))
+    .input(
+      z.object({
+        id: z.string(),
+        suitePath: z.string().nullable(),
+        expectedSuitePath: z.string().nullable().optional(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
-      const existing = await ctx.prisma.testCase.findUniqueOrThrow({ where: { id: input.id }, select: { projectId: true } });
-      await requireProjectAccess(ctx, existing.projectId, "EDITOR");
-      await ctx.prisma.testCase.update({
+      const existing = await ctx.prisma.testCase.findUniqueOrThrow({
         where: { id: input.id },
-        data: { suitePath: input.suitePath || null, updatedById: ctx.user.id },
+        select: { projectId: true },
+      });
+      await requireProjectAccess(ctx, existing.projectId, "EDITOR");
+      await ctx.prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${existing.projectId}))::text`;
+        const current = await tx.testCase.findUniqueOrThrow({
+          where: { id: input.id },
+          select: { suitePath: true },
+        });
+        if (
+          input.expectedSuitePath !== undefined &&
+          current.suitePath !== input.expectedSuitePath
+        ) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              "This case moved since it was loaded. Refresh before assigning it.",
+          });
+        }
+        await tx.testCase.update({
+          where: { id: input.id },
+          data: {
+            suitePath: input.suitePath || null,
+            updatedById: ctx.user.id,
+          },
+        });
       });
     }),
 
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const existing = await ctx.prisma.testCase.findUniqueOrThrow({ where: { id: input.id }, select: { projectId: true, title: true } });
-      const { project } = await requireProjectAccess(ctx, existing.projectId, "EDITOR");
+      const existing = await ctx.prisma.testCase.findUniqueOrThrow({
+        where: { id: input.id },
+        select: { projectId: true, title: true },
+      });
+      const { project } = await requireProjectAccess(
+        ctx,
+        existing.projectId,
+        "EDITOR",
+      );
       try {
-        await ctx.prisma.testCase.delete({ where: { id: input.id } });
+        await ctx.prisma.$transaction(async (tx) => {
+          await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${existing.projectId}))::text`;
+          await requireCurrentPlanAccess(
+            tx,
+            ctx.user.id,
+            existing.projectId,
+            true,
+          );
+          await ensureCaseEvidenceNotRetained(tx, existing.projectId, input.id);
+          if (
+            await tx.caseTraceabilityLink.count({
+              where: { projectId: existing.projectId, caseId: input.id },
+            })
+          )
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message:
+                "This case has retained test coverage references, including removed-link history. Archive the case instead of deleting its evidence.",
+            });
+          await tx.testCase.delete({
+            where: { id: input.id, projectId: existing.projectId },
+          });
+        });
       } catch (e) {
-        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2003") {
+        if (
+          e instanceof Prisma.PrismaClientKnownRequestError &&
+          e.code === "P2003"
+        ) {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: "This test case is linked to a compliance control or a change-impact recommendation. Unlink those first.",
+            message:
+              "This test case is linked to a prerequisite, compliance control, change-impact recommendation, or retained execution history. Archive it instead, or unlink editable relationships before deleting it. Recorded history must be preserved.",
           });
         }
         throw e;
@@ -848,7 +1926,12 @@ export const testCasesRouter = router({
   // to -- ids outside the project are silently ignored, not an error, since
   // the caller only ever offers ids it already rendered from this project.
   bulkDelete: protectedProcedure
-    .input(z.object({ projectId: z.string(), ids: z.array(z.string()).min(1).max(200) }))
+    .input(
+      z.object({
+        projectId: z.string(),
+        ids: z.array(z.string()).min(1).max(200),
+      }),
+    )
     .output(z.object({ deletedCount: z.number(), blockedCount: z.number() }))
     .mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId, "EDITOR");
@@ -856,41 +1939,70 @@ export const testCasesRouter = router({
       let blockedCount = 0;
       for (const id of input.ids) {
         try {
-          await ctx.prisma.testCase.delete({ where: { id, projectId: input.projectId } });
+          await ctx.prisma.$transaction(async (tx) => {
+            await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${input.projectId}))::text`;
+            await requireCurrentPlanAccess(
+              tx,
+              ctx.user.id,
+              input.projectId,
+              true,
+            );
+            await ensureCaseEvidenceNotRetained(tx, input.projectId, id);
+            await tx.testCase.delete({
+              where: { id, projectId: input.projectId },
+            });
+          });
           deletedCount++;
-        } catch {
-          blockedCount++;
+        } catch (error) {
+          if (
+            (error instanceof TRPCError && error.code === "CONFLICT") ||
+            (error instanceof Prisma.PrismaClientKnownRequestError &&
+              ["P2003", "P2025"].includes(error.code))
+          )
+            blockedCount++;
+          else throw error;
         }
       }
       return { deletedCount, blockedCount };
     }),
 
   bulkReview: protectedProcedure
-    .input(z.object({ projectId: z.string(), ids: z.array(z.string()).min(1).max(200), decision: z.enum(["approve", "reject"]) }))
+    .input(
+      z.object({
+        projectId: z.string(),
+        ids: z.array(z.string()).min(1).max(200),
+        decision: z.enum(["approve", "reject"]),
+      }),
+    )
     .output(z.object({ updatedCount: z.number() }))
-    .mutation(async ({ ctx, input }) => {
-      await requireProjectAccess(ctx, input.projectId, "EDITOR");
-      const result = await ctx.prisma.testCase.updateMany({
-        where: { id: { in: input.ids }, projectId: input.projectId },
-        data: {
-          reviewStatus: input.decision === "approve" ? "APPROVED" : "REJECTED",
-          reviewedById: ctx.user.id,
-          reviewedAt: new Date(),
-          updatedById: ctx.user.id,
-        },
+    .mutation(() => {
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message: "Use the review queue and caseReview.decide for each supported pending snapshot. Reviewed bulk decisions are not supported by this slice; selected cases are not silently omitted or approved. Legacy requests have no exact UUID recovery, so inspect current saved state after an earlier uncertain response.",
       });
-      return { updatedCount: result.count };
     }),
 
   bulkSetTestPlan: protectedProcedure
-    .input(z.object({ projectId: z.string(), ids: z.array(z.string()).min(1).max(200), testPlanId: z.string().nullable() }))
+    .input(
+      z.object({
+        projectId: z.string(),
+        ids: z.array(z.string()).min(1).max(200),
+        testPlanId: z.string().nullable(),
+      }),
+    )
     .output(z.object({ updatedCount: z.number() }))
     .mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId, "EDITOR");
       if (input.testPlanId) {
-        const plan = await ctx.prisma.testPlan.findUniqueOrThrow({ where: { id: input.testPlanId }, select: { projectId: true } });
+        const plan = await ctx.prisma.testPlan.findUniqueOrThrow({
+          where: { id: input.testPlanId },
+          select: { projectId: true },
+        });
         if (plan.projectId !== input.projectId) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "That test plan does not belong to this project" });
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "That test plan does not belong to this project",
+          });
         }
       }
       const result = await ctx.prisma.testCase.updateMany({
@@ -905,7 +2017,13 @@ export const testCasesRouter = router({
   // carry a different tag set. Bounded at the same 200-id cap as the other
   // bulk ops, so this stays a handful of round trips at worst.
   bulkAddTags: protectedProcedure
-    .input(z.object({ projectId: z.string(), ids: z.array(z.string()).min(1).max(200), tags: z.array(z.string().min(1)).min(1) }))
+    .input(
+      z.object({
+        projectId: z.string(),
+        ids: z.array(z.string()).min(1).max(200),
+        tags: z.array(z.string().min(1)).min(1),
+      }),
+    )
     .output(z.object({ updatedCount: z.number() }))
     .mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId, "EDITOR");
@@ -916,14 +2034,23 @@ export const testCasesRouter = router({
       let updatedCount = 0;
       for (const tc of cases) {
         const merged = Array.from(new Set([...tc.tags, ...input.tags]));
-        await ctx.prisma.testCase.update({ where: { id: tc.id }, data: { tags: merged, updatedById: ctx.user.id } });
+        await ctx.prisma.testCase.update({
+          where: { id: tc.id },
+          data: { tags: merged, updatedById: ctx.user.id },
+        });
         updatedCount++;
       }
       return { updatedCount };
     }),
 
   bulkArchive: protectedProcedure
-    .input(z.object({ projectId: z.string(), ids: z.array(z.string()).min(1).max(200), archived: z.boolean() }))
+    .input(
+      z.object({
+        projectId: z.string(),
+        ids: z.array(z.string()).min(1).max(200),
+        archived: z.boolean(),
+      }),
+    )
     .output(z.object({ updatedCount: z.number() }))
     .mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId, "EDITOR");
@@ -939,7 +2066,12 @@ export const testCasesRouter = router({
   // patterns" step is a human reading this list and deciding whether the
   // system prompt needs adjusting, not something this endpoint automates.
   listAiEditFeedback: protectedProcedure
-    .input(z.object({ projectId: z.string(), limit: z.number().int().min(1).max(200).default(50) }))
+    .input(
+      z.object({
+        projectId: z.string(),
+        limit: z.number().int().min(1).max(200).default(50),
+      }),
+    )
     .output(
       z.array(
         z.object({
@@ -1001,16 +2133,27 @@ export const testCasesRouter = router({
           priority: z.string(),
           testType: z.string(),
           createdAt: z.date(),
-          createdBy: z.object({ id: z.string(), name: z.string().nullable(), email: z.string() }).nullable(),
+          createdBy: z
+            .object({
+              id: z.string(),
+              name: z.string().nullable(),
+              email: z.string(),
+            })
+            .nullable(),
         }),
       ),
     )
     .query(async ({ ctx, input }) => {
-      const testCase = await ctx.prisma.testCase.findUniqueOrThrow({ where: { id: input.testCaseId }, select: { projectId: true } });
+      const testCase = await ctx.prisma.testCase.findUniqueOrThrow({
+        where: { id: input.testCaseId },
+        select: { projectId: true },
+      });
       await requireProjectAccess(ctx, testCase.projectId);
       const versions = await ctx.prisma.testCaseVersion.findMany({
         where: { testCaseId: input.testCaseId },
-        include: { createdBy: { select: { id: true, name: true, email: true } } },
+        include: {
+          createdBy: { select: { id: true, name: true, email: true } },
+        },
         orderBy: { versionNumber: "desc" },
       });
       return versions.map((v) => ({

@@ -1,11 +1,11 @@
-import { PrismaClient } from "@prisma/client";
+import { ConstraintCheckedPrismaClient } from "./constraintCheckedClient.js";
 
 declare global {
    
-  var __vaettirPrisma: PrismaClient | undefined;
+  var __vaettirPrisma: ConstraintCheckedPrismaClient | undefined;
 }
 
-export const prisma = globalThis.__vaettirPrisma ?? new PrismaClient();
+export const prisma = globalThis.__vaettirPrisma ?? new ConstraintCheckedPrismaClient();
 
 if (process.env.NODE_ENV !== "production") {
   globalThis.__vaettirPrisma = prisma;

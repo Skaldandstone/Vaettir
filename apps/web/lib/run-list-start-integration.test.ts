@@ -1,0 +1,1113 @@
+// Actual route handlers + existing completion controller, with synthetic hooks,
+// native metadata/auth/RPC boundaries. Not React DOM, SDK lifecycle or SQL proof.
+import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import vm from "node:vm";
+import ts from "typescript";
+import React from "react";
+import { expect, it, vi } from "vitest";
+import { applyRunBulkSelection } from "./run-bulk-selection";
+import { currentSessionScope } from "./auth-query-cache";
+import { RunConfigCompletionController } from "./run-config-completion";
+import {
+  freezeRunConfiguration,
+  type ReviewedRunConfiguration,
+} from "./run-configuration-request";
+import type { RunConfigurationModal as ModalType } from "../components/RunConfigurationModal";
+import {
+  admitRunStartRead,
+  runStartReviewedReadKey,
+  type RunStartReadSnapshot,
+} from "./manual-run-start-reviewed-reader";
+import {
+  freezeReviewedRunStart,
+  type ReviewedRunStartEnvelope,
+} from "./run-start-reviewed-write";
+import {
+  RUN_SUITE_ALL_VALUE,
+  encodeRunSuiteScope,
+  resolveRunSuiteScope,
+  runSuiteScopeMatches,
+  runSuiteScopeOptions,
+} from "./run-suite-scope";
+const source = readFileSync(
+  new URL("../app/projects/[projectId]/test-runs/page.tsx", import.meta.url),
+  "utf8",
+);
+const ast = ts.createSourceFile(
+  "page.tsx",
+  source,
+  ts.ScriptTarget.Latest,
+  true,
+  ts.ScriptKind.TSX,
+);
+const page = ast.statements.find(
+  (node) =>
+    ts.isFunctionDeclaration(node) && node.name?.text === "TestRunsPage",
+)!;
+const code = ts.transpileModule(
+  ts
+    .createPrinter()
+    .printNode(ts.EmitHint.Unspecified, page, ast)
+    .replace("export default ", "") + "\nthis.page = TestRunsPage;",
+  {
+    compilerOptions: {
+      module: ts.ModuleKind.None,
+      target: ts.ScriptTarget.ES2022,
+      jsx: ts.JsxEmit.React,
+    },
+  },
+).outputText;
+type Element = React.ReactElement<Record<string, unknown>>;
+function elements(node: unknown): Element[] {
+  if (Array.isArray(node)) return node.flatMap(elements);
+  if (!React.isValidElement<Record<string, unknown>>(node)) return [];
+  return [node, ...elements(node.props.children)];
+}
+function text(node: unknown): string {
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(text).join("");
+  return React.isValidElement<Record<string, unknown>>(node)
+    ? text(node.props.children)
+    : "";
+}
+type ConfigurationProps = React.ComponentProps<typeof ModalType>;
+const stub = () => null;
+function harness(mixedSuites = false) {
+  const slots: unknown[] = [];
+  let cursor = 0,
+    tree: unknown;
+  const permissions = { canEdit: true, organizationId: "org" };
+  const access = {
+    ready: true,
+    canWrite: true,
+    origin: { organizationId: "org", clerkActorId: "clerk" },
+  };
+  const browser = {
+    Clerk: { loaded: true, session: { id: "A", user: { id: "clerk" } } },
+  };
+  const mixedPaths: readonly (string | null)[] = [
+    null,
+    "",
+    "  \n",
+    "Unassigned",
+    '{"kind":"ALL"}',
+    ' x "quoted"/🎮\nretained ',
+    "Suite A",
+    "Suite B",
+  ];
+  const all = Array.from({ length: 851 }, (_, i) => {
+    const suitePath = mixedSuites
+      ? mixedPaths[i % mixedPaths.length]
+      : i % 2
+        ? "Suite A"
+        : "Suite B";
+    if (suitePath === undefined)
+      throw Error(
+        "Synthetic suite metadata missing; no unassigned value was inferred.",
+      );
+    return {
+      id: `case-${i}`,
+      displayId: `TC-${i}`,
+      title: `Case ${i}`,
+      testType: "FUNCTIONAL",
+      priority: i < 10 ? "HIGH" : "MEDIUM",
+      tags: [i < 10 ? "matching" : "other"],
+      suitePath,
+      archived: false,
+      reviewStatus: "APPROVED",
+    };
+  });
+  const query = {
+    data: [
+      ...all,
+      { ...all[0]!, id: "archived", archived: true },
+      { ...all[0]!, id: "pending", reviewStatus: "PENDING_REVIEW" },
+    ],
+    isFetchedAfterMount: true,
+    isFetching: false,
+    isPaused: false,
+    isLoading: false,
+    error: null as Error | null,
+  };
+  const send = vi.fn<(request: ReviewedRunStartEnvelope) => Promise<unknown>>(),
+    navigate = vi.fn();
+  const mutation = { isPending: false, mutateAsync: send };
+  const context = vm.createContext({
+    React,
+    window: browser,
+    useState: (initial: unknown) => {
+      const at = cursor++;
+      if (at >= slots.length)
+        slots[at] = typeof initial === "function" ? initial() : initial;
+      return [
+        slots[at],
+        (next: unknown) => {
+          slots[at] = typeof next === "function" ? next(slots[at]) : next;
+        },
+      ];
+    },
+    useRef: (initial: unknown) => {
+      const at = cursor++;
+      if (at >= slots.length) slots[at] = { current: initial };
+      return slots[at];
+    },
+    useSyncExternalStore: () => null,
+    useParams: () => ({ projectId: "project" }),
+    useRouter: () => ({ push: navigate }),
+    useProjectPermissions: () => permissions,
+    useManualExecutionAccess: () => access,
+    currentSessionScope,
+    applyRunBulkSelection,
+    RUN_SUITE_ALL_VALUE,
+    resolveRunSuiteScope,
+    runSuiteScopeMatches,
+    runSuiteScopeOptions,
+    trpcReact: {
+      testCases: { list: { useQuery: () => query } },
+      manualRunStartReviewed: { start: { useMutation: () => mutation } },
+    },
+    RunConfigurationModal: stub,
+    Modal: stub,
+    Drawer: stub,
+    RunHistoryDashboard: stub,
+    RunAllPagesDashboard: stub,
+    CiRunDetail: stub,
+    CoverageSection: stub,
+    HealingSignalSection: stub,
+    subscribeRunHash: () => {},
+    readRunHash: () => null,
+    inspectorLabel: (value: string) => value,
+  });
+  vm.runInContext(code, context);
+  const route = context.page as () => unknown;
+  function render() {
+    cursor = 0;
+    tree = route();
+    return tree;
+  }
+  function button(label: string) {
+    const found = elements(tree).find(
+      (node) => node.type === "button" && text(node.props.children) === label,
+    );
+    if (!found) throw Error(`Missing button ${label}`);
+    return found.props.onClick as () => unknown;
+  }
+  function change(label: string, value: string) {
+    const nodes = elements(tree);
+    const direct = nodes.find(
+      (node) => node.type === "select" && node.props["aria-label"] === label,
+    );
+    const parent = nodes.find(
+      (node) =>
+        node.type === "label" && text(node.props.children).startsWith(label),
+    );
+    const found =
+      direct ??
+      elements(parent?.props.children).find((node) => node.type === "select");
+    if (!found) throw Error(`Missing select ${label}`);
+    (found.props.onChange as (event: { target: { value: string } }) => void)({
+      target: { value },
+    });
+    render();
+  }
+  function config() {
+    return elements(tree).find(
+      (node) => node.type === stub && node.props.onStart,
+    )?.props as ConfigurationProps;
+  }
+  function suite(path: string | null) {
+    change(
+      "Run case suite",
+      encodeRunSuiteScope(
+        path === null ? { kind: "UNASSIGNED" } : { kind: "PATH", path },
+      ),
+    );
+  }
+  function search(value: string) {
+    const input = elements(tree).find(
+      (node) =>
+        node.type === "input" &&
+        node.props["aria-label"] === "Search test cases",
+    );
+    if (!input) throw Error("Missing actual case search input");
+    (input.props.onChange as (event: { target: { value: string } }) => void)({
+      target: { value },
+    });
+    render();
+  }
+  function toggleCase(displayId: string) {
+    const label = elements(tree).find(
+      (node) =>
+        node.type === "label" && text(node.props.children).includes(displayId),
+    );
+    const checkbox = elements(label?.props.children).find(
+      (node) => node.type === "input" && node.props.type === "checkbox",
+    );
+    if (!checkbox) throw Error("Missing actual case checkbox");
+    (checkbox.props.onChange as () => void)();
+  }
+  function selectAll() {
+    button("Start manual run")();
+    render();
+    change("Apply to approved scope", "all");
+    button("Apply Set selection")();
+    render();
+  }
+  render();
+  return {
+    render,
+    button,
+    change,
+    suite,
+    search,
+    config,
+    toggleCase,
+    selectAll,
+    all,
+    query,
+    permissions,
+    access,
+    browser,
+    send,
+    navigate,
+  };
+}
+function request(ids: string[]) {
+  return freezeRunConfiguration(
+    {
+      projectId: "project",
+      testCaseIds: ids,
+      expectedProfileHash: "b".repeat(64),
+      originalOrganizationId: "org",
+      expectedClerkActorId: "clerk",
+      executionContext: {
+        configuration: "line one\nline two",
+        platform: "",
+        build: "0",
+        hardwareRevision: "",
+        firmwareVersion: "",
+        rig: "",
+        batchOrLot: "",
+        environment: "",
+        calibrationReference: "",
+        protocolReference: "",
+      },
+    },
+    "00000000-0000-4000-8000-000000000001",
+  );
+}
+function metadata(): RunStartReadSnapshot {
+  const input = {
+    projectId: "project",
+    originalOrganizationId: "org",
+    expectedClerkActorId: "clerk",
+    expectedNativeActorId: "native",
+    requestId: "00000000-0000-4000-8000-000000000002",
+  };
+  const raw = {
+    readContext: {
+      projection: "PREVIEW",
+      requestId: input.requestId,
+      requestedKey: runStartReviewedReadKey(input, "PREVIEW"),
+      scope: {
+        projectId: "project",
+        organizationId: "org",
+        actorId: "native",
+        actorClerkUserId: "clerk",
+      },
+    },
+    canConfigure: true,
+    canRecover: true,
+    canStart: true,
+    profile: {
+      kind: "SUPPORTED",
+      experience: null,
+      profileHash: "b".repeat(64),
+    },
+    limitations: [],
+  };
+  const admitted = admitRunStartRead(raw, input, "PREVIEW", "clerk");
+  if (!admitted) throw Error("Synthetic native metadata refused");
+  return Object.freeze({
+    ...admitted,
+    projection: "PREVIEW",
+    observedSessionId: "A",
+    epoch: 0,
+    revision: 1,
+    receivedAt: "2026-10-06T17:00:00.000Z",
+  });
+}
+const nativeMetadata = metadata();
+function envelope(input: ReviewedRunConfiguration) {
+  return freezeReviewedRunStart(input, nativeMetadata).envelope;
+}
+function ack(input: ReviewedRunConfiguration) {
+  const testRunId = `manual_${createHash("sha256")
+    .update(JSON.stringify([input.projectId, "native", input.idempotencyKey]))
+    .digest("hex")}`;
+  return {
+    mode: "START",
+    currentScope: {
+      projectId: input.projectId,
+      organizationId: input.originalOrganizationId,
+      actorId: "native",
+      actorClerkUserId: input.expectedClerkActorId,
+    },
+    historicalOuterProvenance: "UNRECORDED",
+    interpretation: "LEGACY_NORMALIZED_NOT_RAW_LOSSLESS",
+    idempotencyKey: input.idempotencyKey,
+    legacyAck: {
+      testRunId,
+      originalOrganizationId: input.originalOrganizationId,
+      expectedClerkActorId: input.expectedClerkActorId,
+      idempotencyKey: input.idempotencyKey,
+    },
+  };
+}
+// Execute the actual modal's applyBulk closure with its real completion
+// controller; surrounding hook/native-access inputs remain synthetic boundaries.
+function modalBulk(
+  props: ConfigurationProps,
+  controller: RunConfigCompletionController,
+  mode: "SET" | "ADD" | "REMOVE",
+  candidates: string[],
+) {
+  const modalSource = readFileSync(
+      new URL("../components/RunConfigurationModal.tsx", import.meta.url),
+      "utf8",
+    ),
+    modalAst = ts.createSourceFile(
+      "modal.tsx",
+      modalSource,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TSX,
+    );
+  let apply: ts.FunctionDeclaration | undefined;
+  const visit = (node: ts.Node) => {
+    if (ts.isFunctionDeclaration(node) && node.name?.text === "applyBulk")
+      apply = node;
+    ts.forEachChild(node, visit);
+  };
+  visit(modalAst);
+  if (!apply) throw Error("Actual modal bulk handler missing");
+  const callback = vi.fn(props.onSelectionChange),
+    context = vm.createContext({
+      bulkScope: {
+        key: "all",
+        label: "Approved scope",
+        testCaseIds: candidates,
+      },
+      onSelectionChange: callback,
+      bulkScopesReady: props.bulkScopesReady,
+      access: { canWrite: true },
+      busy: false,
+      refreshingNow: { current: false },
+      controller,
+      liveSession: () => ({ userId: "clerk", sessionId: "A" }),
+      completion: controller.snapshot(),
+      testCaseIds: props.testCaseIds,
+      bulkMode: mode,
+      applyRunBulkSelection,
+      setError: vi.fn(),
+      setReviewedCount: vi.fn(),
+      setReviewedIds: vi.fn(),
+      setBulkNotice: vi.fn(),
+    });
+  vm.runInContext(
+    ts.transpileModule(
+      ts.createPrinter().printNode(ts.EmitHint.Unspecified, apply, modalAst) +
+        "\nthis.apply = applyBulk;",
+      {
+        compilerOptions: {
+          module: ts.ModuleKind.None,
+          target: ts.ScriptTarget.ES2022,
+        },
+      },
+    ).outputText,
+    context,
+  );
+  return { apply: context.apply as () => void, callback };
+}
+function reviewedController() {
+  const controller = new RunConfigCompletionController("project", () => {}),
+    session = { userId: "clerk", sessionId: "A" };
+  controller.attach();
+  controller.bindFrame({
+    open: true,
+    canWrite: true,
+    scope: {
+      projectId: "project",
+      organizationId: "org",
+      clerkActorId: "clerk",
+      sessionId: "A",
+    },
+  });
+  controller.review(session, controller.snapshot().activationEpoch);
+  return { controller, session };
+}
+it("851 approved cases reach configuration review without a start call; archived/pending are excluded", () => {
+  const h = harness();
+  h.selectAll();
+  h.button("Continue to configuration")();
+  h.render();
+  expect(h.config().testCaseIds).toEqual(h.all.map((item) => item.id));
+  expect(h.config().caseCount).toBe(851);
+  expect(Object.isFrozen(h.config().testCaseIds)).toBe(true);
+  expect(h.config().open).toBe(true);
+  expect(h.send).not.toHaveBeenCalled();
+});
+it("filter and suite scopes are explicit and browsing does not alter the already selected cohort", () => {
+  const h = harness();
+  h.button("Start manual run")();
+  h.render();
+  h.change("Run case priority", "HIGH");
+  h.button("Apply Set selection")();
+  h.render();
+  h.change("Run case priority", "");
+  h.suite("Suite A");
+  h.button("Continue to configuration")();
+  h.render();
+  expect(h.config().testCaseIds).toEqual(
+    h.all.slice(0, 10).map((item) => item.id),
+  );
+  const suite = harness();
+  suite.button("Start manual run")();
+  suite.render();
+  suite.suite("Suite A");
+  suite.change("Apply to approved scope", "suite");
+  suite.button("Apply Set selection")();
+  suite.render();
+  suite.button("Continue to configuration")();
+  suite.render();
+  expect(suite.config().testCaseIds).toEqual(
+    suite.all
+      .filter((item) => item.suitePath === "Suite A")
+      .map((item) => item.id),
+  );
+});
+it.each([
+  null,
+  "",
+  "  \n",
+  "Unassigned",
+  '{"kind":"ALL"}',
+  ' x "quoted"/🎮\nretained ',
+  "Suite A",
+  "Suite B",
+])(
+  "mixed851 Stage1 and Stage2 use the same exact native suite %j, not an ALL or unassigned alias",
+  (path) => {
+    const h = harness(true);
+    h.button("Start manual run")();
+    h.render();
+    h.suite(path);
+    h.change("Apply to approved scope", "suite");
+    expect(h.config().caseCount).toBe(0);
+    expect(h.send).not.toHaveBeenCalled();
+    h.button("Apply Set selection")();
+    h.render();
+    h.button("Continue to configuration")();
+    h.render();
+    const expected = h.all
+      .filter((item) => item.suitePath === path)
+      .map((item) => item.id);
+    expect(h.config().testCaseIds).toEqual(expected);
+    expect(
+      h.config().bulkScopes!.find((scope) => scope.key === "suite")!
+        .testCaseIds,
+    ).toEqual(expected);
+    expect(
+      h.config().bulkScopes!.find((scope) => scope.key === "matching")!
+        .testCaseIds,
+    ).toEqual(expected);
+    expect(
+      h.config().bulkScopes!.find((scope) => scope.key === "all")!.testCaseIds,
+    ).toHaveLength(851);
+    expect(h.config().bulkScopesReady).toBe(true);
+    expect(h.config().testCaseIds).not.toContain("archived");
+    expect(h.config().testCaseIds).not.toContain("pending");
+    expect(h.send).not.toHaveBeenCalled();
+  },
+);
+it("null and empty-path Set/Add/Remove keep exact ordered identities without implicitly applying a browsed scope", () => {
+  const h = harness(true);
+  h.button("Start manual run")();
+  h.render();
+  h.suite(null);
+  h.change("Apply to approved scope", "suite");
+  h.button("Apply Set selection")();
+  h.render();
+  const nullIds = h.all
+      .filter((item) => item.suitePath === null)
+      .map((item) => item.id),
+    emptyIds = h.all
+      .filter((item) => item.suitePath === "")
+      .map((item) => item.id);
+  h.suite("");
+  h.change("Selection operation", "ADD");
+  h.button("Apply Add selection")();
+  h.render();
+  h.suite(null);
+  h.change("Selection operation", "REMOVE");
+  h.button("Apply Remove selection")();
+  h.render();
+  h.suite("Unassigned"); // Browsing a real path must not apply its namesake.
+  h.button("Continue to configuration")();
+  h.render();
+  const union = applyRunBulkSelection(nullIds, emptyIds, "ADD");
+  if (!union.ok) throw Error("Expected synthetic union refused.");
+  const removed = applyRunBulkSelection(union.ids, nullIds, "REMOVE");
+  if (!removed.ok) throw Error("Expected synthetic subtraction refused.");
+  expect(h.config().testCaseIds).toEqual(removed.ids);
+  expect(h.config().testCaseIds).toEqual(emptyIds);
+  expect(h.send).not.toHaveBeenCalled();
+});
+it("matching filter preserves conjunction of null suite, search, priority and test type", () => {
+  const h = harness(true);
+  h.button("Start manual run")();
+  h.render();
+  h.suite(null);
+  h.change("Run case priority", "HIGH");
+  h.change("Run case type", "FUNCTIONAL");
+  h.search("Case 8");
+  h.button("Apply Set selection")();
+  h.render();
+  h.button("Continue to configuration")();
+  h.render();
+  expect(h.config().testCaseIds).toEqual(["case-8"]);
+  expect(
+    h.config().bulkScopes!.find((scope) => scope.key === "suite")!.testCaseIds,
+  ).toEqual(
+    h.all.filter((item) => item.suitePath === null).map((item) => item.id),
+  );
+  expect(h.send).not.toHaveBeenCalled();
+});
+it.each(["malformed", "stale"])(
+  "%s suite refuses bulk apply instead of clearing/replacing the prior explicit851 cohort",
+  (mode) => {
+    const h = harness(true);
+    h.selectAll();
+    h.suite(null);
+    if (mode === "malformed")
+      h.change("Run case suite", '{"kind":"UNASSIGNED","unexpected":true}');
+    else {
+      h.query.data = h.query.data.map((item) => ({
+        ...item,
+        suitePath: item.suitePath === null ? "Now assigned" : item.suitePath,
+      }));
+      h.render();
+    }
+    h.change("Apply to approved scope", "suite");
+    h.button("Apply Set selection")(); // Invoke even the disabled captured UI action.
+    h.render();
+    h.button("Continue to configuration")();
+    h.render();
+    expect(h.config().testCaseIds).toEqual(h.all.map((item) => item.id));
+    expect(h.config().bulkScopesReady).toBe(false);
+    expect(h.config().bulkScopes!.some((scope) => scope.key === "suite")).toBe(
+      false,
+    );
+    expect(h.send).not.toHaveBeenCalled();
+  },
+);
+it.each(["malformed", "stale"])(
+  "explicit all851 is independent of a %s suite selector without fallback or filter reset",
+  (mode) => {
+    const h = harness(true);
+    h.button("Start manual run")(); h.render(); h.suite(null);
+    if (mode === "malformed") h.change("Run case suite", '{"kind":"UNASSIGNED","unexpected":true}');
+    else { h.query.data = h.query.data.map(row => ({ ...row, suitePath: row.suitePath === null ? "Now assigned" : row.suitePath })); h.render(); }
+    // Matching remains unavailable; there is no automatic all-scope fallback.
+    h.change("Apply to approved scope", "matching"); h.button("Apply Set selection")();
+    expect(text(h.render())).toContain("Choose a current suite or another approved scope");
+    expect(text(h.render())).toContain("0 selected");
+    h.change("Apply to approved scope", "all");
+    const before = h.render(), apply = elements(before).find(node => node.type === "button" && text(node.props.children) === "Apply Set selection")!;
+    expect(apply.props.disabled).toBe(false);
+    expect(text(before)).toContain("All loaded approved cases (851)");
+    expect(text(before)).toContain("The selected suite scope is unavailable");
+    h.button("Apply Set selection")(); const after = h.render();
+    expect(text(after)).toContain("851 selected");
+    expect(text(after)).toContain("The selected suite scope is unavailable");
+    // An explicit independent all action never rewrites the suite selector.
+    expect(elements(after).find(node => node.type === "select" && node.props["aria-label"] === "Run case suite")!.props.value)
+      .toBe(elements(before).find(node => node.type === "select" && node.props["aria-label"] === "Run case suite")!.props.value);
+    h.button("Continue to configuration")(); h.render();
+    expect(h.config().testCaseIds).toEqual(h.all.map(row => row.id));
+    expect(h.config().bulkScopesReady).toBe(false);
+    expect(h.config().bulkScopes!.some(scope => scope.key === "suite")).toBe(false);
+    expect(h.send).not.toHaveBeenCalled(); expect(h.navigate).not.toHaveBeenCalled();
+  },
+);
+it.each(["malformed", "stale"])(
+  "explicit all1001 with a %s suite is refused unsliced without replacing the prior selected identity",
+  (mode) => {
+    const h = harness(true);
+    h.button("Start manual run")(); h.render(); h.toggleCase("TC-0"); h.render(); h.suite(null);
+    h.query.data = [
+      ...h.all.map(row => ({ ...row, suitePath: mode === "stale" && row.suitePath === null ? "Now assigned" : row.suitePath })),
+      ...Array.from({ length: 150 }, (_, index) => ({ ...h.all[0]!, id: `extra-${index}`, displayId: `EX-${index}`, suitePath: "Extra" })),
+    ];
+    h.render();
+    if (mode === "malformed") h.change("Run case suite", '{"kind":"UNASSIGNED","unexpected":true}');
+    h.change("Apply to approved scope", "all"); const tree = h.render();
+    expect(text(tree)).toContain("All loaded approved cases (1001)");
+    expect(text(tree)).toContain("This operation would select 1,001 cases");
+    expect(elements(tree).find(node => node.type === "button" && text(node.props.children) === "Apply Set selection")!.props.disabled).toBe(true);
+    h.button("Apply Set selection")(); expect(text(h.render())).toContain("1 selected");
+    h.button("Continue to configuration")(); h.render();
+    expect(h.config().testCaseIds).toEqual(["case-0"]); expect(h.config().bulkScopesReady).toBe(false);
+    expect(h.send).not.toHaveBeenCalled(); expect(h.navigate).not.toHaveBeenCalled();
+  },
+);
+it("mixed null/empty metadata changes cannot replace an UNKNOWN original envelope or unlock its first-send cohort", async () => {
+  const h = harness(true);
+  h.button("Start manual run")();
+  h.render();
+  h.suite(null);
+  h.change("Apply to approved scope", "suite");
+  h.button("Apply Set selection")();
+  h.render();
+  h.button("Continue to configuration")();
+  h.render();
+  const props = h.config(),
+    input = request(props.testCaseIds),
+    { controller, session } = reviewedController();
+  h.send.mockRejectedValue(Error("Synthetic lost ACK"));
+  await controller.submitReviewed(
+    controller.snapshot().activationEpoch,
+    () => input,
+    props.onStart,
+    () => session,
+    () => nativeMetadata,
+    props.onConfirmedStart,
+  );
+  const pending = controller.snapshot().pendingRequest!,
+    body = JSON.stringify(controller.snapshot().pendingEnvelope!.envelope);
+  h.query.data = h.query.data.map((item) => ({
+    ...item,
+    suitePath: item.suitePath === null ? "" : null,
+  }));
+  h.render();
+  h.config().onSelectionChange!(["case-1"]);
+  h.render();
+  expect(h.config().testCaseIds).toBe(props.testCaseIds);
+  expect(h.config().bulkScopesReady).toBe(false);
+  expect(controller.snapshot().pendingRequest).toBe(pending);
+  expect(JSON.stringify(controller.snapshot().pendingEnvelope!.envelope)).toBe(
+    body,
+  );
+  expect(h.send).toHaveBeenCalledOnce();
+  expect(h.navigate).not.toHaveBeenCalled();
+});
+it.each(["fetching", "paused", "cached", "role", "actor", "retired"])(
+  "first Continue refuses %s source/scope without starting",
+  (mode) => {
+    const h = harness();
+    h.selectAll();
+    if (mode === "fetching") h.query.isFetching = true;
+    if (mode === "paused") h.query.isPaused = true;
+    if (mode === "cached") h.query.isFetchedAfterMount = false;
+    if (mode === "role") h.access.canWrite = false;
+    if (mode === "actor") h.browser.Clerk.session.user.id = "other";
+    if (mode === "retired")
+      h.query.data = h.query.data.map((item) => ({
+        ...item,
+        reviewStatus: "PENDING_REVIEW",
+      }));
+    h.render();
+    h.button("Continue to configuration")();
+    h.render();
+    expect(h.config().open).toBe(false);
+    expect(h.send).not.toHaveBeenCalled();
+  },
+);
+it("the mounted host retains original IDs across close, background metadata changes and reopening", () => {
+  const h = harness();
+  h.selectAll();
+  h.button("Continue to configuration")();
+  h.render();
+  const first = h.config();
+  first.onClose();
+  h.query.data = [];
+  h.render();
+  expect(h.config().testCaseIds).toBe(first.testCaseIds);
+  h.button("Reopen run configuration")();
+  h.render();
+  expect(h.config().open).toBe(true);
+  expect(h.config().testCaseIds).toBe(first.testCaseIds);
+  expect(h.send).not.toHaveBeenCalled();
+});
+it("a captured first Continue cannot replace the admitted cohort after background selection handlers run", () => {
+  const h = harness();
+  h.selectAll();
+  const capturedContinue = h.button("Continue to configuration"),
+    capturedClear = h.button("Clear selection");
+  capturedContinue();
+  const first = h.render();
+  const admitted = h.config().testCaseIds;
+  capturedClear();
+  capturedContinue();
+  h.render();
+  expect(h.config().testCaseIds).toBe(admitted);
+  expect(h.config().caseCount).toBe(851);
+  expect(h.send).not.toHaveBeenCalled();
+  expect(first).toBeTruthy();
+});
+it.each(["SET", "ADD", "REMOVE", "toggle", "clear"])(
+  "captured pre-Continue is refused after an explicit %s event, before React publishes the new cohort",
+  (operation) => {
+    const h = harness();
+    h.selectAll();
+    const captured = h.button("Continue to configuration");
+    if (operation === "clear") h.button("Clear selection")();
+    else if (operation === "toggle") h.toggleCase("TC-0");
+    else {
+      h.suite("Suite A");
+      h.change("Apply to approved scope", "suite");
+      h.change("Selection operation", operation);
+      h.button(
+        `Apply ${operation === "SET" ? "Set" : operation === "ADD" ? "Add" : "Remove"} selection`,
+      )();
+    }
+    captured();
+    h.render();
+    expect(h.config().open).toBe(false);
+    expect(h.config().caseCount).toBe(0);
+    expect(h.send).not.toHaveBeenCalled();
+    // A newly rendered explicit Continue can admit the revised cohort (except
+    // clear); no old 851-case selection was silently substituted.
+    if (operation !== "clear") {
+      h.button("Continue to configuration")();
+      h.render();
+      expect(h.config().open).toBe(true);
+    }
+  },
+);
+it("host mutation forwards the complete frozen body but never navigates itself or accepts replacement IDs", async () => {
+  const h = harness();
+  h.selectAll();
+  h.button("Continue to configuration")();
+  h.render();
+  const props = h.config(),
+    input = request(props.testCaseIds);
+  h.send.mockResolvedValue(ack(input));
+  const retainedEnvelope = envelope(input);
+  expect(await props.onStart(retainedEnvelope)).toEqual(ack(input));
+  expect(h.send).toHaveBeenCalledWith(retainedEnvelope);
+  expect(h.navigate).not.toHaveBeenCalled();
+  expect(h.send.mock.calls[0]![0]).toBe(retainedEnvelope);
+  expect(h.send.mock.calls[0]![0].expectedNativeActorId).toBe("native");
+  expect(input.executionContext).toMatchObject({
+    configuration: "line one\nline two",
+    platform: "",
+    build: "0",
+  });
+  await expect(
+    props.onStart({
+      ...retainedEnvelope,
+      request: { ...input, testCaseIds: ["replacement"] },
+    }),
+  ).rejects.toThrow("originally reviewed selection");
+  expect(h.send).toHaveBeenCalledOnce();
+});
+it.each(["SET", "ADD", "REMOVE"] as const)(
+  "actual Stage2 %s explicitly changes only the approved pre-send cohort",
+  (mode) => {
+    const h = harness();
+    h.selectAll();
+    h.button("Continue to configuration")();
+    h.render();
+    const props = h.config(),
+      { controller } = reviewedController();
+    const bulk = modalBulk(
+      props,
+      controller,
+      mode,
+      h.all.slice(0, 10).map((item) => item.id),
+    );
+    bulk.apply();
+    h.render();
+    const expected = applyRunBulkSelection(
+      props.testCaseIds,
+      h.all.slice(0, 10).map((item) => item.id),
+      mode,
+    );
+    if (!expected.ok) throw Error("Synthetic expected selection refused");
+    expect(bulk.callback).toHaveBeenCalledOnce();
+    expect(h.config().testCaseIds).toEqual(expected.ids);
+    expect(Object.isFrozen(h.config().testCaseIds)).toBe(true);
+    expect(h.send).not.toHaveBeenCalled();
+  },
+);
+it("old Stage2 callback cannot overwrite a later explicit cohort before React publishes the new revision", () => {
+  const h = harness();
+  h.selectAll();
+  h.button("Continue to configuration")();
+  h.render();
+  const old = h.config().onSelectionChange!;
+  old(["case-0"]);
+  old(["case-1"]);
+  h.render();
+  expect(h.config().testCaseIds).toEqual(["case-0"]);
+  h.config().onSelectionChange!(["case-2"]);
+  h.render();
+  expect(h.config().testCaseIds).toEqual(["case-2"]);
+});
+it.each(["unapproved", "duplicate", "overflow", "role", "actor", "source"])(
+  "Stage2 callback refuses %s cohort without replacing the retained selection",
+  (mode) => {
+    const h = harness();
+    h.selectAll();
+    h.button("Continue to configuration")();
+    h.render();
+    const initial = h.config().testCaseIds,
+      callback = h.config().onSelectionChange!;
+    let ids = ["case-0"];
+    if (mode === "unapproved") ids = ["pending"];
+    if (mode === "duplicate") ids = ["case-0", "case-0"];
+    if (mode === "overflow")
+      ids = Array.from({ length: 1001 }, (_, index) => `case-${index}`);
+    if (mode === "role") h.access.canWrite = false;
+    if (mode === "actor") h.browser.Clerk.session.user.id = "other";
+    if (mode === "source") h.query.isFetching = true;
+    if (mode === "role" || mode === "source") h.render();
+    (mode === "role" || mode === "source"
+      ? h.config().onSelectionChange!
+      : callback)(ids);
+    h.render();
+    expect(h.config().testCaseIds).toBe(initial);
+    expect(h.send).not.toHaveBeenCalled();
+  },
+);
+it.each(["pending", "unknown", "confirmed"])(
+  "actual modal/controller and parent latch refuse a captured %s reselection",
+  async (mode) => {
+    const h = harness();
+    h.selectAll();
+    h.button("Continue to configuration")();
+    h.render();
+    const props = h.config(),
+      input = request(props.testCaseIds),
+      { controller, session } = reviewedController(),
+      bulk = modalBulk(props, controller, "SET", ["case-0"]);
+    let resolve!: (value: unknown) => void;
+    if (mode === "pending")
+      h.send.mockImplementation(
+        () =>
+          new Promise((yes) => {
+            resolve = yes;
+          }),
+      );
+    else if (mode === "unknown")
+      h.send.mockRejectedValue(Error("Synthetic lost response"));
+    else h.send.mockResolvedValue(ack(input));
+    const submission = controller.submitReviewed(
+      controller.snapshot().activationEpoch,
+      () => input,
+      props.onStart,
+      () => session,
+      () => nativeMetadata,
+      props.onConfirmedStart,
+    );
+    if (mode !== "pending") await submission;
+    bulk.apply();
+    expect(bulk.callback).not.toHaveBeenCalled();
+    // Even a directly captured host callback is not allowed to destroy recovery.
+    props.onSelectionChange!(["case-0"]);
+    h.render();
+    expect(h.config().testCaseIds).toBe(props.testCaseIds);
+    expect(h.config().bulkScopesReady).toBe(false);
+    if (mode === "pending") {
+      resolve(ack(input));
+      await submission;
+    }
+    expect(h.send).toHaveBeenCalledOnce();
+  },
+);
+it("unknown ACK retries through actual controller with identical request/UUID, no body regeneration", async () => {
+  const h = harness();
+  h.selectAll();
+  h.button("Continue to configuration")();
+  h.render();
+  const props = h.config();
+  const c = new RunConfigCompletionController("project", () => {}),
+    scope = {
+      projectId: "project",
+      organizationId: "org",
+      clerkActorId: "clerk",
+      sessionId: "A",
+    },
+    session = { userId: "clerk", sessionId: "A" };
+  c.attach();
+  c.bindFrame({ scope, open: true, canWrite: true });
+  c.review(session, c.snapshot().activationEpoch);
+  let generated = 0;
+  const factory = () => {
+    generated++;
+    return request(props.testCaseIds);
+  };
+  h.send.mockRejectedValueOnce(Error("synthetic lost response"));
+  await c.submitReviewed(
+    c.snapshot().activationEpoch,
+    factory,
+    props.onStart,
+    () => session,
+    () => nativeMetadata,
+    props.onConfirmedStart,
+  );
+  const retained = c.snapshot().pendingRequest!;
+  h.send.mockResolvedValueOnce(ack(retained));
+  await c.submitReviewed(
+    c.snapshot().activationEpoch,
+    factory,
+    props.onStart,
+    () => session,
+    () => nativeMetadata,
+    props.onConfirmedStart,
+  );
+  expect(generated).toBe(1);
+  expect(h.send.mock.calls[0]![0].request).toEqual(retained);
+  expect(h.send.mock.calls[1]![0]).toBe(h.send.mock.calls[0]![0]);
+  expect(h.navigate).toHaveBeenCalledOnce();
+});
+it.each(["close", "role", "session"])(
+  "posted %s frame holds exact late ACK privately until explicit restored Open",
+  async (mode) => {
+    const h = harness();
+    h.selectAll();
+    h.button("Continue to configuration")();
+    h.render();
+    const props = h.config();
+    const c = new RunConfigCompletionController("project", () => {}),
+      scope = {
+        projectId: "project",
+        organizationId: "org",
+        clerkActorId: "clerk",
+        sessionId: "A",
+      },
+      session = { userId: "clerk", sessionId: "A" };
+    c.attach();
+    const frame = { scope, open: true, canWrite: true };
+    c.bindFrame(frame);
+    c.review(session, c.snapshot().activationEpoch);
+    let resolve!: (value: unknown) => void;
+    h.send.mockImplementation(
+      () =>
+        new Promise((yes) => {
+          resolve = yes;
+        }),
+    );
+    const input = request(props.testCaseIds),
+      pending = c.submitReviewed(
+        c.snapshot().activationEpoch,
+        () => input,
+        props.onStart,
+        () => session,
+        () => nativeMetadata,
+        props.onConfirmedStart,
+      );
+    const retainedBeforeFrameChange = c.snapshot().pendingRequest;
+    expect(retainedBeforeFrameChange).toEqual(input);
+    c.bindFrame(
+      mode === "close"
+        ? { ...frame, open: false }
+        : mode === "role"
+          ? { ...frame, canWrite: false }
+          : { ...frame, scope: { ...scope, sessionId: "B" } },
+    );
+    c.bindFrame(frame);
+    resolve(ack(input));
+    await pending;
+    expect(h.navigate).not.toHaveBeenCalled();
+    expect(c.snapshot().confirmed?.request).toBe(retainedBeforeFrameChange);
+    expect(c.snapshot().confirmed?.request).toEqual(input);
+    expect(c.snapshot().pendingRequest).toBeNull();
+    expect(
+      c.openReviewedConfirmed(
+        session,
+        () => nativeMetadata,
+        props.onConfirmedStart,
+        c.snapshot().activationEpoch,
+      ),
+    ).toBe(true);
+    expect(h.navigate).toHaveBeenCalledOnce();
+    expect(h.send).toHaveBeenCalledOnce();
+  },
+);
+it("generic source error is rendered without leaking private query text; host alone does not claim an SDK ABA latch", () => {
+  const h = harness();
+  h.query.error = Error("private SQL fixture diagnostic");
+  const tree = h.render();
+  expect(text(tree)).toContain("approved case scope could not be loaded");
+  expect(text(tree)).not.toContain("private SQL fixture diagnostic");
+  expect(source).not.toMatch(
+    /manualStartRequest|sameAuthScope|crypto\.randomUUID/,
+  );
+  expect(source).toContain("onConfirmedStart");
+});
+it.each(["fetching", "paused", "error", "cached", "access"] as const)(
+  "unavailable %s source never claims empty matches and disables only new Continue",
+  mode => {
+    const h = harness(); h.selectAll();
+    const selected = h.all.map(row => row.id);
+    if (mode === "fetching") h.query.isFetching = true;
+    if (mode === "paused") h.query.isPaused = true;
+    if (mode === "error") h.query.error = Error("private query diagnostics must remain hidden");
+    if (mode === "cached") h.query.isFetchedAfterMount = false;
+    if (mode === "access") h.access.ready = false;
+    const tree = h.render(), rendered = text(tree);
+    expect(rendered).not.toContain("No approved test cases match");
+    expect(rendered).not.toContain("No approved test cases are available");
+    expect(rendered).not.toContain("Import or create cases");
+    expect(rendered).not.toContain("private query diagnostics");
+    expect(rendered).toContain("selection is retained");
+    if (mode === "fetching") expect(rendered).toContain("Refreshing approved test cases");
+    if (mode === "paused") expect(rendered).toContain("Case loading is paused");
+    if (mode === "cached" || mode === "access") expect(rendered).toContain("Waiting for current access and approved test cases");
+    const next = elements(tree).find(node => node.type === "button" && text(node.props.children) === "Continue to configuration")!;
+    expect(next.props.disabled).toBe(true);
+    h.button("Continue to configuration")(); h.render();
+    expect(h.config().open).toBe(false); expect(h.send).not.toHaveBeenCalled();
+    h.query.isFetching = false; h.query.isPaused = false; h.query.error = null; h.query.isFetchedAfterMount = true; h.access.ready = true;
+    const restored = h.render();
+    expect(elements(restored).find(node => node.type === "button" && text(node.props.children) === "Continue to configuration")!.props.disabled).toBe(false);
+    h.button("Continue to configuration")(); h.render();
+    expect(h.config().testCaseIds).toEqual(selected); expect(h.send).not.toHaveBeenCalled();
+  },
+);
+it("initial loading has a status announcement rather than a false empty/search suggestion", () => {
+  const h = harness(); h.query.isLoading = true; h.query.isFetching = true; h.query.isFetchedAfterMount = false;
+  const tree = h.render();
+  expect(elements(tree).some(node => node.props.role === "status" && text(node.props.children) === "Loading test cases…")).toBe(true);
+  expect(text(tree)).not.toContain("No approved test cases"); expect(text(tree)).not.toContain("Import or create cases");
+});
+it("a fresh empty approved scope differs from a real filter miss without changing selection", () => {
+  const h = harness(); h.selectAll(); h.search("Definitely no synthetic case matches");
+  const filtered = h.render();
+  expect(text(filtered)).toContain("No approved test cases match the current filters. Adjust the search, suite, priority or test type.");
+  expect(text(filtered)).not.toContain("Import or create cases");
+  h.query.data = h.query.data.filter(row => row.archived || row.reviewStatus !== "APPROVED");
+  expect(text(h.render())).toContain("No approved test cases are available. Import or create cases, or review pending cases first.");
+  h.query.data = h.all; h.search(""); h.button("Continue to configuration")(); h.render();
+  expect(h.config().testCaseIds).toEqual(h.all.map(row => row.id)); expect(h.send).not.toHaveBeenCalled();
+});
+it.each(["fetching", "paused", "error", "cached"] as const)(
+  "retained configuration reopen stays enabled across %s source loss and keeps original selection identity",
+  mode => {
+    const h = harness(); h.selectAll(); h.button("Continue to configuration")(); h.render();
+    const original = h.config().testCaseIds; h.config().onClose();
+    if (mode === "fetching") h.query.isFetching = true;
+    if (mode === "paused") h.query.isPaused = true;
+    if (mode === "error") h.query.error = Error("private retained metadata error");
+    if (mode === "cached") h.query.isFetchedAfterMount = false;
+    const tree = h.render();
+    const reopen = elements(tree).find(node => node.type === "button" && text(node.props.children) === "Reopen retained configuration")!;
+    expect(reopen.props.disabled).toBe(false);
+    h.button("Reopen retained configuration")(); h.render();
+    expect(h.config().open).toBe(true); expect(h.config().testCaseIds).toBe(original);
+    expect(h.config().bulkScopesReady).toBe(false); expect(h.send).not.toHaveBeenCalled(); expect(h.navigate).not.toHaveBeenCalled();
+  },
+);

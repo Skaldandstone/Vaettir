@@ -5,9 +5,33 @@
 // experience, not just a permission check - edit/create affordances
 // shouldn't be visible to click in the first place.
 //
-// READ_ONLY seats can only hold the VIEWER role (enforced server-side in
-// inviteMember/updateMember), so checking seatType alone is sufficient -
-// there's no READ_ONLY+EDITOR combination to also handle.
+// Seat-only callers fail closed while membership is unknown. New write
+// controls should also use the role-aware predicates below.
 export function isReadOnlySeat(seatType: string | undefined): boolean {
-  return seatType === "READ_ONLY";
+  return seatType !== "FULL";
+}
+
+type Membership = { role: string; seatType: string } | null | undefined;
+
+export function roleLabel(role: string): string {
+  const labels: Record<string, string> = { OWNER: "Owner", ADMIN: "Admin", EDITOR: "Editor", VIEWER: "Viewer", COMPLIANCE_AUDITOR: "Compliance auditor" };
+  return labels[role] ?? role.replaceAll("_", " ").toLowerCase();
+}
+
+export function canEditProject(member: Membership): boolean {
+  return member?.seatType === "FULL" && ["OWNER", "ADMIN", "EDITOR"].includes(member.role);
+}
+
+export function canAdministerOrganization(member: Membership): boolean {
+  return member?.seatType === "FULL" && ["OWNER", "ADMIN"].includes(member.role);
+}
+
+export function organizationAccessMessage(state: { isError: boolean; isPending: boolean }): string {
+  if (state.isError) return "Workspace permissions unavailable";
+  if (state.isPending) return "Checking workspace permissions";
+  return "Admin access required";
+}
+
+export function canSignOffCompliance(member: Membership): boolean {
+  return member?.seatType === "FULL" && ["OWNER", "ADMIN", "COMPLIANCE_AUDITOR"].includes(member.role);
 }

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vaettir™ | Quality intelligence</title>
+<meta name="description" content="Vaettir derives readable, source-linked test evidence from the automated tests that actually run.">
+<link rel="canonical" href="https://vaettir.app/">
+<meta property="og:title" content="Vaettir™ - Skald &amp; Stone™"><meta property="og:description" content="Evidence that stays connected to the tests that prove it."><meta property="og:url" content="https://vaettir.app/"><meta property="og:type" content="website">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&amp;family=Spectral:wght@400;500;600&amp;family=Cinzel:wght@600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/project.css"><link rel="stylesheet" href="/vaettir/style.css">
+<meta property="og:image" content="https://vaettir.app/vaettir/evidence-field-v1.webp">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://vaettir.app/vaettir/evidence-field-v1.webp">
+<meta property="og:site_name" content="Skald &amp; Stone">
+<link rel="stylesheet" href="/assets/legal-v1.css">
+<link rel="stylesheet" href="/assets/accessibility.css">
+<link rel="stylesheet" href="/assets/access-request.css">
+</head>
+<body class="vaettir-page">
+<a class="skip-link" href="#main">Skip to content</a>
+<nav class="site"><div class="wrap"><a class="nav-mark" href="https://skaldandstone.com/"><svg viewBox="0 0 48 48" fill="none" aria-hidden="true"><path d="M24 17v25" stroke="currentColor" stroke-width="4.5"/><path d="M20 41h8v3h-8z" fill="currentColor"/><g transform="translate(4.8 13.5) scale(.85)"><path d="M41 6c-4.5.2-10 2.5-14.5 6.2-4 3.3-7.5 7.3-10 11.3L15 29l5-2.2.6-3.4 4.9-2.2.5-3.2 5.5-3.5.5-3.1C35.5 8.5 38.5 6.8 41 6z" fill="currentColor"/><path d="M41 6C33.5 11.5 25.5 20 16.5 28.5l-6 8" stroke="currentColor" stroke-width="1.8"/></g><path d="m6 10.5 18-3.5 18 3.5V17H6z" fill="currentColor"/></svg><span>Skald &amp; Stone</span></a><div class="nav-links"><a href="https://skaldandstone.com/#work">All projects</a><a href="https://skaldandstone.com/#contact">Contact</a></div></div></nav>
+
+<header class="hero vaettir-hero">
+  <div class="v-wide hero-layout">
+<div class="hero-copy"><p class="hero-tag">Quality Intelligence</p><h1>Vaettir<span class="tm">™</span></h1><p class="hero-line">Every claim connected<br>to the test that proves it.</p><p class="lede">Vaettir brings test plans, source-linked cases, execution evidence, coverage gaps, compliance controls, and release readiness into one quality workspace.</p><div class="hero-actions"><span class="hero-status">Private beta</span><a class="hero-launch" href="https://vaettir.skaldandstone.com">Open Vaettir &rarr;</a><a class="access-request-trigger access-request-button" href="#request-access" data-access-request data-product="vaettir">Request an invitation &rarr;</a></div></div>
+    <div class="trace-map" aria-label="Test to evidence traceability preview">
+      <div class="trace-column source"><span class="trace-label">Source tests</span><div class="trace-node"><i>01</i><b>auth.spec.ts</b><small>12 passing</small></div><div class="trace-node"><i>02</i><b>access.spec.ts</b><small>08 passing</small></div><div class="trace-node"><i>03</i><b>audit.spec.ts</b><small>17 passing</small></div></div>
+      <svg class="trace-lines" viewBox="0 0 300 250" preserveAspectRatio="none" aria-hidden="true"><path d="M0 43 C100 43 170 54 300 54"/><path d="M0 124 C105 124 170 54 300 54"/><path d="M0 124 C100 124 180 134 300 134"/><path d="M0 205 C110 205 175 214 300 214"/><circle cx="160" cy="88" r="4"/><circle cx="204" cy="168" r="4"/></svg>
+      <div class="trace-column evidence"><span class="trace-label">Verified evidence</span><div class="trace-node verified"><i>✓</i><b>Identity verified</b><small>SOC 2 CC6.1</small></div><div class="trace-node verified"><i>✓</i><b>Access restricted</b><small>HIPAA 164.312</small></div><div class="trace-node verified"><i>✓</i><b>Events retained</b><small>ISO A.8.15</small></div></div>
+    </div>
+  </div>
+</header>
+
+<main id="main" tabindex="-1">
+<section class="truth-section"><div class="v-wide intro-grid"><div><p class="eyebrow">One source of truth</p><h2>Readable evidence, derived from running code</h2></div><p>Teams can author structured or BDD cases directly, import existing suites and collections, and connect execution results back to requirements. Vaettir keeps the readable view and the source evidence together.</p></div><div class="v-wide flow-board"><article><span class="step">01</span><small>Ingest</small><h3>Your existing tests</h3><pre><code>test("blocks unknown user")<br>expect(status).toBe(401)</code></pre></article><span class="flow-arrow">→</span><article><span class="step">02</span><small>Derive</small><h3>Readable behavior</h3><div class="gherkin"><b>Given</b> an unknown user<br><b>When</b> access is requested<br><b>Then</b> the request is denied</div></article><span class="flow-arrow">→</span><article><span class="step">03</span><small>Connect</small><h3>Release evidence</h3><div class="control-badge"><b>SOC 2</b><span>CC6.1</span></div><div class="verified-row">Current source passing</div></article></div></section>
+
+  <section class="evidence-section"><div class="v-wide feature-layout"><div class="feature-copy"><p class="eyebrow">Evidence graph</p><h2>Follow any claim all the way back</h2><p>Every test case retains a path to its source, latest result, repository, owner, and compliance mapping.</p><ul><li>Framework-agnostic ingestion</li><li>Given, When, Then documentation</li><li>Freshness and drift signals</li><li>Control coverage at a glance</li></ul></div><div class="evidence-ui"><div class="ui-top"><span>Evidence explorer</span><span class="live">Live graph</span></div><div class="ui-grid"><aside><span class="selected">Authentication</span><span>Authorization</span><span>Audit logging</span><span>Encryption</span></aside><div class="graph"><span class="graph-node code">auth.spec.ts</span><span class="graph-node case">Unknown user denied</span><span class="graph-node control">SOC 2 CC6.1</span><span class="graph-node result">37 / 37 passing</span><svg viewBox="0 0 440 240" preserveAspectRatio="none"><path d="M112 45C180 45 170 96 220 96M300 96C360 96 350 45 400 45M300 96C350 96 340 190 400 190"/></svg></div></div></div></div></section>
+
+  <section class="controls-section"><div class="v-wide"><p class="eyebrow">Compliance mapping</p><h2>Controls become a living view, not an audit-season scramble</h2><div class="control-grid"><article><span>SOC 2</span><b>92%</b><i style="--fill:92%"></i><small>48 controls with evidence</small></article><article><span>HIPAA</span><b>84%</b><i style="--fill:84%"></i><small>31 controls with evidence</small></article><article><span>PCI DSS</span><b>76%</b><i style="--fill:76%"></i><small>26 controls with evidence</small></article><article><span>ISO 27001</span><b>81%</b><i style="--fill:81%"></i><small>39 controls with evidence</small></article></div></div></section>
+
+  <section class="proof-section"><div class="v-wide proof-layout"><div><p class="eyebrow">Working platform</p><h2>Not a diagram pretending to be a product</h2><p>Vaettir already has a multi-tenant SaaS foundation, organization-scoped roles, and a live AI reverse-engineering pipeline.</p></div><div class="proof-stack"><div><span>Platform</span><b>v1 working</b></div><div><span>Access</span><b>Organization RBAC</b></div><div><span>Pipeline</span><b>AI extraction live</b></div><div><span>Scope</span><b>Framework agnostic</b></div></div></div></section>
+
+  <section class="edge-section"><div class="v-wide"><p class="eyebrow">The difference</p><h2>Evidence should be derived, not authored</h2><div class="edge-grid"><article><small>Traditional test management</small><h3>Write the same truth twice</h3><p>Manual cases become another artifact for engineers to remember, review, and eventually distrust.</p></article><article class="vaettir-edge"><small>Vaettir</small><h3>Connect documentation to reality</h3><p>Readable cases and compliance evidence come from the source that already decides whether software ships.</p></article></div></div></section>
+
+  <section class="name-section"><div class="wrap"><p class="eyebrow">The name</p><h2>Why Vaettir?</h2><div class="name-note"><span class="v-mark">V</span><span>Named for the vættir, old Norse spirits said to watch over a place whether anyone noticed them or not. Vaettir keeps watch over test coverage, making it visible before something breaks instead of after.</span></div></div></section>
+</main>
+<footer class="contact"><div class="wrap"><div class="foot-sign"><a class="foot-mark" href="https://skaldandstone.com/"><span class="v-mark small">V</span><span>Skald &amp; Stone</span></a><a class="foot-email" href="mailto:james@skaldandstone.com">james@skaldandstone.com</a></div></div><div class="legal-notice"><span>&copy; 2026 Skald and Stone LLC</span><a href="https://skaldandstone.com/privacy/">Website privacy</a><a href="https://skaldandstone.com/accessibility/">Accessibility</a></div>
+</footer>
+<script src="/assets/access-request.js" defer></script>
+</body></html>

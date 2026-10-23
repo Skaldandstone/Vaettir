@@ -1,0 +1,159 @@
+import { test as base, expect } from "@playwright/test";
+import { prisma } from "@vaettir/db";
+import { randomUUID } from "node:crypto";
+import { hardDeleteOrganization } from "../../api/src/services/orgHardDelete";
+import { assertTestEnvironment } from "./test-environment";
+
+type FixtureOptions = {
+  fixtureMode: "member" | "invitation" | "enrolled" | "unenrolled";
+  memberRole: "OWNER" | "EDITOR" | "VIEWER" | "COMPLIANCE_AUDITOR";
+  memberSeat: "FULL" | "READ_ONLY";
+};
+
+export const test = base.extend<FixtureOptions & { isolatedOrg: string }>({
+  fixtureMode: ["member", { option: true }],
+  memberRole: ["OWNER", { option: true }],
+  memberSeat: ["FULL", { option: true }],
+  isolatedOrg: [async ({ fixtureMode, memberRole, memberSeat }, runFixture, info) => {
+    assertTestEnvironment();
+    if (info.project.name === "signed-out") { await runFixture(""); return; }
+
+    const clerkUserId = process.env.CLERK_TEST_USER_ID;
+    const email = process.env.CLERK_TEST_EMAIL?.trim().toLowerCase();
+    if (!clerkUserId || !email) throw new Error("Set dedicated verified Clerk test identity credentials.");
+    const existing = await prisma.user.findUnique({ where: { clerkUserId }, include: { memberships: true } });
+    if (existing && (existing.memberships.length || existing.email !== email)) {
+      throw new Error("Test identity is not isolated. Refusing to alter existing organizations.");
+    }
+    if (await prisma.betaEnrollment.findUnique({ where: { email } })) {
+      throw new Error("Test identity already has an enrollment. Refusing to alter it.");
+    }
+
+    const user = existing ?? await prisma.user.create({ data: { clerkUserId, email } });
+    const suffix = randomUUID();
+    let orgId: string | undefined;
+    let controlId: string | undefined;
+    let ownerId: string | undefined;
+    let enrollmentId: string | undefined;
+    try {
+      if (fixtureMode === "enrolled" || fixtureMode === "unenrolled") {
+        if (fixtureMode === "enrolled") {
+          enrollmentId = (await prisma.betaEnrollment.create({ data: {
+            email, createdBy: "e2e-fixture", reason: "Isolated onboarding acceptance",
+          } })).id;
+        }
+        await runFixture("");
+        return;
+      }
+
+      const tier = await prisma.planTier.findUniqueOrThrow({ where: { key: "private-beta" } });
+      if (memberRole !== "OWNER" || fixtureMode === "invitation") {
+        ownerId = (await prisma.user.create({ data: {
+          email: `fixture-owner-${suffix}@example.invalid`, clerkUserId: `e2e-owner-${suffix}`,
+        } })).id;
+      }
+      const org = await prisma.organization.create({ data: {
+        name: "Disposable beta fixture",
+        slug: `e2e-${suffix}`,
+        planTierId: tier.id,
+        releaseGatePolicy: "HARD_BLOCK",
+        memberships: { create: [
+          { userId: ownerId ?? user.id, role: "OWNER", seatType: "FULL" },
+          ...(ownerId && fixtureMode === "member" ? [{ userId: user.id, role: memberRole, seatType: memberSeat }] : []),
+        ] },
+      } });
+      orgId = org.id;
+      if (fixtureMode === "invitation") {
+        await prisma.invitation.create({ data: {
+          organizationId: org.id, email, role: "EDITOR", seatType: "FULL",
+          invitedById: ownerId!, expiresAt: new Date(Date.now() + 86_400_000),
+        } });
+      }
+
+      const project = await prisma.project.create({ data: { organizationId: org.id, name: "Beta fixture", slug: "beta-fixture" } });
+      await prisma.project.create({ data: { organizationId: org.id, name: "Automation fixture", slug: "automation-fixture" } });
+      const release = await prisma.release.create({ data: { projectId: project.id, name: "v2.4", status: "BLOCKED" } });
+      await prisma.release.create({ data: { projectId: project.id, name: "v2.3", status: "SHIPPED" } });
+      const planType = await prisma.testPlanType.findFirstOrThrow({ where: { isBuiltIn: true } });
+      const plan = await prisma.testPlan.create({ data: {
+        projectId: project.id, releaseId: release.id, name: "Fixture regression", testPlanTypeId: planType.id,
+        acceptanceCriteria: { create: { description: "All authentication cases pass", status: "NOT_MET" } },
+      } });
+      const cases = [];
+      for (const title of ["Preparing an immutable submission preview succeeds", "A wrong password is rejected without creating a session", "A one-time code is required"]) {
+        cases.push(await prisma.testCase.create({ data: {
+          projectId: project.id, testPlanId: plan.id, title, testType: "FUNCTIONAL",
+          given: ["a test account"], when: ["the sample action runs"], then: ["the expected result is recorded"], tags: ["fixture"],
+        } }));
+      }
+      const run = await prisma.testRun.create({ data: {
+        projectId: project.id, ciProvider: "github-actions", commitSha: "e2e-fixture", branch: "fixture",
+        startedAt: new Date(), finishedAt: new Date(), status: "FAILED", results: { create: [
+          { testCaseId: cases[0]!.id, status: "PASS" },
+          { testCaseId: cases[1]!.id, status: "FAIL", errorMessage: "Synthetic fixture failure" },
+          { externalTestId: "unmatched-fixture", status: "PASS" },
+        ] },
+      }, include: { results: true } });
+      await prisma.healingSuggestion.create({ data: {
+        projectId: project.id,
+        testCaseId: cases[1]!.id,
+        testResultId: run.results.find((result) => result.status === "FAIL")!.id,
+        classification: "BRITTLE",
+        classificationRationale: "Synthetic locator changed while the required behavior stayed the same.",
+        suggestedDiff: "- getByText('Old label')\n+ getByRole('button', { name: 'New label' })",
+        status: "PENDING",
+      } });
+      await prisma.coverageReport.create({ data: {
+        projectId: project.id, testRunId: run.id, commitSha: "e2e-fixture", branch: "fixture", tool: "ISTANBUL",
+        linesCovered: 8, linesTotal: 10, files: { create: { filePath: "fixture.ts", linesCovered: 8, linesTotal: 10 } },
+      } });
+      for (const relatedFilePath of ["totp.ts", "connectorFallback.ts"]) {
+        await prisma.riskFlag.create({ data: {
+          releaseId: release.id,
+          severity: "HIGH",
+          source: "MANUAL_FLAG",
+          description: `Fixture risk: ${relatedFilePath}`,
+          relatedFilePath,
+        } });
+      }
+      await prisma.reverseEngineerJob.create({ data: {
+        projectId: project.id,
+        inputType: "PASTE",
+        inputRef: "fixture.spec.ts",
+        status: "SUCCEEDED",
+        resultTestCaseIds: [cases[0]!.id],
+      } });
+      const framework = await prisma.complianceFramework.findUniqueOrThrow({ where: { key: "soc2" } });
+      const control = await prisma.complianceControl.create({ data: {
+        frameworkId: framework.id, code: `E2E-${suffix}`, title: "Fixture access review",
+      } });
+      controlId = control.id;
+      await prisma.testCaseComplianceControl.create({ data: { testCaseId: cases[0]!.id, controlId } });
+      await prisma.auditLog.create({ data: {
+        organizationId: org.id, projectId: project.id, actorId: user.id,
+        entityType: "TestCase", entityId: cases[0]!.id, action: "CREATE", summary: "Created fixture case",
+      } });
+      await prisma.auditLog.create({ data: {
+        organizationId: org.id, projectId: project.id, actorId: user.id,
+        entityType: "TestPlan", entityId: plan.id, action: "CREATE", summary: "Created fixture plan",
+      } });
+      await runFixture(org.id);
+    } finally {
+      if (enrollmentId) {
+        orgId = (await prisma.betaEnrollment.findUnique({ where: { id: enrollmentId } }))?.organizationId ?? undefined;
+        await prisma.betaEnrollment.delete({ where: { id: enrollmentId } });
+      }
+      if (orgId) {
+        const serviceUsers = await prisma.apiKey.findMany({ where: { organizationId: orgId }, select: { serviceUserId: true } });
+        await hardDeleteOrganization(prisma, orgId, user.id, "Isolated browser fixture cleanup");
+        await prisma.organizationDeletionLog.deleteMany({ where: { organizationId: orgId } });
+        if (serviceUsers.length) await prisma.user.deleteMany({ where: { id: { in: serviceUsers.map((key) => key.serviceUserId) } } });
+      }
+      if (controlId) await prisma.complianceControl.delete({ where: { id: controlId } });
+      if (ownerId) await prisma.user.delete({ where: { id: ownerId } });
+      if (!existing) await prisma.user.delete({ where: { id: user.id } });
+    }
+  }, { auto: true }],
+});
+
+export { expect };

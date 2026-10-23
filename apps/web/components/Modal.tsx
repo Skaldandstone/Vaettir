@@ -14,12 +14,16 @@ export function Modal({
   title,
   children,
   dismissible = true,
+  size = "default",
+  keepMounted = false,
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
   children: ReactNode;
   dismissible?: boolean;
+  size?: "default" | "wide";
+  keepMounted?: boolean;
 }) {
   const titleId = useId();
   return (
@@ -29,6 +33,12 @@ export function Modal({
       className="modal-panel"
       labelledBy={titleId}
       dismissible={dismissible}
+      keepMounted={keepMounted}
+      style={
+        size === "wide"
+          ? { width: "min(900px, calc(100vw - 32px))", maxWidth: 900 }
+          : undefined
+      }
     >
       <div className="modal-header">
         <h2 id={titleId} style={{ margin: 0 }}>

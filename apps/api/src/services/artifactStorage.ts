@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, GetObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { randomUUID } from "node:crypto";
 
@@ -45,7 +45,34 @@ export function buildTestCaseAttachmentKey(projectId: string, testCaseId: string
 
 export async function createGenericUploadUrl(key: string, contentType: string): Promise<string> {
   const command = new PutObjectCommand({ Bucket: requireBucket(), Key: key, ContentType: contentType });
-  return getSignedUrl(getClient(), command, { expiresIn: 300 });
+  return getSignedUrl(getClient(), command, { expiresIn: 300, signableHeaders: new Set(["content-type"]) });
+}
+
+// Verify storage metadata, not the contents, safety or immutability of a file.
+// Keys come only from a scoped database attachment, never a caller URL.
+export async function verifyStoredAttachment(
+  key: string,
+  expected: { sizeBytes: number; contentType: string },
+) {
+  let head;
+  try {
+    head = await getClient().send(
+      new HeadObjectCommand({ Bucket: requireBucket(), Key: key }),
+      { abortSignal: AbortSignal.timeout(5000) },
+    );
+  } catch {
+    throw new Error("Stored file could not be verified. Retry verification after the upload completes.");
+  }
+  if (head.ContentLength !== expected.sizeBytes ||
+      head.ContentLength <= 0 || head.ContentLength > 25 * 1024 * 1024 ||
+      head.ContentType !== expected.contentType) {
+    throw new Error("Stored file size or type does not match the upload. Upload the file again.");
+  }
+  return {
+    etag: head.ETag ?? null,
+    versionId: head.VersionId ?? null,
+    verifiedAt: new Date().toISOString(),
+  };
 }
 
 export async function createViewUrl(key: string): Promise<string> {

@@ -1,127 +1,113 @@
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { TestCaseStepInputSchema } from "@vaettir/core";
-import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
+import { router, protectedProcedure } from "../trpc.js";
+import { requireCurrentPlanAccess } from "../services/testPlanExecution.js";
+import {
+  boundedSharedLibrary,
+  createSharedLibrary,
+  reviewSharedLibrary,
+  writeSharedLibrary,
+} from "../services/sharedStepHistory.js";
+import {
+  sharedLibraryContentSchema,
+  sharedLibraryRefSchema,
+  sharedLibraryWriteSchema,
+} from "../services/sharedStepHistorySchema.js";
 
-const stepOutputSchema = z.object({
-  order: z.number(),
-  action: z.string(),
-  expectedActionOrData: z.string().nullable(),
-  expectedResult: z.string().nullable(),
-  expectedResponse: z.string().nullable(),
-});
-
-// 2026-08-27 competitor parity audit: shared/reusable step libraries.
-// A SharedStepGroup is edited in one place and referenced by any number
-// of TestCases (see the schema comment on TestCase.sharedStepGroupId) -
-// editing it here changes what every linked case shows, without touching
-// the cases themselves.
+// Read compatibility is retained. Unreviewed legacy UPDATE/DELETE intentionally
+// refuse after the additive guard migration rather than erase retained history.
 export const sharedStepGroupsRouter = router({
   list: protectedProcedure
-    .input(z.object({ projectId: z.string() }))
-    .output(
-      z.array(
-        z.object({
-          id: z.string(),
-          name: z.string(),
-          description: z.string().nullable(),
-          steps: z.array(stepOutputSchema),
-          usageCount: z.number(),
-          updatedAt: z.date(),
-        }),
-      ),
-    )
-    .query(async ({ ctx, input }) => {
-      await requireProjectAccess(ctx, input.projectId);
-      const groups = await ctx.prisma.sharedStepGroup.findMany({
-        where: { projectId: input.projectId },
-        include: { _count: { select: { testCases: true } } },
-        orderBy: { name: "asc" },
-      });
-      return groups.map((g) => ({
-        id: g.id,
-        name: g.name,
-        description: g.description,
-        steps: g.steps as never,
-        usageCount: g._count.testCases,
-        updatedAt: g.updatedAt,
-      }));
-    }),
-
-  create: protectedProcedure
     .input(
       z.object({
         projectId: z.string(),
-        name: z.string().min(1),
-        description: z.string().optional(),
-        steps: z.array(TestCaseStepInputSchema).min(1),
+        includeArchived: z.boolean().default(false),
       }),
     )
-    .mutation(async ({ ctx, input }) => {
-      await requireProjectAccess(ctx, input.projectId, "EDITOR");
-      return ctx.prisma.sharedStepGroup.create({
-        data: {
-          projectId: input.projectId,
-          name: input.name,
-          description: input.description,
-          steps: input.steps.map((s, i) => ({
-            order: i,
-            action: s.action,
-            expectedActionOrData: s.expectedActionOrData ?? null,
-            expectedResult: s.expectedResult ?? null,
-            expectedResponse: s.expectedResponse ?? null,
-          })) as never,
-          createdById: ctx.user.id,
+    .query(({ ctx, input }) =>
+      ctx.prisma.$transaction(
+        async (tx) => {
+          await requireCurrentPlanAccess(tx, ctx.user.id, input.projectId);
+          const [size] = await tx.$queryRaw<
+            Array<{ bytes: bigint; count: number }>
+          >`SELECT coalesce(sum(octet_length(steps::text)),0)::bigint AS bytes,count(*)::int AS count FROM "SharedStepGroup" WHERE "projectId"=${input.projectId} AND (${input.includeArchived} OR "archivedAt" IS NULL)`;
+          if (!size || size.bytes > 4n * 1024n * 1024n || size.count > 500)
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message:
+                "This library collection exceeds the bounded 500-library / 4 MiB view. No incomplete list was substituted.",
+            });
+          const groups = await tx.sharedStepGroup.findMany({
+            where: {
+              projectId: input.projectId,
+              ...(!input.includeArchived ? { archivedAt: null } : {}),
+            },
+            include: { _count: { select: { testCases: true } } },
+            orderBy: { name: "asc" },
+          });
+          return groups.map((g) => ({
+            id: g.id,
+            name: g.name,
+            description: g.description,
+            steps: boundedSharedLibrary({
+              name: g.name,
+              description: g.description,
+              steps: g.steps,
+              archived: g.archivedAt !== null,
+            }).steps,
+            usageCount: g._count.testCases,
+            updatedAt: g.updatedAt,
+            revision: g.revision,
+            archivedAt: g.archivedAt,
+          }));
         },
-        select: { id: true },
-      });
-    }),
-
-  update: protectedProcedure
+        { isolationLevel: "RepeatableRead", timeout: 20000 },
+      ),
+    ),
+  review: protectedProcedure
+    .input(
+      sharedLibraryRefSchema.extend({
+        before: z.number().int().min(1).max(101).optional(),
+      }),
+    )
+    .query(({ ctx, input }) =>
+      reviewSharedLibrary(ctx.prisma, ctx.user.id, input),
+    ),
+  create: protectedProcedure
     .input(
       z.object({
-        id: z.string(),
-        name: z.string().min(1),
-        description: z.string().optional(),
-        steps: z.array(TestCaseStepInputSchema).min(1),
+        projectId: z.string().min(1).max(200),
+        name: z.string().min(1).max(200),
+        description: z.string().max(10000).nullable().optional(),
+        steps: z.array(TestCaseStepInputSchema).min(1).max(500),
+        requestId: z.string().uuid().optional(),
       }),
     )
-    .mutation(async ({ ctx, input }) => {
-      const group = await ctx.prisma.sharedStepGroup.findUniqueOrThrow({ where: { id: input.id } });
-      await requireProjectAccess(ctx, group.projectId, "EDITOR");
-      return ctx.prisma.sharedStepGroup.update({
-        where: { id: input.id },
-        data: {
+    .mutation(({ ctx, input }) =>
+      createSharedLibrary(ctx.prisma, ctx.user.id, {
+        projectId: input.projectId,
+        requestId: input.requestId ?? randomUUID(),
+        content: sharedLibraryContentSchema.parse({
           name: input.name,
-          description: input.description,
-          steps: input.steps.map((s, i) => ({
-            order: i,
-            action: s.action,
-            expectedActionOrData: s.expectedActionOrData ?? null,
-            expectedResult: s.expectedResult ?? null,
-            expectedResponse: s.expectedResponse ?? null,
-          })) as never,
-        },
-        select: { id: true },
-      });
-    }),
-
-  // A group in use by any TestCase can't be deleted out from under them -
-  // unlink every case first (client surfaces the usageCount to explain
-  // why the delete is refused).
-  delete: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
-    const group = await ctx.prisma.sharedStepGroup.findUniqueOrThrow({
-      where: { id: input.id },
-      include: { _count: { select: { testCases: true } } },
-    });
-    await requireProjectAccess(ctx, group.projectId, "EDITOR");
-    if (group._count.testCases > 0) {
+          description: input.description ?? null,
+          steps: input.steps.map((s, order) => ({ ...s, order })),
+        }),
+      }),
+    ),
+  update: protectedProcedure
+    .input(sharedLibraryWriteSchema)
+    .mutation(({ ctx, input }) =>
+      writeSharedLibrary(ctx.prisma, ctx.user.id, input),
+    ),
+  delete: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(() => {
       throw new TRPCError({
         code: "BAD_REQUEST",
-        message: `This step library is used by ${group._count.testCases} test case(s) - unlink them first`,
+        message:
+          "Libraries retain procedure history. Refresh the library page and use reviewed Archive instead of deleting it.",
       });
-    }
-    await ctx.prisma.sharedStepGroup.delete({ where: { id: input.id } });
-    return { deleted: true };
-  }),
+    }),
 });

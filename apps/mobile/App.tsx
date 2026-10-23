@@ -1,61 +1,39 @@
-import { useEffect, useState } from "react";
-import { SafeAreaView, ScrollView, Text, TextInput, View, StyleSheet, Button, Modal, Pressable, Alert, Platform } from "react-native";
+import { useCallback, useEffect, useState } from "react";
+import { ActivityIndicator, Alert, AppState, KeyboardAvoidingView, Linking, Platform, SafeAreaView, ScrollView, Text as NativeText, TextInput, View, StyleSheet, Button, Modal, Pressable, type TextProps } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import Constants from "expo-constants";
 import * as Notifications from "expo-notifications";
-import { ClerkProvider, SignedIn, SignedOut, useAuth, useSignIn } from "@clerk/clerk-expo";
+import { ClerkProvider, useAuth, useClerk, useSignIn } from "@clerk/clerk-expo";
 import { tokenCache } from "@clerk/clerk-expo/token-cache";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { trpc, setAuthTokenGetter } from "./lib/trpc";
+import { trpc, setAuthTokenGetter, setSessionExpiredHandler } from "./lib/trpc";
+import { mobilePermissions } from "./lib/permissions";
+import { readableError, canRevealWorkspace } from "./lib/recovery";
 import * as Sentry from "@sentry/react-native";
 import { initSentry } from "./lib/sentry";
 
-// P10-05: error reporting. Runs before anything else in this module so
-// the notification handler / Clerk / tRPC setup below is already covered.
-// Fully inert without a DSN (see lib/sentry.ts and app.config.js).
 initSentry();
 
-// P8-04: pushes that arrive while the app is in the foreground should
-// still be shown (Expo's default is to swallow them) - a readiness flip
-// you're looking at the app for is exactly the one you want to see.
 Notifications.setNotificationHandler({
   handleNotification: async () => ({ shouldShowAlert: true, shouldPlaySound: false, shouldSetBadge: false }),
 });
 
-// P8-04: the payloads the API attaches to its pushes (see pushNotify.ts
-// call sites in routers/compliance.ts and services/releaseReadiness.ts).
-// Only the fields the app routes on - unknown types are ignored, not
-// crashed on, so an older app build survives a newer server.
 interface PushData {
   type?: string;
   projectId?: string;
 }
 
 function viewForPush(data: PushData | undefined): "releases" | "compliance" | null {
-  switch (data?.type) {
-    case "release.readiness_changed":
-      return "releases";
-    case "compliance.sign_off_requested":
-      return "compliance";
-    default:
-      return null;
-  }
+  if (data?.type === "release.readiness_changed") return "releases";
+  if (data?.type === "compliance.sign_off_requested") return "compliance";
+  return null;
 }
 
-// P8-04: registers this device for push once signed in. Wrapped so a
-// missing EAS project (extra.eas.projectId in app.json - not configured
-// yet, since no EAS project has been created for this app) fails
-// gracefully with a console warning rather than crashing the whole app -
-// same "real code, honestly inert without a real external resource"
-// shape as the API side's GITLAB_ACCESS_TOKEN gap.
 async function registerForPushNotifications(): Promise<void> {
   try {
     const { status: existing } = await Notifications.getPermissionsAsync();
     let status = existing;
-    if (status !== "granted") {
-      const result = await Notifications.requestPermissionsAsync();
-      status = result.status;
-    }
+    if (status !== "granted") status = (await Notifications.requestPermissionsAsync()).status;
     if (status !== "granted") return;
 
     const projectId = Constants.expoConfig?.extra?.eas?.projectId;
@@ -64,181 +42,184 @@ async function registerForPushNotifications(): Promise<void> {
       token,
       platform: Platform.OS === "ios" ? "ios" : Platform.OS === "android" ? "android" : undefined,
     });
-  } catch (e) {
-    console.warn("Push registration skipped:", e instanceof Error ? e.message : String(e));
+  } catch (error) {
+    console.warn("Push registration skipped:", error instanceof Error ? error.message : String(error));
   }
 }
 
-// P8-06: offline-friendly read caching. A spotty connection shouldn't
-// blank the test case list to nothing - show the last-known-good data
-// immediately, then refresh in the background. On a genuine fetch
-// failure (offline, server down), keep showing the cache instead of
-// replacing it with an error screen; the error is surfaced as a small
-// banner, not a full-screen blocker.
-const CASES_CACHE_KEY_PREFIX = "vaettir:cases:";
-
-async function readCachedCases(projectId: string): Promise<Awaited<ReturnType<typeof trpc.testCases.list.query>> | null> {
-  try {
-    const raw = await AsyncStorage.getItem(CASES_CACHE_KEY_PREFIX + projectId);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
-
-async function writeCachedCases(projectId: string, cases: Awaited<ReturnType<typeof trpc.testCases.list.query>>) {
-  try {
-    await AsyncStorage.setItem(CASES_CACHE_KEY_PREFIX + projectId, JSON.stringify(cases));
-  } catch {
-    // Best-effort - a full disk or a storage-denied environment shouldn't
-    // break the live fetch path, only the offline fallback.
-  }
-}
-
+function Text(props: TextProps) { return <NativeText {...props} style={[{ color: "#eee7dc" }, props.style]} />; }
+const WEB_URL = "https://vaettir.skaldandstone.com";
 const CLERK_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
+function openWeb(path = "") {
+  void Linking.openURL(`${WEB_URL}${path}`).catch(() => Alert.alert("Could not open browser", `Open ${WEB_URL}${path} in your browser to continue.`));
+}
 
 function App() {
-  if (!CLERK_PUBLISHABLE_KEY) {
-    throw new Error("EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY is not set");
-  }
-  return (
-    <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY} tokenCache={tokenCache}>
-      <StatusBar style="auto" />
-      <SignedIn>
-        <TestCaseBrowser />
-      </SignedIn>
-      <SignedOut>
-        <SignInScreen />
-      </SignedOut>
-    </ClerkProvider>
-  );
+  if (!CLERK_PUBLISHABLE_KEY) return <SafeAreaView style={styles.container}><Text>Vaettir is not configured. Install the latest beta build from your invitation.</Text></SafeAreaView>;
+  return <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY} tokenCache={tokenCache}>
+    <StatusBar style="light" />
+    <AuthScreens />
+  </ClerkProvider>;
 }
 
-// Sentry.wrap adds touch-event tracking + profiler/feedback-widget wiring
-// (breadcrumbs are dropped by lib/sentry.ts, so the touch tracking is
-// inert) - in @sentry/react-native 6.10.0 it does NOT add a React error
-// boundary. Render errors still reach Sentry: React Native routes an
-// uncaught render throw to the global `ErrorUtils` handler, which the SDK
-// reports as a fatal, same as any other unhandled JS exception. There is
-// no fallback UI without an explicit Sentry.ErrorBoundary, which isn't
-// added here.
 export default Sentry.wrap(App);
 
-// Wires the tRPC client's token source to Clerk's session once signed in --
-// see lib/trpc.ts for why this can't just call useAuth() itself.
-function TestCaseBrowser() {
-  const { getToken } = useAuth();
+function AuthScreens() {
+  const { isLoaded, isSignedIn, userId } = useAuth();
+  if (!isLoaded) return <SafeAreaView style={styles.container}><ActivityIndicator accessibilityLabel="Loading sign-in" color="#9aaf89" /><Text>Connecting to sign-in. If this does not finish, check your connection and reopen Vaettir.</Text></SafeAreaView>;
+  return isSignedIn ? <SessionGate key={userId} /> : <SignInScreen />;
+}
 
+function SessionGate() {
+  const { getToken, userId } = useAuth();
+  const { signOut } = useClerk();
+  const [ready, setReady] = useState(false);
+  const [expired, setExpired] = useState(false);
+  const [epoch, setEpoch] = useState(0);
+  const [sessionError, setSessionError] = useState<string | null>(null);
   useEffect(() => {
+    let active = true;
+    const gate = { purged: false, foreground: AppState.currentState === "active", invalidated: false };
+    setReady(false); setExpired(false); setSessionError(null);
+    const reveal = () => { if (active) setReady(canRevealWorkspace(gate)); };
     setAuthTokenGetter(getToken);
-    return () => setAuthTokenGetter(null);
-  }, [getToken]);
-
+    setSessionExpiredHandler(() => { gate.invalidated = true; setExpired(true); setReady(false); });
+    // Remove only Vaettir's obsolete case cache; never touch Clerk's tokens
+    // or another app's storage. Do not render data until migration completes.
+    AsyncStorage.getAllKeys().then((keys) => AsyncStorage.multiRemove(keys.filter((key) => key.startsWith("vaettir:cases:"))))
+      .then(() => { gate.purged = true; reveal(); })
+      .catch(() => { if (active) setSessionError("Could not clear the old offline cache. Restart the app before continuing."); });
+    const subscription = AppState.addEventListener("change", (state) => {
+      // Hide project data in the task switcher and revalidate on return.
+      gate.foreground = state === "active";
+      if (gate.foreground) setEpoch((n) => n + 1);
+      reveal();
+    });
+    return () => { active = false; subscription.remove(); setAuthTokenGetter(null); setSessionExpiredHandler(null); };
+  }, [getToken, userId]);
   useEffect(() => {
-    void registerForPushNotifications();
-  }, []);
+    if (ready) void registerForPushNotifications();
+  }, [ready]);
+  async function logout() {
+    setReady(false); setExpired(true); setAuthTokenGetter(null);
+    try { await signOut(); }
+    catch { setExpired(true); setSessionError("Sign-out could not finish. Check your connection and try again."); }
+  }
+  if (expired || sessionError) return <SafeAreaView style={styles.container}>
+    <Text style={styles.title}>Sign in again</Text>
+    <Text>{sessionError ?? "Your session has expired. No project data is stored offline."}</Text>
+    <Button title="Return to sign-in" onPress={() => void logout()} />
+  </SafeAreaView>;
+  if (!ready) return <SafeAreaView style={styles.container}><ActivityIndicator color="#9aaf89" accessibilityLabel="Checking session" /></SafeAreaView>;
+  return <Companion key={`${userId}:${epoch}`} onSignOut={() => void logout()} />;
+}
 
+function Companion({ onSignOut }: { onSignOut: () => void }) {
+  const [orgs, setOrgs] = useState<Awaited<ReturnType<typeof trpc.organization.mine.query>>>([]);
+  const [orgId, setOrgId] = useState("");
+  const [projects, setProjects] = useState<Awaited<ReturnType<typeof trpc.project.list.query>>>([]);
   const [projectId, setProjectId] = useState("");
   const [view, setView] = useState<"cases" | "releases" | "compliance">("cases");
-
-  // P8-04: tapping a push lands on the thing it was about - the release
-  // readiness tab for a readiness change, the compliance tab for a sign-off
-  // request - and switches to that push's project. Covers both a tap while
-  // the app is running and the tap that cold-started it
-  // (getLastNotificationResponseAsync), which the listener alone misses.
+  const [pendingProjectId, setPendingProjectId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [retry, setRetry] = useState(0);
+  const [allowance, setAllowance] = useState<string | null>(null);
   useEffect(() => {
     function route(response: Notifications.NotificationResponse | null) {
       if (!response) return;
       const data = response.notification.request.content.data as PushData | undefined;
       const target = viewForPush(data);
       if (!target) return;
-      if (data?.projectId) setProjectId(data.projectId);
       setView(target);
+      if (data?.projectId) setPendingProjectId(data.projectId);
     }
     const subscription = Notifications.addNotificationResponseReceivedListener(route);
     void Notifications.getLastNotificationResponseAsync().then(route).catch(() => undefined);
     return () => subscription.remove();
   }, []);
-  const [cases, setCases] = useState<Awaited<ReturnType<typeof trpc.testCases.list.query>>>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [openCaseId, setOpenCaseId] = useState<string | null>(null);
-  const [showingCached, setShowingCached] = useState(false);
-
-  function loadCases() {
-    if (!projectId) return;
-    trpc.testCases.list
-      .query({ projectId })
-      .then((fresh) => {
-        setCases(fresh);
-        setShowingCached(false);
-        setError(null);
-        writeCachedCases(projectId, fresh);
-      })
-      .catch((e) => {
-        // Fetch failed (offline, server down) - fall back to whatever was
-        // last successfully cached rather than blanking the list. Only
-        // surfaces an error if there's no cache to fall back to either.
-        readCachedCases(projectId).then((cached) => {
-          if (cached) {
-            setCases(cached);
-            setShowingCached(true);
-          } else {
-            setError(e instanceof Error ? e.message : String(e));
-          }
-        });
-      });
-  }
-
-  // Paint the cache immediately on project switch, before the network
-  // round-trip resolves, then loadCases() below refreshes it live.
   useEffect(() => {
-    if (!projectId) return;
-    readCachedCases(projectId).then((cached) => {
-      if (cached) {
-        setCases(cached);
-        setShowingCached(true);
-      }
-    });
-  }, [projectId]);
-
-  useEffect(loadCases, [projectId]);
-
-  return (
-    <SafeAreaView style={styles.container}>
-      <Text style={styles.title}>Vaettir<Text style={styles.tm}>™</Text></Text>
-      <Button title="About Vaettir and legal" onPress={() => Alert.alert("About Vaettir", "© 2026 Skald and Stone LLC\n\nOriginal studio work only. Customer content, third-party materials, and existing software licenses retain their own rights.")} />
-      <TextInput
-        style={styles.input}
-        placeholder="Project ID"
-        value={projectId}
-        onChangeText={setProjectId}
-      />
-      <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
-        <Button title="Test Cases" onPress={() => setView("cases")} disabled={view === "cases"} />
-        <Button title="Releases" onPress={() => setView("releases")} disabled={view === "releases"} />
-        <Button title="Compliance" onPress={() => setView("compliance")} disabled={view === "compliance"} />
-      </View>
-      {error && <Text style={{ color: "crimson" }}>{error}</Text>}
-      {view === "cases" && (
-        <>
-          {showingCached && !error && <Text style={styles.rowMeta}>Showing cached data - couldn&apos;t reach the server.</Text>}
-          <ScrollView>
-            {cases.map((tc) => (
-              <Pressable key={tc.id} style={styles.row} onPress={() => setOpenCaseId(tc.id)}>
-                <Text style={styles.rowTitle}>{tc.title}</Text>
-                <Text style={styles.rowMeta}>
-                  {tc.testType} {tc.origin === "AI_REVERSE_ENGINEERED" ? "· AI-reversed" : ""}
-                </Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-        </>
-      )}
+    let active = true;
+    setLoading(true); setError(null); setOrgs([]); setOrgId(""); setProjects([]); setProjectId("");
+    trpc.organization.mine.query().then((rows) => {
+      if (active) { setOrgs(rows); setOrgId(rows[0]?.id ?? ""); }
+    }).catch((e) => { if (active) setError(readableError(e)); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [retry]);
+  useEffect(() => {
+    let active = true;
+    setProjects([]); setProjectId(""); setAllowance(null);
+    if (!orgId) return;
+    setLoading(true); setError(null);
+    Promise.all([
+      trpc.project.list.query({ organizationId: orgId }),
+      trpc.organization.seatUsage.query({ organizationId: orgId }),
+      trpc.organization.aiCreditStatus.query({ organizationId: orgId }),
+    ]).then(([rows, seats, credits]) => {
+      if (!active) return;
+      setProjects(rows);
+      const requestedProject = pendingProjectId && rows.some((project) => project.id === pendingProjectId)
+        ? pendingProjectId
+        : null;
+      setProjectId(requestedProject ?? rows[0]?.id ?? "");
+      if (requestedProject) setPendingProjectId(null);
+      setAllowance(`${seats.planTierName} · ${seats.fullSeatsUsed}/${seats.fullSeatsIncluded ?? "∞"} full seats · ${seats.readOnlySeatsUsed}/${seats.readOnlySeatsMax ?? "∞"} read-only · ${credits.balance} AI credits available, ${credits.includedPerMonth}/month${seats.privateBeta ? ", no rollover or automatic overage" : ""}`);
+    }).catch((e) => { if (active) setError(readableError(e)); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [orgId, pendingProjectId]);
+  const permissions = mobilePermissions(orgs.find((o) => o.id === orgId));
+  return <SafeAreaView style={styles.container}>
+    <View style={styles.header}><View><Text style={styles.eyebrow}>PRIVATE BETA</Text><Text style={styles.title}>vaettir</Text></View><Button title="Sign out" onPress={onSignOut} color="#9aaf89" /></View>
+    <ScrollView horizontal style={styles.selector} contentContainerStyle={{ gap: 8 }}>
+      {orgs.map((org) => <Pressable accessibilityRole="button" accessibilityState={{ selected: org.id === orgId }} key={org.id} style={[styles.chip, org.id === orgId && styles.selectedChip]} onPress={() => { if (org.id === orgId) return; setProjectId(""); setProjects([]); setAllowance(null); setOrgId(org.id); }}><Text>{org.name}</Text></Pressable>)}
+    </ScrollView>
+    {allowance && <Text style={styles.rowMeta}>{allowance}</Text>}
+    <ScrollView horizontal style={styles.selector} contentContainerStyle={{ gap: 8 }}>
+      {projects.map((project) => <Pressable accessibilityRole="button" accessibilityState={{ selected: project.id === projectId }} key={project.id} style={[styles.chip, project.id === projectId && styles.selectedChip]} onPress={() => setProjectId(project.id)}><Text>{project.name}</Text></Pressable>)}
+    </ScrollView>
+    {loading && <ActivityIndicator color="#9aaf89" accessibilityLabel="Loading workspace" />}
+    {error && <ErrorNotice message={error} retry={() => setRetry((n) => n + 1)} />}
+    {!loading && !error && orgs.length === 0 && <View style={styles.panel}><Text style={styles.rowTitle}>Your workspace starts with an invitation</Text><Text>Accept your invitation on the web with this account, then refresh here.</Text><Button title="Open Vaettir on the web" onPress={() => openWeb()} /></View>}
+    {!loading && !error && orgId && projects.length === 0 && <Text>No projects yet. Create your first project on the web.</Text>}
+    {!loading && !error && projectId && <View key={`${orgId}:${projectId}`} style={{ flex: 1 }}>
+      <View style={styles.tabs}>{(["cases", "releases", "compliance"] as const).map((tab) => <Pressable key={tab} accessibilityRole="button" accessibilityState={{ selected: view === tab }} style={[styles.chip, view === tab && styles.selectedChip]} onPress={() => setView(tab)}><Text>{tab === "cases" ? "Cases" : tab === "releases" ? "Releases" : "Compliance"}</Text></Pressable>)}</View>
+      {view === "cases" && <CaseList projectId={projectId} canReview={permissions.canReview} />}
       {view === "releases" && <ReleaseReadinessList projectId={projectId} />}
-      {view === "compliance" && <ComplianceSignOffList projectId={projectId} />}
-      <TestCaseDetailModal id={openCaseId} onClose={() => setOpenCaseId(null)} onChanged={loadCases} />
-    </SafeAreaView>
-  );
+      {view === "compliance" && <ComplianceSignOffList projectId={projectId} canSignOff={permissions.canSignOff} />}
+    </View>}
+    <Button title="Refresh workspace" disabled={loading} onPress={() => setRetry((n) => n + 1)} />
+    <Pressable accessibilityRole="link" style={{ paddingVertical: 12 }} onPress={() => openWeb("/beta-guide")}><Text style={styles.rowMeta}>Beta guide, data policy, and support</Text></Pressable>
+  </SafeAreaView>;
+}
+
+function ErrorNotice({ message, retry }: { message: string; retry: () => void }) {
+  return <View style={styles.panel}><Text accessibilityRole="alert" style={{ color: "#dfb49b" }}>{message}</Text><Button title="Retry" onPress={retry} /></View>;
+}
+function CaseList({ projectId, canReview }: { projectId: string; canReview: boolean }) {
+  const [cases, setCases] = useState<Awaited<ReturnType<typeof trpc.testCases.list.query>>>([]);
+  const [id, setId] = useState<string | null>(null);
+  const [retry, setRetry] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const load = useCallback(() => setRetry((n) => n + 1), []);
+  useEffect(() => {
+    let active = true; setCases([]); setError(null); setLoading(true);
+    trpc.testCases.list.query({ projectId }).then((rows) => { if (active) setCases(rows); })
+      .catch((e) => { if (active) { setId(null); setError(readableError(e)); } })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [projectId, retry]);
+  if (loading) return <ActivityIndicator color="#9aaf89" accessibilityLabel="Loading test cases" />;
+  if (error) return <ErrorNotice message={error} retry={load} />;
+  return <>
+    <ScrollView>{cases.map((tc) => <Pressable accessibilityRole="button" key={tc.id} style={styles.row} onPress={() => setId(tc.id)}><Text style={styles.rowTitle}>{tc.title}</Text><Text style={styles.rowMeta}>{tc.testType} · {tc.origin}</Text></Pressable>)}
+      {cases.length === 0 && <Text>No test cases yet. Import or create cases on the web.</Text>}
+      <Button title="Refresh cases" onPress={load} />
+    </ScrollView>
+    <TestCaseDetailModal key={id ?? "closed"} id={id} canReview={canReview} onClose={() => setId(null)} onChanged={load} />
+  </>;
 }
 
 // P8-03: the highest-value mobile use case for release readiness is
@@ -247,26 +228,26 @@ function TestCaseBrowser() {
 // releases.list exactly as the web releases page's summary view does
 // (score/label/criteria counts/open risk flags in one call), so this can
 // never disagree with what the web dashboard shows for the same release.
-const READINESS_COLOR: Record<string, string> = { READY: "#2e7d32", AT_RISK: "#b8860b", BLOCKED: "#c62828" };
+const READINESS_COLOR: Record<string, string> = { READY: "#a9c991", AT_RISK: "#e8c573", BLOCKED: "#f0a19a" };
 
 function ReleaseReadinessList({ projectId }: { projectId: string }) {
   const [releases, setReleases] = useState<Awaited<ReturnType<typeof trpc.releases.list.query>>>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  const [retry, setRetry] = useState(0);
   useEffect(() => {
-    if (!projectId) return;
-    setLoading(true);
-    setError(null);
-    trpc.releases.list
-      .query({ projectId })
-      .then(setReleases)
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
-      .finally(() => setLoading(false));
-  }, [projectId]);
+    let active = true;
+    setReleases([]); setLoading(true); setError(null);
+    trpc.releases.list.query({ projectId })
+      .then((rows) => { if (active) setReleases(rows); })
+      .catch((e) => { if (active) setError(readableError(e)); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [projectId, retry]);
 
-  if (loading) return <Text>Loading…</Text>;
-  if (error) return <Text style={{ color: "crimson" }}>{error}</Text>;
+  if (loading) return <ActivityIndicator color="#9aaf89" accessibilityLabel="Loading releases" />;
+  if (error) return <ErrorNotice message={error} retry={() => setRetry((n) => n + 1)} />;
 
   return (
     <ScrollView>
@@ -287,7 +268,7 @@ function ReleaseReadinessList({ projectId }: { projectId: string }) {
             {r.readiness.criteria.pending} pending
           </Text>
           {r.readiness.riskFlags.openTotal > 0 && (
-            <Text style={[styles.rowMeta, { color: "#c62828" }]}>
+            <Text style={[styles.rowMeta, { color: "#f0a19a" }]}>
               {r.readiness.riskFlags.openTotal} open risk flag{r.readiness.riskFlags.openTotal === 1 ? "" : "s"}
               {r.readiness.riskFlags.critical > 0 && ` (${r.readiness.riskFlags.critical} critical)`}
             </Text>
@@ -295,6 +276,7 @@ function ReleaseReadinessList({ projectId }: { projectId: string }) {
         </View>
       ))}
       {releases.length === 0 && <Text style={styles.rowMeta}>No releases in this project yet.</Text>}
+      <Button title="Refresh releases" onPress={() => setRetry((n) => n + 1)} />
     </ScrollView>
   );
 }
@@ -308,59 +290,38 @@ function ReleaseReadinessList({ projectId }: { projectId: string }) {
 // controlCoverage, so mapped-test-case counts can never disagree with
 // web) -> tap a control to see its real sign-off history and sign a new
 // one.
-function ComplianceSignOffList({ projectId }: { projectId: string }) {
+function ComplianceSignOffList({ projectId, canSignOff }: { projectId: string; canSignOff: boolean }) {
   const [frameworks, setFrameworks] = useState<Awaited<ReturnType<typeof trpc.compliance.listFrameworks.query>>>([]);
   const [frameworkId, setFrameworkId] = useState<string | null>(null);
   const [controls, setControls] = useState<Awaited<ReturnType<typeof trpc.compliance.controlCoverage.query>>>([]);
   const [error, setError] = useState<string | null>(null);
   const [openControl, setOpenControl] = useState<{ id: string; code: string; title: string } | null>(null);
-  const [pendingRequests, setPendingRequests] = useState<Awaited<ReturnType<typeof trpc.compliance.myPendingSignOffRequests.query>>>([]);
 
-  function loadPendingRequests() {
-    trpc.compliance.myPendingSignOffRequests
-      .query()
-      .then((all) => setPendingRequests(all.filter((r) => r.projectId === projectId)))
-      .catch(() => undefined);
-  }
-  useEffect(loadPendingRequests, [projectId]);
+  const [retry, setRetry] = useState(0);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    let active = true; setError(null); setLoading(true);
+    trpc.compliance.listFrameworks.query().then((rows) => {
+      if (active) { setFrameworks(rows); setFrameworkId(rows[0]?.id ?? null); if (!rows.length) setLoading(false); }
+    }).catch((e) => { if (active) { setError(readableError(e)); setLoading(false); } });
+    return () => { active = false; };
+  }, [retry]);
 
   useEffect(() => {
-    trpc.compliance.listFrameworks
-      .query()
-      .then((fw) => {
-        setFrameworks(fw);
-        setFrameworkId((prev) => prev ?? fw[0]?.id ?? null);
-      })
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
-  }, []);
-
-  useEffect(() => {
-    if (!projectId || !frameworkId) {
-      setControls([]);
-      return;
-    }
-    trpc.compliance.controlCoverage
-      .query({ projectId, frameworkId })
-      .then(setControls)
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
-  }, [projectId, frameworkId]);
-
-  if (error) return <Text style={{ color: "crimson" }}>{error}</Text>;
+    let active = true; setControls([]); setOpenControl(null);
+    if (!frameworkId) return;
+    setLoading(true); setError(null);
+    trpc.compliance.controlCoverage.query({ projectId, frameworkId })
+      .then((rows) => { if (active) setControls(rows); })
+      .catch((e) => { if (active) setError(readableError(e)); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [projectId, frameworkId, retry]);
+  if (loading) return <ActivityIndicator color="#9aaf89" accessibilityLabel="Loading compliance" />;
+  if (error) return <ErrorNotice message={error} retry={() => setRetry((n) => n + 1)} />;
 
   return (
     <View style={{ flex: 1 }}>
-      {pendingRequests.length > 0 && (
-        <View style={styles.requestBanner}>
-          <Text style={styles.requestBannerTitle}>Requested from you</Text>
-          {pendingRequests.map((r) => (
-            <Pressable key={r.id} onPress={() => setOpenControl({ id: r.controlId, code: r.controlCode, title: r.controlTitle })}>
-              <Text style={styles.requestBannerItem}>
-                {r.controlCode} · {r.controlTitle} ({r.period}) — asked by {r.requestedByEmail}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-      )}
       <ScrollView horizontal style={{ marginBottom: 8 }} showsHorizontalScrollIndicator={false}>
         <View style={{ flexDirection: "row", gap: 8 }}>
           {frameworks.map((fw) => (
@@ -375,7 +336,7 @@ function ComplianceSignOffList({ projectId }: { projectId: string }) {
       </ScrollView>
       <ScrollView>
         {controls.map((c) => (
-          <Pressable key={c.id} style={styles.row} onPress={() => setOpenControl({ id: c.id, code: c.code, title: c.title })}>
+          <Pressable accessibilityRole="button" key={c.id} style={styles.row} onPress={() => setOpenControl({ id: c.id, code: c.code, title: c.title })}>
             <Text style={styles.rowTitle}>
               {c.code} · {c.title}
             </Text>
@@ -385,48 +346,45 @@ function ComplianceSignOffList({ projectId }: { projectId: string }) {
         {frameworkId && controls.length === 0 && <Text style={styles.rowMeta}>No controls in this framework yet.</Text>}
         {!frameworkId && <Text style={styles.rowMeta}>No compliance frameworks configured yet.</Text>}
       </ScrollView>
-      <SignOffModal
-        projectId={projectId}
-        control={openControl}
-        onClose={() => setOpenControl(null)}
-        onSignedOff={loadPendingRequests}
-      />
+      <SignOffModal key={openControl?.id ?? "closed"} canSignOff={canSignOff} projectId={projectId} control={openControl} onClose={() => setOpenControl(null)} />
     </View>
   );
 }
 
 function SignOffModal({
   projectId,
+  canSignOff,
   control,
   onClose,
-  onSignedOff,
 }: {
   projectId: string;
+  canSignOff: boolean;
   control: { id: string; code: string; title: string } | null;
   onClose: () => void;
-  onSignedOff?: () => void;
 }) {
   const [signOffs, setSignOffs] = useState<Awaited<ReturnType<typeof trpc.compliance.listSignOffs.query>>>([]);
   const [period, setPeriod] = useState("");
   const [statement, setStatement] = useState("");
   const [signingOff, setSigningOff] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  function load() {
-    if (!control) {
-      setSignOffs([]);
-      return;
-    }
+  const [loading, setLoading] = useState(true);
+  const [retry, setRetry] = useState(0);
+  const [success, setSuccess] = useState(false);
+  const load = () => setRetry((n) => n + 1);
+  useEffect(() => {
+    let active = true;
+    setError(null); setSignOffs([]); setLoading(true);
+    if (!control) { setLoading(false); return; }
     trpc.compliance.listSignOffs
       .query({ projectId, controlId: control.id })
-      .then(setSignOffs)
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
-  }
-
-  useEffect(load, [control?.id]);
+      .then((rows) => { if (active) setSignOffs(rows); })
+      .catch((e) => { if (active) setError(readableError(e)); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [control?.id, projectId, retry]);
 
   async function signOff() {
-    if (!control || !period.trim() || !statement.trim()) return;
+    if (!canSignOff || signingOff || loading || !control || !period.trim() || !statement.trim()) return;
     setSigningOff(true);
     setError(null);
     try {
@@ -438,10 +396,10 @@ function SignOffModal({
       });
       setPeriod("");
       setStatement("");
+      setSuccess(true);
       load();
-      onSignedOff?.();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(`${readableError(e)} Refresh the history before submitting again; the sign-off may already have been recorded.`);
     } finally {
       setSigningOff(false);
     }
@@ -449,30 +407,35 @@ function SignOffModal({
 
   return (
     <Modal visible={control !== null} animationType="slide" onRequestClose={onClose}>
-      <SafeAreaView style={styles.container}>
-        <Button title="Close" onPress={onClose} />
+      <SafeAreaView style={styles.container}><KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
+        <Button title="Close" onPress={onClose} disabled={signingOff} />
         {control && (
-          <ScrollView style={{ marginTop: 12 }}>
+          <ScrollView style={{ marginTop: 12 }} keyboardShouldPersistTaps="handled">
             <Text style={styles.title}>{control.code}</Text>
             <Text style={styles.rowMeta}>{control.title}</Text>
 
-            <View style={styles.bddSection}>
+            {success && <Text accessibilityRole="alert">Sign-off recorded.</Text>}
+            {loading && <ActivityIndicator color="#9aaf89" accessibilityLabel="Loading sign-off history" />}
+            {error && <ErrorNotice message={error} retry={load} />}
+            {!error && !loading && canSignOff && <View style={styles.bddSection}>
               <Text style={styles.bddLabel}>Sign off on this control</Text>
-              <TextInput style={styles.input} placeholder="Period (e.g. 2026-Q3)" value={period} onChangeText={setPeriod} />
+              <TextInput accessibilityLabel="Sign-off period" placeholderTextColor="#a9a196" style={styles.input} placeholder="Period (e.g. 2026-Q3)" value={period} onChangeText={setPeriod} editable={!signingOff} />
               <TextInput
                 style={[styles.input, { minHeight: 80 }]}
+                accessibilityLabel="Attestation statement"
+                placeholderTextColor="#a9a196"
                 placeholder="Attestation statement - what was reviewed and why it's operating effectively"
                 value={statement}
                 onChangeText={setStatement}
                 multiline
+                editable={!signingOff}
               />
               <Button
                 title={signingOff ? "Signing…" : "Sign off"}
                 onPress={signOff}
                 disabled={signingOff || !period.trim() || !statement.trim()}
               />
-              {error && <Text style={{ color: "crimson" }}>{error}</Text>}
-            </View>
+            </View>}
 
             <View style={styles.bddSection}>
               <Text style={styles.bddLabel}>Sign-off history</Text>
@@ -485,11 +448,11 @@ function SignOffModal({
                   </Text>
                 </View>
               ))}
-              {signOffs.length === 0 && <Text style={styles.rowMeta}>No sign-offs recorded yet for this control.</Text>}
+              {!loading && !error && signOffs.length === 0 && <Text style={styles.rowMeta}>No sign-offs recorded yet for this control.</Text>}
             </View>
           </ScrollView>
         )}
-      </SafeAreaView>
+      </KeyboardAvoidingView></SafeAreaView>
     </Modal>
   );
 }
@@ -499,36 +462,35 @@ function SignOffModal({
 // Read-only-viewer-safe: buttons only render when reviewStatus is
 // actually PENDING_REVIEW, and the server still enforces EDITOR+
 // regardless of what this UI shows.
-function TestCaseDetailModal({ id, onClose, onChanged }: { id: string | null; onClose: () => void; onChanged: () => void }) {
+function TestCaseDetailModal({ id, canReview, onClose, onChanged }: { id: string | null; canReview: boolean; onClose: () => void; onChanged: () => void }) {
   const [detail, setDetail] = useState<Awaited<ReturnType<typeof trpc.testCases.byId.query>> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reviewNote, setReviewNote] = useState("");
   const [reviewing, setReviewing] = useState(false);
-
-  function load() {
-    if (!id) {
-      setDetail(null);
-      return;
-    }
+  const [retry, setRetry] = useState(0);
+  const load = () => setRetry((n) => n + 1);
+  useEffect(() => {
+    let active = true;
+    setError(null); setDetail(null);
+    if (!id) return;
     trpc.testCases.byId
       .query({ id })
-      .then(setDetail)
-      .catch((e) => setError(String(e)));
-  }
-
-  useEffect(load, [id]);
+      .then((row) => { if (active) setDetail(row); })
+      .catch((e) => { if (active) setError(readableError(e)); });
+    return () => { active = false; };
+  }, [id, retry]);
 
   async function review(decision: "approve" | "reject") {
-    if (!id) return;
+    if (!id || !canReview || reviewing || detail?.reviewStatus !== "PENDING_REVIEW") return;
     setReviewing(true);
     setError(null);
     try {
       await trpc.testCases[decision].mutate({ id, note: reviewNote || undefined });
       setReviewNote("");
-      load();
+      onClose();
       onChanged();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(`${readableError(e)} Refresh this case to check whether the review was saved before trying again.`);
     } finally {
       setReviewing(false);
     }
@@ -536,25 +498,28 @@ function TestCaseDetailModal({ id, onClose, onChanged }: { id: string | null; on
 
   return (
     <Modal visible={id !== null} animationType="slide" onRequestClose={onClose}>
-      <SafeAreaView style={styles.container}>
-        <Button title="Close" onPress={onClose} />
-        {error && <Text style={{ color: "crimson" }}>{error}</Text>}
+      <SafeAreaView style={styles.container}><KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
+        <Button title="Close" onPress={onClose} disabled={reviewing} />
+        {error && <ErrorNotice message={error} retry={load} />}
         {!error && !detail && <Text>Loading…</Text>}
-        {detail && (
-          <ScrollView style={{ marginTop: 12 }}>
+        {!error && detail && (
+          <ScrollView style={{ marginTop: 12 }} keyboardShouldPersistTaps="handled">
             <Text style={styles.title}>{detail.title}</Text>
             <Text style={styles.rowMeta}>
               {detail.testType} · {detail.priority} · {detail.origin} · {detail.reviewStatus}
             </Text>
 
-            {detail.reviewStatus === "PENDING_REVIEW" && (
+            {canReview && detail.reviewStatus === "PENDING_REVIEW" && (
               <View style={styles.bddSection}>
                 <Text style={styles.bddLabel}>Review</Text>
                 <TextInput
                   style={styles.input}
+                  accessibilityLabel="Review note"
+                  placeholderTextColor="#a9a196"
                   placeholder="Optional note"
                   value={reviewNote}
                   onChangeText={setReviewNote}
+                  editable={!reviewing}
                 />
                 <View style={{ flexDirection: "row", gap: 8 }}>
                   <Button title={reviewing ? "…" : "Approve"} onPress={() => review("approve")} disabled={reviewing} />
@@ -603,57 +568,67 @@ function TestCaseDetailModal({ id, onClose, onChanged }: { id: string | null; on
             {detail.tags.length > 0 && <Text style={styles.rowMeta}>Tags: {detail.tags.join(", ")}</Text>}
           </ScrollView>
         )}
-      </SafeAreaView>
+      </KeyboardAvoidingView></SafeAreaView>
     </Modal>
   );
 }
 
-// Minimal sign-in form using Clerk's Expo password-strategy flow. A
-// prettier UI (and sign-up) is Phase 8 (mobile parity) work -- this is
-// enough to authenticate and get a session token for local testing.
 function SignInScreen() {
   const { signIn, setActive, isLoaded } = useSignIn();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
+  const [mfa, setMfa] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
   async function onSubmit() {
-    if (!isLoaded) return;
-    setError(null);
+    if (!isLoaded || busy) return;
+    setBusy(true); setError(null);
     try {
-      const attempt = await signIn.create({ identifier: email, password });
+      const attempt = mfa
+        ? await signIn.attemptSecondFactor({ strategy: "totp", code })
+        : await signIn.create({ identifier: email.trim(), password });
       if (attempt.status === "complete") {
+        setPassword(""); setCode("");
         await setActive({ session: attempt.createdSessionId });
+      } else if (attempt.status === "needs_second_factor" && attempt.supportedSecondFactors?.some((factor) => factor.strategy === "totp")) {
+        setMfa(true); setPassword("");
+      } else {
+        setError("This account needs an additional verification step. Open Vaettir on the web to complete account setup, or contact your beta support contact.");
       }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
+    } catch (e) { setError(readableError(e)); }
+    finally { setBusy(false); }
   }
-
-  return (
-    <SafeAreaView style={styles.container}>
-      <Text style={styles.title}>Log in</Text>
-      <Text style={{ marginBottom: 16 }}>© 2026 Skald and Stone LLC</Text>
-      <TextInput style={styles.input} placeholder="Email" value={email} onChangeText={setEmail} autoCapitalize="none" />
-      <TextInput style={styles.input} placeholder="Password" value={password} onChangeText={setPassword} secureTextEntry />
-      <Button title="Log in" onPress={onSubmit} />
-      {error && <Text style={{ color: "crimson" }}>{error}</Text>}
-    </SafeAreaView>
-  );
+  return <SafeAreaView style={styles.container}><KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}><ScrollView keyboardShouldPersistTaps="handled">
+    <Text style={styles.eyebrow}>QUALITY, WITH CONTEXT</Text><Text style={styles.title}>vaettir</Text>
+    <Text style={{ marginBottom: 24 }}>Your team's quality companion. Sign in with your invited account.</Text>
+    {mfa ? <><Text>Authenticator code</Text><TextInput accessibilityLabel="Authenticator code" style={styles.input} value={code} onChangeText={setCode} keyboardType="number-pad" autoComplete="one-time-code" /></> : <>
+      <Text>Email</Text><TextInput accessibilityLabel="Email" style={styles.input} value={email} onChangeText={setEmail} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" autoComplete="email" />
+      <Text>Password</Text><TextInput accessibilityLabel="Password" style={styles.input} value={password} onChangeText={setPassword} secureTextEntry autoCapitalize="none" autoComplete="current-password" />
+    </>}
+    <Button title={busy ? "Signing in..." : mfa ? "Verify code" : "Sign in"} onPress={() => void onSubmit()} disabled={!isLoaded || busy || (mfa ? !code : !email || !password)} color="#9aaf89" />
+    {error && <Text accessibilityRole="alert" style={{ color: "#dfb49b", marginTop: 12 }}>{error}</Text>}
+    {mfa && <Button title="Use a different account" disabled={busy} onPress={() => { setMfa(false); setCode(""); setPassword(""); setError(null); }} />}
+    <Button title="Accept invitation or recover account on web" onPress={() => openWeb()} />
+    <Text style={styles.rowMeta}>Private beta. No offline project storage. Use non-regulated data only.</Text>
+  </ScrollView></KeyboardAvoidingView></SafeAreaView>;
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingTop: 60, paddingHorizontal: 16 },
-  title: { fontSize: 24, fontWeight: "700", marginBottom: 12 },
-  tm: { fontSize: 12, fontWeight: "400", top: -6 },
-  input: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 10, marginBottom: 12 },
-  row: { paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#eee" },
-  rowTitle: { fontSize: 16, fontWeight: "600" },
-  rowMeta: { fontSize: 12, color: "#666" },
+  container: { flex: 1, paddingTop: Platform.OS === "android" ? 38 : 12, paddingHorizontal: 20, backgroundColor: "#26211B" },
+  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  eyebrow: { fontSize: 10, letterSpacing: 2, color: "#9aaf89", marginBottom: 6 },
+  title: { fontSize: 30, fontWeight: "600", marginBottom: 12, color: "#eee7dc" },
+  input: { borderWidth: 1, borderColor: "#566151", borderRadius: 8, padding: 12, marginVertical: 8, color: "#eee7dc", backgroundColor: "#312b23" },
+  selector: { flexGrow: 0, maxHeight: 60, marginVertical: 8 },
+  chip: { paddingHorizontal: 12, paddingVertical: 12, borderRadius: 8, borderWidth: 1, borderColor: "#485044", minHeight: 44 },
+  selectedChip: { backgroundColor: "#394734", borderColor: "#9aaf89" },
+  tabs: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingVertical: 12 },
+  panel: { backgroundColor: "#242b24", padding: 16, borderRadius: 12, gap: 10 },
+  row: { paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: "#374033" },
+  rowTitle: { fontSize: 17, fontWeight: "600", marginBottom: 6 },
+  rowMeta: { fontSize: 12, lineHeight: 18, color: "#bac2b1" },
   bddSection: { marginTop: 16 },
-  bddLabel: { fontSize: 12, fontWeight: "700", color: "#888", marginTop: 10, textTransform: "uppercase" },
-  bddLine: { fontSize: 14, marginTop: 2 },
-  requestBanner: { backgroundColor: "#fff8e1", borderRadius: 8, padding: 10, marginBottom: 10 },
-  requestBannerTitle: { fontSize: 12, fontWeight: "700", color: "#8a6d00", textTransform: "uppercase", marginBottom: 4 },
-  requestBannerItem: { fontSize: 13, color: "#5c4a00", marginTop: 4 },
+  bddLabel: { fontSize: 12, fontWeight: "700", color: "#9aaf89", marginTop: 10, textTransform: "uppercase" },
+  bddLine: { fontSize: 15, lineHeight: 22, marginTop: 4 },
 });

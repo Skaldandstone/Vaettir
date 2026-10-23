@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const sendMock = vi.fn();
 vi.mock("@aws-sdk/client-secrets-manager", () => ({
   SecretsManagerClient: vi.fn().mockImplementation(function FakeSecretsManagerClient() {
-    return { send: sendMock };
+    return { send: sendMock, destroy: vi.fn() };
   }),
   GetSecretValueCommand: vi.fn().mockImplementation(function FakeGetSecretValueCommand(input: unknown) {
     return { input };

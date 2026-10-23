@@ -1,5 +1,7 @@
 # Vaettir - Brand & Style Guide
 
+**Application UI update (2026-10-19):** the approved blue-charcoal dark and cool-slate light workbench supersedes this landing-page palette and control sizing for the authenticated application. Use [Application UI](docs/application-ui.md) and its linked source components. Keep the established rune. The marketing identity below is not an instruction to revert application colors or density.
+
 Reference implementation: [design/vaettir-landing.html](design/vaettir-landing.html) (single-file HTML/CSS/JS prototype).
 Everything below is extracted directly from that file - treat it as the source of truth
 if the two ever drift.
@@ -222,3 +224,11 @@ James requested a distinct B2B product interface (delivered on the Codex branch 
 - The root example workspace is explicitly synthetic. Its cases, execution outcomes, AI review actions and release gates do not read or write customer data. Real projects and the organization dashboard retain their authenticated APIs and permission controls. It is not a sign-off bypass or live release-health claim.
 
 The rest of this document remains the historical marketing identity reference, not an instruction to restore grain/serif headings throughout the B2B app.
+
+### Workflow and native evidence presentation, October 16, 2026
+
+- Shared dialog, drawer and wizard fields stack labels above full-width controls. Textareas resize vertically; all actions remain reachable by scrolling and keyboard on short screens. Checkboxes and radios are not stretched to input width.
+- Native selects keep mobile and keyboard behavior. Use `components/ui/ReadableSelect.tsx` for potentially long names: a wrapping full-value caption appears only when the selected value does not fit. A tooltip or ellipsis alone is not sufficient.
+- Project connection uses explicit project-choice cards beside a concise permission summary, with the verified destination visible. Do not simplify away consent, account/session boundaries, exact retries or revocation recovery.
+- Quality Intelligence uses native Atlassian design-token surfaces, labeled metric cards and outcome charts. No outcomes means an explicit unassessed empty state, not a fabricated donut or zero-denominator completion bar. Keep capture date, live/frozen distinction and essential evidence boundaries visible; detailed definitions have a named disclosure.
+- Check actual rendered light/dark, desktop/narrow and short-height states. The first shared pass is not whole-product visual acceptance. Source tests, browser fixtures with synthetic auth, native-host rendering and owner acceptance remain distinct.

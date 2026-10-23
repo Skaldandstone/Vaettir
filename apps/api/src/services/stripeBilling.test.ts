@@ -208,7 +208,7 @@ describe("handleStripeWebhookEvent", () => {
     expect(prisma.organization.update).toHaveBeenCalledWith({ where: { id: "org_1" }, data: { stripeSubscriptionId: "sub_new", planTierId: "tier_1" } });
   });
 
-  it("checkout.session.completed with topup metadata creates a TOPUP transaction instead of updating the org's plan", async () => {
+  it("legacy topup metadata cannot grant credits or change the plan", async () => {
     const prisma = fakePrisma();
     const event = {
       type: "checkout.session.completed",
@@ -216,10 +216,8 @@ describe("handleStripeWebhookEvent", () => {
     } as unknown as Parameters<typeof handleStripeWebhookEvent>[1];
 
     const result = await handleStripeWebhookEvent(prisma, event);
-    expect(result.handled).toBe(true);
-    expect(prisma.aiCreditTransaction.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ organizationId: "org_1", type: "TOPUP", amount: 2000 }),
-    });
+    expect(result.handled).toBe(false);
+    expect(prisma.aiCreditTransaction.create).not.toHaveBeenCalled();
     expect(prisma.organization.update).not.toHaveBeenCalled();
   });
 

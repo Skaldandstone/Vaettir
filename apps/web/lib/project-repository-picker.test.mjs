@@ -1,0 +1,40 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
+
+const source=readFileSync(new URL("../components/ProjectRepositories.tsx",import.meta.url),"utf8");
+
+test("project integrations offers one Connect repo entry; provider choices live inside its modal",()=>{
+  assert.match(source,/<strong>Connect repo<\/strong>/);
+  assert.equal(source.split("<strong>Connect repo</strong>").length-1,1);
+  assert.ok(source.indexOf("<RepositoryProviderPicker")>source.indexOf('<Modal open={open}'));
+  assert.match(source,/onChange=\{setProviderChoice\} onConnect=\{chooseProvider\}/);
+  assert.doesNotMatch(source,/repositoryProviders.map\(\(\[id,label\]\).*<button/);
+  assert.match(source,/Back to providers/);
+});
+
+test("provider navigation keeps visited connector state mounted and gates stale access",()=>{
+  assert.match(source,/visited\.map\(id=><div key={id} hidden=\{provider!==id\}><RepositoryConnectionContent/);
+  assert.match(source,/if\(busy\|\|!canEdit\|\|!ready\)\{cancelRepositoryAuthorization\(intent\);return/);
+  assert.match(source,/ready=query\.isSuccess&&!query.error&&!query.isFetching&&!query.isPaused/);
+  assert.match(source,/hidden=\{!canEdit\|\|!ready\}/);
+  assert.match(source,/dismissible=\{!busy\}/);
+  assert.match(source,/isConnectionMutation\(key\)\|\|\(Array\.isArray\(route\)&&route\[0\]==="project"&&route\[1\]==="addRepository"\)/);
+  assert.match(source,/if\(dialog\?\.open\)screenHeading\.current\?\.focus\(\)/);
+});
+
+test("picker distinguishes OAuth, token verification and export-only adapters without changing saved status",()=>{
+  const picker=readFileSync(new URL("../components/RepositoryProviderPicker.tsx",import.meta.url),"utf8");
+  assert.match(picker,/Connect opens setup; authorization starts from the next screen after access and configuration checks/);
+  assert.match(picker,/try\{onConnect\(value\);\}/);
+  assert.doesNotMatch(picker,/createRepositoryAuthorization\(|window\.open\(/);
+  assert.match(picker,/Authorization uses your existing sign-in/);
+  assert.match(picker,/Choose your GitLab instance next, including self-hosted GitLab/);
+  assert.match(picker,/Account authorization opens only after you select the host/);
+  assert.match(picker,/Connect opens token verification and repository selection/);
+  assert.match(picker,/Native account authorization is not available yet/);
+  assert.match(source,/initialAuthorization=\{authorizations\[id\]\}/);
+  assert.match(source,/repo\.accessVerified\?"Registered · Access verified":"Registered · Access unverified"/);
+  assert.match(source,/Review \$\{name\} connection options/);
+  assert.match(source,/repositoryDisplayName\(repo.url\)/);
+});

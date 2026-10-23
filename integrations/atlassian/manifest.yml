@@ -1,0 +1,73 @@
+# Registered under Skald and Stone Developer Space
+# f81320c2-e826-431f-8e02-50bb44a853f9. Never re-register under aTwist.
+modules:
+  trigger:
+    - key: vaettir-version-released
+      function: enqueue-release
+      events:
+        - avi:jira:released:version
+  consumer:
+    - key: vaettir-release-consumer
+      queue: vaettir-release-captures
+      function: capture-release
+  function:
+    - key: enqueue-release
+      handler: releaseEvent.enqueue
+    - key: capture-release
+      handler: releaseEvent.capture
+      timeoutSeconds: 55
+  jira:projectPage:
+    - key: vaettir-project-quality
+      resource: quality
+      render: native
+      resolver:
+        endpoint: vaettir-quality
+      title: Quality Intelligence
+  jira:issueContext:
+    - key: vaettir-issue-quality
+      resource: quality
+      render: native
+      resolver:
+        endpoint: vaettir-quality
+      title: Verification tests
+      label: Vaettir tests
+      description: Linked tests and recorded verification outcomes for this ticket.
+  macro:
+    - key: vaettir-release-quality
+      resource: confluence-quality
+      render: native
+      resolver:
+        endpoint: vaettir-quality
+      title: Vaettir Quality Intelligence
+      description: Approved, dated quality snapshots for release tracking.
+        Architecture analysis stays in Vaettir.
+      config: true
+  endpoint:
+    - key: vaettir-quality
+      remote: vaettir
+      auth:
+        appUserToken:
+          enabled: true
+resources:
+  - key: quality
+    path: src/jira.tsx
+  - key: confluence-quality
+    path: src/confluence.tsx
+remotes:
+  - key: vaettir
+    baseUrl: https://vaettir.skaldandstone.com
+    operations:
+      - compute
+    auth:
+      appSystemToken:
+        enabled: true
+permissions:
+  scopes:
+    - read:app-user-token
+    - read:app-system-token
+    - read:jira-work
+    - read:page:confluence
+app:
+  runtime:
+    name: nodejs24.x
+  id: ari:cloud:ecosystem::app/743bf96f-0f9f-4fed-981a-ea3fc318d15d

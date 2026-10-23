@@ -1,34 +1,51 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { type ChangeEvent, type CSSProperties, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { trpcReact } from "@/lib/trpcReact";
+import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { collectKnownSuitePaths } from "@/components/TestCaseTree";
-
-const TEST_TYPES = [
-  "UNIT",
-  "FUNCTIONAL",
-  "CONTRACT",
-  "INSTRUMENTATION",
-  "SMOKE",
-  "SANITY",
-  "REGRESSION",
-  "E2E",
-  "PERFORMANCE",
-  "SECURITY",
-  "ACCESSIBILITY",
-  "EXPLORATORY",
-  "COMPLIANCE",
-  "OTHER",
-];
+import { moveListItem } from "@/lib/move-list-item";
+import { resolveQualityExperience, defaultCasePresentation, casePresentationVisible, retainedCaseChoices } from "@vaettir/core";
+import { useCaseFieldAccess } from "@/lib/use-case-field-access";
+import { freshCasePresentation } from "@/lib/case-presentation-read";
+import { CaseDesignGuide } from "./CaseDesignGuide";
+import { CaseProcedureColumns } from "./CaseProcedureColumns";
+import { IconButton } from "./ui/IconButton";
+import { ProcedureStep } from "./ui/ProcedureStep";
+import { inspectorLabel } from "@/lib/case-inspector";
+import { CaseTagEditor } from "./CaseTagEditor";
+import { appendCaseTag, initialCaseTags, initialCasePhaseRows, prepareCasePhaseForSave, prepareCaseStepsForSave, technicalBehaviorLabel, type CasePhaseName, type CasePhaseRow } from "@/lib/case-authoring-fields";
+import { CaseCustomFieldsForm, type CaseFieldFormDraft, type ReviewedCaseFieldDefaults } from "./CaseCustomFields";
 
 const PRIORITIES = ["CRITICAL", "HIGH", "MEDIUM", "LOW"];
+const OPTIONAL_EDITOR_FIELDS = ["background", "tags", "hardwareFixture", "safety", "technicalBehavior", "expectedResponse"] as const;
+type OptionalEditorField = typeof OPTIONAL_EDITOR_FIELDS[number];
+const FIELD_LABEL_STYLE: CSSProperties = { display: "grid", gap: 6, minWidth: 0, color: "var(--fg)" };
+const PROSE_EDITOR_STYLE: CSSProperties = { display: "block", width: "100%", minWidth: 0, resize: "vertical", lineHeight: 1.55, borderRadius: 6 };
+const SECONDARY_ACTION_STYLE: CSSProperties = { padding: "6px 10px", minHeight: 36, fontSize: 12, borderRadius: 3 };
+const STEP_PAIR_STYLE: CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(280px, 100%), 1fr))", gap: 14, alignItems: "start" };
+/** Revocation-only display guard. This cannot authorize a save or private read;
+ * it merely rejects an old reveal callback after the form becomes unavailable. */
+class OptionalRevealFrame {
+  private key = "";
+  private revision = 0;
+  private eligible = false;
+  observe(key: string, eligible: boolean) {
+    if (key !== this.key) { this.key = key; this.revision++; }
+    this.eligible = eligible;
+    return this.revision;
+  }
+  current(revision: number) { return this.eligible && this.revision === revision; }
+}
 
 interface StepRow {
+  editorKey?: string;
+  editorPlaceholder?: boolean;
   action: string;
-  expectedActionOrData: string;
-  expectedResult: string;
-  expectedResponse: string;
+  expectedActionOrData: string | null;
+  expectedResult: string | null;
+  expectedResponse: string | null;
+  mediaAttachmentIds: string[];
 }
 
 interface TestCaseFormValue {
@@ -37,16 +54,27 @@ interface TestCaseFormValue {
   background: string;
   testType: string;
   priority: string;
-  tags: string;
+  tags: string[];
   suitePath: string;
-  given: string[];
-  when: string[];
-  then: string[];
+  given: CasePhaseRow[];
+  when: CasePhaseRow[];
+  then: CasePhaseRow[];
   steps: StepRow[];
+  stepRevision: string;
+  caseRevision: string;
   sharedStepGroupId: string;
+  validationDomain: RouterOutputs["testCases"]["byId"]["validationDomain"];
+  verificationProfile: RouterOutputs["testCases"]["byId"]["verificationProfile"];
 }
 
-const EMPTY_STEP: StepRow = { action: "", expectedActionOrData: "", expectedResult: "", expectedResponse: "" };
+const EMPTY_STEP: StepRow = {
+  editorPlaceholder: true,
+  action: "",
+  expectedActionOrData: null,
+  expectedResult: null,
+  expectedResponse: null,
+  mediaAttachmentIds: [],
+};
 
 function defaultValue(): TestCaseFormValue {
   return {
@@ -55,13 +83,22 @@ function defaultValue(): TestCaseFormValue {
     background: "",
     testType: "FUNCTIONAL",
     priority: "MEDIUM",
-    tags: "",
+    tags: [],
     suitePath: "",
     given: [],
     when: [],
     then: [],
     steps: [],
+    stepRevision: "",
+    caseRevision: "",
     sharedStepGroupId: "",
+    validationDomain: "SOFTWARE",
+    verificationProfile: {
+      setup: "",
+      safety: "",
+      instruments: "",
+      acceptanceCriteria: "",
+    },
   };
 }
 
@@ -69,8 +106,17 @@ interface TestCaseFormProps {
   mode: "create" | "edit";
   projectId: string;
   testCaseId?: string;
-  initial?: Partial<TestCaseFormValue>;
-  stepFieldLabels?: { action: string; expectedActionOrData: string; expectedResult: string; expectedResponse: string };
+  initial?: Partial<Omit<TestCaseFormValue, "tags" | "given" | "when" | "then">> & { tags?: string[] | string; given?: string[]; when?: string[]; then?: string[] };
+  // Only a separately reviewed new draft may seed current typed defaults.
+  initialCustomFields?: ReviewedCaseFieldDefaults;
+  locked?: boolean;
+  active?: boolean;
+  stepFieldLabels?: {
+    action: string;
+    expectedActionOrData: string;
+    expectedResult: string;
+    expectedResponse: string;
+  };
 }
 
 function StringListEditor({
@@ -78,165 +124,418 @@ function StringListEditor({
   items,
   onChange,
 }: {
-  label: string;
-  items: string[];
-  onChange: (items: string[]) => void;
+  label: CasePhaseName;
+  items: CasePhaseRow[];
+  onChange: (items: CasePhaseRow[]) => void;
 }) {
+  const prefix = useId();
+  const nextKey = useRef(items.length);
+  const [announcement, setAnnouncement] = useState("");
+  function move(from: number, to: number) {
+    onChange(moveListItem(items, from, to));
+    setAnnouncement(`${label} item ${from + 1} moved to position ${to + 1}.`);
+  }
   return (
-    <div style={{ marginBottom: 12 }}>
+    <div style={{ marginBottom: 12, minWidth: 0 }}>
       <div style={{ fontWeight: 600, marginBottom: 4 }}>{label}</div>
       {items.map((item, i) => (
-        <div key={i} style={{ display: "flex", gap: 6, marginBottom: 4 }}>
-          <input
-            value={item}
-            onChange={(e) => onChange(items.map((v, j) => (j === i ? e.target.value : v)))}
-            style={{ flex: 1 }}
+        <div key={item.editorKey} style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 4 }}>
+          <textarea
+            aria-label={`${label} item ${i + 1}`}
+            value={item.text}
+            onChange={(e) =>
+              onChange(items.map((v, j) => (j === i ? { ...v, text: e.target.value } : v)))
+            }
+            rows={3}
+            style={{ ...PROSE_EDITOR_STYLE, flex: "1 1 100%" }}
           />
-          <button type="button" onClick={() => onChange(items.filter((_, j) => j !== i))}>
-            Remove
-          </button>
+          <IconButton label={`Move ${label} item ${i + 1} up`} icon="up" disabled={i === 0} onClick={() => move(i, i - 1)} />
+          <IconButton label={`Move ${label} item ${i + 1} down`} icon="down" disabled={i === items.length - 1} onClick={() => move(i, i + 1)} />
+          <IconButton
+            icon="delete"
+            label={`Remove ${label} item ${i + 1}`}
+            onClick={() => onChange(items.filter((_, j) => j !== i))}
+          />
+          {item.text === "" && !item.editorPlaceholder && <span className="text-muted" style={{ flexBasis: "100%", fontSize: 12 }}>Retained empty entry. It stays in this phase unless you explicitly remove it.</span>}
         </div>
       ))}
-      <button type="button" onClick={() => onChange([...items, ""])}>
-        + Add {label.slice(0, -1) || label}
+      <button type="button" className="btn-secondary" style={SECONDARY_ACTION_STYLE} onClick={() => { const key = `${prefix}-${nextKey.current++}`; onChange([...items, { text: "", editorKey: key, editorPlaceholder: true }]); }}>
+        + Add {label} item
       </button>
+      <span role="status" className="sr-only">{announcement}</span>
     </div>
   );
 }
 
-export default function TestCaseForm({ mode, projectId, testCaseId, initial, stepFieldLabels }: TestCaseFormProps) {
+export default function TestCaseForm({
+  mode,
+  projectId,
+  testCaseId,
+  initial,
+  initialCustomFields,
+  locked = false,
+  active = true,
+  stepFieldLabels,
+}: TestCaseFormProps) {
+  // Keep the concurrency baseline bound to this draft, not a later refetch.
+  const [baseline] = useState(initial);
   const router = useRouter();
-  const [value, setValue] = useState<TestCaseFormValue>({ ...defaultValue(), ...initial });
+  const stepKeyPrefix = useId();
+  const nextStepKey = useRef(initial?.steps?.length ?? 0);
+  const [stepAnnouncement, setStepAnnouncement] = useState("");
+  const [openSteps, setOpenSteps] = useState<Set<string>>(() => new Set());
+  const [tagDraft, setTagDraft] = useState("");
+  const [reopenedTag, setReopenedTag] = useState<string | undefined>();
+  // Display-only choices for this mounted draft. Revealing a field must never
+  // populate an absent/NULL value or change project preferences/save input.
+  const [revealedFields, setRevealedFields] = useState<readonly OptionalEditorField[]>([]);
+  const [revealFrame] = useState(() => new OptionalRevealFrame());
+  const [value, setValue] = useState<TestCaseFormValue>(() => ({
+    ...defaultValue(),
+    ...initial,
+    tags: initialCaseTags(initial?.tags),
+    given: initialCasePhaseRows(initial?.given ?? [], `${stepKeyPrefix}-Given`),
+    when: initialCasePhaseRows(initial?.when ?? [], `${stepKeyPrefix}-When`),
+    then: initialCasePhaseRows(initial?.then ?? [], `${stepKeyPrefix}-Then`),
+    steps: (initial?.steps ?? []).map((step, i) => ({ ...step, editorPlaceholder: false, expectedActionOrData: step.expectedActionOrData ?? null, expectedResult: step.expectedResult ?? null, expectedResponse: step.expectedResponse ?? null, mediaAttachmentIds: step.mediaAttachmentIds ?? [], editorKey: `${stepKeyPrefix}-${i}` })),
+  }));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [caseFieldsDraft, setCaseFieldsDraft] = useState<CaseFieldFormDraft | null>(null);
   // P1-15: both reads share the cache with the test-cases list page and the
   // shared-steps page, so opening the form right after either is free.
   const utils = trpcReact.useUtils();
-  const casesQuery = trpcReact.testCases.list.useQuery({ projectId });
-  const knownSuitePaths = useMemo(() => (casesQuery.data ? collectKnownSuitePaths(casesQuery.data) : []), [casesQuery.data]);
-  const sharedGroupsQuery = trpcReact.sharedStepGroups.list.useQuery({ projectId });
-  const sharedGroups = sharedGroupsQuery.data ?? [];
+  const experienceQuery = trpcReact.project.experience.useQuery({ projectId },{enabled:active});
+  const experience = experienceQuery.data?.experience;
+  const workspace = experience ? resolveQualityExperience(experience) : null;
+  const presentationAccess = useCaseFieldAccess(projectId, testCaseId, active);
+  const presentationQuery = trpcReact.casePresentation.get.useQuery({ projectId, originalOrganizationId: presentationAccess.origin?.organizationId, expectedClerkActorId: presentationAccess.origin?.clerkActorId }, { enabled: active && presentationAccess.readable, retry: false });
+  const freshPresentation = freshCasePresentation(presentationQuery, presentationAccess.current);
+  const presentation = freshPresentation?.configuration ?? freshPresentation?.defaults ?? defaultCasePresentation(null);
+  const interacted = useRef(false), defaultChoicesApplied = useRef(false);
+  useEffect(() => {
+    if (!freshPresentation || defaultChoicesApplied.current) return;
+    defaultChoicesApplied.current = true;
+    // Only a pristine, newly authored case adopts project defaults once.
+    // Saved cases, reviewed presets and later human edits are never coerced.
+    if (mode !== "create" || interacted.current) return;
+    const preferences = freshPresentation.configuration ?? freshPresentation.defaults;
+    setValue(current => ({ ...current, testType: initial?.testType ?? preferences.testTypes[0]!, validationDomain: initial?.validationDomain ?? preferences.domains[0]! }));
+  }, [freshPresentation, mode, initial]);
+  const context = { validationDomain: value.validationDomain, testType: value.testType };
+  const baseVisible = {
+    background: casePresentationVisible(presentation, "background", value.background !== "", context),
+    tags: casePresentationVisible(presentation, "tags", value.tags.length > 0 || tagDraft !== "" || reopenedTag !== undefined, context),
+    hardwareFixture: casePresentationVisible(presentation, "hardwareFixture", [value.verificationProfile.setup, value.verificationProfile.instruments, value.verificationProfile.acceptanceCriteria].some(text => text !== ""), context),
+    safety: casePresentationVisible(presentation, "safety", value.verificationProfile.safety !== "", context),
+    technicalBehavior: casePresentationVisible(presentation, "technicalBehavior", value.steps.some(step => step.expectedActionOrData !== null), context),
+    expectedResponse: casePresentationVisible(presentation, "expectedResponse", value.steps.some(step => step.expectedResponse !== null), context),
+  };
+  const visible = Object.fromEntries(OPTIONAL_EDITOR_FIELDS.map(field => [field, baseVisible[field] || revealedFields.includes(field)])) as Record<OptionalEditorField, boolean>;
+  const retainedVisible = OPTIONAL_EDITOR_FIELDS.filter(field => presentation.fields[field] === "HIDE" && baseVisible[field]);
+  const casesQuery = trpcReact.testCases.list.useQuery({ projectId },{enabled:active});
+  const knownSuitePaths = useMemo(
+    () => (casesQuery.data ? collectKnownSuitePaths(casesQuery.data) : []),
+    [casesQuery.data],
+  );
+  const sharedGroupsQuery = trpcReact.sharedStepGroups.list.useQuery({
+    projectId,
+  },{enabled:active, staleTime:0, refetchOnMount:"always"});
+  const sharedGroups = active && sharedGroupsQuery.isFetchedAfterMount && !sharedGroupsQuery.error &&
+    !sharedGroupsQuery.isFetching && !sharedGroupsQuery.isPaused ? sharedGroupsQuery.data ?? [] : [];
   const createMutation = trpcReact.testCases.create.useMutation();
   const updateMutation = trpcReact.testCases.update.useMutation();
+  const attachmentsQuery = trpcReact.testCaseAttachments.list.useQuery(
+    { testCaseId: testCaseId ?? "" },
+    { enabled: active && mode === "edit" && Boolean(testCaseId) },
+  );
+  const requestMediaUpload = trpcReact.testCaseAttachments.requestUpload.useMutation();
+  const confirmMediaUpload = trpcReact.testCaseAttachments.confirmUpload.useMutation();
+  const deleteAttachment = trpcReact.testCaseAttachments.delete.useMutation();
+  const [uploadingStepKey, setUploadingStepKey] = useState<string | null>(null);
+  const revealStamp = revealFrame.observe(JSON.stringify([projectId, testCaseId ?? null, active, locked, saving, uploadingStepKey]), active && !locked && !saving && uploadingStepKey === null);
+  const imageVideoAttachments = (attachmentsQuery.data ?? []).filter(a => /^(image|video)\//i.test(a.contentType));
 
-  const selectedGroup = sharedGroups.find((g) => g.id === value.sharedStepGroupId);
+  const selectedGroup = sharedGroups.find(
+    (g) => g.id === value.sharedStepGroupId,
+  );
 
   const labels = stepFieldLabels ?? {
     action: "Test Step",
-    expectedActionOrData: "Expected Action / Data",
+    expectedActionOrData: "Technical behavior / data",
     expectedResult: "Expected Result",
     expectedResponse: "Expected Response",
   };
+  const optionalLabels: Record<OptionalEditorField, string> = {
+    background: "Background / description", tags: "Tag chips",
+    hardwareFixture: "Fixture setup, instruments and measurement criteria",
+    safety: "Safety prerequisites / stop conditions",
+    technicalBehavior: technicalBehaviorLabel(labels.expectedActionOrData),
+    expectedResponse: labels.expectedResponse,
+  };
+  const hiddenOptionalFields = OPTIONAL_EDITOR_FIELDS.filter(field => !visible[field]);
+  function revealField(field: OptionalEditorField) {
+    if (!active || locked || saving || uploadingStepKey !== null || !revealFrame.current(revealStamp) || !OPTIONAL_EDITOR_FIELDS.includes(field)) return;
+    setRevealedFields(current => current.includes(field) ? current : [...current, field]);
+  }
 
   function updateStep(i: number, patch: Partial<StepRow>) {
-    setValue((v) => ({ ...v, steps: v.steps.map((s, j) => (j === i ? { ...s, ...patch } : s)) }));
+    setValue((v) => ({
+      ...v,
+      steps: v.steps.map((s, j) => (j === i ? { ...s, ...patch } : s)),
+    }));
+  }
+
+  async function uploadStepMedia(editorKey: string, event: ChangeEvent<HTMLInputElement>) {
+    if (locked || saving || uploadingStepKey !== null) return;
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || !testCaseId) return;
+    if (!/^(image|video)\//i.test(file.type)) {
+      setError("Choose an image or video file for this step.");
+      return;
+    }
+    setUploadingStepKey(editorKey);
+    setError(null);
+    let attachmentId: string | null = null;
+    try {
+      const upload = await requestMediaUpload.mutateAsync({ testCaseId, fileName: file.name, contentType: file.type, sizeBytes: file.size });
+      attachmentId = upload.attachmentId;
+      const response = await fetch(upload.uploadUrl, { method: "PUT", headers: { "content-type": file.type }, body: file });
+      if (!response.ok) throw new Error(`Media upload failed (${response.status}).`);
+      await confirmMediaUpload.mutateAsync({ attachmentId: upload.attachmentId });
+      setValue(current => ({ ...current, steps: current.steps.map(step => step.editorKey === editorKey
+        ? { ...step, mediaAttachmentIds: [...step.mediaAttachmentIds, upload.attachmentId] }
+        : step) }));
+      await utils.testCaseAttachments.list.invalidate({ testCaseId });
+    } catch (cause) {
+      if (attachmentId) await deleteAttachment.mutateAsync({ attachmentId }).catch(() => undefined);
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setUploadingStepKey(null);
+    }
+  }
+
+  async function viewStepMedia(attachmentId: string) {
+    try {
+      const { viewUrl } = await utils.testCaseAttachments.getViewUrl.fetch({ attachmentId });
+      window.open(viewUrl, "_blank", "noopener,noreferrer");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
   }
 
   async function submit() {
+    if (!active || locked || saving || uploadingStepKey !== null || !value.title.trim() || !caseFieldsDraft?.ready) return;
+    const preparedSteps = prepareCaseStepsForSave(value.sharedStepGroupId ? [] : value.steps);
+    if (!preparedSteps.ok) { setError(preparedSteps.error); return; }
+    const preparedGiven = prepareCasePhaseForSave("Given", value.given), preparedWhen = prepareCasePhaseForSave("When", value.when), preparedThen = prepareCasePhaseForSave("Then", value.then);
+    for (const phase of [preparedGiven, preparedWhen, preparedThen]) {
+      if (!phase.ok) { setError(phase.error); return; }
+    }
+    if (!preparedGiven.ok || !preparedWhen.ok || !preparedThen.ok) return;
     setSaving(true);
     setError(null);
     try {
       const payload = {
         testPlanId: value.testPlanId || undefined,
         title: value.title,
-        background: value.background || undefined,
-        given: value.given.filter((s) => s.trim()),
-        when: value.when.filter((s) => s.trim()),
-        then: value.then.filter((s) => s.trim()),
-        steps: value.sharedStepGroupId
-          ? []
-          : value.steps
-              .filter((s) => s.action.trim())
-              .map((s) => ({
-                action: s.action,
-                expectedActionOrData: s.expectedActionOrData || null,
-                expectedResult: s.expectedResult || null,
-                expectedResponse: s.expectedResponse || null,
-              })),
+        background: value.background || (mode === "edit" && baseline?.background ? "" : undefined),
+        given: preparedGiven.values,
+        when: preparedWhen.values,
+        then: preparedThen.values,
+        steps: preparedSteps.steps,
         sharedStepGroupId: value.sharedStepGroupId || null,
-        tags: value.tags
-          .split(",")
-          .map((t) => t.trim())
-          .filter(Boolean),
+        tags: appendCaseTag(value.tags, tagDraft, reopenedTag).tags,
         testType: value.testType,
+        validationDomain: value.validationDomain,
+        verificationProfile: value.verificationProfile,
         priority: value.priority as "CRITICAL" | "HIGH" | "MEDIUM" | "LOW",
         suitePath: value.suitePath || undefined,
+        customFields: caseFieldsDraft.customFields,
+        expectedFieldSchemaHash: caseFieldsDraft.expectedFieldSchemaHash,
+        expectedCustomFieldRevision: caseFieldsDraft.expectedCustomFieldRevision,
       };
 
       const result =
         mode === "create"
           ? await createMutation.mutateAsync({ ...payload, projectId })
-          : await updateMutation.mutateAsync({ ...payload, id: testCaseId! });
+          : await updateMutation.mutateAsync({ ...payload, id: testCaseId!, expectedSuitePath: baseline?.suitePath || null,
+              expectedPriority: baseline?.priority as "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | undefined,
+              expectedStepRevision: baseline?.stepRevision || undefined,
+              expectedCaseRevision: baseline?.caseRevision || undefined });
 
       // The detail page + list read from the cache; make sure they see the
       // saved row rather than the pre-edit copy.
       void utils.testCases.list.invalidate({ projectId });
-      if (mode === "edit") void utils.testCases.byId.invalidate({ id: testCaseId! });
+      void utils.caseFields.get.invalidate({ projectId, caseId: testCaseId });
+      if (mode === "edit")
+        void utils.testCases.byId.invalidate({ id: testCaseId! });
       router.push(`/projects/${projectId}/test-cases/${result.id}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      // Definitions may have changed after the draft loaded. Refresh without
+      // replacing the authored draft or accepting stale cached metadata.
+      void utils.caseFields.get.invalidate({ projectId, caseId: testCaseId });
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <div style={{ maxWidth: 720 }}>
-      <div style={{ display: "grid", gap: 8, marginBottom: 20 }}>
-        <label>
+    <fieldset className="test-case-editor" disabled={locked || saving || uploadingStepKey !== null} onChangeCapture={() => { interacted.current = true; }} aria-label={mode === "edit" ? "Edit test case draft" : "New test case draft"} style={{ border: 0, padding: 0, margin: 0, width: "100%", minWidth: 0, overflowWrap: "anywhere" }}>
+      <div style={{ display: "grid", gap: 12, marginBottom: 20 }}>
+        {active && <CaseDesignGuide />}
+        {presentationQuery.error && <p role="status">Current built-in field preferences could not be verified. The generic editor retains all fields and values. <button type="button" onClick={() => void presentationQuery.refetch()}>Refresh preferences</button></p>}
+        {retainedVisible.length > 0 && <p role="status">Fields hidden for empty cases remain visible here because this draft has supplied values: {retainedVisible.join(", ")}. Saving never clears them merely because project preferences changed.</p>}
+        {hiddenOptionalFields.length > 0 && <details>
+          <summary>Show optional fields for this draft</summary>
+          <p className="text-muted">Project preferences still choose the default layout. Show a field when this case needs it; this does not add a value, change project settings or grant editing permission.</p>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {hiddenOptionalFields.map(field => <button key={field} type="button" className="btn-secondary"
+              disabled={!active || locked || saving || uploadingStepKey !== null}
+              onClick={() => revealField(field)} aria-label={`Show ${optionalLabels[field]} for this draft`}>
+              Show {optionalLabels[field]}
+            </button>)}
+          </div>
+        </details>}
+        <label style={FIELD_LABEL_STYLE}>
           Title
           <input
             value={value.title}
             onChange={(e) => setValue((v) => ({ ...v, title: e.target.value }))}
-            style={{ width: "100%" }}
+            style={{ width: "100%", minWidth: 0, borderRadius: 6, fontSize: 16 }}
           />
         </label>
-        <label>
-          Background <span style={{ color: "var(--muted-dim)" }}>(optional, shared context)</span>
+        <details className="case-details" open={mode === "create" || value.validationDomain !== "SOFTWARE" || revealedFields.length > 0}>
+          <summary>Case details <span>{inspectorLabel(value.testType)} · {inspectorLabel(value.priority)} · {value.suitePath || "Unassigned"}</span></summary>
+          <div className="case-details-body">
+        {visible.background && <label style={FIELD_LABEL_STYLE}>
+          Background{" "}
+          <span style={{ color: "var(--muted-dim)" }}>
+            (optional, shared context)
+          </span>
           <textarea
             value={value.background}
-            onChange={(e) => setValue((v) => ({ ...v, background: e.target.value }))}
-            rows={2}
-            style={{ width: "100%" }}
+            onChange={(e) =>
+              setValue((v) => ({ ...v, background: e.target.value }))
+            }
+            rows={3}
+            style={PROSE_EDITOR_STYLE}
           />
-        </label>
-        <div style={{ display: "flex", gap: 16 }}>
-          <label>
-            Type
-            <select value={value.testType} onChange={(e) => setValue((v) => ({ ...v, testType: e.target.value }))}>
-              {TEST_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
+        </label>}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(180px, 100%), 1fr))", gap: 12 }}>
+          <label style={FIELD_LABEL_STYLE}>
+            Validation domain
+            <select
+              value={value.validationDomain}
+              style={{ width: "100%", minWidth: 0 }}
+              onChange={(e) =>
+                setValue((v) => ({
+                  ...v,
+                  validationDomain: e.target
+                    .value as TestCaseFormValue["validationDomain"],
+                }))
+              }
+            >
+              {retainedCaseChoices(presentation.domains, value.validationDomain).map(domain => (
+                <option key={domain.value} value={domain.value}>
+                  {inspectorLabel(domain.value)}{domain.retained ? " (retained draft value)" : ""}
                 </option>
               ))}
             </select>
           </label>
-          <label>
+          <label style={FIELD_LABEL_STYLE}>
+            Type
+            <select
+              value={value.testType}
+              style={{ width: "100%", minWidth: 0 }}
+              onChange={(e) =>
+                setValue((v) => ({ ...v, testType: e.target.value }))
+              }
+            >
+              {retainedCaseChoices(presentation.testTypes, value.testType).map(type => (
+                <option key={type.value} value={type.value}>
+                  {inspectorLabel(type.value)}{type.retained ? " (retained draft value)" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label style={FIELD_LABEL_STYLE}>
             Priority
-            <select value={value.priority} onChange={(e) => setValue((v) => ({ ...v, priority: e.target.value }))}>
+            <select
+              value={value.priority}
+              style={{ width: "100%", minWidth: 0 }}
+              onChange={(e) =>
+                setValue((v) => ({ ...v, priority: e.target.value }))
+              }
+            >
               {PRIORITIES.map((p) => (
                 <option key={p} value={p}>
-                  {p}
+                  {inspectorLabel(p)}
                 </option>
               ))}
             </select>
           </label>
         </div>
-        <label>
-          Tags <span style={{ color: "var(--muted-dim)" }}>(comma-separated)</span>
-          <input
-            value={value.tags}
-            onChange={(e) => setValue((v) => ({ ...v, tags: e.target.value }))}
-            style={{ width: "100%" }}
-          />
-        </label>
-        <label>
-          Suite <span style={{ color: "var(--muted-dim)" }}>(optional, e.g. "auth/password-reset" — leave blank to stay unassigned)</span>
+        {(visible.hardwareFixture || visible.safety) && <details open={value.validationDomain !== "SOFTWARE" || revealedFields.includes("hardwareFixture") || revealedFields.includes("safety")}>
+          <summary>Fixture, safety and measurement criteria</summary>
+          <p>
+            Document approved procedures and acceptance limits. Attach diagrams
+            or visual setup references to the saved case. This does not certify
+            a regulated process.
+          </p>
+          {workspace && <details><summary>{workspace.title}: procedure guidance</summary>
+            <ul>{workspace.caseGuidance.map(note => <li key={note}>{note}</li>)}</ul>
+            <p className="text-muted">The project profile does not change this case&apos;s domain or human-written criteria. Food/process procedures can use Other until a dedicated case domain is available.</p>
+          </details>}
+          {(
+            [
+              ["setup", "System under test and fixture setup"],
+              ["safety", "Safety prerequisites and stop conditions"],
+              [
+                "instruments",
+                "Instruments, calibration and sampling requirements",
+              ],
+              [
+                "acceptanceCriteria",
+                "Measurements, units, limits and pass criteria",
+              ],
+            ] as const
+          ).filter(([key]) => key === "safety" ? visible.safety : visible.hardwareFixture).map(([key, label]) => (
+            <label key={key} style={{ ...FIELD_LABEL_STYLE, marginBottom: 12 }}>
+              {workspace && experience?.offerings.length === 1 && workspace.physical ? workspace.caseFieldLabels[key] : label}
+              <textarea
+                style={PROSE_EDITOR_STYLE}
+                rows={3}
+                value={value.verificationProfile[key]}
+                onChange={(e) =>
+                  setValue((v) => ({
+                    ...v,
+                    verificationProfile: {
+                      ...v.verificationProfile,
+                      [key]: e.target.value,
+                    },
+                  }))
+                }
+              />
+            </label>
+          ))}
+        </details>}
+        {visible.tags && <CaseTagEditor projectId={projectId} tags={value.tags} draft={tagDraft} reopenedOriginal={reopenedTag} onReopen={setReopenedTag} onTagsChange={tags => setValue(v => ({ ...v, tags }))} onDraftChange={setTagDraft} />}
+        <label style={FIELD_LABEL_STYLE}>
+          Suite{" "}
+          <span style={{ color: "var(--muted-dim)" }}>
+            (optional, e.g. &ldquo;auth/password-reset&rdquo; — leave blank to stay
+            unassigned)
+          </span>
           <input
             list="known-suite-paths"
             value={value.suitePath}
-            onChange={(e) => setValue((v) => ({ ...v, suitePath: e.target.value }))}
-            style={{ width: "100%" }}
+            onChange={(e) =>
+              setValue((v) => ({ ...v, suitePath: e.target.value }))
+            }
+            style={{ display: "block", width: "100%", minWidth: 0, borderRadius: 6 }}
           />
           <datalist id="known-suite-paths">
             {knownSuitePaths.map((p) => (
@@ -244,23 +543,41 @@ export default function TestCaseForm({ mode, projectId, testCaseId, initial, ste
             ))}
           </datalist>
         </label>
+          </div>
+        </details>
       </div>
 
-      <h2>Given / When / Then</h2>
-      <p style={{ color: "var(--muted)", fontSize: 13 }}>
-        Fill this in, or the structured step table below, or both — at least one is required.
+      <details open={presentation.procedureFormat === "GHERKIN" || presentation.procedureFormat === "MIXED" || value.given.length > 0 || value.when.length > 0 || value.then.length > 0} style={{ marginTop: 24 }}>
+      <summary>Optional Given / When / Then</summary>
+      <p style={{ color: "var(--muted)", fontSize: 13, margin: "0 0 14px" }}>
+        Use scenario phrasing if it suits this project, or write a procedure below. Given/When/Then is not required. Existing scenario text is retained when you choose a different layout.
       </p>
-      <StringListEditor label="Given" items={value.given} onChange={(given) => setValue((v) => ({ ...v, given }))} />
-      <StringListEditor label="When" items={value.when} onChange={(when) => setValue((v) => ({ ...v, when }))} />
-      <StringListEditor label="Then" items={value.then} onChange={(then) => setValue((v) => ({ ...v, then }))} />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(240px, 100%), 1fr))", gap: 16 }}>
+        <StringListEditor label="Given" items={value.given} onChange={(given) => setValue((v) => ({ ...v, given }))} />
+        <StringListEditor label="When" items={value.when} onChange={(when) => setValue((v) => ({ ...v, when }))} />
+        <StringListEditor label="Then" items={value.then} onChange={(then) => setValue((v) => ({ ...v, then }))} />
+      </div>
+      </details>
 
-      <h2>Structured steps</h2>
+      <div className="procedure-toolbar">
+        <h2>{presentation.procedureFormat === "CHECKLIST" ? "Procedure checklist" : presentation.procedureFormat === "NARRATIVE" ? "Narrative procedure" : "Procedure"}</h2>
+        <IconButton icon="help" label="About procedure steps" tooltip="Expand an action to edit its expected result, technical context and media. Given / When / Then is optional. Parameter datasets are separate." />
+        {!value.sharedStepGroupId && <>
+          <IconButton icon="expand" label="Expand all steps" onClick={() => setOpenSteps(new Set(value.steps.map((step, index) => step.editorKey ?? `${stepKeyPrefix}-${index}`)))} />
+          <IconButton icon="collapse" label="Collapse all steps" onClick={() => setOpenSteps(new Set())} />
+        </>}
+      </div>
       {sharedGroups.length > 0 && (
         <label style={{ display: "block", marginBottom: 10 }}>
-          Use a shared step library <span style={{ color: "var(--muted-dim)" }}>(optional - edited in one place, reused by any case)</span>
+          Use a shared step library{" "}
+          <span style={{ color: "var(--muted-dim)" }}>
+            (optional - edited in one place, reused by any case)
+          </span>
           <select
             value={value.sharedStepGroupId}
-            onChange={(e) => setValue((v) => ({ ...v, sharedStepGroupId: e.target.value }))}
+            onChange={(e) =>
+              setValue((v) => ({ ...v, sharedStepGroupId: e.target.value }))
+            }
             style={{ display: "block", width: "100%" }}
           >
             <option value="">None - author steps for this case</option>
@@ -273,73 +590,184 @@ export default function TestCaseForm({ mode, projectId, testCaseId, initial, ste
         </label>
       )}
       {selectedGroup && (
-        <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 10, marginBottom: 10, background: "var(--panel-bg, transparent)" }}>
+        <div
+          style={{
+            border: "1px solid var(--line)",
+            borderRadius: 8,
+            padding: 10,
+            marginBottom: 10,
+            background: "var(--panel-bg, transparent)",
+          }}
+        >
           <p className="text-muted" style={{ fontSize: 12, margin: "0 0 6px" }}>
-            Steps come from &ldquo;{selectedGroup.name}&rdquo; - manage the content on the{" "}
-            <a href={`/projects/${projectId}/shared-steps`}>Shared step libraries</a> page.
+            Steps come from &ldquo;{selectedGroup.name}&rdquo; - manage the
+            content on the{" "}
+            <a href={`/projects/${projectId}/shared-steps`}>
+              Shared step libraries
+            </a>{" "}
+            page.
           </p>
-          <ol style={{ margin: 0, paddingLeft: 18, fontSize: 13 }}>
-            {selectedGroup.steps.map((s, i) => (
-              <li key={i}>{s.action}</li>
-            ))}
-          </ol>
+          <CaseProcedureColumns steps={selectedGroup.steps} labels={labels} />
         </div>
       )}
-      {!value.sharedStepGroupId && value.steps.map((step, i) => (
-        <div key={i} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 12, marginBottom: 10 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-            <strong>Step {i + 1}</strong>
-            <button
-              type="button"
-              onClick={() => setValue((v) => ({ ...v, steps: v.steps.filter((_, j) => j !== i) }))}
-            >
-              Remove step
-            </button>
-          </div>
-          <div style={{ display: "grid", gap: 6 }}>
-            <label>
-              {labels.action}
-              <input value={step.action} onChange={(e) => updateStep(i, { action: e.target.value })} style={{ width: "100%" }} />
-            </label>
-            <label>
-              {labels.expectedActionOrData}
-              <input
-                value={step.expectedActionOrData}
-                onChange={(e) => updateStep(i, { expectedActionOrData: e.target.value })}
-                style={{ width: "100%" }}
+      {value.sharedStepGroupId && !selectedGroup && <div role={sharedGroupsQuery.error ? "alert" : "status"}>
+        <p>The selected shared procedure could not currently be verified. Its reference is retained; no empty or action-only replacement is shown.</p>
+        <button type="button" disabled={!active || sharedGroupsQuery.isFetching || sharedGroupsQuery.isPaused} onClick={() => void sharedGroupsQuery.refetch()}>Refresh current shared procedure</button>
+      </div>}
+      {!value.sharedStepGroupId && <div role="list" aria-label="Ordered test steps">
+        {value.steps.map((step, i) => {
+          const stepInputPrefix = step.editorKey ?? `${stepKeyPrefix}-${i}`;
+          return (
+          <ProcedureStep
+            key={step.editorKey}
+            number={i + 1}
+            title={step.action}
+            open={openSteps.has(stepInputPrefix)}
+            onToggle={() => setOpenSteps(previous => { const next = new Set(previous); if (next.has(stepInputPrefix)) next.delete(stepInputPrefix); else next.add(stepInputPrefix); return next; })}
+            tools={<>
+              <IconButton icon="up" label={`Move step ${i + 1} up`} disabled={i === 0} onClick={() => { setValue(v => ({ ...v, steps: moveListItem(v.steps, i, i - 1) })); setStepAnnouncement(`Step ${i + 1} moved to position ${i}.`); }} />
+              <IconButton icon="down" label={`Move step ${i + 1} down`} disabled={i === value.steps.length - 1} onClick={() => { setValue(v => ({ ...v, steps: moveListItem(v.steps, i, i + 1) })); setStepAnnouncement(`Step ${i + 1} moved to position ${i + 2}.`); }} />
+              <IconButton
+                icon="delete"
+                label={`Remove step ${i + 1}`}
+                onClick={() =>
+                  setValue((v) => ({
+                    ...v,
+                    steps: v.steps.filter((_, j) => j !== i),
+                  }))
+                }
               />
-            </label>
-            <label>
-              {labels.expectedResult}
-              <input
-                value={step.expectedResult}
-                onChange={(e) => updateStep(i, { expectedResult: e.target.value })}
-                style={{ width: "100%" }}
-              />
-            </label>
-            <label>
-              {labels.expectedResponse}
-              <input
-                value={step.expectedResponse}
-                onChange={(e) => updateStep(i, { expectedResponse: e.target.value })}
-                style={{ width: "100%" }}
-              />
-            </label>
-          </div>
-        </div>
-      ))}
+            </>}
+          >
+            <div data-step-pair="action-technical" style={STEP_PAIR_STYLE}>
+              <label style={FIELD_LABEL_STYLE}>
+                {labels.action}
+                <textarea
+                  value={step.action}
+                  aria-label={`Step ${i + 1}: ${labels.action}`}
+                  onChange={(e) => updateStep(i, { action: e.target.value })}
+                  rows={4}
+                  style={PROSE_EDITOR_STYLE}
+                />
+              </label>
+              {visible.technicalBehavior && <label style={FIELD_LABEL_STYLE}>
+                {technicalBehaviorLabel(labels.expectedActionOrData)}
+                <textarea
+                  value={step.expectedActionOrData ?? ""}
+                  aria-label={`Step ${i + 1}: ${technicalBehaviorLabel(labels.expectedActionOrData)}`}
+                  aria-describedby={step.expectedActionOrData === null || step.expectedActionOrData === "" ? `${stepInputPrefix}-technical-state` : undefined}
+                  onChange={(e) =>
+                    updateStep(i, { expectedActionOrData: e.target.value })
+                  }
+                  rows={4}
+                  placeholder="e.g. onClick triggers GET /api/details"
+                  style={PROSE_EDITOR_STYLE}
+                />
+                {step.expectedActionOrData === null ? <span id={`${stepInputPrefix}-technical-state`} className="text-muted">Not supplied</span> : step.expectedActionOrData === "" ? <span id={`${stepInputPrefix}-technical-state`} className="text-muted">Explicit empty text</span> : null}
+              </label>}
+            </div>
+            <div data-step-pair="result-response" style={{ ...STEP_PAIR_STYLE, marginTop: 14 }}>
+              <label style={FIELD_LABEL_STYLE}>
+                {labels.expectedResult}
+                <textarea
+                  value={step.expectedResult ?? ""}
+                  aria-label={`Step ${i + 1}: ${labels.expectedResult}`}
+                  aria-describedby={step.expectedResult === null || step.expectedResult === "" ? `${stepInputPrefix}-result-state` : undefined}
+                  onChange={(e) =>
+                    updateStep(i, { expectedResult: e.target.value })
+                  }
+                  rows={4}
+                  style={PROSE_EDITOR_STYLE}
+                />
+                {step.expectedResult === null ? <span id={`${stepInputPrefix}-result-state`} className="text-muted">Not supplied</span> : step.expectedResult === "" ? <span id={`${stepInputPrefix}-result-state`} className="text-muted">Explicit empty text</span> : null}
+              </label>
+              {visible.expectedResponse && <label style={FIELD_LABEL_STYLE}>
+                {labels.expectedResponse}
+                <textarea
+                  value={step.expectedResponse ?? ""}
+                  aria-label={`Step ${i + 1}: ${labels.expectedResponse}`}
+                  aria-describedby={step.expectedResponse === null || step.expectedResponse === "" ? `${stepInputPrefix}-response-state` : undefined}
+                  onChange={(e) =>
+                    updateStep(i, { expectedResponse: e.target.value })
+                  }
+                  rows={4}
+                  style={PROSE_EDITOR_STYLE}
+                />
+                {step.expectedResponse === null ? <span id={`${stepInputPrefix}-response-state`} className="text-muted">Not supplied</span> : step.expectedResponse === "" ? <span id={`${stepInputPrefix}-response-state`} className="text-muted">Explicit empty text</span> : null}
+              </label>}
+            </div>
+            <section aria-label={`Step ${i + 1} images and video`} style={{ marginTop: 10, borderTop: "1px solid var(--line)", paddingTop: 10 }}>
+              <h4 style={{ margin: "0 0 8px" }}>Images and video for step {i + 1} ({step.mediaAttachmentIds.length} linked)</h4>
+              {mode === "create" || !testCaseId ? (
+                <p className="text-muted" style={{ fontSize: 12 }}>Save the case first, then return to attach media to individual steps.</p>
+              ) : (
+                <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+                  <p className="text-muted" style={{ fontSize: 12, margin: 0 }}>Choose case files or upload a short clip/image (25 MB max). References are saved with this step.</p>
+                  <div style={{ maxHeight: 150, overflowY: "auto", display: "grid", gap: 4 }}>
+                    {imageVideoAttachments.map(attachment => (
+                      <div key={attachment.id} style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", minWidth: 0 }}>
+                        <label style={{ flex: "1 1 150px", minWidth: 0, overflowWrap: "anywhere" }}>
+                          <input type="checkbox" checked={step.mediaAttachmentIds.includes(attachment.id)} onChange={event => updateStep(i, {
+                            mediaAttachmentIds: event.target.checked
+                              ? [...step.mediaAttachmentIds, attachment.id]
+                              : step.mediaAttachmentIds.filter(id => id !== attachment.id),
+                          })} />{" "}{attachment.fileName} <span className="text-muted">({attachment.contentType.startsWith("video/") ? "video" : "image"})</span>
+                        </label>
+                        <button type="button" style={{ flexShrink: 0 }} onClick={() => void viewStepMedia(attachment.id)}>View</button>
+                      </div>
+                    ))}
+                    {imageVideoAttachments.length === 0 && <span className="text-muted" style={{ fontSize: 12 }}>No image or video files on this case yet.</span>}
+                    {step.mediaAttachmentIds.filter(id => !imageVideoAttachments.some(a => a.id === id)).map(id => (
+                      <div key={id} role="alert" style={{ color: "var(--ember)", fontSize: 12 }}>
+                        A previously linked file is unavailable. <button type="button" onClick={() => updateStep(i, { mediaAttachmentIds: step.mediaAttachmentIds.filter(value => value !== id) })}>Remove reference</button>
+                      </div>
+                    ))}
+                  </div>
+                  <label style={{ fontSize: 12 }}>Upload image or video for step {i + 1}
+                    <input type="file" accept="image/*,video/*" style={{ display: "block", width: "100%", minWidth: 0 }} disabled={uploadingStepKey !== null} onChange={event => void uploadStepMedia(step.editorKey!, event)} />
+                  </label>
+                  {uploadingStepKey === step.editorKey && <span role="status">Uploading media…</span>}
+                </div>
+              )}
+            </section>
+          </ProcedureStep>
+          );
+        })}</div>}
       {!value.sharedStepGroupId && (
-        <button type="button" onClick={() => setValue((v) => ({ ...v, steps: [...v.steps, { ...EMPTY_STEP }] }))}>
+        <button
+          type="button"
+          className="btn-secondary"
+          style={SECONDARY_ACTION_STYLE}
+          onClick={() => {
+            const editorKey = `${stepKeyPrefix}-${nextStepKey.current++}`;
+            setValue((v) => ({ ...v, steps: [...v.steps, { ...EMPTY_STEP, editorKey }] }));
+            setOpenSteps(previous => new Set([...previous, editorKey]));
+          }}
+        >
           + Add step
         </button>
       )}
+      <span role="status" className="sr-only">{stepAnnouncement}</span>
 
-      <div style={{ marginTop: 24 }}>
-        <button onClick={submit} disabled={saving || !value.title}>
-          {saving ? "Saving…" : mode === "create" ? "Create test case" : "Save changes"}
+      <CaseCustomFieldsForm
+        key={`${projectId}:${testCaseId ?? "new"}`}
+        projectId={projectId}
+        caseId={testCaseId}
+        initial={mode==="create"&&!testCaseId?initialCustomFields:undefined}
+        active={active}
+        onChange={setCaseFieldsDraft}
+      />
+
+      <div className="case-editor-footer">
+        <button className="btn-primary" onClick={submit} disabled={saving || !value.title || !caseFieldsDraft?.ready}>
+          {saving
+            ? "Saving…"
+            : mode === "create"
+              ? "Create test case"
+              : "Save changes"}
         </button>
-        {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
+        {error && <p role="alert" style={{ color: "var(--ember)" }}>{error}</p>}
       </div>
-    </div>
+    </fieldset>
   );
 }

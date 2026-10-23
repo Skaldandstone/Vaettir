@@ -2,14 +2,30 @@
 
 import { useState } from "react";
 import { useParams } from "next/navigation";
-import { trpcReact, useReadOnlySeat, type RouterOutputs } from "@/lib/trpcReact";
+import {
+  trpcReact,
+  useReadOnlySeat,
+  type RouterOutputs,
+} from "@/lib/trpcReact";
 import { ReadinessBadge } from "@/components/ReadinessBadge";
-import { buildHtmlSnapshot, buildMarkdownSnapshot } from "@/lib/snapshotExport";
-import { downloadFile } from "@/lib/download";
+import { DistributionBar, ScoreRing } from "@/components/MetricVisuals";
+import { ReleaseSnapshotExport } from "@/components/ReleaseSnapshotExport";
 import { Modal } from "@/components/Modal";
+import { releasePlanChoices } from "@/lib/release-planning-draft";
+import { CriterionDescriptionEditor } from "@/components/CriterionDescriptionEditor";
+import { CriterionVerdictEditor } from "@/components/CriterionVerdictEditor";
+import { AttachUnassignedPlan } from "@/components/AttachUnassignedPlan";
+import { PlanGovernanceHistory } from "@/components/PlanGovernanceHistory";
+import { GovernedCriterionCollection } from "@/components/GovernedCriterionCollection";
+import { PlanReleaseDetach } from "@/components/PlanReleaseDetach";
 
-const STATUSES = ["PLANNING", "IN_TESTING", "READY", "SHIPPED", "BLOCKED"] as const;
-const CRITERION_STATUSES = ["PENDING", "MET", "AT_RISK", "NOT_MET"] as const;
+const STATUSES = [
+  "PLANNING",
+  "IN_TESTING",
+  "READY",
+  "SHIPPED",
+  "BLOCKED",
+] as const;
 
 // 2026-08-28: a stakeholder-readable narrative draft of this release's
 // readiness, generated from the exact same live readiness/risk-flag data
@@ -30,10 +46,13 @@ function GenerateSummaryModal({
   const [groundInBuild, setGroundInBuild] = useState(false);
   const [baseRef, setBaseRef] = useState("");
   const [headRef, setHeadRef] = useState("");
-  const [draft, setDraft] = useState<RouterOutputs["releases"]["generateSummaryDraft"] | null>(null);
+  const [draft, setDraft] = useState<
+    RouterOutputs["releases"]["generateSummaryDraft"] | null
+  >(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const generateMutation = trpcReact.releases.generateSummaryDraft.useMutation();
+  const generateMutation =
+    trpcReact.releases.generateSummaryDraft.useMutation();
 
   async function generate() {
     setError(null);
@@ -41,7 +60,9 @@ function GenerateSummaryModal({
     try {
       const result = await generateMutation.mutateAsync({
         releaseId,
-        ...(groundInBuild && headRef.trim() ? { baseRef: baseRef.trim() || undefined, headRef: headRef.trim() } : {}),
+        ...(groundInBuild && headRef.trim()
+          ? { baseRef: baseRef.trim() || undefined, headRef: headRef.trim() }
+          : {}),
       });
       setDraft(result);
     } catch (e) {
@@ -74,14 +95,25 @@ function GenerateSummaryModal({
     <Modal open={open} onClose={close} title="Generate a release summary">
       <div style={{ display: "grid", gap: 10, minWidth: 460, maxWidth: 560 }}>
         <p className="text-muted" style={{ fontSize: 13, marginTop: -4 }}>
-          A stakeholder-readable draft, grounded in this release's real readiness score, acceptance criteria, and
-          open risk flags. Review and edit before sharing -- nothing here is posted or sent automatically.
+          A stakeholder-readable draft, grounded in this release's real
+          readiness score, acceptance criteria, and open risk flags. Review and
+          edit before sharing -- nothing here is posted or sent automatically.
         </p>
         {projectRepo?.repoUrl && (
-          <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 8 }}>
+          <div
+            style={{
+              border: "1px solid var(--line)",
+              borderRadius: 6,
+              padding: 8,
+            }}
+          >
             <label style={{ fontSize: 13 }}>
-              <input type="checkbox" checked={groundInBuild} onChange={(e) => setGroundInBuild(e.target.checked)} /> Ground
-              in a real build (the actual commits between two refs)
+              <input
+                type="checkbox"
+                checked={groundInBuild}
+                onChange={(e) => setGroundInBuild(e.target.checked)}
+              />{" "}
+              Ground in a real build (the actual commits between two refs)
             </label>
             {groundInBuild && (
               <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
@@ -106,14 +138,20 @@ function GenerateSummaryModal({
           onClick={generate}
           disabled={generating || (groundInBuild && !headRef.trim())}
         >
-          {generating ? "Generating…" : draft ? "Regenerate" : "Generate summary"}
+          {generating
+            ? "Generating…"
+            : draft
+              ? "Regenerate"
+              : "Generate summary"}
         </button>
 
         {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
 
         {draft?.groundedInCommits && (
           <details style={{ fontSize: 12 }}>
-            <summary>Grounded in {draft.groundedInCommits.length} real commit(s)</summary>
+            <summary>
+              Grounded in {draft.groundedInCommits.length} real commit(s)
+            </summary>
             <ul style={{ margin: "4px 0 0 16px", padding: 0 }}>
               {draft.groundedInCommits.map((c) => (
                 <li key={c.sha}>
@@ -139,13 +177,22 @@ function GenerateSummaryModal({
                 {label}
                 <textarea
                   value={draft[key]}
-                  onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}
+                  onChange={(e) =>
+                    setDraft({ ...draft, [key]: e.target.value })
+                  }
                   rows={key === "overview" ? 2 : 3}
                   style={{ width: "100%", fontSize: 13 }}
                 />
               </label>
             ))}
-            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 8 }}>
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                justifyContent: "flex-end",
+                marginTop: 8,
+              }}
+            >
               <button className="btn-secondary" onClick={close}>
                 Close
               </button>
@@ -170,29 +217,42 @@ const SECTION_LABELS = {
 
 // P1-15
 export default function ReleaseReadinessPage() {
-  const { projectId, releaseId } = useParams<{ projectId: string; releaseId: string }>();
+  const { projectId, releaseId } = useParams<{
+    projectId: string;
+    releaseId: string;
+  }>();
   const utils = trpcReact.useUtils();
   const readOnly = useReadOnlySeat(projectId);
 
   const projectQuery = trpcReact.project.byId.useQuery({ id: projectId });
   const releaseQuery = trpcReact.releases.byId.useQuery({ id: releaseId });
   const readinessQuery = trpcReact.releases.readiness.useQuery({ releaseId });
-  const testPlansQuery = trpcReact.releases.listTestPlans.useQuery({ releaseId });
-  const riskFlagsQuery = trpcReact.releases.listRiskFlags.useQuery({ releaseId });
-  const historyQuery = trpcReact.releases.readinessHistory.useQuery({ releaseId, limit: 20 });
+  const testPlansQuery = trpcReact.releases.listTestPlans.useQuery({
+    releaseId,
+  });
+  const riskFlagsQuery = trpcReact.releases.listRiskFlags.useQuery({
+    releaseId,
+  });
+  const historyQuery = trpcReact.releases.readinessHistory.useQuery({
+    releaseId,
+    limit: 20,
+  });
   const allPlansQuery = trpcReact.testPlans.list.useQuery({ projectId });
 
-  const projectRepo = projectQuery.data ? { repoUrl: projectQuery.data.repoUrl, defaultBranch: projectQuery.data.defaultBranch } : null;
+  const projectRepo = projectQuery.data
+    ? {
+        repoUrl: projectQuery.data.repoUrl,
+        defaultBranch: projectQuery.data.defaultBranch,
+      }
+    : null;
   const release = releaseQuery.data;
   const readiness = readinessQuery.data;
   const testPlans = testPlansQuery.data ?? [];
   const riskFlags = riskFlagsQuery.data ?? [];
   const allPlans = allPlansQuery.data ?? [];
 
-  const [attachPlanId, setAttachPlanId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [showResolved, setShowResolved] = useState(false);
-  const [exporting, setExporting] = useState<"html" | "markdown" | null>(null);
   const [summaryModalOpen, setSummaryModalOpen] = useState(false);
 
   // Everything the original load() refetched: every releases.* query for this
@@ -204,27 +264,8 @@ export default function ReleaseReadinessPage() {
   }
 
   const updateStatusMutation = trpcReact.releases.updateStatus.useMutation();
-  const updateCriterionMutation = trpcReact.testPlans.updateAcceptanceCriterion.useMutation();
-  const setReleaseMutation = trpcReact.testPlans.setRelease.useMutation();
-  const resolveRiskFlagMutation = trpcReact.releases.resolveRiskFlag.useMutation();
-
-  async function exportSnapshot(format: "html" | "markdown") {
-    setExporting(format);
-    setError(null);
-    try {
-      const data = await utils.releases.getSnapshot.fetch({ releaseId });
-      const safeName = data.release.name.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
-      if (format === "html") {
-        downloadFile(`${safeName}-quality-snapshot.html`, buildHtmlSnapshot(data), "text/html");
-      } else {
-        downloadFile(`${safeName}-quality-snapshot.md`, buildMarkdownSnapshot(data), "text/markdown");
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setExporting(null);
-    }
-  }
+  const resolveRiskFlagMutation =
+    trpcReact.releases.resolveRiskFlag.useMutation();
 
   async function updateStatus(status: string) {
     setError(null);
@@ -232,49 +273,27 @@ export default function ReleaseReadinessPage() {
       try {
         const gate = await utils.releases.checkGate.fetch({ releaseId });
         if (!gate.passes && gate.policy === "HARD_BLOCK") {
-          alert(`This release can't be marked READY yet -- your organization requires these to pass first:\n\n${gate.reasons.join("\n")}`);
+          alert(
+            `This release can't be marked READY yet -- your organization requires these to pass first:\n\n${gate.reasons.join("\n")}`,
+          );
           return;
         }
         if (!gate.passes) {
-          const proceed = confirm(`This release isn't fully ready:\n\n${gate.reasons.join("\n")}\n\nMark it READY anyway?`);
+          const proceed = confirm(
+            `This release isn't fully ready:\n\n${gate.reasons.join("\n")}\n\nMark it READY anyway?`,
+          );
           if (!proceed) return;
         }
       } catch {
-        // Gate check failing shouldn't block the whole status update flow --
-        // fall through and let the mutation itself be the source of truth.
+        setError("Release gates could not be checked. Refresh the workspace and try READY again; no status change was requested.");
+        return;
       }
     }
     try {
-      await updateStatusMutation.mutateAsync({ id: releaseId, status: status as never });
-      reload();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }
-
-  async function updateCriterionStatus(id: string, description: string, status: string) {
-    try {
-      await updateCriterionMutation.mutateAsync({ id, description, status: status as never });
-      reload();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }
-
-  async function attachPlan() {
-    if (!attachPlanId) return;
-    try {
-      await setReleaseMutation.mutateAsync({ testPlanId: attachPlanId, releaseId });
-      setAttachPlanId("");
-      reload();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }
-
-  async function detachPlan(testPlanId: string) {
-    try {
-      await setReleaseMutation.mutateAsync({ testPlanId, releaseId: null });
+      await updateStatusMutation.mutateAsync({
+        id: releaseId,
+        status: status as never,
+      });
       reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -290,32 +309,88 @@ export default function ReleaseReadinessPage() {
     }
   }
 
-  const pageError = error ?? releaseQuery.error?.message ?? readinessQuery.error?.message ?? testPlansQuery.error?.message ?? riskFlagsQuery.error?.message ?? null;
-  if (pageError) return <p style={{ color: "var(--ember)" }}>{pageError}</p>;
-  if (!release || !readiness) return <p>Loading…</p>;
+  const pageError =
+    releaseQuery.error?.message ??
+    readinessQuery.error?.message ??
+    testPlansQuery.error?.message ??
+    riskFlagsQuery.error?.message ??
+    null;
+  const detachControl = <PlanReleaseDetach projectId={projectId} releaseId={releaseId}
+    releaseStatus={release?.status ?? ""} plans={testPlansQuery.error || testPlansQuery.isFetching || testPlansQuery.isPaused ? [] : testPlans}
+    active={!readOnly && !projectQuery.error && !projectQuery.isFetching && !projectQuery.isPaused && projectQuery.data?.id === projectId &&
+      !releaseQuery.error && !releaseQuery.isFetching && !releaseQuery.isPaused && release?.projectId === projectId}
+    onChanged={reload} />;
+  // An ordinary background read failure must not unmount retained wording or
+  // uncertain attachment requests while the original workspace is loaded.
+  if (pageError && (!release || !readiness))
+    return <div style={{ maxWidth: 800 }}>{detachControl}<p style={{ color: "var(--ember)" }}>{pageError}</p></div>;
+  if (!release || !readiness) return <div style={{ maxWidth: 800 }}>{detachControl}<p>Loading…</p></div>;
 
-  const attachablePlans = allPlans.filter((p) => p.releaseId !== releaseId);
-  const visibleFlags = showResolved ? riskFlags : riskFlags.filter((f) => !f.resolvedAt);
+  const { available: attachablePlans, assignedElsewhere } = releasePlanChoices(
+    allPlans,
+    releaseId,
+  );
+  const visibleFlags = showResolved
+    ? riskFlags
+    : riskFlags.filter((f) => !f.resolvedAt);
 
   return (
     <div style={{ maxWidth: 800 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 4 }}>
+      {detachControl}
+      {pageError && (
+        <p role="alert" style={{ color: "var(--ember)" }}>
+          The workspace could not fully refresh: {pageError}. Existing drafts
+          remain mounted; current authorization is rechecked before any save.
+        </p>
+      )}
+      {error && (
+        <p role="alert" style={{ color: "var(--ember)" }}>
+          {error} Your current workspace remains open.{" "}
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => setError(null)}
+          >
+            Dismiss
+          </button>
+        </p>
+      )}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+          marginBottom: 4,
+        }}
+      >
         <h1 style={{ margin: 0 }}>{release.name}</h1>
         <ReadinessBadge score={readiness.score} label={readiness.label} />
       </div>
+      {release.goals.length > 0 && (
+        <p>
+          <strong>Release goals:</strong> {release.goals.join(" · ")}
+        </p>
+      )}
       <p className="text-muted" style={{ marginBottom: 12 }}>
         <a href={`/projects/${projectId}/test-strategy`}>← Test strategy</a>
-        {release.targetDate && ` · target ${new Date(release.targetDate).toLocaleDateString()}`}
+        {release.targetDate &&
+          ` · target ${new Date(release.targetDate).toLocaleDateString()}`}
       </p>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-        <button className="btn-secondary" style={{ fontSize: 13 }} onClick={() => exportSnapshot("html")} disabled={exporting !== null}>
-          {exporting === "html" ? "Exporting…" : "Export interactive HTML snapshot"}
-        </button>
-        <button className="btn-secondary" style={{ fontSize: 13 }} onClick={() => exportSnapshot("markdown")} disabled={exporting !== null}>
-          {exporting === "markdown" ? "Exporting…" : "Export Markdown snapshot"}
-        </button>
-        <button className="btn-secondary" style={{ fontSize: 13 }} onClick={() => setSummaryModalOpen(true)}>
+        <ReleaseSnapshotExport
+          projectId={projectId}
+          releaseId={releaseId}
+          organizationId={projectQuery.data?.organizationId}
+          active={!projectQuery.error && !projectQuery.isFetching && !projectQuery.isPaused && projectQuery.data?.id === projectId &&
+            !releaseQuery.error && !releaseQuery.isFetching && !releaseQuery.isPaused && release.projectId === projectId}
+        />
+        <button
+          className="btn-secondary"
+          style={{ fontSize: 13 }}
+          onClick={() => setSummaryModalOpen(true)}
+        >
           Generate release summary
         </button>
       </div>
@@ -327,12 +402,60 @@ export default function ReleaseReadinessPage() {
         projectRepo={projectRepo}
       />
 
+      <section
+        className="panel release-health-summary"
+        aria-labelledby="release-health-title"
+      >
+        <ScoreRing value={readiness.score} label="Release readiness" />
+        <div>
+          <h2 id="release-health-title">Release health</h2>
+          <p className="text-muted">
+            Readiness combines acceptance evidence and unresolved release risk.
+            The detail below remains the source of truth.
+          </p>
+          <DistributionBar
+            label="Acceptance criteria status"
+            segments={[
+              { label: "Met", value: readiness.criteria.met, tone: "success" },
+              {
+                label: "At risk",
+                value: readiness.criteria.atRisk,
+                tone: "warning",
+              },
+              {
+                label: "Not met",
+                value: readiness.criteria.notMet,
+                tone: "danger",
+              },
+              {
+                label: "Pending",
+                value: readiness.criteria.pending,
+                tone: "neutral",
+              },
+            ]}
+          />
+        </div>
+        <div
+          className={`release-health-risk ${readiness.riskFlags.openTotal > 0 ? "has-risk" : "is-clear"}`}
+        >
+          <span>Open risk flags</span>
+          <strong>{readiness.riskFlags.openTotal}</strong>
+          <small>
+            {readiness.riskFlags.critical} critical · {readiness.riskFlags.high}{" "}
+            high
+          </small>
+        </div>
+      </section>
+
       <div className="panel" style={{ marginBottom: 20 }}>
         <div className="eyebrow">Status</div>
         {readOnly ? (
           <p style={{ margin: 0 }}>{release.status}</p>
         ) : (
-          <select value={release.status} onChange={(e) => updateStatus(e.target.value)}>
+          <select
+            value={release.status}
+            onChange={(e) => updateStatus(e.target.value)}
+          >
             {STATUSES.map((s) => (
               <option key={s} value={s}>
                 {s}
@@ -345,51 +468,70 @@ export default function ReleaseReadinessPage() {
       <div className="panel" style={{ marginBottom: 20 }}>
         <h2 style={{ marginTop: 0 }}>Acceptance criteria</h2>
         <p className="text-muted" style={{ fontSize: 13, marginTop: -8 }}>
-          {readiness.criteria.met} met · {readiness.criteria.atRisk} at risk · {readiness.criteria.notMet} not met ·{" "}
-          {readiness.criteria.pending} pending
+          {readiness.criteria.met} met · {readiness.criteria.atRisk} at risk ·{" "}
+          {readiness.criteria.notMet} not met · {readiness.criteria.pending}{" "}
+          pending
         </p>
 
         {testPlans.map((p) => (
           <div key={p.id} style={{ marginBottom: 16 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "baseline",
+              }}
+            >
               <strong>
-                <a href={`/projects/${projectId}/test-plans/${p.id}`}>{p.name}</a>{" "}
-                <span className="text-muted" style={{ fontWeight: 400, fontSize: 12 }}>
+                <a href={`/projects/${projectId}/test-plans/${p.id}`}>
+                  {p.name}
+                </a>{" "}
+                <span
+                  className="text-muted"
+                  style={{ fontWeight: 400, fontSize: 12 }}
+                >
                   [{p.testPlanType.name}]
                 </span>
               </strong>
-              {!readOnly && (
-                <button className="btn-secondary" onClick={() => detachPlan(p.id)} style={{ fontSize: 12 }}>
-                  Detach
-                </button>
-              )}
             </div>
+            <a
+              className="btn-secondary"
+              style={{ fontSize: 12, marginTop: 6 }}
+              href={`/projects/${projectId}/test-plans/${p.id}`}
+            >
+              {readOnly
+                ? "View plan criteria"
+                : "Open plan to add or manage criteria"}
+            </a>
             <ul style={{ listStyle: "none", padding: 0, marginTop: 6 }}>
               {p.acceptanceCriteria.map((c) => (
-                <li key={c.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "4px 0" }}>
-                  <span>{c.description}</span>
-                  {c.autoComputed ? (
-                    <span
-                      title="Computed live from this plan's test case results -- not manually editable"
-                      style={{ fontSize: 12 }}
-                    >
-                      {c.status} <span className="text-muted">(live)</span>
-                    </span>
-                  ) : readOnly ? (
-                    <span style={{ fontSize: 12 }}>{c.status}</span>
-                  ) : (
-                    <select
-                      value={c.status}
-                      onChange={(e) => updateCriterionStatus(c.id, c.description, e.target.value)}
-                      style={{ fontSize: 12 }}
-                    >
-                      {CRITERION_STATUSES.map((s) => (
-                        <option key={s} value={s}>
-                          {s}
-                        </option>
-                      ))}
-                    </select>
-                  )}
+                <li
+                  key={c.id}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: 8,
+                    padding: "4px 0",
+                  }}
+                >
+                  <div style={{ minWidth: 0, overflowWrap: "anywhere" }}>
+                    <span style={{ whiteSpace: "pre-wrap" }}>{c.description}</span>{" "}
+                    <CriterionDescriptionEditor
+                      projectId={projectId}
+                      testPlanId={p.id}
+                      criterionId={c.id}
+                      onChanged={reload}
+                    />
+                  </div>
+                  <CriterionVerdictEditor
+                    projectId={projectId}
+                    testPlanId={p.id}
+                    criterionId={c.id}
+                    status={c.status}
+                    computed={c.autoComputed}
+                    onChanged={reload}
+                  />
                 </li>
               ))}
               {p.acceptanceCriteria.length === 0 && (
@@ -398,60 +540,152 @@ export default function ReleaseReadinessPage() {
                 </li>
               )}
             </ul>
+            <GovernedCriterionCollection key={`${projectId}:${p.id}`} projectId={projectId} testPlanId={p.id} readOnly={readOnly} onChanged={reload} />
+            <PlanGovernanceHistory projectId={projectId} testPlanId={p.id} />
           </div>
         ))}
-        {testPlans.length === 0 && <p className="text-muted">No test plans attached to this release yet.</p>}
+        {testPlans.length === 0 && (
+          <p className="text-muted">
+            No test plans attached to this release yet.{" "}
+            {readOnly
+              ? "An editor can create or attach a plan."
+              : "Create a test plan, then return here to attach it. New criteria start pending, not met."}
+          </p>
+        )}
 
+        <AttachUnassignedPlan
+          projectId={projectId}
+          releaseId={releaseId}
+          releaseStatus={release.status}
+          plans={
+            allPlansQuery.isFetching || allPlansQuery.error
+              ? []
+              : attachablePlans
+          }
+          onChanged={reload}
+        />
         {!readOnly && (
-          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-            <select value={attachPlanId} onChange={(e) => setAttachPlanId(e.target.value)} style={{ flex: 1 }}>
-              <option value="">Attach an existing test plan…</option>
-              {attachablePlans.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-            <button onClick={attachPlan} disabled={!attachPlanId}>
-              Attach
-            </button>
+          <div
+            style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}
+          >
+            <a
+              className="btn-secondary"
+              href={`/projects/${projectId}/test-plans`}
+            >
+              Create a test plan
+            </a>
           </div>
+        )}
+        {!readOnly && allPlansQuery.error && (
+          <p role="alert">
+            The available plans could not be refreshed. No reassignment was
+            requested.{" "}
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => void allPlansQuery.refetch()}
+            >
+              Retry plans
+            </button>
+          </p>
+        )}
+        {!readOnly &&
+          !allPlansQuery.isLoading &&
+          !allPlansQuery.error &&
+          attachablePlans.length === 0 && (
+            <p className="text-muted">
+              No unassigned plans are available. Create a plan or manage a
+              previously assigned plan in its own release.
+            </p>
+          )}
+        {!allPlansQuery.error && assignedElsewhere.length > 0 && (
+          <details style={{ marginTop: 12 }}>
+            <summary>
+              Plans assigned to other releases ({assignedElsewhere.length})
+            </summary>
+            <p className="text-muted">
+              Already assigned plans are excluded from this picker. Open their
+              current release to manage its quality scope.
+            </p>
+            <ul>
+              {assignedElsewhere.map((plan) => (
+                <li key={plan.id}>
+                  <a href={`/projects/${projectId}/test-plans/${plan.id}`}>
+                    {plan.name}
+                  </a>
+                  {" · "}
+                  <a href={`/projects/${projectId}/releases/${plan.releaseId}`}>
+                    Open its assigned release
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </details>
         )}
       </div>
 
       <div className="panel">
-      <div className="panel" style={{ marginBottom: 20 }}>
-        <h2 style={{ marginTop: 0 }}>Readiness history</h2>
-        <p className="text-muted" style={{ fontSize: 13, marginTop: -8 }}>
-          Checked every five minutes. A change in the READY / AT RISK / BLOCKED label notifies subscribed webhooks,
-          Slack, and mobile devices; score-only moves are recorded here without a notification.
-        </p>
-        {(historyQuery.data ?? []).length === 0 ? (
-          <p className="text-muted" style={{ fontSize: 13 }}>No snapshots yet - the first one lands within five minutes of a release being created.</p>
-        ) : (
-          <ul style={{ listStyle: "none", padding: 0, margin: 0, fontSize: 13 }}>
-            {(historyQuery.data ?? []).map((snap) => (
-              <li key={snap.id} style={{ display: "flex", gap: 12, padding: "4px 0", borderBottom: "1px solid var(--line)" }}>
-                <span className="text-muted" style={{ minWidth: 160 }}>{new Date(snap.computedAt).toLocaleString()}</span>
-                <span style={{ minWidth: 140 }}>
-                  {snap.previousLabel && snap.previousLabel !== snap.label ? `${snap.previousLabel} → ` : ""}
-                  <strong>{snap.label}</strong>
-                </span>
-                <span>score {snap.score}</span>
-                <span className="text-muted">
-                  {snap.criteriaMet}/{snap.criteriaTotal} criteria met · {snap.openRiskFlags} open flag(s)
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+        <div className="panel" style={{ marginBottom: 20 }}>
+          <h2 style={{ marginTop: 0 }}>Readiness history</h2>
+          <p className="text-muted" style={{ fontSize: 13, marginTop: -8 }}>
+            Checked every five minutes. A change in the READY / AT RISK /
+            BLOCKED label notifies subscribed webhooks, Slack, and mobile
+            devices; score-only moves are recorded here without a notification.
+          </p>
+          {(historyQuery.data ?? []).length === 0 ? (
+            <p className="text-muted" style={{ fontSize: 13 }}>
+              No snapshots yet - the first one lands within five minutes of a
+              release being created.
+            </p>
+          ) : (
+            <ul
+              style={{ listStyle: "none", padding: 0, margin: 0, fontSize: 13 }}
+            >
+              {(historyQuery.data ?? []).map((snap) => (
+                <li
+                  key={snap.id}
+                  style={{
+                    display: "flex",
+                    gap: 12,
+                    padding: "4px 0",
+                    borderBottom: "1px solid var(--line)",
+                  }}
+                >
+                  <span className="text-muted" style={{ minWidth: 160 }}>
+                    {new Date(snap.computedAt).toLocaleString()}
+                  </span>
+                  <span style={{ minWidth: 140 }}>
+                    {snap.previousLabel && snap.previousLabel !== snap.label
+                      ? `${snap.previousLabel} → `
+                      : ""}
+                    <strong>{snap.label}</strong>
+                  </span>
+                  <span>score {snap.score}</span>
+                  <span className="text-muted">
+                    {snap.criteriaMet}/{snap.criteriaTotal} criteria met ·{" "}
+                    {snap.openRiskFlags} open flag(s)
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
 
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "baseline",
+          }}
+        >
           <h2 style={{ marginTop: 0 }}>Risk flags</h2>
           <label className="text-muted" style={{ fontSize: 12 }}>
-            <input type="checkbox" checked={showResolved} onChange={(e) => setShowResolved(e.target.checked)} /> show
-            resolved
+            <input
+              type="checkbox"
+              checked={showResolved}
+              onChange={(e) => setShowResolved(e.target.checked)}
+            />{" "}
+            show resolved
           </label>
         </div>
         <ul style={{ listStyle: "none", padding: 0 }}>
@@ -468,14 +702,27 @@ export default function ReleaseReadinessPage() {
               }}
             >
               <div>
-                <strong style={{ color: f.severity === "CRITICAL" || f.severity === "HIGH" ? "var(--ember)" : "var(--fg)" }}>
+                <strong
+                  style={{
+                    color:
+                      f.severity === "CRITICAL" || f.severity === "HIGH"
+                        ? "var(--ember)"
+                        : "var(--fg)",
+                  }}
+                >
                   {f.severity}
                 </strong>{" "}
                 [{f.source}] {f.description}
-                {f.resolvedAt && <span style={{ color: "var(--frost)" }}> — resolved</span>}
+                {f.resolvedAt && (
+                  <span style={{ color: "var(--frost)" }}> — resolved</span>
+                )}
               </div>
               {!readOnly && (
-                <button className="btn-secondary" onClick={() => toggleResolve(f.id, !f.resolvedAt)} style={{ fontSize: 12, whiteSpace: "nowrap" }}>
+                <button
+                  className="btn-secondary"
+                  onClick={() => toggleResolve(f.id, !f.resolvedAt)}
+                  style={{ fontSize: 12, whiteSpace: "nowrap" }}
+                >
                   {f.resolvedAt ? "Reopen" : "Resolve"}
                 </button>
               )}

@@ -10,6 +10,7 @@
     ],
     "jsx": "preserve",
     "noEmit": true,
+    "allowImportingTsExtensions": true,
     "plugins": [
       {
         "name": "next"

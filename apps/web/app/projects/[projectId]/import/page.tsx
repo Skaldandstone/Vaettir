@@ -2,8 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import { useSession } from "@clerk/nextjs";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { MigrationWizard } from "@/components/MigrationWizard";
+import { HistoricalResultsImport } from "@/components/HistoricalResultsImport";
+import { useProjectPermissions } from "@/lib/use-project-permissions";
 
 function readFileAsText(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -48,7 +51,7 @@ function BackfillSection({ projectId, defaultBranch }: { projectId: string; defa
       Array.from(fileList).map(async (file, i) => ({
         fileName: file.name,
         junitXml: await readFileAsText(file),
-        date: new Date().toISOString().slice(0, 10),
+        date: "",
         commitSha: `backfill-${Date.now()}-${i}`,
         status: "pending" as const,
       })),
@@ -65,6 +68,7 @@ function BackfillSection({ projectId, defaultBranch }: { projectId: string; defa
   }
 
   async function runBackfill() {
+    if (files.some(file => !/^\d{4}-\d{2}-\d{2}$/.test(file.date) || !Number.isFinite(Date.parse(file.date)) || new Date(file.date + "T12:00:00Z").toISOString().slice(0, 10) !== file.date || file.date < "1900-01-01" || file.date > new Date().toISOString().slice(0, 10))) { setError("Choose the real historical date for every report before importing."); return; }
     setRunning(true);
     setError(null);
     for (let i = 0; i < files.length; i++) {
@@ -94,7 +98,7 @@ function BackfillSection({ projectId, defaultBranch }: { projectId: string; defa
 
   return (
     <div className="panel" style={{ marginBottom: 20 }}>
-      <h2 style={{ marginTop: 0 }}>Backfill historical test run results</h2>
+      <h2 style={{ marginTop: 0 }}>Import automated report history</h2>
       <p className="text-muted" style={{ fontSize: 13 }}>
         Import past JUnit XML reports with their real original dates - not the date you import them - so pass-rate
         trends, flaky-test detection, and release-to-release charts have real history instead of starting empty.
@@ -197,6 +201,11 @@ function BackfillSection({ projectId, defaultBranch }: { projectId: string; defa
 // Import history list stay their own concerns here.
 export default function ImportPage() {
   const { projectId } = useParams<{ projectId: string }>();
+  const { canEdit, loaded } = useProjectPermissions(projectId);
+  const { session, isLoaded: sessionLoaded } = useSession();
+  const actorScope = JSON.stringify([session?.id ?? null, session?.user.id ?? null]);
+  const importScope = JSON.stringify([projectId, actorScope]);
+  const canImport = canEdit && sessionLoaded && Boolean(session);
   const utils = trpcReact.useUtils();
 
   const jobsQuery = trpcReact.importJobs.list.useQuery({ projectId });
@@ -212,9 +221,12 @@ export default function ImportPage() {
         until you commit.
       </p>
 
-      <MigrationWizard projectId={projectId} onCommitted={() => void utils.importJobs.list.invalidate({ projectId })} />
-
-      <BackfillSection projectId={projectId} defaultBranch={defaultBranch} />
+      {!canEdit && (
+        <p>{loaded ? "A full-seat Owner, Admin, or Editor can import cases and CI results." : "Checking project access…"}</p>
+      )}
+      {canImport && <MigrationWizard key={`cases:${importScope}`} projectId={projectId} onCommitted={() => void utils.importJobs.list.invalidate({ projectId })} />}
+      {canImport && <HistoricalResultsImport projectId={projectId} actorScope={actorScope} />}
+      {canImport && <details key={`junit:${importScope}`} className="panel"><summary>Automated JUnit XML reports</summary><BackfillSection projectId={projectId} defaultBranch={defaultBranch} /></details>}
 
       {jobs.length > 0 && (
         <div style={{ marginTop: 24 }}>
@@ -222,10 +234,14 @@ export default function ImportPage() {
           <ul style={{ listStyle: "none", padding: 0 }}>
             {jobs.map((j) => (
               <li key={j.id} style={{ borderBottom: "1px solid var(--line)", padding: "6px 0", fontSize: 13 }}>
-                <strong>{j.status}</strong> — {j.source} {j.sourceLabel && `(${j.sourceLabel})`} — {j.createdCount} created
+                <strong>{j.statusLabel ?? j.status}</strong> — {j.source} {j.sourceLabel && `(${j.sourceLabel})`} — {j.createdCount} created
                 {j.updatedCount > 0 && `, ${j.updatedCount} updated`}
                 {j.skippedCount > 0 && `, ${j.skippedCount} skipped`}
                 <span className="text-muted"> · {j.createdByName ?? "unknown"} · {new Date(j.createdAt).toLocaleString()}</span>
+                {j.skippedCount > 0 && <details style={{ marginTop: 8 }}>
+                  <summary>Review {j.skippedCount} skipped row(s)</summary>
+                  {j.skippedRows?.length ? <ul style={{ overflowWrap: "anywhere" }}>{j.skippedRows.map((row, index) => <li key={`${row.rowNumber}:${index}`}>Row {row.rowNumber}: {row.reason}</li>)}</ul> : <p>Row details are unavailable for this older import.</p>}
+                </details>}
               </li>
             ))}
           </ul>

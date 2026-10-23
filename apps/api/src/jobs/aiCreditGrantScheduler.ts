@@ -2,6 +2,7 @@ import * as Sentry from "@sentry/node";
 import { prisma } from "@vaettir/db";
 import { grantMonthlyCreditsIfNeeded } from "../services/aiCredits.js";
 import { recordHeartbeat } from "../services/heartbeat.js";
+import { createSafeSchedulerRunner } from "./safeSchedulerRunner.js";
 
 // Once-a-day is plenty of grain for "grant once per calendar month" --
 // unlike the reverse-engineer queue or the readiness digest, there's no
@@ -19,9 +20,11 @@ async function checkOnce(): Promise<void> {
   }
 }
 
+export const runAiCreditGrantCheckSafely = createSafeSchedulerRunner("aiCreditGrantScheduler", checkOnce);
+
 export function startAiCreditGrantScheduler(): void {
   if (checkHandle) return;
-  void checkOnce();
-  checkHandle = setInterval(() => void checkOnce(), CHECK_INTERVAL_MS);
+  void runAiCreditGrantCheckSafely();
+  checkHandle = setInterval(() => void runAiCreditGrantCheckSafely(), CHECK_INTERVAL_MS);
   checkHandle.unref();
 }

@@ -3,6 +3,7 @@ import type { PrismaClient } from "@vaettir/db";
 import { refreshReleaseReadiness } from "./releaseReadiness.js";
 import { dispatchWebhookEvent } from "./webhookDelivery.js";
 import { notifySlackEvent } from "./slackEventNotify.js";
+import { findProductionIncidentReceipt, productionIncidentKey, recordProductionIncident } from "./productionIncidentReceipt.js";
 
 /**
  * P9-04: closes the loop from a real production incident to a coverage
@@ -27,6 +28,7 @@ export function verifyPagerDutySignature(rawBody: Buffer, signatureHeader: strin
 
 export interface PagerDutyWebhookPayload {
   event?: {
+    id?: string;
     event_type?: string;
     data?: {
       id?: string;
@@ -43,6 +45,7 @@ export interface IncidentWebhookResult {
   handled: boolean;
   reason?: string;
   riskFlagId?: string;
+  duplicate?: boolean;
 }
 
 // Only incident.triggered is handled - every other v3 event_type
@@ -66,6 +69,11 @@ export async function handlePagerDutyWebhook(prisma: PrismaClient, payload: Page
     return { handled: false, reason: `no project has pagerdutyServiceId ${serviceId} configured` };
   }
 
+  const key = productionIncidentKey("pagerduty", project.organizationId, payload.event?.id,
+    [eventType, serviceId, data?.id, data?.title, data?.status, data?.urgency, data?.html_url]);
+  const previous = await findProductionIncidentReceipt(prisma, key);
+  if (previous) return { handled: true, riskFlagId: previous.riskFlagId, duplicate: true };
+
   // "The live release" has no first-class concept in this schema - the
   // most recently updated SHIPPED release for the project is the
   // defensible stand-in (the last one anyone actually marked as out the
@@ -83,9 +91,9 @@ export async function handlePagerDutyWebhook(prisma: PrismaClient, payload: Page
   const title = data?.title ?? "Untitled PagerDuty incident";
   const description = data?.html_url ? `PagerDuty incident: ${title} (${data.html_url})` : `PagerDuty incident: ${title}`;
 
-  const flag = await prisma.riskFlag.create({
-    data: { releaseId: release.id, severity, source: "PRODUCTION_INCIDENT", description },
-  });
+  const flag = await recordProductionIncident(prisma, { key, provider: "pagerduty", organizationId: project.organizationId,
+    projectId: project.id, releaseId: release.id, severity, description });
+  if (!flag.created) return { handled: true, riskFlagId: flag.riskFlagId, duplicate: true };
 
   refreshReleaseReadiness(prisma, release.id);
 
@@ -106,5 +114,5 @@ export async function handlePagerDutyWebhook(prisma: PrismaClient, payload: Page
     files: [],
   }).catch(() => undefined);
 
-  return { handled: true, riskFlagId: flag.id };
+  return { handled: true, riskFlagId: flag.riskFlagId };
 }
