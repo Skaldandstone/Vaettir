@@ -1,22 +1,3 @@
-# Isolated C/C++ and signed Node proof. This image never receives customer data
-# or provider credentials. The final target contains only reviewed artifacts.
-FROM public.ecr.aws/docker/library/node:22-trixie-slim@sha256:b26b04c123d9ff8ab646ceb18b9d75a1173acf64b9a401094b906d27b29338d4 AS node-brotli-security
-RUN test "$(dpkg --print-architecture)" = amd64 \
-    && apt-get update --error-on=any \
-    && apt-get install -y --no-install-recommends openssl ca-certificates perl-base libpcre2-8-0 build-essential binutils cmake debhelper pkg-config gpg gpgv debian-keyring libbrotli1 \
-    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' perl-base)" ge '5.40.1-6+deb13u1' \
-    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libpcre2-8-0)" ge '10.46-1~deb13u3' \
-    && test "$(dpkg-query -W -f='${Version}' libbrotli1)" = 1.1.0-2 \
-    && rm -rf /var/lib/apt/lists/*
-WORKDIR /build
-COPY scripts/fetch-node-brotli-sources.mjs scripts/node-brotli-runtime-sources.json scripts/build-node-brotli-security.sh scripts/check-node-security-runtime.mjs scripts/check-brotli-block-switch.c scripts/record-brotli-security-proof.mjs scripts/retain-brotli-test-corpus.mjs scripts/brotli-runtime-test-corpus.json /build/scripts/
-COPY scripts/public-keys/node-5BE8A3F6C8A5C01D106C0AD820B1A390B168D356.asc /build/scripts/public-keys/
-RUN node /build/scripts/fetch-node-brotli-sources.mjs /build/inputs
-ARG VAETTIR_RELEASE_COMMIT
-ENV VAETTIR_SECURITY_SOURCE_COMMIT=$VAETTIR_RELEASE_COMMIT
-RUN --network=none sh /build/scripts/build-node-brotli-security.sh /build/inputs /build/native /build/scripts
-
-
 # Docker Official Image via ECR Public avoids shared CodeBuild Docker Hub pull limits.
 # Trixie carries Debian fixes unavailable in Bookworm for the release-blocking
 # Perl CVEs. Keep the package floor below and rescan each final image digest.
@@ -49,6 +30,26 @@ RUN node /build/scripts/fetch-expat-runtime-sources.mjs /build/runtime-sources \
 COPY scripts/build-dash-runtime.sh scripts/check-dash-runtime.mjs /build/scripts/
 RUN node /build/scripts/fetch-runtime-vendor-sources.mjs /build/dash-sources dash \
     && sh /build/scripts/build-dash-runtime.sh /build/dash-sources /build/dash-build /build/scripts/check-dash-runtime.mjs
+
+# Isolated C/C++ and signed Node proof. This image never receives customer data
+# or provider credentials. The final target contains only reviewed artifacts.
+FROM public.ecr.aws/docker/library/node:22-trixie-slim@sha256:b26b04c123d9ff8ab646ceb18b9d75a1173acf64b9a401094b906d27b29338d4 AS node-brotli-security
+RUN test "$(dpkg --print-architecture)" = amd64 \
+    && apt-get update --error-on=any \
+    && apt-get install -y --no-install-recommends openssl ca-certificates perl-base libpcre2-8-0 build-essential binutils cmake debhelper pkg-config gpg gpgv debian-keyring libbrotli1 \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' perl-base)" ge '5.40.1-6+deb13u1' \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libpcre2-8-0)" ge '10.46-1~deb13u3' \
+    && test "$(dpkg-query -W -f='${Version}' libbrotli1)" = 1.1.0-2 \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /build
+COPY scripts/fetch-node-brotli-sources.mjs scripts/node-brotli-runtime-sources.json scripts/build-node-brotli-security.sh scripts/check-node-security-runtime.mjs scripts/check-brotli-block-switch.c scripts/record-brotli-security-proof.mjs scripts/retain-brotli-test-corpus.mjs scripts/brotli-runtime-test-corpus.json /build/scripts/
+COPY scripts/public-keys/node-5BE8A3F6C8A5C01D106C0AD820B1A390B168D356.asc /build/scripts/public-keys/
+RUN node /build/scripts/fetch-node-brotli-sources.mjs /build/inputs
+ARG VAETTIR_RELEASE_COMMIT
+ENV VAETTIR_SECURITY_SOURCE_COMMIT=$VAETTIR_RELEASE_COMMIT
+RUN --network=none sh /build/scripts/build-node-brotli-security.sh /build/inputs /build/native /build/scripts
+
+
 
 # Rebuild only the maintained shared LLVM package with its supported optional
 # Windows-manifest XML feature off. Keep all LLVM targets/Polly and Mesa, and
