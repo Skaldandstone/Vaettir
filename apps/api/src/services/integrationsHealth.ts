@@ -43,6 +43,7 @@ export async function computeIntegrationsHealth(prisma: PrismaClient, organizati
       jiraEncryptedApiToken: true,
       jiraWebhookSecret: true,
       datadogWebhookSecret: true,
+      encryptedDatadogWebhookSecret:true,
     },
   });
 
@@ -91,6 +92,6 @@ export async function computeIntegrationsHealth(prisma: PrismaClient, organizati
       lastSyncedAt: latestIso(linearRequirements.map((r) => r.linearSyncedAt)),
     },
     pagerduty: { projectsConfigured: pagerdutyProjectCount },
-    datadog: { projectsConfigured: datadogProjectCount, webhookConfigured: org.datadogWebhookSecret !== null },
+    datadog: { projectsConfigured: datadogProjectCount, webhookConfigured: Boolean(org.datadogWebhookSecret||org.encryptedDatadogWebhookSecret) },
   };
 }

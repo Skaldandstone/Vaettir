@@ -35,8 +35,14 @@ export async function resolveDatabaseUrlFromManagedSecret(env: NodeJS.ProcessEnv
     throw new Error("DB_SECRET_ID is set but DB_HOST is missing - both are required to compose DATABASE_URL");
   }
 
-  const client = new SecretsManagerClient({ region: env.AWS_REGION ?? "us-east-2" });
-  const response = await client.send(new GetSecretValueCommand({ SecretId: secretId }));
+  const client = new SecretsManagerClient({
+    region: env.AWS_REGION ?? "us-east-2",
+    maxAttempts: 2,
+    requestHandler: { connectionTimeout: 6000, requestTimeout: 15000 },
+  });
+  const response = await client.send(new GetSecretValueCommand({ SecretId: secretId }), {
+    abortSignal: AbortSignal.timeout(20000),
+  }).finally(() => client.destroy());
   if (!response.SecretString) {
     throw new Error(`Secret ${secretId} (DB_SECRET_ID) has no SecretString`);
   }

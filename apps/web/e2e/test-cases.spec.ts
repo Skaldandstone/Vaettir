@@ -1,10 +1,10 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 
-// Assumes a project named "Kall" exists and is reachable by the signed-in
+// Assumes a project named "Beta fixture" exists and is reachable by the signed-in
 // test user (it does in the real Vaettir org this suite runs against).
 async function gotoKallTestCases(page: import("@playwright/test").Page) {
   await page.goto("/projects");
-  await page.locator("li", { hasText: "Kall" }).getByRole("link", { name: "Kall" }).click();
+  await page.locator("li", { hasText: "Beta fixture" }).getByRole("link", { name: "Beta fixture" }).click();
   await page.getByRole("link", { name: /test cases/i }).click();
   await expect(page).toHaveURL(/\/test-cases$/);
 }

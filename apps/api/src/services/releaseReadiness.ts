@@ -146,29 +146,38 @@ export async function recordReadinessSnapshot(
   releaseId: string,
   options: { notify?: boolean } = {},
 ): Promise<RecordReadinessResult> {
-  const release = await prisma.release.findUniqueOrThrow({
-    where: { id: releaseId },
-    include: { project: { select: { id: true, name: true, organizationId: true } } },
-  });
-  const readiness = await computeReleaseReadiness(prisma, releaseId);
-  const previous = await prisma.releaseReadinessSnapshot.findFirst({
-    where: { releaseId },
-    orderBy: { computedAt: "desc" },
-    select: { score: true, label: true },
-  });
-  const transition = classifyReadinessTransition(previous, readiness);
-  if (transition === "unchanged") return { transition, readiness, previous };
-
-  await prisma.releaseReadinessSnapshot.create({
-    data: {
-      releaseId,
-      score: readiness.score,
-      label: readiness.label,
-      previousLabel: previous?.label ?? null,
-      criteriaMet: readiness.criteria.met,
-      criteriaTotal: readiness.criteria.total,
-      openRiskFlags: readiness.riskFlags.openTotal,
-    },
+  // Multiple router mutations may launch refreshes without awaiting them.
+  // Serialize per release in Postgres and compute *after* taking the lock,
+  // so an earlier queued refresh cannot write an older result last.
+  const { release, transition, readiness, previous } = await prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`readiness:${releaseId}`}, 0))::text`;
+    const release = await tx.release.findUniqueOrThrow({
+      where: { id: releaseId },
+      include: { project: { select: { id: true, name: true, organizationId: true } } },
+    });
+    const readiness = await computeReleaseReadiness(tx as unknown as PrismaClient, releaseId);
+    const previous = await tx.releaseReadinessSnapshot.findFirst({
+      where: { releaseId },
+      orderBy: { computedAt: "desc" },
+      select: { score: true, label: true },
+    });
+    const transition = classifyReadinessTransition(previous, readiness);
+    if (transition !== "unchanged") {
+      const [clock] = await tx.$queryRaw<Array<{ at: Date }>>`SELECT clock_timestamp() AS at`;
+      await tx.releaseReadinessSnapshot.create({
+        data: {
+          releaseId,
+          computedAt: clock!.at,
+          score: readiness.score,
+          label: readiness.label,
+          previousLabel: previous?.label ?? null,
+          criteriaMet: readiness.criteria.met,
+          criteriaTotal: readiness.criteria.total,
+          openRiskFlags: readiness.riskFlags.openTotal,
+        },
+      });
+    }
+    return { release, transition, readiness, previous };
   });
 
   if (transition === "label_changed" && options.notify !== false && previous) {

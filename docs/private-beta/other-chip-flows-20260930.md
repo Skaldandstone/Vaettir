@@ -1,0 +1,140 @@
+# Other source chips: implemented paths and acceptance gates
+
+## Same-page actions
+
+### Customer connection correction, 2026-10-02 (source only)
+
+Overview now offers one compact **Connect repo** action, followed by an in-page
+provider picker. Population, requirements intake and reverse engineering use the
+same compact entry. Existing registered repositories and status remain visible.
+Provider switching retains visited connector selections; failed access refreshes
+and revoked editor access hide actionable controls without discarding drafts.
+
+GitLab/GitHub account connection no longer collects instance origins, application
+IDs or secrets from ordinary users. It selects the hosted or sole configured
+instance automatically; multiple configured instances use buttons. Connect opens
+the provider popup with an isolated opener. The provider uses its own existing
+sign-in session, or asks the user to sign in. Vaettir does not inspect browser
+cookies or collect provider passwords. An explicit Connect click approves only
+account verification and repository metadata listing. Native OAuth scope is
+broader, and the user must review the provider authorization screen.
+
+Successful current verification automatically opens a bounded repository list
+once. Errors stop automatic retries and expose a manual retry. Multi-page
+selection and a separate review precede any repository registration. Source
+files, revision discovery, generation, AI processing and credit charges remain
+separate approvals; this connection flow performs none of them.
+
+Hosted application setup belongs to the Vaettir installation: server-only
+`GITLAB_OAUTH_CLIENT_ID`/`GITLAB_OAUTH_CLIENT_SECRET` and the corresponding
+`GITHUB_OAUTH_CLIENT_ID`/`GITHUB_OAUTH_CLIENT_SECRET`, encrypted credential storage,
+and registered HTTPS callbacks. Availability queries are read-only and return
+no application credentials. Approved authorization materializes an immutable,
+encrypted, tenant-local configuration under fresh role/seat/organization/project
+locks. Existing workspace hosted or self-hosted applications are never replaced
+by environment changes. Pending callback and grant revocation retain their
+original credentials. The callback identity must remain stable through pending
+authorizations.
+
+Self-hosted GitLab applications are configured once per publicly reachable
+instance in **Settings → Integrations → Repository application administration**,
+not the customer Connect screen. A GitLab.com application cannot authorize
+another instance. Full Owner/Admin access controls configuration, outstanding
+grant cleanup and reviewed removal; failed revocations retain recovery secrets,
+and removing an application never deletes repository records. Blank platform
+credentials show honest unavailability, not an enabled authorization button or
+fake connection. Bitbucket/Azure still use their implemented token adapters;
+self-hosted Git/Perforce/SVN retain export intake, not fabricated native OAuth.
+
+Synthetic rendered desktop/mobile/role/popup/retry checks and disposable-database
+tests establish source behavior only. Hosted applications were not registered,
+production credentials were not injected, customer accounts were not authorized,
+and this increment was not deployed. Production setup and authenticated native
+provider acceptance require separate evidence.
+
+The project Overview and population modal share the same repository connection screens. GitHub and GitLab retain native OAuth popup authorization. Bitbucket Cloud and Azure DevOps Services now verify read-only token access, list searchable repository metadata, retain multi-selection across visited pages, and require review before registering repositories. No source files or AI processing occur in these flows.
+
+Requirements intake and Reverse Engineer also open the shared connection screens in place, rather than navigating away to Overview. Generic project source chips use the same provider-specific screens without requiring caller-supplied callbacks. Successful repository approvals refresh the project and repository queries; ticket/document exports remain distinct from authenticated repository access.
+
+Bitbucket uses an Atlassian account API token, account email and selected workspace. Azure uses an organization-scoped Code (Read) PAT and an active authenticated principal, not anonymous public repository visibility. Credentials are encrypted with the existing integration key and retained for at most eight hours of local connector use. Removing local saved access does not revoke provider credentials. Expired interrupted verification can be removed and retried; late results cannot restore it.
+
+Repository native identity survives renamed URLs, repeated selection and manual revision edits. Conflicting native identities or another actor's connection require explicit reconciliation rather than silent replacement. Provider default branches are metadata, not deployed revisions. Listing rechecks live tenant membership before and after provider I/O; persistence checks current full-seat editor access and suspension.
+
+PagerDuty and Datadog chips now open routing, webhook instructions and reviewed-save screens. They show real signing/release prerequisites, exact endpoints, copy controls and provider setup instructions. Saving is routing configuration, not evidence of received delivery. Concurrent route changes are rejected against the dialog's original baseline. Newly stored Datadog header secrets are encrypted; existing legacy configuration remains readable without rewriting customer records. Native incident event identities and durable atomic receipts prevent replayed alerts from creating duplicate risk flags, including concurrent retries and changed release state. Legacy payloads without native event identity deduplicate exact relevant payloads; otherwise identical distinct incidents require native IDs to distinguish them.
+
+Self-hosted Git, Perforce and SVN offer exported-document intake or existing-test import inside the modal. Native account browsing is not implemented for these providers. Optional reference registration remains explicitly unverified. Google Drive now has the bounded metadata-only native source flow below; exported-document intake remains separate from authorization. Project-scoped Linear has a separate verified metadata connection in source at 80d8bc9, still without issue import. Jira Cloud has a subsequent source-only account/project selection and bounded reviewed issue-summary intake described below. No ADB/Appium device helper is presented as a repository connector.
+
+## Follow-up source correction - 2026-10-01
+
+### Native Google Drive metadata selection - source only
+
+The Drive chip opens authorization, file selection, scoped review and saved-state screens in the existing page modal. A configured Google OAuth web application opens in a popup. Actor-bound one-use state and encrypted PKCE verification precede a real Drive `about.user` account check. Only the exact `drive.metadata.readonly` scope is accepted; access is online, short-lived (at most one hour with a conservative margin), encrypted, and never returned to the browser. No refresh token is retained. Missing application or encryption configuration exposes a usable setup explanation and exported-document alternative, not an enabled dead-end Continue action.
+
+Metadata browsing is explicitly user initiated after verification: native My Drive folder choices, safely escaped name search within the selected folder,25 files/page,five pages/125 files per batch and ten attempts per connection. Search/folder refresh starts a new unapproved selection; pagination retains choices. Shared drives and shortcuts are unsupported. Listings are partial bounded catalogs, not evidence of exhaustive access. Selecting a folder never approves its descendants. Up to100 individually selected files are reviewed before saving additive native identities/name/type/update-time/source links. Prior approved metadata is not silently updated or deleted when a file changes/disappears or access fails. No file bodies, downloads, exports, source code, imported execution, AI or credit charges occur in this slice.
+
+Every mutation rechecks live tenant/full-editor membership and suspension inside a locked project/connection transaction, with a second check after provider reads. Fixed Google endpoints reuse public-DNS/TLS pinning, no redirect following,15-second/1MiB bounds. Durable begin/list/approval receipts handle retries; version checks protect reviewed choices and distinct per-execution lease nonces fence stale same-request retry results. Closing retains progress; cancellation/removal clears encrypted local access without erasing approved file scope. Late verification/list results cannot revive a removed connection. Google grant revocation is a separate explicit account action, not falsely reported as completed by local removal.
+
+Owner setup: enable Drive API and register the web OAuth app, configure `GOOGLE_DRIVE_CLIENT_ID`, `GOOGLE_DRIVE_CLIENT_SECRET`, public HTTPS-root `WEB_APP_URL`, existing integration encryption key, and exact `${WEB_APP_URL}/connections/drive/callback` redirect. Client credentials and registration were not created by this task. Google classifies metadata read-only as a **restricted scope**: public launch requires restricted-scope verification and, for server storage/transmission of restricted data, the required security assessment. These are explicit external launch gates; synthetic fixtures are not provider acceptance. See [Drive scope requirements](https://developers.google.com/workspace/drive/api/guides/api-specific-auth), [OAuth web-server flow](https://developers.google.com/identity/protocols/oauth2/web-server), [bounded file listing](https://developers.google.com/workspace/drive/api/reference/rest/v3/files/list) and [query escaping](https://developers.google.com/workspace/drive/api/guides/search-files).
+
+The additive `DriveSourceConnection` migration, actual synthetic rendered desktop/mobile flow and source tests require a separate guarded release and authenticated live-provider verification. No production wake, migration, OAuth setup or Drive access was performed here. File content intake, Google Picker/per-file scope alternative, shared-drive support, refresh/revocation automation and downstream document discovery remain later increments.
+
+Jira Cloud chips open verified account/site metadata, paginated native project choices, filtering/multi-selection and explicit additive source-scope approval. Standard Atlassian API tokens without scopes are supported by the site-local connector. OAuth, modern scoped-token gateway access, self-hosted Jira, full issue-content import and automatic sync are unavailable. Access is actor/project/tenant-bound, encrypted and expires locally after eight hours. Multiple Jira sites can be selected independently. A compatible nullable provider-origin migration preserves prior Linear records.
+
+## Bounded reviewed Jira issue summaries - source only
+
+After source scope approval, an independent issue-read consent selects up to20 approved Jira projects. Each user-initiated enhanced-search page reads at most20 summaries; a run stops at five pages/100 summaries and ten read attempts. Only native identity/project, title, status, update time and a canonical source link are retained. Descriptions, comments, attachments, provider URLs and source code are neither requested nor executed. No AI/credits or automatic provider writes occur. [Official enhanced-search API](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-search/#api-rest-api-3-search-jql-get) is eventually consistent and permission-filtered; absent issues never imply deletion.
+
+The in-place flow persists run permission, staged pages, scope, explicit import approval, lease/cancellation state and progress. Reading does not create requirements. Finishing the preview exposes new, unchanged and conflicting rows; only selected additions are offered in the UI. An approved selection is processed in manual atomic batches of up to10. Failed batches roll back completely while earlier batches remain, and receipt/native identity deduplication makes replay safe. Site/native-ID bindings preserve manual edits, existing links and deleted-record tombstones; changed evidence is retained for human review, not automatically applied. Requirements contain the reviewed title and source URL, not generated claims or inferred acceptance criteria.
+
+Live tenant/actor/full-editor authorization is checked before and after provider reads and inside import transactions. A locked project tenant check rejects reassignment races, and canonical scalar fingerprints avoid JSONB ordering conflicts on identical reruns. Manual requirement CRUD shares the project lock with native imports. Import progress and provenance survive expiry/disconnection/cancellation; provider reads/import continuation require valid saved access, while authorized inspection remains available. Additive run/identity tables need a separate compatible production migration/release; source tests and mocked rendered checks are not provider or deployment acceptance.
+
+Saved repository registrations now reopen their provider module for editors; viewers retain read-only reference/status display. Integration health no longer reports Connected merely because settings exist. Project-scoped Jira/Linear/signal setup opens an accessible-project chooser in place. Historical sync/delivery evidence is qualified; stale/error project queries expose no connection actions. Legacy organization health counts do not include actor/project-scoped metadata connections and say so explicitly. Slack/webhook setup review keeps its intentional advanced organization-settings link; it does not manufacture OAuth or delivery acceptance.
+
+The ten-page catalog cap is enforced server-side for both Jira and Linear. A continuation withheld at the cap is not retained as an accepted API cursor, including catalogs with repeated native identities. Scope and approval receipts survive access failures and removal; existing requirements, tests and human edits are untouched.
+
+PD/DD/P4/SVN textual fallback marks are not native provider logos. Official asset availability was checked separately from redistribution/use permission: Datadog requires written consent, PagerDuty has gated guidelines and full-wordmark sizing, Perforce forbids altered composition, and Apache requires attribution and a project-homepage link for permitted references. Do not invent/crop compact brand marks or claim this remaining branding gate complete. [Datadog terms](https://www.datadoghq.com/legal/terms/), [PagerDuty brand portal](https://brandfolder.com/pagerduty/external), [Perforce logo guidelines](https://www.perforce.com/resources/brand-guidelines/logos), [Apache trademark policy](https://www.apache.org/foundation/marks/).
+
+This follow-up is source-only until exact-commit migration/build/release and authenticated smoke evidence are recorded. No scheduled-off environment wake-up, provider/customer source access or paid AI processing is part of its validation.
+
+## Provider references
+
+- [Bitbucket API token authentication](https://support.atlassian.com/bitbucket-cloud/docs/using-api-tokens/)
+- [Bitbucket user API](https://developer.atlassian.com/cloud/bitbucket/rest/api-group-users/)
+- [Bitbucket repository API](https://developer.atlassian.com/cloud/bitbucket/rest/api-group-repositories/)
+- [Azure repository listing API 7.1](https://learn.microsoft.com/en-us/rest/api/azure/devops/git/repositories/list?view=azure-devops-rest-7.1)
+- [Azure scoped PAT setup](https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/use-personal-access-tokens-to-authenticate?view=azure-devops)
+- [PagerDuty webhook setup](https://support.pagerduty.com/main/docs/webhooks)
+- [Datadog webhook variables and custom headers](https://docs.datadoghq.com/integrations/webhooks/)
+
+## Other-chip follow-up - 2026-10-01 (source work)
+
+The all-surface audit includes overview registrations, project population, requirements intake, reverse engineering, integration settings, alerts and test migration. Repository and alert chips now require a successful current access/setup lookup; failed refreshes do not expose cached verified controls. Retry stays in place and preserves saved references. Selection chips share a visible pressed state, disabled affordance and narrow-width wrapping.
+
+Source capability inventory, not deployment or provider acceptance:
+
+| Chip | Implemented workflow | Remaining gate |
+| --- | --- | --- |
+| GitHub / GitLab | Configured OAuth popup, account verification, repository selection/review | App registration and scoped live acceptance; private-network/source discovery separate |
+| Bitbucket / Azure DevOps | Encrypted read-token verification, hosted repository catalog and reviewed selection | Native OAuth and Server variants not implemented; no source-file discovery from metadata approval |
+| Jira / Linear | Account/workspace verification and reviewed project scope | Jira bounded summary intake implemented; Linear issue intake and broader sync remain |
+| Google Drive | Configured OAuth, verified account, bounded folder/search file metadata and additive review | Restricted-scope approval; contents/imports/shared drives not enabled |
+| Self-hosted Git / Perforce / SVN | Exported document/test intake and optional unverified reference | Native authentication/catalog adapters remain unimplemented |
+| PagerDuty / Datadog | In-page route, signing setup and final routing review | Real signed delivery requires separate provider setup/acceptance |
+| Slack / Outbound webhooks | Existing setup and historical delivery review | In-page native authorization/configuration remains separate work |
+| qTest / Zephyr | Scoped preview, full-source digest/count review, revalidation before import | Live provider acceptance separate; qTest root/unfiled cases explicitly excluded |
+
+Legacy repository processing now has a separate persisted source/AI/credit approval review, previous-run recovery and bounded path/file selection. Metadata approval never becomes permission to clone, read or send source to AI. The reader currently accepts public hosted credential-free repositories only and explains that cloning transfers a revision before selected paths are read. Paid outputs are retained for recovery; identical scoped jobs and document drafts reuse prior work, while uncertain paid failures require reconciliation. Existing cases and human edits are preserved. These are source implementations pending the combined regression and exact-commit CI checkpoint, not deployed capabilities. Downstream requirement saving is not yet a durable idempotent reviewed import.
+
+qTest and Zephyr approvals bind the complete parsed source, ordered steps, skipped-row dispositions, provider and project scope to a SHA256 digest and count. A changed, added, deleted or reordered row rejects import before writes. The modal then requires refreshed preview and explicit reapproval. Its bounded sample table is labelled as a sample, not the entire reviewed dataset. No provider credentials enter the manifest.
+
+Fresh permission/credit lookups fail closed even when stale cached data exists. Repository, source and signal modals retain drafts across access refresh failures. Unrelated AI or case mutations no longer prevent closing connection modals. Read-only users retain saved source references without edit controls.
+
+## Validation boundaries
+
+The 2026-10-01 follow-up passed fresh disposable PostgreSQL migration/seed,145 focused tests,990 full API tests,90 web contracts,33 operations contracts, workspace typechecks and lint (zero errors), and API compilation. A final27-test focused rerun covered the late paid-job tenant guard and sanitized error reporting. Independent static review and synthetic rendered desktop/mobile role, stale-cache, draft-retention and import-reapproval flows passed. Two initial database failures were fixture defects: an invalid framework enum and a missing required test type; both were diagnosed and corrected without weakening assertions. Exact-commit Linux production-build CI is recorded in the linked tracker checkpoint, independently of deployment.
+
+Synthetic adapter/network tests, disposable PostgreSQL migrations and integration tests cover consent, tenant isolation, encryption, retries, catalog approval, native rename preservation, live membership changes, route conflicts, encrypted/legacy secret compatibility and alert replay recovery. Rendered real components against synthetic metadata cover multi-page selection, back/review/save, guided alert setup and export intake at desktop/mobile widths. A fixture initially lacked import mutation hooks; diagnostic evidence identified the fixture omission and the corrected fixture renders the real import screen.
+
+Windows standalone Next output encountered `EPERM` at dependency symlink creation after compilation and page generation. Exact-commit Linux CI and CodeBuild production builds are the release-build acceptance path; the check is not disabled or replaced with a no-standalone configuration. Deployment must be recorded by immutable commit/digest and authenticated runtime smoke, separately from source tests.
+
+Real provider token acceptance, OAuth account authorization, repository listing and webhook delivery remain unverified until exercised with owner-controlled, non-customer or explicitly consented credentials. Private-network source intake, Bitbucket Server, Azure DevOps Server, native Git/P4/SVN and automatic token refresh remain future adapters. No customer source access, invitations, paid AI calls or new infrastructure are part of this change.

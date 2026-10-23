@@ -1,0 +1,119 @@
+"use client";
+
+import { useLayoutEffect, useRef, useState } from "react";
+import {useIsMutating} from "@tanstack/react-query";
+import {isConnectionMutation} from "@/lib/connection-mutation";
+import {Modal} from "./Modal";
+import {PopulationDocuments} from "./PopulationDocuments";
+import {RepositoryConnectionContent,repositoryProviders,type RepositoryProvider} from "./RepositoryConnectionContent";
+import {RepositoryProviderPicker,cancelRepositoryAuthorization,type RepositoryAuthorizationIntent} from "./RepositoryProviderPicker";
+import {trpcReact} from "@/lib/trpcReact";
+import {LinearSourceConnection} from "./LinearSourceConnection";
+import {JiraSourceConnection} from "./JiraSourceConnection";
+import {GoogleDriveSourceConnection} from "./GoogleDriveSourceConnection";
+
+const sources = [
+  ["github", "GitHub"], ["gitlab", "GitLab"], ["bitbucket", "Bitbucket"],
+  ["azure-devops", "Azure DevOps"], ["git", "Self-hosted Git"],
+  ["perforce", "Perforce"], ["svn", "SVN"], ["jira", "Jira"],
+  ["linear", "Linear"], ["document", "Documents"],
+  ["drive", "Google Drive"],
+] as const;
+
+export function ProviderMark({ id }: { id: string }) {
+  const paths: Record<string, string> = {
+    github: "M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.86c-2.78.6-3.37-1.18-3.37-1.18-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.61.07-.61 1 .07 1.53 1.03 1.53 1.03.89 1.53 2.34 1.09 2.91.83.09-.65.35-1.09.64-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.99 1.03-2.69-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.03a9.6 9.6 0 0 1 5 0c1.91-1.3 2.75-1.03 2.75-1.03.55 1.38.2 2.4.1 2.65.64.7 1.03 1.6 1.03 2.69 0 3.84-2.34 4.69-4.57 4.94.36.31.68.92.68 1.85v2.75c0 .27.18.58.69.48A10 10 0 0 0 12 2Z",
+    gitlab: "M12 22 2 14 5 2l3 8h8l3-8 3 12Z",
+    bitbucket: "M2 3h20l-3 18H5Zm6 6 1 6h6l1-6Z",
+    "azure-devops": "M3 7 8 3v4l8-3 5 2v13l-5 2-8-3v3l-5-5 3-3Z",
+    git: "m12 1 11 11-11 11L1 12Zm-3 6v7h2V9l5 5v3h2v-4l-7-7Z",
+    jira: "m12 1 11 11-11 11L1 12Zm0 7-4 4 4 4 4-4Z",
+    linear: "M12 2a10 10 0 0 1 10 10c0 2-.6 4-1.7 5.6L6.4 3.7A10 10 0 0 1 12 2ZM4.7 5.1l14.2 14.2-1.6 1.2L3.5 6.7ZM2.6 9l12.4 12.4-3 .6L2 12ZM3 16l5 5a10 10 0 0 1-5-5Z",
+    document: "M5 2h9l5 5v15H5Zm9 2v4h4ZM8 12v2h8v-2Zm0 4v2h8v-2Z",
+    drive: "M8 2h8l8 14-4 7H4l-4-7Zm4 5-5 9h10Z",
+  };
+  return <span className={`source-provider-mark provider-${id}`} aria-hidden="true">
+    {paths[id] ? <svg viewBox="0 0 24 24" fill="currentColor"><path fillRule="evenodd" d={paths[id]} /></svg> : <span>{{perforce: "P4", svn: "SVN", pagerduty: "PD", datadog: "DD"}[id] ?? id.slice(0, 2).toUpperCase()}</span>}
+  </span>;
+}
+
+export function ConnectionLink({ href, provider, label, status }: { href: string; provider: string; label: string; status: string }) {
+  return <a className="source-connection-chip" href={href}><ProviderMark id={provider} /><span><strong>{label}</strong><small>{status}</small></span><span aria-hidden="true">→</span></a>;
+}
+
+export function SourceConnectionChips({documentsHref,only,onDocuments,onGitlab,onGithub,onRepository,projectId}:{documentsHref?:string;only?:string[];onDocuments?:()=>void;onGitlab?:(intent?:RepositoryAuthorizationIntent)=>void;onGithub?:(intent?:RepositoryAuthorizationIntent)=>void;onRepository?:(provider:RepositoryProvider,intent?:RepositoryAuthorizationIntent)=>void;projectId?:string}){
+  const [active,setActive]=useState<string|null>(null);
+  const [selectedRepository,setSelectedRepository]=useState<RepositoryProvider|null>(null);
+  const [repositoryChoice,setRepositoryChoice]=useState<RepositoryProvider|"">("");
+  const [authorizations,setAuthorizations]=useState<Partial<Record<RepositoryProvider,RepositoryAuthorizationIntent>>>({});
+  const [visitedRepositories,setVisitedRepositories]=useState<RepositoryProvider[]>([]);
+  const repositoryHeading=useRef<HTMLHeadingElement>(null);
+  useLayoutEffect(()=>{
+    const heading=repositoryHeading.current;
+    const dialog=heading?.closest('dialog');
+    if(active==="repository"&&heading&&dialog?.open&&heading.getClientRects().length){
+      heading.focus();
+      heading.closest('.modal-panel')?.scrollTo({top:0});
+    }
+  },[active,selectedRepository]);
+  const utils=trpcReact.useUtils();
+  const busy=useIsMutating({predicate:mutation=>{
+    const key=mutation.options.mutationKey;
+    const route=key?.[0];
+    return isConnectionMutation(key)||(Array.isArray(route)&&route[0]==="project"&&route[1]==="addRepository");
+  }})>0;
+  const filtered=sources.filter(([id])=>!only||only.includes(id));
+  const repoIds=["github","gitlab","bitbucket","azure-devops","git","perforce","svn"];
+  // `only` controls entry categories, not which providers a Connect repo offers.
+  const hasRepositoryEntry=filtered.some(([id])=>repoIds.includes(id));
+  const otherSources=filtered.filter(([id])=>!repoIds.includes(id));
+  function close(){
+    if(busy)return;
+    Object.values(authorizations).forEach(cancelRepositoryAuthorization);
+    setAuthorizations({});
+    setActive(null);
+    setSelectedRepository(null);
+    setRepositoryChoice("");
+    setVisitedRepositories([]);
+  }
+  function chooseRepository(provider:RepositoryProvider,intent?:RepositoryAuthorizationIntent){
+    if(busy||!hasRepositoryEntry||!repositoryProviders.some(([id])=>id===provider)){cancelRepositoryAuthorization(intent);return;}
+    const callback=onRepository?()=>onRepository(provider,intent):provider==="github"&&onGithub?()=>onGithub(intent):provider==="gitlab"&&onGitlab?()=>onGitlab(intent):undefined;
+    if(callback){close();callback();return;}
+    if(intent)setAuthorizations(current=>({...current,[provider]:intent}));
+    setSelectedRepository(provider);
+    setVisitedRepositories(current=>current.includes(provider)?current:[...current,provider]);
+  }
+  function open(id:string){
+    if(busy)return;
+    if(id==="document"&&onDocuments){onDocuments();return;}
+    setActive(id);
+  }
+  const name=sources.find(([id])=>id===active)?.[1];
+  const repositoryName=sources.find(([id])=>id===selectedRepository)?.[1];
+  return <div className="source-connections">
+    <div className="source-chip-list" role="group" aria-label="Available source actions">
+      {hasRepositoryEntry&&<button type="button" className="source-connection-chip" aria-haspopup="dialog" disabled={busy} onClick={()=>open("repository")}>
+        <span className="source-provider-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 6v12m12-12v4a4 4 0 0 1-4 4H6"/><circle cx="6" cy="4" r="2"/><circle cx="6" cy="20" r="2"/><circle cx="18" cy="4" r="2"/></svg></span>
+        <span><strong>Connect repo</strong><small>Choose a provider</small></span><span aria-hidden="true">+</span>
+      </button>}
+      {otherSources.map(([id,label])=><button key={id} type="button" className="source-connection-chip" aria-haspopup="dialog" disabled={busy} onClick={()=>open(id)}>
+      <ProviderMark id={id}/><span><strong>{label}</strong><small>{id==="document"?"Add file or text":(id==="github"&&(projectId||onRepository||onGithub)||id==="gitlab"&&(projectId||onRepository||onGitlab)||id==="drive"&&projectId)?"Authorize and select":((id==="bitbucket"||id==="azure-devops")&&(projectId||onRepository)||(id==="linear"||id==="jira")&&projectId)?"Verify access and select":id==="jira"||id==="linear"?"Add exported tickets":"Export intake only"}</small></span><span aria-hidden="true">+</span>
+    </button>)}</div>
+    <Modal open={!!active} dismissible={!busy} title={active==="repository"?(selectedRepository?`Connect ${repositoryName}`:"Connect repo"):active==="drive"&&projectId?"Connect Google Drive":active==="linear"&&projectId?"Connect Linear":active==="jira"&&projectId?"Connect Jira":active==="document"?"Add document evidence":`Add ${name??"source"} evidence`} onClose={close}>
+      {active==="repository"?<fieldset disabled={busy} style={{border:0,padding:0,margin:0,minWidth:0}}>
+        <h3 ref={repositoryHeading} tabIndex={-1} style={{marginTop:0}}>{selectedRepository?`${repositoryName} connection options`:"Choose a repository provider"}</h3>
+        {!selectedRepository&&<RepositoryProviderPicker value={repositoryChoice} onChange={setRepositoryChoice} onConnect={chooseRepository} disabled={busy} authorize={Boolean(projectId)}/>}
+        {projectId&&visitedRepositories.map(provider=><div key={`${projectId}:${provider}`} hidden={selectedRepository!==provider}>
+          <RepositoryConnectionContent projectId={projectId} provider={provider} initialAuthorization={authorizations[provider]} active={active==="repository"&&selectedRepository===provider} onConnected={()=>{void utils.project.repositories.invalidate({projectId});void utils.project.byId.invalidate({id:projectId});}} onClose={close}/>
+        </div>)}
+        {selectedRepository&&!projectId&&<><p>{repositoryName} account discovery is not available in this intake. Open a project to authorize a provider, or add an exported specification or ticket as Markdown or text.</p>{onDocuments?<button type="button" onClick={()=>{close();onDocuments();}}>Add file or text</button>:documentsHref?<a className="btn-primary" href={documentsHref}>Add document evidence</a>:<p>No account connection has been made.</p>}</>}
+        {selectedRepository&&<button type="button" className="btn-secondary" disabled={busy} onClick={()=>{if(!busy){cancelRepositoryAuthorization(authorizations[selectedRepository]);setRepositoryChoice(selectedRepository);setSelectedRepository(null);}}}>Back to providers</button>}
+        {busy&&<p role="status">Connection update in progress. Wait before switching providers or closing.</p>}
+      </fieldset>:active==="drive"&&projectId?<GoogleDriveSourceConnection key={active} projectId={projectId} onClose={close}/>:active==="linear"&&projectId?<LinearSourceConnection key={active} projectId={projectId} onClose={close}/>:active==="jira"&&projectId?<JiraSourceConnection key={active} projectId={projectId} onClose={close}/>:<>
+        {active&&active!=="document"&&<p>{name} account discovery is not available in this intake. Add an exported specification or ticket as Markdown or text, then review the proposed changes.</p>}
+        {projectId&&active?<PopulationDocuments projectId={projectId}/>:onDocuments?<button type="button" onClick={onDocuments}>Add file or text</button>:documentsHref?<a className="btn-primary" href={documentsHref}>Add document evidence</a>:<p>Open project evidence to add a file.</p>}
+      </>}
+    </Modal>
+  </div>;
+}

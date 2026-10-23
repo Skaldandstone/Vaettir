@@ -27,6 +27,20 @@
 //   ("Error tracking (Sentry)") for how to turn upload on.
 module.exports = ({ config }) => {
   const sentryDsn = process.env.EXPO_PUBLIC_SENTRY_DSN || config.extra?.sentryDsn;
+  const apiUrl = process.env.EXPO_PUBLIC_API_URL || config.extra?.apiUrl;
+  const releaseCommit = process.env.EXPO_PUBLIC_RELEASE_COMMIT || config.extra?.releaseCommit;
+  const buildProfile = process.env.EAS_BUILD_PROFILE;
+
+  if (["preview", "production"].includes(buildProfile) && !apiUrl?.startsWith("https://")) {
+    throw new Error(
+      `[app.config.js] ${buildProfile} builds require an HTTPS EXPO_PUBLIC_API_URL; received ${apiUrl || "no URL"}.`,
+    );
+  }
+  if (["preview", "production"].includes(buildProfile) && !/^[a-f0-9]{40}$/i.test(releaseCommit ?? "")) {
+    throw new Error(
+      `[app.config.js] ${buildProfile} builds require EXPO_PUBLIC_RELEASE_COMMIT to be the exact 40-character source commit.`,
+    );
+  }
 
   if (!sentryDsn) {
     // Not fatal: a build/update without error reporting is still valid.
@@ -56,6 +70,8 @@ module.exports = ({ config }) => {
     ],
     extra: {
       ...config.extra,
+      apiUrl,
+      releaseCommit,
       sentryDsn,
     },
   };

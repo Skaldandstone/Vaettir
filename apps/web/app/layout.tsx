@@ -1,12 +1,17 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { ClerkProvider } from "@clerk/nextjs";
+import { headers } from "next/headers";
+import { workspaceClerkConfiguration } from "../lib/clerk-auth-domain";
 import { RuneMark } from "../components/RuneMark";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { Sidebar } from "../components/Sidebar";
 import { NavAuth } from "../components/NavAuth";
 import { TRPCReactProvider } from "../lib/trpcReact";
+import { Suspense } from "react";
+import { LegacyWorkspaceRedirect } from "../components/LegacyWorkspaceRedirect";
 import "./globals.css";
+import "./workbench.css";
 
 export const metadata = {
   title: "Vaettir™",
@@ -18,9 +23,15 @@ export const metadata = {
 // theme with a graphite dark theme, Clerk styled from the same tokens, a
 // skip link, and the product label in the nav. NavAuth (Clerk v7) and the
 // react-query provider are main's and stay.
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default async function RootLayout({ children }: { children: ReactNode }) {
+  const workspaceAuth = process.env.NEXT_PUBLIC_VAETTIR_WORKSPACE_AUTH_ENABLED === "1";
+  const host = workspaceAuth ? (await headers()).get("x-vaettir-host") : null;
+  const workspaceClerk = workspaceAuth ? workspaceClerkConfiguration(host,
+    process.env.NEXT_PUBLIC_VAETTIR_PRIMARY_AUTH_ENABLED === "1",
+    process.env.NEXT_PUBLIC_VAETTIR_ACTIVE_WORKSPACE_NAMES) : {};
   return (
     <ClerkProvider
+      {...workspaceClerk}
       appearance={{
         variables: {
           colorPrimary: "var(--frost)",
@@ -36,9 +47,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         },
       }}
     >
-      <html lang="en">
+      <html lang="en" data-theme="dark" suppressHydrationWarning>
         <body>
           <TRPCReactProvider>
+            <Suspense><LegacyWorkspaceRedirect /></Suspense>
             <a className="skip-link" href="#main-content">
               Skip to content
             </a>
@@ -64,6 +76,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               </main>
             </div>
             <footer className="app-footer">
+              <p><Link href="/google-sheets-privacy">Google Sheets privacy</Link></p>
               <p>© 2026 Skald and Stone LLC</p>
               <details>
                 <summary style={{ cursor: "pointer", paddingBlock: 12 }}>About copyright</summary>

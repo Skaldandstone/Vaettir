@@ -100,8 +100,8 @@ describe("recordReadinessSnapshot (real DB)", () => {
   });
 
   it("is idempotent while nothing changed", async () => {
-    const r = await recordReadinessSnapshot(prisma, releaseId);
-    expect(r.transition).toBe("unchanged");
+    const results = await Promise.all(Array.from({ length: 6 }, () => recordReadinessSnapshot(prisma, releaseId)));
+    expect(results.every(r => r.transition === "unchanged")).toBe(true);
     expect(await prisma.releaseReadinessSnapshot.count({ where: { releaseId } })).toBe(1);
     expect(calls).toHaveLength(0);
   });
@@ -109,9 +109,9 @@ describe("recordReadinessSnapshot (real DB)", () => {
   it("records a score-only move without notifying", async () => {
     // One LOW flag: -2 -> 98, still READY.
     await prisma.riskFlag.create({ data: { releaseId, severity: "LOW", source: "MANUAL_FLAG", description: "minor" } });
-    const r = await recordReadinessSnapshot(prisma, releaseId);
-    expect(r.transition).toBe("score_changed");
-    expect(r.readiness).toMatchObject({ score: 98, label: "READY" });
+    const results = await Promise.all(Array.from({ length: 4 }, () => recordReadinessSnapshot(prisma, releaseId)));
+    expect(results.filter(r => r.transition === "score_changed")).toHaveLength(1);
+    expect(results.every(r => r.readiness.score === 98 && r.readiness.label === "READY")).toBe(true);
     expect(await prisma.releaseReadinessSnapshot.count({ where: { releaseId } })).toBe(2);
     expect(calls).toHaveLength(0);
   });

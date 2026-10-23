@@ -2,6 +2,7 @@ import { Prisma, type PrismaClient } from "@vaettir/db";
 import type { ReverseEngineerResult } from "@vaettir/core";
 import { dispatchWebhookEvent } from "./webhookDelivery.js";
 import { notifySlackEvent } from "./slackEventNotify.js";
+import { assertRepositoryProcessingApproval } from "./repositoryProcessingApproval.js";
 
 // Shared by the synchronous agent.reverseEngineerFile mutation, the
 // background job worker (jobs/reverseEngineerWorker.ts), and P2-13's
@@ -26,28 +27,48 @@ import { notifySlackEvent } from "./slackEventNotify.js";
 // again, same as a brand-new one, even if a person had already approved
 // the old content. A re-imported Gherkin scenario has no such trust gap,
 // so it stays APPROVED.
-export async function persistReverseEngineerResult(
-  prisma: PrismaClient,
-  args: {
+type PersistArgs = {
     projectId: string;
     filePath: string;
     contentHash: string;
     result: ReverseEngineerResult;
     origin?: "AI_REVERSE_ENGINEERED" | "IMPORTED";
-  },
-) {
+    preserveExisting?: boolean;
+    repoUrl?: string;
+    commitSha?: string;
+    processingApprovalId?: string;
+  };
+
+export async function persistReverseEngineerResult(prisma:PrismaClient,args:PersistArgs){
+  if(args.preserveExisting){
+    if(!args.processingApprovalId||!args.repoUrl)throw new Error("Scoped repository persistence requires durable approval and repository identity.");
+    return prisma.$transaction(async tx=>{
+      const approval=await assertRepositoryProcessingApproval(tx,args.processingApprovalId!,args.projectId,"TEST_CASES");
+      if(approval.repositoryUrl!==args.repoUrl||approval.resolvedCommitSha!==args.commitSha)throw new Error("Repository persistence differs from the approved source revision.");
+      return persistResult(tx as unknown as PrismaClient,args);
+    });
+  }
+  return persistResult(prisma,args);
+}
+
+async function persistResult(prisma:PrismaClient,args:PersistArgs) {
+  if(args.preserveExisting&&new Set(args.result.testCases.map(tc=>tc.sourceFunctionName??null)).size!==args.result.testCases.length)throw new Error("Generated test identities are ambiguous. Paid proposals are retained for review; no cases were replaced or duplicated.");
   const origin = args.origin ?? "AI_REVERSE_ENGINEERED";
   const isAi = origin === "AI_REVERSE_ENGINEERED";
 
   const existingSources = await prisma.testCaseSource.findMany({
-    where: { testCase: { projectId: args.projectId }, filePath: args.filePath },
+    where: { testCase: { projectId: args.projectId }, filePath: args.filePath, ...(args.preserveExisting ? {OR:[{repoUrl:args.repoUrl??null},{repoUrl:null}]}: {}) },
     select: { id: true, functionName: true, testCaseId: true },
   });
-  const existingByFunctionName = new Map(existingSources.map((s) => [s.functionName, s]));
+  const existingByFunctionName = new Map(
+    existingSources.map((s) => [s.functionName, s]),
+  );
 
   const persisted = await Promise.all(
-    args.result.testCases.map((tc) => {
-      const existing = existingByFunctionName.get(tc.sourceFunctionName ?? null);
+    args.result.testCases.map(async (tc) => {
+      const existing = existingByFunctionName.get(
+        tc.sourceFunctionName ?? null,
+      );
 
       const testCaseData = {
         title: tc.title,
@@ -57,6 +78,7 @@ export async function persistReverseEngineerResult(
         then: tc.then,
         tags: tc.tags,
         testType: tc.testType as never,
+        ...(isAi ? { automationStatus: "AUTOMATED" as const } : {}),
         confidence: isAi ? tc.confidence : null,
       };
       // Frozen exactly as the AI produced it, never touched by a later
@@ -75,12 +97,22 @@ export async function persistReverseEngineerResult(
         : null;
 
       if (existing) {
+        if(args.preserveExisting){
+          const untouched=await prisma.testCase.findUniqueOrThrow({where:{id:existing.testCaseId},include:{source:true}});
+          return {...untouched,preservedExisting:true};
+        }
         return prisma.testCase.update({
           where: { id: existing.testCaseId },
           data: {
             ...testCaseData,
             aiSnapshot: aiSnapshot ?? Prisma.JsonNull,
-            ...(isAi ? { reviewStatus: "PENDING_REVIEW", reviewedById: null, reviewedAt: null } : {}),
+            ...(isAi
+              ? {
+                  reviewStatus: "PENDING_REVIEW",
+                  reviewedById: null,
+                  reviewedAt: null,
+                }
+              : {}),
             source: {
               update: {
                 contentHash: args.contentHash,
@@ -104,6 +136,8 @@ export async function persistReverseEngineerResult(
           source: {
             create: {
               filePath: args.filePath,
+              repoUrl: args.repoUrl,
+              lastSyncedCommitSha: args.commitSha,
               functionName: tc.sourceFunctionName ?? undefined,
               framework: args.result.detectedFramework,
               frameworkFamily: args.result.detectedFrameworkFamily as never,
@@ -120,20 +154,33 @@ export async function persistReverseEngineerResult(
   // P9-06: one event per file (not per test case) - "N cases from this
   // file need review" is the useful unit, not a notification storm for
   // every individual case in a multi-case file.
-  if (isAi && persisted.length > 0) {
-    const project = await prisma.project.findUnique({ where: { id: args.projectId }, select: { organizationId: true, name: true } });
+  if (isAi && persisted.length > 0 && !args.preserveExisting) {
+    const project = await prisma.project.findUnique({
+      where: { id: args.projectId },
+      select: { organizationId: true, name: true },
+    });
     if (project) {
-      void dispatchWebhookEvent(prisma, project.organizationId, "test_case.review_requested", {
-        projectId: args.projectId,
-        filePath: args.filePath,
-        count: persisted.length,
-        testCaseIds: persisted.map((tc) => tc.id),
-      }).catch(() => undefined);
-      void notifySlackEvent(prisma, project.organizationId, "test_case.review_requested", {
-        projectName: project.name,
-        filePath: args.filePath,
-        count: persisted.length,
-      }).catch(() => undefined);
+      void dispatchWebhookEvent(
+        prisma,
+        project.organizationId,
+        "test_case.review_requested",
+        {
+          projectId: args.projectId,
+          filePath: args.filePath,
+          count: persisted.length,
+          testCaseIds: persisted.map((tc) => tc.id),
+        },
+      ).catch(() => undefined);
+      void notifySlackEvent(
+        prisma,
+        project.organizationId,
+        "test_case.review_requested",
+        {
+          projectName: project.name,
+          filePath: args.filePath,
+          count: persisted.length,
+        },
+      ).catch(() => undefined);
     }
   }
 

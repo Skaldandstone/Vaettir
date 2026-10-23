@@ -1,8 +1,8 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 
 async function gotoKallCompliance(page: import("@playwright/test").Page) {
   await page.goto("/projects");
-  await page.locator("li", { hasText: "Kall" }).getByRole("link", { name: "Kall" }).click();
+  await page.locator("li", { hasText: "Beta fixture" }).getByRole("link", { name: "Beta fixture" }).click();
   await page.getByRole("link", { name: /compliance/i }).click();
   await expect(page.getByRole("heading", { name: "Compliance" })).toBeVisible();
 }

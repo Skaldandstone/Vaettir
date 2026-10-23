@@ -1,10 +1,10 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 
 test.describe("Projects", () => {
   test("the projects list loads and shows at least one existing project", async ({ page }) => {
     await page.goto("/projects");
     await expect(page.getByRole("heading", { name: /projects/i })).toBeVisible();
-    await expect(page.locator("li", { hasText: "Kall" })).toBeVisible();
+    await expect(page.locator("li", { hasText: "Beta fixture" })).toBeVisible();
   });
 
   test("creating a new project adds it to the list", async ({ page }) => {
@@ -35,13 +35,13 @@ test.describe("Projects", () => {
 
   test("a project's Overview page is reachable from the projects list", async ({ page }) => {
     await page.goto("/projects");
-    await page.locator("li", { hasText: "Kall" }).getByRole("link", { name: "Kall" }).click();
+    await page.locator("li", { hasText: "Beta fixture" }).getByRole("link", { name: "Beta fixture" }).click();
     await expect(page).toHaveURL(/\/projects\/[^/]+$/);
   });
 
   test("the project sidebar switcher lists other projects in the same org", async ({ page }) => {
     await page.goto("/projects");
-    await page.locator("li", { hasText: "Kall" }).getByRole("link", { name: "Kall" }).click();
-    await expect(page.locator(".sidebar-project-switcher")).toContainText("Kall");
+    await page.locator("li", { hasText: "Beta fixture" }).getByRole("link", { name: "Beta fixture" }).click();
+    await expect(page.locator(".sidebar-project-switcher")).toContainText("Beta fixture");
   });
 });

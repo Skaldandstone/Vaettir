@@ -10,6 +10,7 @@
     ],
     "jsx": "preserve",
     "noEmit": true,
+    "allowImportingTsExtensions": true,
     "plugins": [
       {
         "name": "next"
@@ -21,7 +22,10 @@
       ]
     },
     "allowJs": true,
-    "incremental": true
+    "incremental": true,
+    "types": [
+      "node"
+    ]
   },
   "include": [
     "next-env.d.ts",

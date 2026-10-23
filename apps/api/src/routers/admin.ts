@@ -1,10 +1,12 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { canAddSeat, type SeatType as CoreSeatType } from "@vaettir/core";
-import { router, staffProcedure } from "../trpc.js";
+import { router, staffProcedure, isStaffEmail } from "../trpc.js";
 import { recordAudit } from "../services/auditLog.js";
 import { previewOrgHardDelete, hardDeleteOrganization } from "../services/orgHardDelete.js";
 import { computeRepoHealthSnapshot } from "../services/repoHealthSnapshot.js";
+import { lockCurrentCaseFieldActor } from "../services/caseFieldReadScope.js";
+import { PRIVATE_BETA_TIER } from "../services/privateBeta.js";
 
 // Phase 13: a staff-only surface for Skald & Stone team members to look up
 // accounts and handle support requests across every org - distinct from
@@ -161,6 +163,33 @@ export const adminRouter = router({
 
   listPlanTiers: staffProcedure.query(({ ctx }) => ctx.prisma.planTier.findMany({ orderBy: { sortOrder: "asc" } })),
 
+  // Staff-owner exception only. Clone the private zero-priced plan instead of
+  // changing a shared tier, a paid subscription, feature flags or AI balances.
+  unlimitedPrivateBetaSeats: staffProcedure.input(z.object({organizationId:z.string(),expectedPlanTierId:z.string(),expectedClerkActorId:z.string(),reason:z.string().trim().min(1).max(500)})).mutation(async({ctx,input})=>{
+    if(!ctx.authenticatedClerkSubject||ctx.authenticatedClerkSubject!==input.expectedClerkActorId)throw new TRPCError({code:"FORBIDDEN"});
+    return ctx.prisma.$transaction(async tx=>{
+      await tx.$queryRaw`SELECT id FROM "Organization" WHERE id=${input.organizationId} FOR UPDATE`;
+      await lockCurrentCaseFieldActor(tx,ctx.user.id,{clerkActorId:ctx.authenticatedClerkSubject!});
+      const actor=await tx.user.findUniqueOrThrow({where:{id:ctx.user.id},select:{email:true}});
+      if(!isStaffEmail(actor.email))throw new TRPCError({code:"FORBIDDEN",message:"Current staff access is required."});
+      await tx.$queryRaw`SELECT id FROM "Membership" WHERE "organizationId"=${input.organizationId} AND "userId"=${ctx.user.id} FOR SHARE`;
+      const member=await tx.membership.findUnique({where:{organizationId_userId:{organizationId:input.organizationId,userId:ctx.user.id}}});
+      const org=await tx.organization.findUniqueOrThrow({where:{id:input.organizationId},include:{planTier:true}});
+      if(org.suspendedAt||member?.role!=="OWNER"||member.seatType!=="FULL")throw new TRPCError({code:"FORBIDDEN",message:"Current full-seat workspace ownership is required."});
+      const key=`private-beta-unlimited:${org.id}`;
+      if(org.planTier.key===key&&org.planTier.maxFullSeats===null&&org.planTier.maxReadOnlySeats===null)return{planTierId:org.planTierId,unlimited:true};
+      if(org.planTierId!==input.expectedPlanTierId)throw new TRPCError({code:"CONFLICT",message:"Workspace plan changed. Review its current state."});
+      await tx.$queryRaw`SELECT id FROM "PlanTier" WHERE id=${org.planTierId} FOR SHARE`;
+      const base=await tx.planTier.findUniqueOrThrow({where:{id:org.planTierId}});
+      if(base.key!==PRIVATE_BETA_TIER||base.isPublic||base.monthlyPricePerSeatCents!==0||base.stripePriceId||org.stripeSubscriptionId)throw new TRPCError({code:"PRECONDITION_FAILED",message:"This exception is limited to a private zero-priced beta workspace without a paid subscription."});
+      if(await tx.planTier.findUnique({where:{key}}))throw new TRPCError({code:"CONFLICT",message:"A prior private-seat configuration requires review."});
+      const tier=await tx.planTier.create({data:{key,name:`${base.name} · Unlimited seats`,sortOrder:base.sortOrder,isPublic:false,minFullSeats:base.minFullSeats,maxFullSeats:null,includedReadOnlySeats:base.includedReadOnlySeats,maxReadOnlySeats:null,monthlyPricePerSeatCents:base.monthlyPricePerSeatCents,stripePriceId:base.stripePriceId,includedAiCreditsPerMonth:base.includedAiCreditsPerMonth,enabledFeatures:base.enabledFeatures}});
+      await tx.organization.update({where:{id:org.id},data:{planTierId:tier.id}});
+      await tx.auditLog.create({data:{organizationId:org.id,actorId:ctx.user.id,entityType:"Admin:SeatException",entityId:org.id,action:"UPDATE",summary:"Staff owner enabled unlimited full and read-only seats for this private workspace",metadata:{source:"staff_admin",reason:input.reason,previousPlanTierId:base.id,newPlanTierId:tier.id,previousMaxFullSeats:base.maxFullSeats,previousMaxReadOnlySeats:base.maxReadOnlySeats}}});
+      return{planTierId:tier.id,unlimited:true};
+    });
+  }),
+
   // P13-03: manually adjust a customer's plan tier ahead of P12-05's real
   // billing integration - same overflow validation changePlanTier already
   // uses (can't move an org below what's actually seated), plus a required
@@ -177,6 +206,7 @@ export const adminRouter = router({
       ]);
 
       const fullSeats = org.memberships.filter((m) => m.seatType === "FULL").length;
+      if(targetTier.key.startsWith("private-beta-unlimited:")&&targetTier.key!==`private-beta-unlimited:${org.id}`)throw new TRPCError({code:"FORBIDDEN",message:"This private seat exception belongs to another workspace."});
       const readOnlySeats = org.memberships.filter((m) => m.seatType === "READ_ONLY").length;
       const overflows: string[] = [];
       if (targetTier.maxFullSeats !== null && fullSeats > targetTier.maxFullSeats) {

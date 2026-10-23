@@ -1,0 +1,40 @@
+# Docker Official Image via ECR Public avoids shared CodeBuild Docker Hub pull limits.
+# Trixie carries Debian fixes unavailable in Bookworm for the release-blocking
+# Perl CVEs. Keep the package floor below and rescan each final image digest.
+FROM public.ecr.aws/docker/library/node:22-trixie-slim@sha256:b26b04c123d9ff8ab646ceb18b9d75a1173acf64b9a401094b906d27b29338d4 AS vendor-build
+# Build signed maintained Debian Expat 2.9.0, including the XML_ParseBuffer
+# bounds fix. No unstable binary packages or compiler reach runtime.
+RUN apt-get update --error-on=any \
+    && apt-get install -y --no-install-recommends openssl ca-certificates perl-base libpcre2-8-0 build-essential debhelper po-debconf docbook-to-man docbook2x autoconf automake libtool pkg-config gpgv debian-keyring \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' perl-base)" ge '5.40.1-6+deb13u1' \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libpcre2-8-0)" ge '10.46-1~deb13u3' \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /build
+COPY scripts/fetch-runtime-vendor-sources.mjs scripts/runtime-vendor-sources.json /build/scripts/
+COPY scripts/fetch-expat-runtime-sources.mjs scripts/expat-runtime-sources.json /build/scripts/
+COPY scripts/check-expat-wide-runtime.c scripts/check-expat-buffer-runtime.c /build/scripts/
+RUN node /build/scripts/fetch-expat-runtime-sources.mjs /build/runtime-sources \
+    && cd /build/runtime-sources \
+    && gpgv --keyring /usr/share/keyrings/debian-keyring.gpg --status-fd 1 expat_2.9.0-1.dsc > /build/expat-source-signature.status \
+    && grep -q '^\[GNUPG:\] VALIDSIG 7D887DC8BA7BBBA7B835E3BADCE310E7864CC8BF ' /build/expat-source-signature.status \
+    && dpkg-source -x expat_2.9.0-1.dsc /build/expat \
+    && cd /build/expat \
+    && timeout 900 env DEB_BUILD_OPTIONS=parallel=2 dpkg-buildpackage -b -us -uc \
+    && (timeout 600 make -C build check > /build/expat-upstream-check.log 2>&1 || { cat /build/expat-upstream-check.log; exit 1; }) \
+    && gcc -std=c11 -Wall -Wextra -Werror -I/build/expat/srcw/lib /build/scripts/check-expat-wide-runtime.c -L/build/expat/buildw/lib/.libs -Wl,-rpath,/build/expat/buildw/lib/.libs -lexpatw -o /build/check-expat-wide \
+    && timeout 10 /build/check-expat-wide \
+    && gcc -std=c11 -Wall -Wextra -Werror -I/build/expat/src/lib /build/scripts/check-expat-buffer-runtime.c -L/build/expat/build/lib/.libs -Wl,-rpath,/build/expat/build/lib/.libs -lexpat -o /build/check-expat-buffer \
+    && timeout 10 /build/check-expat-buffer \
+    && gcc -std=c11 -Wall -Wextra -Werror -DXML_UNICODE -I/build/expat/srcw/lib /build/scripts/check-expat-buffer-runtime.c -L/build/expat/buildw/lib/.libs -Wl,-rpath,/build/expat/buildw/lib/.libs -lexpatw -o /build/check-expat-buffer-wide \
+    && timeout 10 /build/check-expat-buffer-wide
+
+FROM scratch AS expat-security-proof
+ARG VAETTIR_RELEASE_COMMIT
+LABEL vaettir.artifact-purpose="expat-security-package-proof" vaettir.runtime-eligible="false" vaettir.source-commit=$VAETTIR_RELEASE_COMMIT
+COPY --from=vendor-build /build/libexpat1_2.9.0-1_*.deb /proof/packages/
+COPY --from=vendor-build /build/expat-source-signature.status /proof/receipts/
+COPY --from=vendor-build /build/expat-upstream-check.log /proof/receipts/
+COPY --from=vendor-build /build/runtime-sources /proof/sources/
+COPY --from=vendor-build /build/check-expat-wide /proof/checks/
+COPY --from=vendor-build /build/check-expat-buffer /proof/checks/
+COPY --from=vendor-build /build/check-expat-buffer-wide /proof/checks/

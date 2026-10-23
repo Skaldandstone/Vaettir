@@ -1,0 +1,293 @@
+{
+  "version": "runtime-security-sources/v1",
+  "components": {
+    "glibc": {
+      "sourceVersion": "2.41-12+deb13u4",
+      "signer": "52BC8695BE34F90AD7D40CB81388C0F899E8336B",
+      "primarySigner": "77462642A9EF94FD0F77196DBA9C78061DDD8C9B",
+      "sourceFiles": [
+        {
+          "name": "glibc_2.41-12+deb13u4.dsc",
+          "sha256": "0915324aa646bb99abfaa9aa6ecb734b30babd28454a3e51f3152912370fbd3e",
+          "bytes": 7576,
+          "url": "https://deb.debian.org/debian/pool/main/g/glibc/glibc_2.41-12+deb13u4.dsc"
+        },
+        {
+          "name": "glibc_2.41.orig.tar.xz",
+          "sha256": "f24aa441021121a79266f0d75242706cab8843a47901fefe74527491807f1998",
+          "bytes": 20323540,
+          "url": "https://deb.debian.org/debian/pool/main/g/glibc/glibc_2.41.orig.tar.xz"
+        },
+        {
+          "name": "glibc_2.41-12+deb13u4.debian.tar.xz",
+          "sha256": "dda4153511bfd543502d18e5bc9323110996fe9c531f14ae3fad6eb17f027c7d",
+          "bytes": 499524,
+          "url": "https://deb.debian.org/debian/pool/main/g/glibc/glibc_2.41-12+deb13u4.debian.tar.xz"
+        }
+      ],
+      "patches": [
+        {
+          "name": "127d20da1c7f55008e723a0b7a3f693256323a2b.patch",
+          "commit": "127d20da1c7f55008e723a0b7a3f693256323a2b",
+          "sha256": "a3940397eefc0ea51ca0a84bc06a90236d413a4acf8119087f5c9c94e3fc76ba",
+          "bytes": 2174,
+          "url": "https://sourceware.org/git/?p=glibc.git;a=patch;h=127d20da1c7f55008e723a0b7a3f693256323a2b",
+          "tests": []
+        },
+        {
+          "name": "2b789d4ca95c73dc6fc456bf8a767e8b586e2539.patch",
+          "commit": "2b789d4ca95c73dc6fc456bf8a767e8b586e2539",
+          "sha256": "38289cf413002206fb647b6d05981c13535b28d1cde144c03bc032f4dd539e5e",
+          "bytes": 2561,
+          "url": "https://sourceware.org/git/?p=glibc.git;a=patch;h=2b789d4ca95c73dc6fc456bf8a767e8b586e2539",
+          "tests": []
+        },
+        {
+          "name": "6448c1174ae74756e9db3ba26463a450e38be6c1.patch",
+          "commit": "6448c1174ae74756e9db3ba26463a450e38be6c1",
+          "sha256": "b2d78661fe7b678259914f5d477a379a385a7a09306c0f9229f7db75a447ff3c",
+          "bytes": 1543,
+          "url": "https://sourceware.org/git/?p=glibc.git;a=patch;h=6448c1174ae74756e9db3ba26463a450e38be6c1",
+          "tests": []
+        },
+        {
+          "name": "1c77f57252fd8cfeb30c988a001cd1aab172483b.patch",
+          "commit": "1c77f57252fd8cfeb30c988a001cd1aab172483b",
+          "sha256": "442c818cb98e2f6574ff31c277574cc524d7ea249cb198d23b3dd4669b513563",
+          "bytes": 2208,
+          "url": "https://sourceware.org/git/?p=glibc.git;a=patch;h=1c77f57252fd8cfeb30c988a001cd1aab172483b",
+          "tests": []
+        },
+        {
+          "name": "0e8c56b386d72ba2ddf15784423f2e894c63a241.patch",
+          "commit": "0e8c56b386d72ba2ddf15784423f2e894c63a241",
+          "sha256": "30dc13347a8c63383eeb21868f91ce345651b2fd2067aaae75ad1305e0053348",
+          "bytes": 3663,
+          "url": "https://sourceware.org/git/?p=glibc.git;a=patch;h=0e8c56b386d72ba2ddf15784423f2e894c63a241",
+          "tests": []
+        },
+        {
+          "name": "05e1eaea619072a92ff1f5fefe1ac2dd5758829c.patch",
+          "commit": "05e1eaea619072a92ff1f5fefe1ac2dd5758829c",
+          "sha256": "0189d3364f0f72c01ae23d62035618151f02158f7e3e73b2b6be13de33f6698c",
+          "bytes": 2217,
+          "url": "https://sourceware.org/git/?p=glibc.git;a=patch;h=05e1eaea619072a92ff1f5fefe1ac2dd5758829c",
+          "tests": []
+        },
+        {
+          "name": "ca40a1976888c62c3de02a3d3341282ce7590b4a.patch",
+          "commit": "ca40a1976888c62c3de02a3d3341282ce7590b4a",
+          "sha256": "69fe347b0390e93845333a884c3f2d98950505400414b60ed86b736cb2d30458",
+          "bytes": 15232,
+          "url": "https://sourceware.org/git/?p=glibc.git;a=patch;h=ca40a1976888c62c3de02a3d3341282ce7590b4a",
+          "tests": [
+            "resolv/tst-ns_sprintrr.c"
+          ]
+        },
+        {
+          "name": "965b580070b8184b0dd390800d9194291a600e67.patch",
+          "commit": "965b580070b8184b0dd390800d9194291a600e67",
+          "sha256": "e564c003db5103b22e5b5ed8d624690ca6722eb1cd1c5b867649a345694a7bdd",
+          "bytes": 11101,
+          "url": "https://sourceware.org/git/?p=glibc.git;a=patch;h=965b580070b8184b0dd390800d9194291a600e67",
+          "tests": [
+            "posix/tst-wordexp-tilde.c",
+            "posix/tst-wordexp-tilde.root/etc/group",
+            "posix/tst-wordexp-tilde.root/etc/nsswitch.conf",
+            "posix/tst-wordexp-tilde.root/etc/passwd"
+          ]
+        },
+        {
+          "name": "dfc8ef388ef7856f318ade7dec501f92ce54f9e3.patch",
+          "commit": "dfc8ef388ef7856f318ade7dec501f92ce54f9e3",
+          "sha256": "d8646d3888c1c6bff55e77bbf275f5549391f4536efcd176c2a1e654857f8f4b",
+          "bytes": 18583,
+          "url": "https://sourceware.org/git/?p=glibc.git;a=patch;h=dfc8ef388ef7856f318ade7dec501f92ce54f9e3",
+          "tests": [
+            "posix/tst-wordexp-append.c"
+          ]
+        },
+        {
+          "name": "6826bb0ed01615c554dcae3790e4cd08c395e0da.patch",
+          "commit": "6826bb0ed01615c554dcae3790e4cd08c395e0da",
+          "sha256": "91d5af8cf09241cb2b248acac35b3185a831391b106e0ad9d4fb917b795b15e9",
+          "bytes": 1966,
+          "url": "https://sourceware.org/git/?p=glibc.git;a=patch;h=6826bb0ed01615c554dcae3790e4cd08c395e0da",
+          "tests": []
+        },
+        {
+          "name": "9318c2571576017d280a31b7b9ab576c9b696b1a.patch",
+          "commit": "9318c2571576017d280a31b7b9ab576c9b696b1a",
+          "sha256": "4dac7eb1610b938dbb3c9ddc390bdf0f4da01e1f757a47f61022ed45bffaa88e",
+          "bytes": 3368,
+          "url": "https://sourceware.org/git/?p=glibc.git;a=patch;h=9318c2571576017d280a31b7b9ab576c9b696b1a",
+          "tests": []
+        },
+        {
+          "name": "5256941bc811248670eda4636dccd0a390d34dec.patch",
+          "commit": "5256941bc811248670eda4636dccd0a390d34dec",
+          "sha256": "aaa730edd654b954bc7f2b82eaadee091d87c47c5ea250a9f579172cfbda6b96",
+          "bytes": 3619,
+          "url": "https://sourceware.org/git/?p=glibc.git;a=patch;h=5256941bc811248670eda4636dccd0a390d34dec",
+          "tests": [
+            "stdlib/tst-strfmon-bug34510.c"
+          ]
+        },
+        {
+          "name": "e43e46f94398b3de446fec11da1e7633ea5202ec.patch",
+          "commit": "e43e46f94398b3de446fec11da1e7633ea5202ec",
+          "sha256": "b521dbf688487b2a6f3f4f51cc5968382cff04d556c56c25ae87b3b4905ce823",
+          "bytes": 984,
+          "url": "https://sourceware.org/git/?p=glibc.git;a=patch;h=e43e46f94398b3de446fec11da1e7633ea5202ec",
+          "tests": []
+        },
+        {
+          "name": "ec116a0fbedcc860631e525e70b409cf295f27da.patch",
+          "commit": "ec116a0fbedcc860631e525e70b409cf295f27da",
+          "sha256": "eb93b11c64893543ad81a8afffbc9d51c822f8d60fc416439433f37dfcbc66cd",
+          "bytes": 972,
+          "url": "https://sourceware.org/git/?p=glibc.git;a=patch;h=ec116a0fbedcc860631e525e70b409cf295f27da",
+          "tests": []
+        },
+        {
+          "name": "3d141c23899d90559741b5fe74db97ccf0ef5c29.patch",
+          "commit": "3d141c23899d90559741b5fe74db97ccf0ef5c29",
+          "sha256": "e3f5d70ae640c42bfb06463b1e839a5ba7a02c80250f6ef741cf7dd3c8f18ac6",
+          "bytes": 5702,
+          "url": "https://sourceware.org/git/?p=glibc.git;a=patch;h=3d141c23899d90559741b5fe74db97ccf0ef5c29",
+          "tests": [
+            "iconvdata/tst-jisx0213-progress.c"
+          ]
+        },
+        {
+          "name": "f806c45178dbca3be08a25cc5dd6d5542ce84a59.patch",
+          "commit": "f806c45178dbca3be08a25cc5dd6d5542ce84a59",
+          "sha256": "ffad85d2a8e7e6b420e085483a1ae1031a13421b5eb7c1df281b6e35468eb9c3",
+          "bytes": 2175,
+          "url": "https://sourceware.org/git/?p=glibc.git;a=patch;h=f806c45178dbca3be08a25cc5dd6d5542ce84a59",
+          "tests": []
+        },
+        {
+          "name": "5dd252cf1d113644b3679f5a158e9ef20217865e.patch",
+          "commit": "5dd252cf1d113644b3679f5a158e9ef20217865e",
+          "sha256": "c30c11233e19e12fd609d8dbaf9e3252e91587e3ac675605efc37301fb61fb29",
+          "bytes": 3183,
+          "url": "https://sourceware.org/git/?p=glibc.git;a=patch;h=5dd252cf1d113644b3679f5a158e9ef20217865e",
+          "tests": [
+            "libio/tst-fopen-ccs-empty.c"
+          ]
+        },
+        {
+          "name": "c97fdd483232a831829aaff458a212307f1bf4bc.patch",
+          "commit": "c97fdd483232a831829aaff458a212307f1bf4bc",
+          "sha256": "d77771588b6923ac74488d812d9ae15bbfcf404ca83ed3008126ddc0f04cf5c2",
+          "bytes": 5033,
+          "url": "https://sourceware.org/git/?p=glibc.git;a=patch;h=c97fdd483232a831829aaff458a212307f1bf4bc",
+          "tests": [
+            "resolv/tst-resolv-res_init-skeleton.c"
+          ]
+        },
+        {
+          "name": "eeb687bb4b371d67abcd3c4c84d5990d8bc78b71.patch",
+          "commit": "eeb687bb4b371d67abcd3c4c84d5990d8bc78b71",
+          "sha256": "4559eee11bd7c3e758c1bc9f7f24c0f4b4ee2a58d7f321b986b8306730aa4797",
+          "bytes": 4159,
+          "url": "https://sourceware.org/git/?p=glibc.git;a=patch;h=eeb687bb4b371d67abcd3c4c84d5990d8bc78b71",
+          "tests": []
+        },
+        {
+          "name": "629565b0c91dc326ac622b05982f21a374cd03c4.patch",
+          "commit": "629565b0c91dc326ac622b05982f21a374cd03c4",
+          "sha256": "5b41e0c2a36964b734a4cdd210e95ec6d730c668df7a9f68d6494a6a418c1b42",
+          "bytes": 30726,
+          "url": "https://sourceware.org/git/?p=glibc.git;a=patch;h=629565b0c91dc326ac622b05982f21a374cd03c4",
+          "tests": [
+            "elf/tst-dl-path-normalize.c",
+            "elf/tst-origin-secure-evilmod.c",
+            "elf/tst-origin-secure-victim.c",
+            "elf/tst-origin-secure.c",
+            "elf/tst-origin-secure.h",
+            "elf/tst-origin-secure.root/postclean.req"
+          ]
+        },
+        {
+          "name": "fa3ea0362354af7370abb5fe8c6f31a32a73af8e.patch",
+          "commit": "fa3ea0362354af7370abb5fe8c6f31a32a73af8e",
+          "sha256": "b0b3a799eb7d8891d7398e5c04851c4005b42c803612f58f494edf5db606d616",
+          "bytes": 8813,
+          "url": "https://sourceware.org/git/?p=glibc.git;a=patch;h=fa3ea0362354af7370abb5fe8c6f31a32a73af8e",
+          "tests": []
+        },
+        {
+          "name": "f247c0a2fb5b3e48a771d2d23efc9a45c64e957d.patch",
+          "commit": "f247c0a2fb5b3e48a771d2d23efc9a45c64e957d",
+          "sha256": "aa0850d14a87a2f0fce21ab78cf5530151abf65c3a788decf3a89bd634949657",
+          "bytes": 4326,
+          "url": "https://sourceware.org/git/?p=glibc.git;a=patch;h=f247c0a2fb5b3e48a771d2d23efc9a45c64e957d",
+          "tests": [
+            "string/test-strncasecmp-nonarray.c"
+          ]
+        }
+      ]
+    },
+    "freetype": {
+      "sourceVersion": "2.13.3+dfsg-1+deb13u1",
+      "signer": "B6E62F3D12AC38495C0DA90510C293B6C37C4E36",
+      "primarySigner": "B6E62F3D12AC38495C0DA90510C293B6C37C4E36",
+      "sourceFiles": [
+        {
+          "name": "freetype_2.13.3+dfsg-1+deb13u1.dsc",
+          "sha256": "8aa6e936f4b8ce5b1ac530d3c1bc7c5c36e6432ef81385c29ce649a3ed79e8cd",
+          "bytes": 3691,
+          "url": "https://deb.debian.org/debian/pool/main/f/freetype/freetype_2.13.3+dfsg-1+deb13u1.dsc"
+        },
+        {
+          "name": "freetype_2.13.3+dfsg.orig-ft2demos.tar.xz",
+          "sha256": "8775e5ffded1a885ba2ccb3ea0e82c73306a03b764080c3e4c79da15b5c9a28a",
+          "bytes": 342404,
+          "url": "https://deb.debian.org/debian/pool/main/f/freetype/freetype_2.13.3+dfsg.orig-ft2demos.tar.xz"
+        },
+        {
+          "name": "freetype_2.13.3+dfsg.orig-ft2demos.tar.xz.asc",
+          "sha256": "931bfa17e59c0ec7db391160f43977e0907f36ea3c39d7e6063731cd4612dd51",
+          "bytes": 833,
+          "url": "https://deb.debian.org/debian/pool/main/f/freetype/freetype_2.13.3+dfsg.orig-ft2demos.tar.xz.asc"
+        },
+        {
+          "name": "freetype_2.13.3+dfsg.orig-ft2docs.tar.xz",
+          "sha256": "b7b66149bea769e226fd3d6d1eee6160e5b6beb4249b088071434fbe85fd1070",
+          "bytes": 2173852,
+          "url": "https://deb.debian.org/debian/pool/main/f/freetype/freetype_2.13.3+dfsg.orig-ft2docs.tar.xz"
+        },
+        {
+          "name": "freetype_2.13.3+dfsg.orig-ft2docs.tar.xz.asc",
+          "sha256": "65c66aec6244d247540430b21d3e80b677f1361906347a5be7fad371d46655da",
+          "bytes": 833,
+          "url": "https://deb.debian.org/debian/pool/main/f/freetype/freetype_2.13.3+dfsg.orig-ft2docs.tar.xz.asc"
+        },
+        {
+          "name": "freetype_2.13.3+dfsg.orig.tar.xz",
+          "sha256": "686ec73cbf6783b245dd068a09ce807b729ac0f8a46dd70f7867923c32fdf4de",
+          "bytes": 2201416,
+          "url": "https://deb.debian.org/debian/pool/main/f/freetype/freetype_2.13.3+dfsg.orig.tar.xz"
+        },
+        {
+          "name": "freetype_2.13.3+dfsg-1+deb13u1.debian.tar.xz",
+          "sha256": "e7a07cad1b9c803457ec310bc87132429f52171c89f9126c09eb62e203c8c84b",
+          "bytes": 44488,
+          "url": "https://deb.debian.org/debian/pool/main/f/freetype/freetype_2.13.3+dfsg-1+deb13u1.debian.tar.xz"
+        }
+      ],
+      "patches": [
+        {
+          "name": "f3ca71c9900fe860849b3163a6e2c1e765b291d9.patch",
+          "commit": "f3ca71c9900fe860849b3163a6e2c1e765b291d9",
+          "sha256": "42ca9cdf2da27ac0f5054bc96bf08b122e96f25116372712b0e37bd3ec350d89",
+          "bytes": 1322,
+          "url": "https://gitlab.freedesktop.org/freetype/freetype/-/commit/f3ca71c9900fe860849b3163a6e2c1e765b291d9.patch",
+          "tests": []
+        }
+      ]
+    }
+  }
+}

@@ -3,6 +3,9 @@ import type { CreateFastifyContextOptions } from "@trpc/server/adapters/fastify"
 import { prisma, type OrgRole } from "@vaettir/db";
 import { verifyClerkSessionToken, getOrCreateLocalUser } from "./clerk.js";
 import { hashApiKey, looksLikeApiKey } from "./services/apiKeyAuth.js";
+import { publicTrpcErrorShape } from "./publicErrors.js";
+import { requestWorkspaceOrganization, requestWorkspaceHost } from "./services/workspaceDomainIngress.js";
+import { reportPrivilegedAccessDenied, type SecurityEventLogger } from "./services/securityEvents.js";
 
 function extractBearerToken(authHeader: string | undefined): string | null {
   if (!authHeader?.startsWith("Bearer ")) return null;
@@ -17,7 +20,8 @@ async function resolveApiKeyUser(rawKey: string) {
   if (!apiKey || apiKey.revokedAt) return null;
   // Best-effort last-used tracking; never let it block or fail the request.
   prisma.apiKey.update({ where: { id: apiKey.id }, data: { lastUsedAt: new Date() } }).catch(() => undefined);
-  return prisma.user.findUnique({ where: { id: apiKey.serviceUserId }, include: { memberships: true } });
+  const user = await prisma.user.findUnique({ where: { id: apiKey.serviceUserId }, include: { memberships: true } });
+  return user ? { user, apiKeyId: apiKey.id } : null;
 }
 
 // The staff plane is a SEPARATE identity from tenant users: cross-org support
@@ -38,29 +42,74 @@ function resolveStaff(headers: CreateFastifyContextOptions["req"]["headers"]): {
 }
 
 export async function createContext({ req }: CreateFastifyContextOptions) {
+  const workspaceOrganizationId = requestWorkspaceOrganization(req);
+  const workspaceHost = requestWorkspaceHost(req);
   const token = extractBearerToken(req.headers.authorization);
+  // Preserve the independently verified transport subject, not a native row's
+  // current mapping. API keys deliberately do not acquire human-session proof.
+  let authenticatedClerkSubject: string | null = null;
+  let authenticatedApiKeyId: string | null = null;
 
   const user = !token
     ? null
     : looksLikeApiKey(token)
-      ? await resolveApiKeyUser(token)
-      : await verifyClerkSessionToken(token).then((clerkUserId) =>
+      ? await resolveApiKeyUser(token).then((resolved) => {
+          if (!resolved) return null;
+          authenticatedApiKeyId = resolved.apiKeyId;
+          return resolved.user;
+        })
+      : await (workspaceHost
+          ? verifyClerkSessionToken(token, [`https://${workspaceHost}`])
+          : verifyClerkSessionToken(token)).then((clerkUserId) =>
           clerkUserId
-            ? getOrCreateLocalUser(clerkUserId).then((u) =>
-                prisma.user.findUniqueOrThrow({ where: { id: u.id }, include: { memberships: true } }),
-              )
+            ? getOrCreateLocalUser(clerkUserId).then(async (u) => {
+                const current = await prisma.user.findUniqueOrThrow({ where: { id: u.id }, include: { memberships: true } });
+                // Verified-email recovery can remap this native row between
+                // mirroring and rereading. Never replace the verified JWT subject.
+                if (current.clerkUserId !== clerkUserId) return null;
+                authenticatedClerkSubject = clerkUserId;
+                return current;
+              })
             : null,
         );
 
-  return { prisma, user, staff: resolveStaff(req.headers) };
+  return {
+    prisma,
+    user: user && workspaceOrganizationId
+      ? { ...user, memberships: user.memberships.filter(m => m.organizationId === workspaceOrganizationId) }
+      : user,
+    workspaceOrganizationId,
+    authenticatedClerkSubject,
+    authenticatedApiKeyId,
+    staff: resolveStaff(req.headers),
+    securityLogger: req.log as SecurityEventLogger,
+    staffAttempt: {
+      tokenConfigured: Boolean(process.env.STAFF_ADMIN_TOKEN),
+      tokenPresented: typeof req.headers["x-staff-token"] === "string",
+      actorHeaderPresented: typeof req.headers["x-staff-actor"] === "string",
+    },
+  };
 }
 
-export type Context = Awaited<ReturnType<typeof createContext>>;
+// Existing internal callers/fixtures may omit transport provenance. New
+// human-session-only endpoints must refuse absence; never infer it from user.
+export type Context = Omit<Awaited<ReturnType<typeof createContext>>, "authenticatedClerkSubject" | "authenticatedApiKeyId" | "workspaceOrganizationId"> & {
+  authenticatedClerkSubject?: string | null;
+  authenticatedApiKeyId?: string | null;
+  workspaceOrganizationId?: string | null;
+};
 
-const t = initTRPC.context<Context>().create();
+const t = initTRPC.context<Context>().create({
+  errorFormatter({ shape, error }) {
+    return publicTrpcErrorShape(error.code, shape);
+  },
+});
 
 export const router = t.router;
-export const publicProcedure = t.procedure;
+export const publicProcedure = t.procedure.use(({ ctx, next }) => {
+  if (ctx.workspaceOrganizationId) throw new TRPCError({ code: "FORBIDDEN" });
+  return next({ ctx });
+});
 
 // Requires a valid Clerk session; does not by itself check org/project
 // membership -- see requireProjectAccess for that. Every router handling
@@ -69,6 +118,8 @@ export const protectedProcedure = t.procedure.use(({ ctx, next }) => {
   if (!ctx.user) {
     throw new TRPCError({ code: "UNAUTHORIZED" });
   }
+  if (ctx.workspaceOrganizationId && !ctx.user.memberships.some(m => m.organizationId === ctx.workspaceOrganizationId))
+    throw new TRPCError({ code: "FORBIDDEN", message: "Not a member of this workspace." });
   return next({ ctx: { ...ctx, user: ctx.user } });
 });
 
@@ -78,7 +129,14 @@ export const protectedProcedure = t.procedure.use(({ ctx, next }) => {
 // which serves staff humans signed into the product itself. Calls are audited
 // at the Adminhelper layer via the forwarded X-Staff-Actor.
 export const staffTokenProcedure = t.procedure.use(({ ctx, next }) => {
+  if (ctx.workspaceOrganizationId) throw new TRPCError({ code: "FORBIDDEN" });
   if (!ctx.staff) {
+    reportPrivilegedAccessDenied(ctx.securityLogger, {
+      surface: "staff_token",
+      reason: ctx.staffAttempt?.tokenConfigured ? "staff_token_missing_or_invalid" : "staff_token_disabled",
+      tokenPresented: ctx.staffAttempt?.tokenPresented ?? false,
+      actorHeaderPresented: ctx.staffAttempt?.actorHeaderPresented ?? false,
+    });
     throw new TRPCError({ code: "UNAUTHORIZED", message: "Staff access token required" });
   }
   return next({ ctx: { ...ctx, staff: ctx.staff } });
@@ -98,10 +156,12 @@ const ROLE_RANK: Record<OrgRole, number> = {
  * org-level router (settings, seats, billing) should use.
  */
 export function requireOrgRole(
-  ctx: { user: NonNullable<Context["user"]> },
+  ctx: { user: NonNullable<Context["user"]>; workspaceOrganizationId?: string | null },
   organizationId: string,
   minRole: OrgRole = "VIEWER",
 ) {
+  if (ctx.workspaceOrganizationId && ctx.workspaceOrganizationId !== organizationId)
+    throw new TRPCError({ code: "FORBIDDEN", message: "This address belongs to a different workspace." });
   const membership = ctx.user.memberships.find((m) => m.organizationId === organizationId);
   if (!membership || ROLE_RANK[membership.role] < ROLE_RANK[minRole]) {
     throw new TRPCError({ code: "FORBIDDEN", message: "Not a member of this organization" });
@@ -129,7 +189,7 @@ export async function requireNotSuspended(db: typeof prisma, organizationId: str
  * every router resolving a project must call this before touching data.
  */
 export async function requireProjectAccess(
-  ctx: { prisma: typeof prisma; user: NonNullable<Context["user"]> },
+  ctx: { prisma: typeof prisma; user: NonNullable<Context["user"]>; workspaceOrganizationId?: string | null },
   projectId: string,
   minRole: OrgRole = "VIEWER",
 ) {
@@ -146,28 +206,40 @@ export async function requireProjectAccess(
   return { project, membership };
 }
 
-// P13-01: staff auth gate. Deliberately independent of any Membership --
+// P13-01: owner/staff auth gate. Deliberately independent of any Membership --
 // a customer OWNER in their own org must not get access here, and a Skald
 // & Stone staff member shouldn't need a Membership in every customer org
 // just to look one up. Gated on the user's real Clerk-verified email
-// (never client-suppliable), matched against a configured staff domain
-// (default skaldandstone.com) plus an optional explicit allowlist for
-// staff on a different domain.
-const STAFF_EMAIL_DOMAIN = (process.env.STAFF_EMAIL_DOMAIN ?? "skaldandstone.com").toLowerCase();
-const STAFF_EMAIL_ALLOWLIST = new Set(
-  (process.env.STAFF_EMAIL_ALLOWLIST ?? "")
-    .split(",")
-    .map((e: string) => e.trim().toLowerCase())
-    .filter(Boolean),
-);
+// (never client-suppliable), matched against an exact allowlist. A domain
+// match is intentionally insufficient: public sign-up means another address
+// at the company domain must not silently inherit cross-organization access.
+// Keep the old STAFF_EMAIL_ALLOWLIST name as a deployment-compatible fallback,
+// but the default and preferred variable grant only James full product access.
+const DEFAULT_FULL_ACCESS_EMAIL = "james@skaldandstone.com";
+
+function fullAccessEmailAllowlist() {
+  const configured = process.env.FULL_ACCESS_EMAIL_ALLOWLIST?.trim()
+    || process.env.STAFF_EMAIL_ALLOWLIST?.trim()
+    || DEFAULT_FULL_ACCESS_EMAIL;
+  return new Set(
+    configured
+      .split(",")
+      .map((e: string) => e.trim().toLowerCase())
+      .filter(Boolean),
+  );
+}
 
 export function isStaffEmail(email: string): boolean {
-  const normalized = email.toLowerCase();
-  return normalized.endsWith(`@${STAFF_EMAIL_DOMAIN}`) || STAFF_EMAIL_ALLOWLIST.has(normalized);
+  return fullAccessEmailAllowlist().has(email.trim().toLowerCase());
 }
 
 export const staffProcedure = protectedProcedure.use(({ ctx, next }) => {
+  if (ctx.workspaceOrganizationId) throw new TRPCError({ code: "FORBIDDEN" });
   if (!isStaffEmail(ctx.user.email)) {
+    reportPrivilegedAccessDenied(ctx.securityLogger, {
+      surface: "staff_email",
+      reason: "email_not_allowlisted",
+    });
     throw new TRPCError({ code: "FORBIDDEN", message: "Staff access required" });
   }
   return next({ ctx });
@@ -193,6 +265,10 @@ const LIVE_APP_SCAN_ALLOWLIST = new Set(
 
 export const liveAppScanProcedure = protectedProcedure.use(({ ctx, next }) => {
   if (!LIVE_APP_SCAN_ALLOWLIST.has(ctx.user.email.toLowerCase())) {
+    reportPrivilegedAccessDenied(ctx.securityLogger, {
+      surface: "live_app_scan",
+      reason: "feature_not_allowlisted",
+    });
     throw new TRPCError({ code: "FORBIDDEN", message: "This feature is limited to a small allowlist while it's new and unproven." });
   }
   return next({ ctx });

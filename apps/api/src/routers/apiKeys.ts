@@ -1,8 +1,20 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
+import { Prisma } from "@vaettir/db";
 import { router, protectedProcedure, requireOrgRole } from "../trpc.js";
 import { generateApiKey } from "../services/apiKeyAuth.js";
 
 const ROLES = z.enum(["VIEWER", "COMPLIANCE_AUDITOR", "EDITOR", "ADMIN"]);
+
+async function requireLiveKeyAdmin(tx: Prisma.TransactionClient, organizationId: string, userId: string, fullSeat: boolean) {
+  // Lock both rows through the credential write. Member removal and staff
+  // ownership transfers do not all take the organization lock.
+  const org = await tx.$queryRaw<Array<{ suspendedAt: Date | null }>>`SELECT "suspendedAt" FROM "Organization" WHERE "id"=${organizationId} FOR UPDATE`;
+  const member = await tx.$queryRaw<Array<{ role: string; seatType: string }>>`SELECT "role", "seatType" FROM "Membership" WHERE "organizationId"=${organizationId} AND "userId"=${userId} FOR UPDATE`;
+  if (!org[0] || org[0].suspendedAt || !member[0] || !["OWNER", "ADMIN"].includes(member[0].role) || (fullSeat && member[0].seatType !== "FULL")) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Current workspace administrator access is required." });
+  }
+}
 
 export const apiKeysRouter = router({
   list: protectedProcedure
@@ -22,9 +34,12 @@ export const apiKeysRouter = router({
     )
     .query(async ({ ctx, input }) => {
       requireOrgRole(ctx, input.organizationId, "ADMIN");
-      return ctx.prisma.apiKey.findMany({
-        where: { organizationId: input.organizationId },
-        orderBy: { createdAt: "desc" },
+      return ctx.prisma.$transaction(async tx => {
+        await requireLiveKeyAdmin(tx, input.organizationId, ctx.user.id, false);
+        return tx.apiKey.findMany({
+          where: { organizationId: input.organizationId },
+          orderBy: { createdAt: "desc" },
+        });
       });
     }),
 
@@ -39,6 +54,7 @@ export const apiKeysRouter = router({
       const { rawKey, hashedKey, keyPrefix } = generateApiKey();
 
       const created = await ctx.prisma.$transaction(async (tx) => {
+        await requireLiveKeyAdmin(tx, input.organizationId, ctx.user.id, true);
         const serviceUser = await tx.user.create({
           data: {
             clerkUserId: `apikey_${keyPrefix}_${Date.now()}`,
@@ -71,6 +87,9 @@ export const apiKeysRouter = router({
     .mutation(async ({ ctx, input }) => {
       const apiKey = await ctx.prisma.apiKey.findUniqueOrThrow({ where: { id: input.id } });
       requireOrgRole(ctx, apiKey.organizationId, "ADMIN");
-      await ctx.prisma.apiKey.update({ where: { id: input.id }, data: { revokedAt: new Date() } });
+      await ctx.prisma.$transaction(async tx => {
+        await requireLiveKeyAdmin(tx, apiKey.organizationId, ctx.user.id, true);
+        await tx.apiKey.update({ where: { id: input.id }, data: { revokedAt: new Date() } });
+      });
     }),
 });

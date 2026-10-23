@@ -11,6 +11,7 @@ about it rather than a hand-maintained version number.
 | ------------- | -------------- | ---------------------------- |
 | `development` | `development`  | Local dev client builds      |
 | `preview`     | `preview`      | Internal testers             |
+| `production`  | `production`   | Store/TestFlight candidates  |
 
 Publish with:
 
@@ -51,14 +52,25 @@ this package and pnpm does not hoist it. Both are required for `expo start`
 and `expo export` to work from `apps/mobile`; keep them if you change the
 entry or dependencies.
 
-## Not yet configured
+## Build identity and release endpoints
 
-This app has no `android.package` or `ios.bundleIdentifier` set in
-`app.json`, and no `submit` profiles in `eas.json` -- there is no store
-identity yet, so builds are internal-only (`development`/`preview`). Add
-bundle identifiers and a `production` build + submit profile (matching
-Kall's `eas.json` as a reference) when Vaettir mobile is ready for its
-first real device/store target.
+Android and iOS use the shared native identity `com.skaldandstone.vaettir`.
+Committed icon, adaptive-icon, and splash assets use the same dark umber and
+muted-sage visual system as the web workspace. Android backup is disabled so
+Clerk tokens and local app state are not copied into device backups, and unused
+legacy storage/overlay permissions are explicitly blocked.
+The `preview` profile creates a restricted-distribution Android APK and a
+physical-device iOS build; `production` is the store/TestFlight candidate
+profile. Both profiles fail configuration early unless their API endpoint is
+HTTPS and `EXPO_PUBLIC_RELEASE_COMMIT` is the exact 40-character candidate
+commit. The current candidate endpoint is the deployed CloudFront `/api`
+origin. The same commit identifier is attached to sanitized Sentry events.
+Local `expo start` still defaults to `http://localhost:4000`, and can be
+pointed elsewhere with `EXPO_PUBLIC_API_URL`.
+
+Store submission profiles and credentials remain intentionally unconfigured.
+Creating them requires the Apple/Google owner accounts and is not proven by
+the local build/export checks in this repository.
 
 Also note: this app is currently pinned to Expo SDK 52 (`expo: ~52.0.0`)
 while Kall/Wispling/Savortome are on SDK 57 -- see the open Expo SDK
@@ -66,6 +78,13 @@ upgrade tracked separately (SSE-178) before assuming parity with those
 apps' native tooling.
 
 ## Error tracking (Sentry)
+
+The current dependency cohort is Expo SDK 58, React Native 0.88 and React 19.3,
+with Expo modules aligned to the SDK's published compatibility manifest.
+Upgrading from the previous SDK 52 build requires a new native build. A passing
+JavaScript export or typecheck does not establish installed-device acceptance;
+sign-in, foreground privacy, push handling and Sentry scrubbing still need the
+normal device review before publishing a replacement build or OTA update.
 
 P10-05, mobile half. `@sentry/react-native` reports to the `vaettir-mobile`
 project in the `skald-and-stone` org (api and web have their own projects -

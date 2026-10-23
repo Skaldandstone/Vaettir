@@ -1,11 +1,33 @@
 name: CI
 
 on:
+  workflow_dispatch:
+    inputs:
+      llvm_configure_only:
+        description: "Measure LLVM configurations only (no full compilation, package or deployment)"
+        type: boolean
+        required: false
+        default: false
+      maintained_native_proof:
+        description: "Build maintained native package proof only alongside full CI; not deployment"
+        type: boolean
+        required: false
+        default: false
+      native_environment_probe:
+        description: "Read-only ordinary Linux namespace prerequisite probe; no native build or acceptance"
+        type: boolean
+        required: false
+        default: false
+      maintained_native_host_proof:
+        description: "Full maintained native suite in isolated normal host namespaces; not deployment"
+        type: boolean
+        required: false
+        default: false
   push:
     branches: [main]
     paths-ignore:
-      - '**.md'
-      - 'docs/**'
+      - "**.md"
+      - "docs/**"
   pull_request:
 
 permissions:
@@ -24,11 +46,14 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        # Same immutable Docker Official Postgres16 manifest, freshly
+        # byte-verified at Docker Hub after the ECR mirror hit its data quota.
+        # Registry failover must preserve this digest and every test gate.
+        image: docker.io/library/postgres@sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: vaettir
+          POSTGRES_DB: vaettir_test
         ports: ["5432:5432"]
         options: >-
           --health-cmd pg_isready
@@ -36,7 +61,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/vaettir?schema=public
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/vaettir_test?schema=public&connection_limit=5
     steps:
       - uses: actions/checkout@v7
 
@@ -54,6 +79,12 @@ jobs:
       - name: Generate Prisma client
         run: pnpm db:generate
 
+      - name: Validate isolated domain edge package
+        run: |
+          npm ci --ignore-scripts --prefix integrations/domain-edge
+          npm test --prefix integrations/domain-edge
+          npm run check --prefix integrations/domain-edge
+
       # P10-11: the new router integration test suite (trpc.integration.test.ts)
       # hits a real Postgres connection and depends on the seeded PlanTier
       # rows existing, same as local dev's actual DB already has from past
@@ -65,6 +96,46 @@ jobs:
       - name: Seed reference data
         run: pnpm --filter @vaettir/db run seed
 
+      - name: Build native governance fixture dependencies
+        run: pnpm exec turbo run build --filter='@vaettir/api^...'
+
+      - name: Verify native plan template governance
+        env:
+          VAETTIR_PLAN_GOVERNANCE_NATIVE_FIXTURE: "1"
+        run: pnpm --filter @vaettir/api exec vitest run src/test-plan-governance.integration.test.ts
+
+      - name: Verify operations contracts
+        run: |
+          pnpm test:operations
+          pnpm test:device-capture
+          pnpm test:native-fresh-next
+          pnpm test:native-fresh-final
+          pnpm test:native-fresh-final-adapter
+          pnpm test:native-fresh-final-plan
+          pnpm test:native-final-runtime-recipe
+          pnpm test:native-packaging-v2
+          pnpm test:native-source-observer
+          pnpm test:native-source-transport
+          pnpm test:native-source-diagnostic-plan
+          node --test scripts/retain-sharp-version-receipt.test.mjs
+          node --test scripts/native-build-concurrency.test.mjs
+          node --test scripts/fetch-git-openssl-sources.test.mjs scripts/git-openssl-runtime.test.mjs scripts/git-openssl-dockerfile-inverse-fixture.test.mjs
+          node --test scripts/expat-security-proof.test.mjs
+          node --test scripts/install-expat-runtime.test.mjs
+          node --experimental-strip-types --test scripts/forge-quality-transport.test.mjs scripts/forge-quality-view.test.mjs
+          node --test scripts/fetch-runtime-security-sources.test.mjs
+          node --test scripts/watch-native-build-logs.test.mjs scripts/maintained-native-ci-contract.test.mjs
+          node --test scripts/runtime-build-proof.test.mjs scripts/fetch-freetype-test-corpus.test.mjs scripts/install-runtime-security-family.test.mjs scripts/runtime-security-build-contract.test.mjs
+          node --test scripts/isolated-maintained-native-host.test.mjs scripts/maintained-native-host-proof.test.mjs
+          node --test scripts/launch-maintained-native-namespace.test.mjs
+            node --test scripts/prepare-maintained-native-proof-context.test.mjs
+
+      - name: Verify installed native image-processing runtime
+        run: node scripts/check-image-runtime.mjs
+
+      - name: Verify restore-drill safety contracts
+        run: pnpm test:restore
+
       - name: Typecheck
         run: pnpm typecheck
 
@@ -73,3 +144,265 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+      - name: Verify standalone AI plugin preview
+        run: |
+          npm ci --prefix integrations/ai --ignore-scripts --workspaces=false
+          npm run build --prefix integrations/ai
+          npm test --prefix integrations/ai
+          node integrations/ai/scripts/prepare-preview.mjs "$RUNNER_TEMP/vaettir-ai-preview"
+
+      - name: Verify bundled AI plugin against synthetic PostgreSQL
+        env:
+          VAETTIR_AI_MCP_TEST: "1"
+        run: pnpm --filter @vaettir/api exec vitest run src/ai-disclosure-mcp.integration.test.ts
+      - name: Verify workflow layouts and project connection interactions
+        run: |
+          pnpm --filter @vaettir/web exec playwright install --with-deps chromium
+          node scripts/form-layout-ui.test.mjs
+          node scripts/quality-visuals-ui.test.mjs
+          node scripts/forge-connection-ui.test.mjs
+          node scripts/workspace-address-ui.test.mjs
+          node --test scripts/example-workspace-ui.test.mjs scripts/project-deletion-ui.test.mjs
+          node apps/web/e2e/ui-workbench/run.mjs
+          node apps/web/e2e/ui-plan-mapping/run.mjs
+          node apps/web/e2e/jira-defect/run.mjs
+          node apps/web/e2e/google-sheets/run.mjs
+          node apps/web/e2e/google-sheets/picker-frame.mjs
+          node apps/web/e2e/android-exploration/run.mjs
+          node apps/web/e2e/android-exploration/automation-picker.mjs
+          node apps/web/e2e/dialog-hydration/run.mjs
+          node --test integrations/domain-edge/marketing.test.mjs
+
+      # Exercise Next's production standalone output on Linux. Windows local
+      # builds cannot create pnpm's traced symlinks without developer mode;
+      # a small Docker Desktop VM can OOM during trace collection.
+      - name: Build production artifacts
+        env:
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_ZXhhbXBsZS5jb20k
+          NEXT_PUBLIC_API_URL: https://api.synthetic.example
+        run: pnpm build
+
+      - name: Verify standalone native image receipt packaging
+        run: node scripts/retain-sharp-version-receipt.mjs
+
+  maintained-native-proof:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.maintained_native_proof == true && inputs.maintained_native_host_proof != true && inputs.llvm_configure_only != true }}
+    runs-on: ubuntu-latest
+    # The observed four-worker run reached conformance tests at the old 2400s
+    # cutoff. Retain the builder's combined 3500s budget and full native suite;
+    # allow bounded cleanup within one hour on the existing public free runner.
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Build bounded maintained native package proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = Skaldandstone/Vaettir
+          visibility=$(gh api repos/Skaldandstone/Vaettir --jq .visibility)
+          test "$visibility" = public
+          [[ "$GITHUB_SHA" =~ ^[a-f0-9]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(nproc)" -ge 4
+          test "$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)" -ge 8388608
+          test "$(df -Pk "$RUNNER_TEMP" | awk 'NR == 2 {print $4}')" -ge 8388608
+          proof_dir="$RUNNER_TEMP/vaettir-maintained-proof"
+          mkdir "$proof_dir"
+          image="vaettir-maintained-proof:$GITHUB_SHA-$GITHUB_RUN_ID"
+          cid=
+          cleanup() { rc=$?; trap - EXIT; if [[ "$cid" =~ ^[a-f0-9]{64}$ ]]; then timeout 20 docker rm "$cid" >/dev/null || exit 91; fi; exit "$rc"; }
+          trap cleanup EXIT
+          DOCKER_BUILDKIT=1 timeout --signal=TERM --kill-after=20 3500 docker build --progress=plain --no-cache --target runtime-security-proof -f Dockerfile.runtime-security --build-arg VAETTIR_RELEASE_COMMIT="$GITHUB_SHA" --build-arg VAETTIR_NATIVE_JOBS=4 -t "$image" .
+          docker image inspect "$image" > "$proof_dir/image.json"
+          node - "$proof_dir/image.json" <<'NODE'
+          const a=require('node:assert/strict'),fs=require('node:fs');const x=JSON.parse(fs.readFileSync(process.argv[2]));a.equal(x.length,1);const c=x[0].Config;a.equal(c.Labels['vaettir.runtime-eligible'],'false');a.equal(c.Labels['vaettir.artifact-purpose'],'maintained-native-package-proof');a.equal(c.Labels['vaettir.source-commit'],process.env.GITHUB_SHA);a.ok(!c.Cmd||c.Cmd.length===0);a.ok(!c.Entrypoint||c.Entrypoint.length===0);
+          NODE
+          cid=$(timeout 20 docker create --name "vaettir-proof-$GITHUB_RUN_ID" "$image" /not-executed)
+          [[ "$cid" =~ ^[a-f0-9]{64}$ ]]
+          test "$(docker inspect --format '{{.State.Status}}' "$cid")" = created
+          timeout 30 docker cp "$cid:/proof/." - > "$proof_dir/proof.tar"
+          test "$(stat -c %s "$proof_dir/proof.tar")" -gt 0
+          test "$(stat -c %s "$proof_dir/proof.tar")" -le 268435456
+          timeout 20 docker rm "$cid" >/dev/null
+          cid=
+          node - "$proof_dir" <<'NODE'
+          const fs=require('node:fs'),c=require('node:crypto'),a=require('node:assert/strict'),p=process.argv[2];const b=fs.readFileSync(p+'/proof.tar');for(const key of ['GITHUB_SHA','GITHUB_RUN_ID','GITHUB_RUN_ATTEMPT'])a.match(process.env[key],key==='GITHUB_SHA'?/^[a-f0-9]{40}$/:/^[0-9]+$/);fs.writeFileSync(p+'/proof.json',JSON.stringify({purpose:'github-maintained-native-proof-custody/v1',commit:process.env.GITHUB_SHA,runId:process.env.GITHUB_RUN_ID,attempt:process.env.GITHUB_RUN_ATTEMPT,archiveBytes:b.length,archiveSha256:c.createHash('sha256').update(b).digest('hex'),runtimeEligible:false,installedFamilyAcceptance:false,securityAcceptance:false,deploymentAcceptance:false})+'\n',{flag:'wx'});
+          NODE
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - uses: actions/upload-artifact@v6
+        with:
+          name: maintained-native-proof-${{ github.sha }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/vaettir-maintained-proof/proof.tar
+            ${{ runner.temp }}/vaettir-maintained-proof/proof.json
+            ${{ runner.temp }}/vaettir-maintained-proof/image.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  maintained-native-host-proof:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.maintained_native_host_proof == true && inputs.maintained_native_proof != true && inputs.llvm_configure_only != true }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Build full maintained suite in isolated ordinary host namespaces
+        shell: bash
+        run: /bin/bash --noprofile --norc scripts/build-maintained-native-host-proof.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - uses: actions/upload-artifact@v6
+        if: success()
+        with:
+          name: maintained-native-proof-${{ github.sha }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/vaettir-maintained-proof/proof.tar
+            ${{ runner.temp }}/vaettir-maintained-proof/proof.json
+            ${{ runner.temp }}/vaettir-maintained-proof/image.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: maintained-native-host-custody-${{ github.sha }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/vaettir-native-host.*/*.json
+            ${{ runner.temp }}/vaettir-native-host.*/environment-build.log
+            ${{ runner.temp }}/vaettir-native-host.*/rootfs/build/runtime-security/*/*.log
+            ${{ runner.temp }}/vaettir-native-host.*/rootfs/build/runtime-security/*/*.sum
+            ${{ runner.temp }}/vaettir-native-host.*/rootfs/build/runtime-security/glibc/source/build-tree/amd64-libc/posix/tst-wordexp-tilde.out
+            ${{ runner.temp }}/vaettir-native-host.*/rootfs/build/runtime-security/glibc/source/build-tree/amd64-libc/elf/tst-origin-secure.out
+              ${{ runner.temp }}/vaettir-native-host.*/proof-context/build/runtime-security/*/*.json
+              ${{ runner.temp }}/vaettir-native-host.*/proof-context/build/runtime-security/*/*.deb
+              ${{ runner.temp }}/vaettir-native-host.*/proof-context/build/runtime-security/*/*.status
+              ${{ runner.temp }}/vaettir-native-host.*/proof-context/build/runtime-security/freetype/freetype-acceptance-gap.txt
+              ${{ runner.temp }}/vaettir-native-host.*/proof-context/build/glibc-sources/*
+              ${{ runner.temp }}/vaettir-native-host.*/proof-context/build/freetype-sources/*
+              ${{ runner.temp }}/vaettir-native-host.*/proof-context/build/freetype-standard-corpus/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  llvm-configure-diagnostic:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.llvm_configure_only == true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Measure LLVM configuration on GitHub runner (not CodeBuild acceptance)
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_SHA" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$GITHUB_RUN_ID" =~ ^[0-9]+$ ]]
+          [[ "$GITHUB_RUN_ATTEMPT" =~ ^[0-9]+$ ]]
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -n "$RUNNER_TEMP"
+          available_kib=$(df -Pk "$RUNNER_TEMP" | awk 'NR == 2 { print $4 }')
+          [[ "$available_kib" =~ ^[0-9]+$ ]]
+          if (( available_kib < 8388608 )); then
+            printf '%s\n' 'LLVM configuration diagnostic needs at least 8 GiB free; no runner data will be removed.' >&2
+            exit 1
+          fi
+          diagnostic_dir=$(mktemp -d "$RUNNER_TEMP/vaettir-llvm-config.XXXXXX")
+          diagnostic_image="vaettir-llvm-config:$GITHUB_SHA"
+          container_id=
+          cleanup() {
+            if [[ "$container_id" =~ ^[a-f0-9]{64}$ ]]; then
+              timeout 20s docker rm -f "$container_id" >/dev/null
+            fi
+          }
+          trap cleanup EXIT
+          if ! timeout --signal=TERM --kill-after=15s 750s docker build --progress=plain --target llvm-configure-only -f Dockerfile.api -t "$diagnostic_image" . >"$diagnostic_dir/build.log" 2>&1; then
+            printf '%s\n' 'LLVM configure-only diagnostic failed or reached its 750-second bound; bounded public build diagnostic follows.' >&2
+            tail -c 8192 "$diagnostic_dir/build.log" >&2
+            exit 1
+          fi
+          container_id=$(timeout 30s docker create "$diagnostic_image")
+          [[ "$container_id" =~ ^[a-f0-9]{64}$ ]]
+          timeout 30s docker cp "$container_id:/build/llvm-configure-only-measurement.json" "$diagnostic_dir/measurement.json"
+          node - "$diagnostic_dir/measurement.json" <<'NODE'
+          const assert = require('node:assert/strict');
+          const fs = require('node:fs');
+          const { createHash } = require('node:crypto');
+          const file = process.argv[2];
+          assert.ok(fs.statSync(file).size <= 8192, 'Bounded diagnostic receipt required');
+          const receipt = JSON.parse(fs.readFileSync(file, 'utf8'));
+          assert.equal(receipt.schemaVersion, 1);
+          assert.equal(receipt.purpose, 'llvm-configure-only-measurement');
+          assert.equal(receipt.mode, 'configure-only');
+          for (const key of ['compileAcceptance', 'unitAcceptance', 'candidateAbiAcceptance', 'packageCreated', 'runtimeAcceptance', 'authenticatedAcceptance']) assert.equal(receipt[key], false, 'Diagnostic cannot establish ' + key);
+          assert.ok(Number.isSafeInteger(receipt.elapsedSeconds) && receipt.elapsedSeconds >= 0 && receipt.elapsedSeconds <= 750);
+          assert.ok(Number.isSafeInteger(receipt.boundedCompilerJobs) && receipt.boundedCompilerJobs >= 1 && receipt.boundedCompilerJobs <= 12);
+          for (const variant of ['release', 'assertions']) {
+            const graph = receipt.graphs[variant];
+            assert.equal(graph.acceptance, false);
+            assert.ok(Number.isSafeInteger(graph.scheduledCommands) && graph.scheduledCommands >= 100 && graph.scheduledCommands <= 200000);
+            assert.ok(Number.isSafeInteger(graph.compilationCommands) && graph.compilationCommands >= 100 && graph.compilationCommands <= graph.scheduledCommands);
+          }
+          for (const key of ['diskAvailableBytes', 'diskTotalBytes']) assert.match(receipt[key], /^\d+$/);
+          for (const key of ['recipeSha256', 'sourceManifestSha256', 'releaseCacheSha256', 'assertionsCacheSha256']) assert.match(receipt[key], /^[a-f0-9]{64}$/);
+          const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
+          assert.equal(receipt.recipeSha256, sha256(fs.readFileSync('scripts/build-llvm-runtime.sh')));
+          const pins = JSON.parse(fs.readFileSync('scripts/runtime-vendor-sources.json', 'utf8'));
+          assert.equal(receipt.sourceManifestSha256, sha256(JSON.stringify({ llvm: pins.llvm }, null, 2) + '\n'));
+          for (const key of ['GITHUB_SHA', 'GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT']) assert.match(process.env[key], key === 'GITHUB_SHA' ? /^[a-f0-9]{40}$/ : /^\d+$/);
+          const provenance = { executionEnvironment: 'github-hosted-linux-diagnostic-not-codebuild', checkoutSha: process.env.GITHUB_SHA, githubRunId: process.env.GITHUB_RUN_ID, githubRunAttempt: process.env.GITHUB_RUN_ATTEMPT, recipeSha256: receipt.recipeSha256, dockerfileSha256: sha256(fs.readFileSync('Dockerfile.api')), deploymentAcceptance: false };
+          const output = JSON.stringify({ provenance, measurement: receipt });
+          assert.ok(Buffer.byteLength(output) <= 12288, 'Bounded diagnostic log required');
+          console.log('VAETTIR_GITHUB_LLVM_CONFIG_DIAGNOSTIC=' + output);
+          NODE
+
+  native-environment-probe:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.native_environment_probe == true && inputs.maintained_native_proof != true && inputs.maintained_native_host_proof != true && inputs.llvm_configure_only != true }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Check existing unprivileged namespace prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = Skaldandstone/Vaettir
+          test "$(gh api repos/Skaldandstone/Vaettir --jq .visibility)" = public
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(id -u)" -ne 0
+          test "$(nproc)" -ge 4
+          test "$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)" -ge 8388608
+          uname -sr
+          for path in /proc/sys/kernel/unprivileged_userns_clone /proc/sys/kernel/apparmor_restrict_unprivileged_userns /proc/sys/user/max_user_namespaces /proc/sys/user/max_mnt_namespaces; do
+            if test -f "$path"; then printf '%s=' "$path"; cat "$path"; fi
+          done
+          # Ordinary prerequisite probes only. No policy writes, privileged
+          # container, native/vendor test, font, source intake or acceptance.
+          timeout 10 unshare --user --map-root-user --mount --fork /bin/sh -eu -c '
+            test "$(id -u)" -eq 0
+            unshare --user --map-root-user --mount --fork /bin/true
+          '
+          node - <<'NODE'
+          const assert=require('node:assert/strict');
+          for(const key of ['GITHUB_SHA','GITHUB_RUN_ID','GITHUB_RUN_ATTEMPT'])assert.match(process.env[key],key==='GITHUB_SHA'?/^[a-f0-9]{40}$/:/^[1-9][0-9]*$/);
+          console.log(JSON.stringify({purpose:'existing-linux-namespace-prerequisite-probe/v1',commit:process.env.GITHUB_SHA,runId:process.env.GITHUB_RUN_ID,attempt:process.env.GITHUB_RUN_ATTEMPT,ordinaryNestedNamespaceProbePassed:true,securityPolicyChanged:false,nativeTestsExecuted:false,nativeAcceptance:false,securityAcceptance:false,deploymentAcceptance:false}));
+          NODE
+        env:
+          GH_TOKEN: ${{ github.token }}

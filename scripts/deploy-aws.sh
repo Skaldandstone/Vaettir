@@ -51,9 +51,20 @@ RELEASE_COMMIT="$(git rev-parse HEAD)"
 
 start_build() {
   local project=$1
+  local overrides=("name=VAETTIR_RELEASE_COMMIT,value=$RELEASE_COMMIT,type=PLAINTEXT")
+  local buildspec=()
+  if [[ "$project" == "vaettir-web-build${ENV_SUFFIX}" ]]; then
+    local task image previous_commit
+    task=$(aws ecs describe-services --cluster "vaettir-cluster${ENV_SUFFIX}" --services "vaettir-web${ENV_SUFFIX}" --profile "$PROFILE" --region "$REGION" --query 'services[0].taskDefinition' --output text)
+    image=$(aws ecs describe-task-definition --task-definition "$task" --profile "$PROFILE" --region "$REGION" --query "taskDefinition.containerDefinitions[?name=='vaettir-web${ENV_SUFFIX}'].image | [0]" --output text)
+    previous_commit=$(aws ecs describe-task-definition --task-definition "$task" --profile "$PROFILE" --region "$REGION" --query "taskDefinition.containerDefinitions[?name=='vaettir-web${ENV_SUFFIX}'].environment[] | [?name=='VAETTIR_RELEASE_COMMIT'].value | [0]" --output text)
+    [[ "$image" =~ @sha256:[a-f0-9]{64}$ && "$previous_commit" =~ ^[a-f0-9]{40}$ ]] || { echo "Previous immutable web identity is required" >&2; return 1; }
+    overrides+=("name=VAETTIR_PREVIOUS_WEB_IMAGE,value=$image,type=PLAINTEXT" "name=VAETTIR_PREVIOUS_WEB_COMMIT,value=$previous_commit,type=PLAINTEXT")
+    buildspec=(--buildspec-override buildspec.web.yml)
+  fi
   echo "==> Starting $project" >&2
   aws codebuild start-build --project-name "$project" --profile "$PROFILE" --region "$REGION" \
-    --environment-variables-override "name=VAETTIR_RELEASE_COMMIT,value=$RELEASE_COMMIT,type=PLAINTEXT" \
+    "${buildspec[@]}" --environment-variables-override "${overrides[@]}" \
     --query "build.id" --output text
 }
 
@@ -71,23 +82,23 @@ wait_for_build() {
   done
 }
 
-redeploy() {
+deploy_immutable() {
   local name=$1
-  echo "==> Forcing new ECS deployment for $name"
-  aws ecs update-service --cluster "vaettir-cluster${ENV_SUFFIX}" --service "$name" --force-new-deployment \
-    --profile "$PROFILE" --region "$REGION" --query "service.[serviceName,status]" --output text
+  echo "==> Pinning $name to the image digest built for $RELEASE_COMMIT"
+  AWS_PROFILE="$PROFILE" AWS_REGION="$REGION" ./scripts/pin-ecs-release.sh \
+    "$name" "$RELEASE_COMMIT" "vaettir-cluster${ENV_SUFFIX}"
 }
 
 if [[ "$TARGET" == "both" || "$TARGET" == "api" ]]; then
   api_build=$(start_build "vaettir-api-build${ENV_SUFFIX}")
   wait_for_build "$api_build"
-  redeploy "vaettir-api${ENV_SUFFIX}"
+  deploy_immutable "vaettir-api${ENV_SUFFIX}"
 fi
 
 if [[ "$TARGET" == "both" || "$TARGET" == "web" ]]; then
   web_build=$(start_build "vaettir-web-build${ENV_SUFFIX}")
   wait_for_build "$web_build"
-  redeploy "vaettir-web${ENV_SUFFIX}"
+  deploy_immutable "vaettir-web${ENV_SUFFIX}"
 fi
 
 echo "==> Done. Verify: curl https://d35bt2repnvk6t.cloudfront.net/api/health"

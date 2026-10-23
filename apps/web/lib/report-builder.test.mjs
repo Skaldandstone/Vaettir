@@ -1,0 +1,209 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { reportMetricRows } from "./frozen-report.ts";
+const read = (path) =>
+  readFileSync(new URL(path, import.meta.url), "utf8").replace(/\s+/g, " ");
+const builder = read("../components/ReportBuilder.tsx"),
+  frozen = read("../components/FrozenReport.tsx"),
+  route = read(
+    "../app/projects/[projectId]/reports/snapshots/[snapshotId]/page.tsx",
+  );
+test("custom UTC interval and exact recorded scopes are progressively exposed, validated and frozen", () => {
+  assert.match(builder, /Custom UTC dates/);
+  assert.match(builder, /Start date \(UTC\)/);
+  assert.match(builder, /End date \(UTC, inclusive\)/);
+  assert.match(builder, /366 \* 86400000/);
+  assert.match(builder, /Limit to recorded execution scope \(optional\)/);
+  assert.match(builder, /scopeOptions.useQuery\([\s\S]*enabled: open/);
+  assert.match(builder, /Exact plan \/ older run identity/);
+  assert.match(builder, /runId.*platform.*environment.*build/);
+  assert.match(builder, /Scoped defect counts are excluded/);
+  assert.match(builder, /invalidInterval/);
+});
+test("cached access and saved previews cannot authorize paused, failed or wrong-project report review", () => {
+  assert.match(builder, /ProjectReportBuilder key=\{projectId\}/);
+  assert.match(builder, /project.isPaused[\s\S]*organizations.isPaused/);
+  assert.match(
+    builder,
+    /open && !resume.error && !resume.isFetching && !resume.isPaused && resume.data\?\.id === resumeId/,
+  );
+  assert.match(builder, /enabled: open && !!resumeId && !readOnly, staleTime: 0/);
+  assert.match(builder, /resume.data.projectId === projectId && resume.data.organizationId === project.data\?\.organizationId/);
+  assert.match(builder, /setReview\(\{ \.\.\.result, reviewOrgId: originalOrganizationId, reviewActorId: originalActorId \}\)/);
+  assert.match(
+    builder,
+    /open && !readOnly && project.data\?\.id === projectId && scopeOptions.data\?\.projectId === projectId && scopeOptions.data.organizationId === project.data.organizationId && !scopeOptions.error && !scopeOptions.isFetching && !scopeOptions.isPaused \? scopeOptions.data/,
+  );
+  assert.match(
+    builder,
+    /Waiting for a connection to verify this saved preview/,
+  );
+  assert.match(
+    builder,
+    /code === "BAD_REQUEST"[\s\S]*code === "NOT_FOUND"[\s\S]*code === "PRECONDITION_FAILED"/,
+  );
+});
+test("report creation requires fresh editor membership and explicit access recovery retains pending requests", () => {
+  assert.match(
+    builder,
+    /project.isFetching[\s\S]*organizations.isFetching[\s\S]*!!project.error[\s\S]*!!organizations.error[\s\S]*!canEditProject/,
+  );
+  assert.match(builder, /Retry workspace access/);
+  assert.match(builder, /project.refetch\(\), organizations.refetch\(\)/);
+  assert.match(builder, /if \(readOnly \|\| busy \|\| saveRequest\) return/);
+  assert.match(
+    builder,
+    /if \(readOnly \|\| busy \|\| request \|\| current \|\| !userId \|\| !project.data \|\| !actorMatches \|\| !workflowMatches\) return/,
+  );
+});
+test("capture and reusable definition retry frozen exact payloads after uncertain writes", () => {
+  assert.match(
+    builder,
+    /const input = request \?\? \{[\s\S]*requestId: crypto.randomUUID\(\)/,
+  );
+  assert.match(
+    builder,
+    /setRequest\(input\)[\s\S]*preview.mutateAsync\(input\)/,
+  );
+  assert.match(
+    builder,
+    /const input = saveRequest \?\? \{[\s\S]*requestId: crypto.randomUUID\(\)/,
+  );
+  assert.match(
+    builder,
+    /setSaveRequest\(input\)[\s\S]*save.mutateAsync\(input\)/,
+  );
+  assert.match(
+    builder,
+    /if \(request \|\| saveRequest\) \{\s*setOpen\(true\); return;/,
+  );
+  assert.match(builder, /Resume pending report/);
+  assert.match(builder, /Retry same definition save/);
+  assert.match(
+    builder,
+    /if \(\s*!request && \(code === "BAD_REQUEST" \|\| code === "NOT_FOUND" \|\| code === "PRECONDITION_FAILED"\)\s*\)/,
+  );
+  assert.match(builder, /disabled=\{\s*busy \|\| readOnly \|\| !!saveRequest/);
+});
+test("approval pins the frozen private preview and selected sections use no providers or credits", () => {
+  assert.match(
+    builder,
+    /approve.mutateAsync\(\{\s*projectId,\s*previewId: current.id,\s*approveSharing: true,?\s*\}\)/,
+  );
+  assert.match(
+    builder,
+    /Project-wide scope[\s\S]*does not apply the case-query filters/,
+  );
+  assert.match(
+    builder,
+    /Capture costs 0 AI credits. No source or external provider data is fetched/,
+  );
+  assert.match(builder, /definition.sections.includes\(section\)/);
+  assert.match(
+    builder,
+    /sections: event.target.checked[\s\S]*definition.sections.filter/,
+  );
+  assert.match(builder, /maxLength=\{80\}/);
+  assert.match(builder, /maxLength=\{1500\}/);
+});
+test("report presentation never invents optional notes, selection, evidence or live updates", () => {
+  assert.match(frozen, /Not provided by report author/);
+  assert.match(
+    frozen,
+    /REPORT_SECTIONS.filter\(\s*\(?section\)? => report.definition.sections.includes\(section\),?\s*\)/,
+  );
+  assert.match(frozen, /Evidence boundaries and missing data/);
+  assert.match(frozen, /This snapshot never updates itself/);
+  assert.match(frozen, /renderFrozenReportHtml\(report\)/);
+  assert.match(frozen, /review recipients before sharing/);
+});
+test("workspace snapshot route gates sharing and exports to approved accessible reports", () => {
+  assert.match(route, /accessReady && !snapshot.error && !snapshot.isFetching && !snapshot.isPaused && snapshot.data\?\.id === snapshotId && snapshot.data.projectId === projectId && snapshot.data.organizationId === organizationId \? snapshot.data : null/);
+  assert.match(route, /payload.state === "approved"/);
+  assert.match(route, /Recipients must already have access to this workspace/);
+  assert.match(route, /Current workspace access is required/);
+  assert.match(route, /snapshot.refetch\(\)/);
+});
+
+test("recorded automation pace uses comparable identities and a meaningful interval, not added cases or executed savings", () => {
+  const report = {
+    state: "approved",
+    projectName: "Synthetic",
+    title: "Comparable recorded labels",
+    asOf: "2026-10-02T20:00:00Z",
+    windowStart: "2026-09-02T20:00:00Z",
+    definition: {
+      audience: "quality",
+      windowDays: 30,
+      sections: ["automation"],
+      summary: "",
+      risks: "",
+      nextActions: "",
+    },
+    inventory: {
+      active: 20,
+      riskAssessed: 0,
+      flaky: 0,
+      priority: [],
+      automation: [],
+    },
+    execution: {
+      runs: 0,
+      results: 0,
+      outcomes: [],
+      distinctCases: 0,
+      highPriorityCases: 0,
+      highPriorityExecuted: 0,
+    },
+    traceability: {
+      requirements: 0,
+      coveredRequirements: 0,
+      casesWithLinks: 0,
+      links: 0,
+    },
+    defects: null,
+    cohort: [],
+    limitations: ["Recorded labels, not actual automation execution"],
+    automationChange: {
+      baselineId: "synthetic-baseline",
+      baselineAsOf: "2026-09-25T20:00:00Z",
+      commonCases: 4,
+      becameAutomated: 3,
+      noLongerAutomated: 1,
+      addedCases: 13,
+      removedCases: 6,
+      elapsedDays: 7,
+    },
+  };
+  const pace = (candidate) =>
+    reportMetricRows(candidate).find(
+      (row) => row.label === "Net recorded automation change per 7 days",
+    );
+  assert.equal(pace(report).value, "2.00");
+  assert.match(
+    pace(report).note,
+    /not executed automation or productivity savings/,
+  );
+  assert.equal(
+    pace({
+      ...report,
+      automationChange: { ...report.automationChange, elapsedDays: 14 },
+    }).value,
+    "1.00",
+  );
+  assert.equal(
+    pace({
+      ...report,
+      automationChange: { ...report.automationChange, elapsedDays: 0.5 },
+    }).value,
+    "Comparison interval too short or no comparable cases",
+  );
+  assert.equal(
+    pace({
+      ...report,
+      automationChange: { ...report.automationChange, commonCases: 0 },
+    }).value,
+    "Comparison interval too short or no comparable cases",
+  );
+});

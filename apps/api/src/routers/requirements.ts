@@ -1,13 +1,19 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
+import {type Prisma} from "@vaettir/db";
 import { generateTestCasesFromRequirement, extractRequirementsFromMarkdown } from "@vaettir/ai-agent";
-import { randomBytes } from "node:crypto";
+import { randomBytes,createHash } from "node:crypto";
 import { router, protectedProcedure, publicProcedure, requireProjectAccess } from "../trpc.js";
-import { chargeAiCredits, InsufficientAiCreditsError, meterAiCall, type AiCharge } from "../services/aiCredits.js";
+import { chargeAiCredits, InsufficientAiCreditsError, meterAiCall } from "../services/aiCredits.js";
 import { scanRepoForRequirementDocs } from "../services/repoDocScan.js";
+import { connectedSourceBinding, sourceBindingReceipt } from "../services/connectedRepositoryAccess.js";
+import { scanApprovedConnectedGitlab, scanApprovedConnectedGitlabRequirementsSource } from "../services/connectedGitlabScan.js";
+import { prepareRepositoryRequirementsDraft, repositoryCodeRequirementsEvidence } from "../services/repositoryRequirementsDraft.js";
 import { fetchLinearIssue, getOrgLinearApiKey, LinearApiError, LinearNotConfiguredError } from "../services/linearApi.js";
 import { fetchJiraIssue, getOrgJiraConnection, JiraApiError, JiraNotConfiguredError } from "../services/jiraApi.js";
 import { computeRequirementTestSummary } from "../services/requirementTestSummary.js";
+import { repositoryProcessingScope, repositoryProcessingConsent, beginRepositoryProcessing, assertRepositoryProcessingApproval } from "../services/repositoryProcessingApproval.js";
+import {publicRepositoryProcessingError} from "../services/repositoryProcessingErrors.js";
 
 const testSummaryOutput = z.object({
   requirementId: z.string(),
@@ -31,6 +37,18 @@ const draftRequirementOutput = z.object({
   description: z.string(),
   sourceFile: z.string().nullable(),
 });
+
+// Same organization/member/project lock order as reviewed source imports.
+// Preserve the normal CRUD seat policy, but do not trust a cached membership
+// after waiting on another writer.
+async function lockedRequirementEditor(tx:Prisma.TransactionClient,organizationId:string,actorId:string,projectId:string){
+  const orgs=await tx.$queryRaw<Array<{suspendedAt:Date|null}>>`SELECT "suspendedAt" FROM "Organization" WHERE id=${organizationId} FOR UPDATE`;
+  await tx.$queryRaw`SELECT id FROM "Membership" WHERE "organizationId"=${organizationId} AND "userId"=${actorId} FOR UPDATE`;
+  const member=await tx.membership.findUnique({where:{organizationId_userId:{organizationId,userId:actorId}}});
+  if(!orgs[0]||orgs[0].suspendedAt||!member||!["OWNER","ADMIN","EDITOR"].includes(member.role))throw new TRPCError({code:"FORBIDDEN"});
+  const projects=await tx.$queryRaw<Array<{organizationId:string}>>`SELECT "organizationId" FROM "Project" WHERE id=${projectId} FOR UPDATE`;
+  if(projects[0]?.organizationId!==organizationId)throw new TRPCError({code:"FORBIDDEN"});
+}
 
 export const requirementsRouter = router({
   list: protectedProcedure
@@ -86,14 +104,19 @@ export const requirementsRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await requireProjectAccess(ctx, input.projectId, "EDITOR");
-      return ctx.prisma.requirement.create({
-        data: {
-          projectId: input.projectId,
-          title: input.title,
-          description: input.description,
-          externalRef: input.externalRef,
-        },
+      const access = await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      // Serialize manual additions with reviewed Jira imports, so an import
+      // sees a preceding human link rather than racing its duplicate check.
+      return ctx.prisma.$transaction(async tx => {
+        await lockedRequirementEditor(tx,access.project.organizationId,ctx.user.id,input.projectId);
+        return tx.requirement.create({
+          data: {
+            projectId: input.projectId,
+            title: input.title,
+            description: input.description,
+            externalRef: input.externalRef,
+          },
+        });
       });
     }),
 
@@ -111,10 +134,13 @@ export const requirementsRouter = router({
         where: { id: input.id },
         select: { projectId: true },
       });
-      await requireProjectAccess(ctx, existing.projectId, "EDITOR");
-      return ctx.prisma.requirement.update({
-        where: { id: input.id },
-        data: { title: input.title, description: input.description, externalRef: input.externalRef },
+      const access = await requireProjectAccess(ctx, existing.projectId, "EDITOR");
+      return ctx.prisma.$transaction(async tx => {
+        await lockedRequirementEditor(tx,access.project.organizationId,ctx.user.id,existing.projectId);
+        return tx.requirement.update({
+          where: { id: input.id, projectId: existing.projectId },
+          data: { title: input.title, description: input.description, externalRef: input.externalRef },
+        });
       });
     }),
 
@@ -125,8 +151,12 @@ export const requirementsRouter = router({
         where: { id: input.id },
         select: { projectId: true },
       });
-      await requireProjectAccess(ctx, existing.projectId, "EDITOR");
-      await ctx.prisma.requirement.delete({ where: { id: input.id } });
+      const access = await requireProjectAccess(ctx, existing.projectId, "EDITOR");
+      await ctx.prisma.$transaction(async tx => {
+        await lockedRequirementEditor(tx,access.project.organizationId,ctx.user.id,existing.projectId);
+        if (await tx.caseTraceabilityLink.count({ where: { projectId: existing.projectId, requirementId: input.id } })) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "This requirement has retained test coverage references, including removed-link history. Keep the requirement and update its details; its recorded traceability must be preserved." });
+        await tx.requirement.delete({ where: { id: input.id, projectId: existing.projectId } });
+      });
     }),
 
   // P9-02: validates the Linear issue actually exists (and this org's API
@@ -397,37 +427,74 @@ export const requirementsRouter = router({
   // credit charge per document actually scanned, so a doc-light repo
   // costs less than a doc-heavy one rather than a flat fee either way.
   extractFromRepo: protectedProcedure
-    .input(z.object({ projectId: z.string(), repoUrl: z.string().optional(), ref: z.string().default("main") }))
+    .input(z.object({ projectId: z.string(), scope:repositoryProcessingScope, consent:repositoryProcessingConsent }))
     .output(z.array(draftRequirementOutput))
     .mutation(async ({ ctx, input }) => {
-      const { project } = await requireProjectAccess(ctx, input.projectId, "EDITOR");
-      const projectRow = await ctx.prisma.project.findUniqueOrThrow({ where: { id: input.projectId } });
-      const repoUrl = input.repoUrl ?? projectRow.repoUrl;
-      if (!repoUrl) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "No repo URL provided and the project has none configured" });
+      const {approval,replayed}=await beginRepositoryProcessing(ctx,input.projectId,"REQUIREMENTS",input.scope,input.consent);
+      const processedFileSchema=z.object({path:z.string(),hash:z.string(),drafts:z.array(draftRequirementOutput)});
+      const receiptSchema=z.object({drafts:z.array(draftRequirementOutput),inFlightPath:z.string().nullable(),inFlightHash:z.string().nullable(),processedPaths:z.array(z.string()),processedFiles:z.array(processedFileSchema)});
+      if(replayed){
+        const receipt=receiptSchema.safeParse(approval.results);
+        if(receipt.success)return receipt.data.drafts;
+        throw new TRPCError({code:"PRECONDITION_FAILED",message:"This approved run is in progress or needs recovery. Review its saved status; retrying cannot reread or recharge it."});
       }
-
-      const docs = await scanRepoForRequirementDocs(repoUrl, input.ref);
-      if (docs.length === 0) {
-        return [];
-      }
-
       const results: Array<{ title: string; description: string; sourceFile: string | null }> = [];
-      for (const doc of docs) {
-        let charge: AiCharge;
-        try {
-          charge = await chargeAiCredits(ctx.prisma, project.organizationId, "extractRequirementsFromMarkdown");
-        } catch (e) {
-          if (e instanceof InsufficientAiCreditsError) {
-            // Stop here, keep whatever was already extracted - a partial
-            // result is still useful, unlike failing the whole scan.
-            break;
-          }
-          throw e;
+      const processedPaths:string[]=[];
+      const processedFiles:Array<z.infer<typeof processedFileSchema>>=[];
+      const discoveryApproved = Boolean(approval.results && typeof approval.results === "object" && !Array.isArray(approval.results) && approval.results.requirementsDiscovery === "DOCUMENTS_THEN_CODE");
+      const receiptMetadata = {...sourceBindingReceipt(approval.results), ...(discoveryApproved ? {requirementsDiscovery:"DOCUMENTS_THEN_CODE" as const} : {})};
+      try{
+        await ctx.prisma.$transaction(tx=>assertRepositoryProcessingApproval(tx,approval.id,input.projectId,"REQUIREMENTS"));
+        const discoveredSource=discoveryApproved&&connectedSourceBinding(approval.results)
+          ? await scanApprovedConnectedGitlabRequirementsSource(ctx,approval.id,input.projectId) : null;
+        const snapshot=discoveredSource??(connectedSourceBinding(approval.results)
+          ? await scanApprovedConnectedGitlab(ctx,approval.id,input.projectId,"REQUIREMENTS")
+          : await scanRepoForRequirementDocs(input.scope.repoUrl,input.scope.ref,input.scope.pathPrefixes,input.scope.maxItems));
+        const {files:docs,headSha}=snapshot;
+        const inferred = discoveredSource?.sourceMode === "CODE_INFERENCE";
+        if(!/^[a-f0-9]{40}$/i.test(headSha))throw new TRPCError({code:"PRECONDITION_FAILED",message:"The repository revision could not be pinned."});
+        await ctx.prisma.$transaction(async tx=>{
+          await assertRepositoryProcessingApproval(tx,approval.id,input.projectId,"REQUIREMENTS");
+          await tx.repositoryProcessingApproval.update({where:{id:approval.id},data:{resolvedCommitSha:headSha,results:{...receiptMetadata,drafts:results,processedPaths,processedFiles,inFlightPath:null,inFlightHash:null}}});
+        });
+        for(const doc of docs){
+          const hash=createHash("sha256").update(doc.content).digest("hex");
+          const retained=await ctx.prisma.$transaction(async tx=>{
+            await assertRepositoryProcessingApproval(tx,approval.id,input.projectId,"REQUIREMENTS");
+            const prior=await tx.repositoryProcessingApproval.findFirst({where:{id:{not:approval.id},projectId:input.projectId,organizationId:approval.organizationId,purpose:"REQUIREMENTS",repositoryUrl:input.scope.repoUrl,AND:[{results:{path:["processedFiles"],array_contains:[{path:doc.relativePath,hash}]}},...(inferred?[{results:{path:["requirementsDiscovery"],equals:"DOCUMENTS_THEN_CODE"}}]:[])]},orderBy:{createdAt:"desc"}});
+            if(prior){const receipt=receiptSchema.parse(prior.results);const file=receipt.processedFiles.find(item=>item.path===doc.relativePath&&item.hash===hash);if(file)return {retained:file.drafts};}
+            const pending=await tx.repositoryProcessingApproval.findFirst({where:{id:{not:approval.id},projectId:input.projectId,organizationId:approval.organizationId,purpose:"REQUIREMENTS",repositoryUrl:input.scope.repoUrl,AND:[{results:{path:["inFlightPath"],equals:doc.relativePath}},{results:{path:["inFlightHash"],equals:hash}}]}});
+            if(pending)throw new TRPCError({code:"PRECONDITION_FAILED",message:"This document already has an approved paid attempt in progress or requiring recovery. Review the saved run; automatic repeated charges are blocked."});
+            await tx.repositoryProcessingApproval.update({where:{id:approval.id},data:{results:{...receiptMetadata,drafts:results,processedPaths,processedFiles,inFlightPath:doc.relativePath,inFlightHash:hash}}});
+            const charge=await chargeAiCredits(tx as unknown as typeof ctx.prisma,approval.organizationId,"extractRequirementsFromMarkdown");
+            return {charge};
+          });
+          if("retained" in retained&&retained.retained){results.push(...retained.retained);processedPaths.push(doc.relativePath);processedFiles.push({path:doc.relativePath,hash,drafts:retained.retained});await ctx.prisma.repositoryProcessingApproval.update({where:{id:approval.id},data:{results:{...receiptMetadata,drafts:results,processedPaths,processedFiles,inFlightPath:null,inFlightHash:null}}});continue;}
+          if(!("charge" in retained)||!retained.charge)throw new Error("Processing charge could not be reserved");
+          const evidence = inferred ? repositoryCodeRequirementsEvidence({...doc,contentHash:hash},headSha) : doc.content;
+          const drafts=await meterAiCall(ctx.prisma,retained.charge,()=>extractRequirementsFromMarkdown(evidence,doc.relativePath));
+          const fileDrafts=drafts.map(draft=>({...draft,description:inferred?`Code-inferred candidate, not confirmed product intent.\nSource commit ${headSha}; SHA-256 ${hash}.\n\n${draft.description}`:draft.description,sourceFile:doc.relativePath}));
+          results.push(...fileDrafts);processedPaths.push(doc.relativePath);processedFiles.push({path:doc.relativePath,hash,drafts:fileDrafts});
+          // Retain paid outputs even if the actor loses access while AI is in
+          // flight. Access is checked again before returning or continuing.
+          await ctx.prisma.repositoryProcessingApproval.update({where:{id:approval.id},data:{results:{...receiptMetadata,drafts:results,processedPaths,processedFiles,inFlightPath:null,inFlightHash:null}}});
+          await ctx.prisma.$transaction(tx=>assertRepositoryProcessingApproval(tx,approval.id,input.projectId,"REQUIREMENTS"));
         }
-        const drafts = await meterAiCall(ctx.prisma, charge, () => extractRequirementsFromMarkdown(doc.content, doc.relativePath));
-        results.push(...drafts.map((d) => ({ ...d, sourceFile: doc.relativePath })));
+        await ctx.prisma.$transaction(async tx=>{
+          await assertRepositoryProcessingApproval(tx,approval.id,input.projectId,"REQUIREMENTS");
+          const requirementsDocument = discoveredSource && (discoveredSource.sourceMode==="DOCUMENTS"||discoveredSource.sourceMode==="CODE_INFERENCE")
+            ? prepareRepositoryRequirementsDraft({headSha:discoveredSource.headSha,sourceMode:discoveredSource.sourceMode,discoveryComplete:discoveredSource.discovery.inventoryComplete,eligibleFileCount:discoveredSource.eligibleFileCount,inspectedFileCount:discoveredSource.inspectedFileCount,truncated:discoveredSource.truncated,files:discoveredSource.files},results.map(row=>({...row,sourceFile:row.sourceFile!}))) : undefined;
+          await tx.repositoryProcessingApproval.update({where:{id:approval.id},data:{status:"COMPLETED",...(requirementsDocument?{results:{...receiptMetadata,drafts:results,processedPaths,processedFiles,inFlightPath:null,inFlightHash:null,requirementsDocument}}:{})}});
+        });
+        return results;
+      }catch(error){
+        await ctx.prisma.repositoryProcessingApproval.updateMany({where:{id:approval.id,status:"READING"},data:{status:"FAILED"}});
+        if(error instanceof InsufficientAiCreditsError){
+          // Retain previous paid drafts; the stored status exposes partial
+          // failure without automatically repeating any provider operation.
+          await requireProjectAccess(ctx,input.projectId,"EDITOR");return results;
+          }
+        throw publicRepositoryProcessingError(error);
       }
-      return results;
     }),
 });

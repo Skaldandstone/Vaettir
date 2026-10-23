@@ -1,39 +1,60 @@
 # Database backup & restore runbook
 
-Covers `vaettir-postgres` (RDS PostgreSQL, `us-east-2`, account `094842496450`)
+Covers `vaettir-postgres` (RDS PostgreSQL, `us-east-2`, account `051722405355`)
 — the single production database backing both `vaettir-api` and everything
 under `vaettir.skaldandstone.com`.
 
-## Current state (checked 2026-08-27)
+## Current state (checked read-only on 2026-09-22)
 
-| Setting | Value |
-|---|---|
-| Automated backup retention | **1 day** |
-| Preferred backup window | `03:02–03:32 UTC` |
-| Multi-AZ | No (single instance) |
-| Engine | PostgreSQL |
-| Allocated storage | 20 GB |
+| Setting                    | Value                |
+| -------------------------- | -------------------- |
+| Automated backup retention | **7 days**           |
+| Preferred backup window    | `03:02–03:32 UTC`    |
+| Multi-AZ                   | No (single instance) |
+| Engine                     | PostgreSQL           |
+| Allocated storage          | 20 GB                |
 
-Three automated snapshots currently exist (2026-08-25, 2026-08-26,
-2026-08-27), despite the 1-day retention setting — likely from before a
-retention change; older ones will age out under the current setting going
-forward.
-
-**Recommendation, not yet applied**: bump `BackupRetentionPeriod` to 7 days.
-1-day retention means a mistake discovered more than a day later (a bad
-migration, an accidental bulk delete, a bug that silently corrupts data) has
-no automated recovery point left. This is a safe, reversible, no-downtime
-RDS setting change (`aws rds modify-db-instance --backup-retention-period 7
---apply-immediately`) — flagged here rather than applied directly, since
-changing production infrastructure settings needs your go-ahead even under
-a broad "keep building features" authorization; this isn't a code feature.
+The old one-day note was superseded by a fresh provider read. The current
+instance exposes a seven-day point-in-time recovery window. That setting is
+verified configuration, not proof that Vaettir can complete a restore within
+the private-beta four-hour objective.
 
 ## How automated backups actually work here
 
 RDS takes a daily snapshot during the backup window, plus continuous
-transaction-log backup, giving point-in-time recovery to *any second* within
-the retention window (not just the daily snapshot boundaries). At 1-day
-retention, that window is barely a day; at 7, it's a full week.
+transaction-log backup, giving point-in-time recovery to _any second_ within
+the retention window (not just the daily snapshot boundaries). The current
+seven-day retention provides a full week of recovery points.
+
+## Local restore-mechanics drill
+
+`scripts/local-restore-drill.mjs` proves the logical dump/restore mechanics
+without reading production or creating paid infrastructure. It refuses remote
+hosts, requires separate databases named `vaettir_*restore_source_test` and
+`vaettir_*restore_target_test`, and requires an explicit
+`ALLOW_LOCAL_RESTORE_DRILL=1`. The target is recreated and removed by the
+drill; the source is never dropped.
+
+```powershell
+$env:DATABASE_URL = 'postgresql://postgres:postgres@127.0.0.1:55452/vaettir_beta_restore_source_test?schema=public'
+$env:RESTORE_DATABASE_URL = 'postgresql://postgres:postgres@127.0.0.1:55452/vaettir_beta_restore_target_test?schema=public'
+$env:ALLOW_LOCAL_RESTORE_DRILL = '1'
+$env:PG_DOCKER_CONTAINER = 'your-postgres-16-container' # uses the production-major client tools
+pnpm restore:drill
+```
+
+Alternatively, set `PG_BIN` to a local PostgreSQL client directory whose
+major version matches the source server. A newer `pg_dump` can emit settings
+that an older production-major server cannot restore; the drill treats that
+as a failure rather than suppressing it.
+
+The result records elapsed time, a dump SHA-256, completed-migration count,
+table count, and total restored rows after exact source/target comparison.
+Run `pnpm test:restore` for the fail-closed URL and evidence contracts.
+
+This is local logical-restore evidence only. It does not prove RDS snapshot or
+point-in-time restore, networking/security-group recovery, secret cutover,
+production data correctness, seven-day recoverability, or the four-hour RTO.
 
 ## Restore procedure (point-in-time or from a snapshot)
 
@@ -59,7 +80,7 @@ accidentally overwrite good data while trying to recover from bad data).
    ```
 3. Wait for the new instance to become `available`
    (`aws rds describe-db-instances --db-instance-identifier
-   vaettir-postgres-restore-YYYYMMDD`).
+vaettir-postgres-restore-YYYYMMDD`).
 4. **Verify before cutting over**: connect to the restored instance
    directly (it gets its own endpoint) and spot-check the data actually
    looks right for the target restore point — do not point production
@@ -67,7 +88,7 @@ accidentally overwrite good data while trying to recover from bad data).
 5. **Cut over**: update the `vaettir/database-url` secret in Secrets
    Manager to point at the restored instance's endpoint, then force a new
    ECS deployment of `vaettir-api` (`aws ecs update-service --cluster
-   vaettir-cluster --service vaettir-api --force-new-deployment`) so the
+vaettir-cluster --service vaettir-api --force-new-deployment`) so the
    running task picks up the new connection string.
 6. Once confirmed stable, decide whether to rename the restored instance to
    `vaettir-postgres` (after deleting/renaming the old one) or keep the new
@@ -76,22 +97,20 @@ accidentally overwrite good data while trying to recover from bad data).
 
 ## What hasn't been done
 
-- **The RDS backup retention bump above** — flagged, not applied, needs
-  your go-ahead.
 - **A live, end-to-end tested restore** — the procedure above is RDS's
   documented, standard mechanism (not something invented for this doc), but
   it has not actually been executed against a real snapshot in this
   environment. Spinning up a restored instance costs real money and time
-  for a test that doesn't change what the documented procedure *is* — worth
+  for a test that doesn't change what the documented procedure _is_ — worth
   doing once as a real drill when you have 20-30 minutes, not something to
   do unattended. When you do run it: use a genuinely disposable target
   identifier, verify the data, then delete the restored instance
   (`aws rds delete-db-instance --db-instance-identifier
-  vaettir-postgres-restore-YYYYMMDD --skip-final-snapshot`) rather than
+vaettir-postgres-restore-YYYYMMDD --skip-final-snapshot`) rather than
   leaving it running and being billed for a second RDS instance indefinitely.
-- **Multi-AZ** — not enabled. Multi-AZ protects against an *availability
-  zone outage* (automatic failover, no data loss, no manual restore needed)
-  — a different problem than backup/restore (which protects against *bad
-  data*, not infrastructure failure). Worth a cost/benefit look once uptime
+- **Multi-AZ** — not enabled. Multi-AZ protects against an _availability
+  zone outage_ (automatic failover, no data loss, no manual restore needed)
+  — a different problem than backup/restore (which protects against _bad
+  data_, not infrastructure failure). Worth a cost/benefit look once uptime
   actually matters to paying customers; not urgent for a single-user
   production app today.

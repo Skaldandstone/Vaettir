@@ -1,0 +1,127 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { readFileSync } from "node:fs";
+import vm from "node:vm";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import ts from "typescript";
+import * as helpers from "./plan-custom-fields.ts";
+import * as rowHelpers from "./qa-strategy-fields.ts";
+// Execute and render the actual component source with synthetic inputs. This
+// does not prove browser interaction, current native data, or authentication.
+const source = readFileSync(new URL("../components/PlanCustomFieldsForm.tsx", import.meta.url), "utf8");
+const ast = ts.createSourceFile("PlanCustomFieldsForm.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+const printer = ts.createPrinter();
+const declarations = ast.statements.filter(node => ts.isFunctionDeclaration(node)).map(node => printer.printNode(ts.EmitHint.Unspecified, node, ast).replace(/^export /, ""));
+const compiled = ts.transpileModule(declarations.join("\n"), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
+function harness() {
+  const sandbox = { React, useState: React.useState, useEffect: React.useEffect, useId: React.useId, useRef: React.useRef, ...helpers, ...rowHelpers };
+  vm.createContext(sandbox); vm.runInContext(compiled, sandbox); return sandbox;
+}
+function rowHost(h) {
+  const hooks = []; let cursor = 0;
+  h.useId = () => "synthetic-plan-row";
+  h.useRef = value => { const index = cursor++; return hooks[index] ??= { current: value }; };
+  h.useState = initial => { const index = cursor++; if (!Object.hasOwn(hooks, index)) hooks[index] = typeof initial === "function" ? initial() : initial; return [hooks[index], value => { hooks[index] = value; }]; };
+  return props => { cursor = 0; return h.PlanStringListField(props); };
+}
+function elements(element) {
+  if (!React.isValidElement(element)) return [];
+  return [element, ...React.Children.toArray(element.props.children).flatMap(elements)];
+}
+test("actual repeatable-row handlers preserve exact multiline text and only remove the chosen duplicate", () => {
+  const h = harness(), values = ["", " a,b ", "same", "same", "line\nnext"], changes = [];
+  const nodes = elements(rowHost(h)({ label: "Areas", hint: "Synthetic", values, onChange: value => changes.push(value) }));
+  const rows = nodes.filter(node => node.type === "textarea");
+  assert.deepEqual(rows.map(row => row.props.value), values);
+  rows[1].props.onChange({ target: { value: " retained\ncomma,exact " } });
+  assert.deepEqual(changes.pop(), ["", " retained\ncomma,exact ", "same", "same", "line\nnext"]);
+  nodes.find(node => node.type === "button" && node.props["aria-label"] === "Remove Areas row 3").props.onClick();
+  assert.deepEqual(changes.pop(), ["", " a,b ", "same", "line\nnext"]);
+  nodes.find(node => node.type === "button" && !node.props["aria-label"]).props.onClick();
+  assert.deepEqual(Array.from(changes.pop()), [...values, ""]);
+});
+test("actual generic row keys survive edits/removal/same-value echoes and reset changed external snapshots honestly", () => {
+  const h = harness(), render = rowHost(h); let values = ["same", "same", ""], next;
+  const props = () => ({ label: "Areas", hint: "Synthetic", values, onChange: value => { next = value; } });
+  const first = elements(render(props())), keys = nodes => nodes.filter(node => node.type === "div" && String(node.key).includes("synthetic-plan-row")).map(node => node.key);
+  const originalKeys = keys(first);
+  first.find(node => node.type === "button" && node.props["aria-label"] === "Remove Areas row 1").props.onClick(); values = Array.from(next);
+  const second = elements(render(props())); assert.deepEqual(keys(second), originalKeys.slice(1));
+  second.find(node => node.type === "textarea").props.onChange({ target: { value: " exact,prose\n " } }); values = Array.from(next);
+  const third = elements(render(props())); assert.deepEqual(keys(third), originalKeys.slice(1));
+  values = [...values]; assert.deepEqual(keys(elements(render(props()))), originalKeys.slice(1), "same-value echo keeps identities");
+  values = ["changed external", "snapshot"];
+  render(props()); // actual React performs the render-phase state reconciliation
+  const externalKeys = keys(elements(render(props())));
+  assert.equal(externalKeys.some(key => originalKeys.includes(key)), false);
+  assert.deepEqual(elements(render(props())).filter(node => node.type === "textarea").map(node => node.props.value), values);
+  assert.ok(Array.from(next).every(item => typeof item === "string"), "native writes never contain local row IDs");
+});
+test("actual state-owned row allocation never collides after repeated adds, removal or external replacement", () => {
+  const h = harness(), render = rowHost(h); let values = ["same", "same", "line\nnext", ""], next;
+  const props = () => ({ label: "Areas", hint: "Synthetic", values, onChange: value => { next = value; } });
+  const keys = nodes => nodes.filter(node => node.type === "div" && String(node.key).includes("synthetic-plan-row")).map(node => node.key);
+  let nodes = elements(render(props())), prior = keys(nodes);
+  const initial = [...prior];
+  for (let i = 0; i < 4; i++) {
+    nodes.find(node => node.type === "button" && !node.props["aria-label"]).props.onClick();
+    values = Array.from(next); nodes = elements(render(props()));
+    const current = keys(nodes);
+    assert.deepEqual(current.slice(0,-1), prior);
+    assert.equal(current.length, new Set(current).size);
+    assert.equal(prior.includes(current.at(-1)), false);
+    assert.deepEqual(values.slice(0,4), ["same", "same", "line\nnext", ""]);
+    prior = current;
+  }
+  nodes.find(node => node.type === "button" && node.props["aria-label"] === "Remove Areas row 2").props.onClick();
+  values = Array.from(next); nodes = elements(render(props()));
+  assert.deepEqual(keys(nodes), prior.filter((_, index) => index !== 1));
+  const retired = [...prior]; values = ["external", "snapshot", "snapshot"];
+  render(props()); nodes = elements(render(props()));
+  assert.equal(keys(nodes).some(key => retired.includes(key) || initial.includes(key)), false);
+  nodes.find(node => node.type === "button" && !node.props["aria-label"]).props.onClick();
+  values = Array.from(next); nodes = elements(render(props()));
+  assert.equal(keys(nodes).length, new Set(keys(nodes)).size);
+  assert.deepEqual(values, ["external", "snapshot", "snapshot", ""]);
+  assert.ok(values.every(value => typeof value === "string"), "Only native string values are emitted");
+});
+test("actual pure row allocator repeats exact identities without mutation during render preparation", () => {
+  const h = harness(), values = ["", "same", "same", "line\nnext"];
+  const first = h.planStringRowState(values, "synthetic-prefix", 9), second = h.planStringRowState(values, "synthetic-prefix", 9);
+  assert.deepEqual(first, second);
+  assert.deepEqual(Array.from(first.rows, row => row.id), ["synthetic-prefix:9", "synthetic-prefix:10", "synthetic-prefix:11", "synthetic-prefix:12"]);
+  assert.deepEqual(Array.from(first.rows, row => row.value), values);
+  assert.equal(first.nextId, 13); assert.deepEqual(values, ["", "same", "same", "line\nnext"]);
+});
+test("actual boolean/text handlers preserve native types and unknown siblings", () => {
+  const h = harness(), values = { enabled: false, notes: " original\ntext, ", legacy: { retain: [null, 3] } }, changes = [];
+  const props = { schema: { properties: { enabled: { type: "boolean" }, notes: { type: "string" } } }, values, onChange: value => changes.push(value) };
+  const nodes = elements(h.PlanCustomFieldsForm(props));
+  const checkbox = nodes.find(node => node.type === "input" && node.props.type === "checkbox");
+  assert.equal(checkbox.props.checked, false); checkbox.props.onChange({ target: { checked: true } });
+  assert.deepEqual(changes.pop(), { ...values, enabled: true });
+  const textarea = nodes.find(node => node.type === "textarea");
+  textarea.props.onChange({ target: { value: "" } });
+  assert.deepEqual(changes.pop(), { ...values, notes: "" });
+  assert.ok(nodes.some(node => node.type === "pre" && node.props.children.includes('"retain"')));
+});
+test("actual missing/invalid fields render explicit retention and safely escape saved text", () => {
+  const h = harness();
+  const html = renderToStaticMarkup(React.createElement(h.PlanCustomFieldsForm, { schema: { properties: { enabled: { type: "boolean" }, areas: { type: "array", items: { type: "string" } }, n: { type: "number" } } }, values: { areas: ["<script>synthetic</script>", 3], n: null }, onChange: () => assert.fail("render must not write") }));
+  assert.match(html, /Set false explicitly/); assert.match(html, /Not set/);
+  assert.match(html, /stored native value does not match/);
+  assert.match(html, /&lt;script&gt;synthetic&lt;\/script&gt;/);
+  assert.doesNotMatch(html, /<script>|value="\[object Object\]"/);
+});
+test("actual finite-number input applies only finite values and keeps invalid drafts unapplied", () => {
+  const h = harness(), applied = [];
+  // Synthetic hook host evaluates the actual handler without a browser DOM.
+  h.useState = value => [value, () => {}]; h.useEffect = () => {};
+  const nodes = elements(h.FiniteNumberField({ label: "Budget", value: 12, onChange: value => applied.push(value) }));
+  const input = nodes.find(node => node.type === "input");
+  for (const value of ["", "NaN", "Infinity", "1e309", "-"]) input.props.onChange({ target: { value } });
+  assert.deepEqual(applied, []);
+  input.props.onChange({ target: { value: "0" } }); input.props.onChange({ target: { value: "-4.5" } });
+  assert.deepEqual(applied, [0, -4.5]);
+});
