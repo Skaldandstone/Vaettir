@@ -66,3 +66,23 @@ behavior, transport suppression or read-authorization evidence.
 
 Isolated Google execution remains gated on the operator's approved scope and
 provider contract verification. aTwist activation remains pending review.
+
+## Separate footer reachability diagnostic
+
+```powershell
+node apps/web/e2e/identity-case-authoring/footer.mjs --output-dir .local/identity-footer-review-01
+```
+
+This records actual viewport screenshots and summary/footer rectangles after
+Tab, Enter and bottom scrolling, plus a center-point hit test. It performs no
+save mutation. Diagnostic completion does not imply all recorded states pass
+visual acceptance: `overlap` and `centerReachable` must be inspected.
+
+At e42047e, the New editor at 1280x900 in both themes reproduced a focused
+Clear/unset summary behind the sticky footer. Summary y836.047..857.047 overlaps
+footer y846..900, and its center hit target is the footer. Enter still toggles
+the details. Scrolling to the bottom exposes the summary and pointer interaction
+works. At 390x900 the static footer does not obscure this control. This is a
+separate local UX finding, not a failure of the bounded synthetic save-permission
+checks, and not yet a hosted finding. Shared-source repair requires ownership
+agreement with the deployment operator.
