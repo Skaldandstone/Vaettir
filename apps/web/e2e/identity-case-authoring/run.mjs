@@ -1,19 +1,19 @@
 // Real New/Edit pages, form and permission hooks; synthetic transports only.
 /* global document, innerWidth, window */
 import { createRequire } from "node:module";
-import { readFile, mkdir, writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import assert from "node:assert/strict";
+import { admitOutput } from "./output.mjs";
+const output = await admitOutput(process.argv.slice(2));
 const web = path.resolve(fileURLToPath(new URL("../../", import.meta.url)));
 const root = path.resolve(web, "../.."), require = createRequire(path.join(web, "package.json"));
 const vite = createRequire(createRequire(require.resolve("vitest")).resolve("vite"));
 const { build } = vite("esbuild"), { chromium, expect } = require("@playwright/test");
-const output = path.join(root, ".local/identity-case-authoring-ui");
-await mkdir(output, { recursive: true });
 const boundary = path.join(web, "e2e/identity-case-authoring/boundaries.jsx");
 const bundle = await build({ entryPoints: [path.join(web, "e2e/identity-case-authoring/fixture.jsx")], outfile: path.join(output, "bundle.js"),
   bundle: true, write: false, metafile: true, jsx: "automatic", platform: "browser", alias: { "@": web }, nodePaths: [path.join(web, "node_modules")],
@@ -22,7 +22,7 @@ const bundle = await build({ entryPoints: [path.join(web, "e2e/identity-case-aut
     builder.onResolve({ filter: /^next\/link$/ }, () => ({ path: path.join(web, "e2e/ui-workbench/link-boundary.tsx") }));
   } }] });
 const sourceFiles = Object.keys(bundle.metafile.inputs).map(file => path.resolve(file)).filter(file => file.startsWith(root) && !file.includes("node_modules"));
-sourceFiles.push(path.join(web, "app/globals.css"), path.join(web, "app/workbench.css"), fileURLToPath(import.meta.url));
+sourceFiles.push(path.join(web, "app/globals.css"), path.join(web, "app/workbench.css"), fileURLToPath(import.meta.url), fileURLToPath(new URL("./output.mjs", import.meta.url)));
 const hashes = Object.fromEntries(await Promise.all([...new Set(sourceFiles)].sort().map(async file => [path.relative(root, file).replaceAll("\\", "/"), createHash("sha256").update(await readFile(file)).digest("hex")])));
 const css = (await readFile(path.join(web, "app/globals.css"), "utf8")).replace(/^@import[^\r\n]+\r?\n/, "") + "\n" + await readFile(path.join(web, "app/workbench.css"), "utf8");
 const server = createServer((req, res) => {
@@ -80,12 +80,12 @@ try {
       ["field organization changed", { fieldOrganizationId: "other-org" }, { fieldOrganizationId: null }],
     ]) {
       await patch(changed); await expect(save).toBeDisabled();
-      // Even a programmatic native click must not result in a transport attempt.
+      // Even a programmatic native click must not attempt a synthetic save mutation.
       await save.evaluate(node => node.click()); assert.equal((await snapshot()).calls.length, 0, name);
       await patch(restored); await expect(save).toBeEnabled();
       await expect(title).toHaveValue(`Synthetic ${mode} ${theme} draft`);
       await expect(evidence).toHaveValue("Reviewed synthetic evidence");
-      checks.push(`${mode}/${theme}: ${name} denies before transport and retains draft`);
+      checks.push(`${mode}/${theme}: ${name} prevents synthetic save mutation and retains draft`);
     }
     await page.evaluate(() => window.fixture.liveSession("synthetic-actor", "other-session"));
     await expect(save).toBeDisabled(); assert.equal((await snapshot()).calls.length, 0);
@@ -107,14 +107,14 @@ try {
     assert.deepEqual(result.calls[0], result.calls[1]);
     assert.equal(result.calls[1].name, mode === "new" ? "create" : "update");
     assert.deepEqual(result.calls[1].input.customFields, { evidence: "Reviewed synthetic evidence" });
-    assert.equal(result.calls[1].input.expectedFieldSchemaHash, "schema-r1");
-    assert.equal(result.calls[1].input.expectedCustomFieldRevision, "values-r1");
+    assert.equal(result.calls[1].input.expectedFieldSchemaHash, "a".repeat(64));
+    assert.equal(result.calls[1].input.expectedCustomFieldRevision, "b".repeat(64));
     assert.equal(result.calls[1].input.steps[0].action, "Verify isolated manual author access");
     assert.equal(result.calls[1].input.steps[0].expectedResult, "Only the authorized synthetic case is saved");
-    if (mode === "edit") { assert.equal(result.calls[1].input.expectedCaseRevision, "case-r1"); assert.equal(result.calls[1].input.expectedStepRevision, "steps-r1"); }
+    if (mode === "edit") { assert.equal(result.calls[1].input.expectedCaseRevision, "c".repeat(64)); assert.equal(result.calls[1].input.expectedStepRevision, "d".repeat(64)); }
     else assert.equal(result.calls[1].input.projectId, "synthetic-project");
     assert.equal(result.navigations[0], "/projects/synthetic-project/test-cases/synthetic-case");
-    assert.ok(result.reads.some(read => read.name === "fields" && read.input.authoringAction === "cases.write"));
+    assert.ok(result.queryObservations.some(read => read.name === "fields" && read.enabled && read.input.authoringAction === "cases.write"));
     checks.push(`${mode}/${theme}: keyboard retry/save, recoverable failure, exact metadata/revision payload and original navigation`);
     await page.goto(`${origin}/${mode}`);
     await title.fill("Original project private draft"); await evidence.fill("Original project private metadata");
@@ -139,10 +139,10 @@ try {
     screenshotHashes[file] = createHash("sha256").update(await readFile(path.join(output, file))).digest("hex");
   }
   await writeFile(path.join(output, "result.json"), JSON.stringify({ passed: true, capturedAt: new Date().toISOString(), sourceCommit: execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim(),
-    hashes, screenshotHashes, hostedAcceptance: false, providerAcceptance: false, transport: "Synthetic Clerk, tRPC and Next navigation; actual pages/form/hooks", checks, errors, blockedRequests }, null, 2));
+    hashes, screenshotHashes, hostedAcceptance: false, providerAcceptance: false, transport: "Synthetic Clerk, tRPC and Next navigation; query observations are not fetch or authorization evidence; zero forbidden save mutations only", checks, errors, blockedRequests }, null, 2), { flag: "wx" });
   console.log(`PASS ${checks.length} actual case-authoring UI checks: ${output}`);
 } catch (error) {
-  await writeFile(path.join(output, "result.json"), JSON.stringify({ passed: false, capturedAt: new Date().toISOString(), hashes, checks, errors, error: String(error), hostedAcceptance: false, providerAcceptance: false }, null, 2));
+  await writeFile(path.join(output, "result.json"), JSON.stringify({ passed: false, capturedAt: new Date().toISOString(), hashes, checks, errors, error: String(error), hostedAcceptance: false, providerAcceptance: false }, null, 2), { flag: "wx" });
   if (page) { await page.screenshot({ path: path.join(output, "failure.png"), fullPage: true }); await writeFile(path.join(output, "failure.txt"), await page.locator("body").innerText()); }
   throw error;
 } finally { await browser?.close(); await new Promise(resolve => server.close(resolve)); }
