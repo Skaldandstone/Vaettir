@@ -82,6 +82,7 @@ select { padding-right: 28px; text-overflow: ellipsis; }
 .tree-label small:not(.sr-only) { display: block; font-size: 11px; }
 .case-editor-footer { position: sticky; bottom: 0; z-index: 3; display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 10px; margin-top: 18px; box-shadow: 0 -5px 16px #0001; }
 .case-editor-footer > [role="alert"] { flex-basis: 100%; }
+.test-case-editor :is(input, textarea, select, button, summary) { scroll-margin-block-end: 96px; }
 .compact-sidebar-layout { --sidebar-width: 184px; display: grid; grid-template-columns: var(--sidebar-width) 8px minmax(0, 1fr); gap: 0; align-items: start; min-width: 0; }
 .compact-sidebar { min-width: 0; padding-right: 8px; }
 .compact-sidebar-header { display: flex; align-items: center; gap: 4px; margin-bottom: 8px; }
