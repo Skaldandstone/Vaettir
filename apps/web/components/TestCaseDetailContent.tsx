@@ -1746,7 +1746,11 @@ function TestCaseInspector({
         <AutomationDraftSection
           key={tc.id}
           testCaseId={tc.id}
-          sourceFramework={tc.source?.frameworkFamily ?? undefined}
+          sourceFramework={
+            tc.source?.frameworkFamily === "CUSTOM"
+              ? tc.source.framework
+              : (tc.source?.frameworkFamily ?? undefined)
+          }
           readOnly={readOnly}
         />
       </section>

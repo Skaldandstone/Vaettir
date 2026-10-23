@@ -10,6 +10,13 @@ import {
 import { scanLiveApp, LiveAppScanError } from "../services/liveAppScan.js";
 import { UnsafeUrlError } from "../services/urlGuard.js";
 import { snapshotTestCaseVersion } from "../services/testCaseVersion.js";
+import {
+  androidExplorationCommit,
+  androidExplorationReceipt,
+} from "../services/androidExplorationSchema.js";
+import { importAndroidExploration } from "../services/androidExplorationImport.js";
+import { readDeviceCaptureAccess } from "../services/deviceCaptureAccess.js";
+import { deviceCaptureAccessOutput } from "../services/deviceCaptureAccessSchema.js";
 
 // SSE-181: live-app test generation. Deliberately its own router, its own
 // review surface (see the web page), and its own origin tag
@@ -173,6 +180,52 @@ function technicalTarget(
 }
 
 export const liveAppGenerationRouter = router({
+  explorationAccess: liveAppScanProcedure
+    .input(
+      z
+        .object({
+          projectId: z.string().min(1).max(200),
+          originalOrganizationId: z.string().min(1).max(200),
+          expectedClerkActorId: z.string().min(1).max(200),
+          expectedNativeActorId: z.string().min(1).max(200).optional(),
+          readRequestId: z.string().uuid(),
+        })
+        .strict(),
+    )
+    .output(deviceCaptureAccessOutput)
+    .query(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      if (!ctx.authenticatedClerkSubject)
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message:
+            "An independently authenticated original account is required.",
+        });
+      return readDeviceCaptureAccess(
+        ctx.prisma,
+        ctx.user.id,
+        {
+          ...input,
+          expectedNativeActorId: input.expectedNativeActorId ?? ctx.user.id,
+        },
+        { authenticatedClerkSubject: ctx.authenticatedClerkSubject },
+      );
+    }),
+  commitExploration: liveAppScanProcedure
+    .input(androidExplorationCommit)
+    .output(androidExplorationReceipt)
+    .mutation(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      if (!ctx.authenticatedClerkSubject)
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "A currently authenticated original account is required.",
+        });
+      return importAndroidExploration(ctx.prisma, input, {
+        nativeActorId: ctx.user.id,
+        clerkActorId: ctx.authenticatedClerkSubject,
+      });
+    }),
   // Crawls startUrl (and up to 4 same-origin links found on it) and
   // generates BDD test cases grounded in what was actually observed.
   // Nothing is persisted here - same review-before-commit shape as every

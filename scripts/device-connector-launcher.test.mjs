@@ -17,6 +17,15 @@ test("detects the desktop launcher platform without treating Android as Linux", 
   assert.equal(detectDeviceConnectorPlatform("Linux; Android 15"), "windows");
 });
 
+test("exploration launcher selects its explicit port without changing the existing capture default",()=>{
+  for(const platform of ["windows","macos","linux"]){
+    const base={platform,origin:"https://skaldandstone.vaettir.app",pairingCode:"ABCDEF123456"};
+    assert.match(buildDeviceConnectorLauncher({...base,port:4775}).content,/'--origin','https:\/\/skaldandstone.vaettir.app','--port','4775'/);
+    assert.doesNotMatch(buildDeviceConnectorLauncher(base).content,/'--port'/);
+    for(const port of [0,1023,65536,4775.5,"4775;anything"])assert.throws(()=>buildDeviceConnectorLauncher({...base,port}));
+  }
+});
+
 test("builds a one-click Windows launcher with an embedded pairing code", () => {
   const launcher = buildDeviceConnectorLauncher({
     platform: "windows",
