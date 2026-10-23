@@ -85,6 +85,7 @@ import { testCaseViewsRouter } from "./routers/testCaseViews.js";
 import { testCaseStructureRouter } from "./routers/testCaseStructure.js";
 import { reportsRouter } from "./routers/reports.js";
 import { caseAnalysisQueueRouter } from "./routers/caseAnalysisQueue.js";
+import { unrealPlaytestsRouter } from "./routers/unrealPlaytests.js";
 
 export const appRouter = router({
   aiDisclosure: aiDisclosureRouter,
@@ -173,6 +174,7 @@ export const appRouter = router({
   user: userRouter,
   liveAppGeneration: liveAppGenerationRouter,
   productionSignals: productionSignalsRouter,
+  unrealPlaytests: unrealPlaytestsRouter,
 });
 
 export type AppRouter = typeof appRouter;

@@ -1249,6 +1249,7 @@ function TestCaseInspector({
         {!readOnly && (
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
             <a href={onEditHref ?? `/projects/${projectId}/test-cases/${tc.id}/edit`}>Edit case</a>
+            <a href={`/projects/${projectId}/test-cases/${tc.id}/unreal`}>Unreal playtest (technical preview)</a>
             <TestCaseClone key={tc.id} projectId={projectId} caseId={tc.id} onChanged={onChanged} />
           </div>
         )}

@@ -20,7 +20,8 @@ async function resolveApiKeyUser(rawKey: string) {
   if (!apiKey || apiKey.revokedAt) return null;
   // Best-effort last-used tracking; never let it block or fail the request.
   prisma.apiKey.update({ where: { id: apiKey.id }, data: { lastUsedAt: new Date() } }).catch(() => undefined);
-  return prisma.user.findUnique({ where: { id: apiKey.serviceUserId }, include: { memberships: true } });
+  const user = await prisma.user.findUnique({ where: { id: apiKey.serviceUserId }, include: { memberships: true } });
+  return user ? { user, apiKeyId: apiKey.id } : null;
 }
 
 // The staff plane is a SEPARATE identity from tenant users: cross-org support
@@ -47,11 +48,16 @@ export async function createContext({ req }: CreateFastifyContextOptions) {
   // Preserve the independently verified transport subject, not a native row's
   // current mapping. API keys deliberately do not acquire human-session proof.
   let authenticatedClerkSubject: string | null = null;
+  let authenticatedApiKeyId: string | null = null;
 
   const user = !token
     ? null
     : looksLikeApiKey(token)
-      ? await resolveApiKeyUser(token)
+      ? await resolveApiKeyUser(token).then((resolved) => {
+          if (!resolved) return null;
+          authenticatedApiKeyId = resolved.apiKeyId;
+          return resolved.user;
+        })
       : await (workspaceHost
           ? verifyClerkSessionToken(token, [`https://${workspaceHost}`])
           : verifyClerkSessionToken(token)).then((clerkUserId) =>
@@ -74,6 +80,7 @@ export async function createContext({ req }: CreateFastifyContextOptions) {
       : user,
     workspaceOrganizationId,
     authenticatedClerkSubject,
+    authenticatedApiKeyId,
     staff: resolveStaff(req.headers),
     securityLogger: req.log as SecurityEventLogger,
     staffAttempt: {
@@ -86,8 +93,9 @@ export async function createContext({ req }: CreateFastifyContextOptions) {
 
 // Existing internal callers/fixtures may omit transport provenance. New
 // human-session-only endpoints must refuse absence; never infer it from user.
-export type Context = Omit<Awaited<ReturnType<typeof createContext>>, "authenticatedClerkSubject" | "workspaceOrganizationId"> & {
+export type Context = Omit<Awaited<ReturnType<typeof createContext>>, "authenticatedClerkSubject" | "authenticatedApiKeyId" | "workspaceOrganizationId"> & {
   authenticatedClerkSubject?: string | null;
+  authenticatedApiKeyId?: string | null;
   workspaceOrganizationId?: string | null;
 };
 
