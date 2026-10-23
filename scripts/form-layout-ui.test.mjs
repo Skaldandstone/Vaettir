@@ -1,8 +1,8 @@
+import { reactBrowserScripts } from "./test-support/react-browser-runtime.mjs";
 import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
 import {readFileSync,mkdirSync} from 'node:fs';
 import {createRequire} from 'node:module';
-import {dirname,join} from 'node:path';
 import {after,before,test} from 'node:test';
 const require=createRequire(new URL('../apps/web/package.json',import.meta.url));
 const ts=require('typescript'),{chromium}=require('@playwright/test');
@@ -32,8 +32,9 @@ const fixture=compile(`function Scenario(){
  <div className="wizard-footer"><button className="btn-secondary">Back</button><button className="btn-secondary">Save definition</button><button className="btn-primary">Capture private preview</button></div></div></DialogFrame>;
 }`);
 const scripts={
- '/react.js':readFileSync(join(dirname(require.resolve('react/package.json')),'umd/react.development.js')),
- '/react-dom.js':readFileSync(join(dirname(require.resolve('react-dom/package.json')),'umd/react-dom.development.js')),
+  ...reactBrowserScripts(),
+
+
  '/styles.css':read('apps/web/app/globals.css').replace(/^@import.*$/m,'')+'\n'+read('apps/web/app/workbench.css'),
 };
 const html=`<!doctype html><html data-theme="dark"><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/styles.css"></head><body><div id="root"></div><script src="/react.js"></script><script src="/react-dom.js"></script><script type="module">
