@@ -1,7 +1,7 @@
 // Read-only real-component footer diagnostic. No save mutation is invoked.
-/* global document, window, innerHeight */
+/* global document, window, innerHeight, getComputedStyle */
 import { createRequire } from "node:module";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile, readdir } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { createServer } from "node:http";
@@ -37,15 +37,22 @@ try {
   const page = await browser.newPage(); page.setDefaultTimeout(5000);
   page.on("pageerror", error => errors.push(error.message));
   await page.route("**/*", route => new URL(route.request().url()).origin === origin ? route.continue() : (errors.push("Off-origin request blocked"), route.abort()));
-  const geometry = () => page.locator("summary").filter({ hasText: "Clear or unset value" }).evaluate(node => {
+  const summary = page.locator("summary").filter({ hasText: "Clear or unset value" });
+  const geometry = (target = summary) => target.evaluate(node => {
     const rect = node.getBoundingClientRect(), footer = document.querySelector(".case-editor-footer").getBoundingClientRect();
     const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
     return { summary: { top: rect.top, bottom: rect.bottom }, footer: { top: footer.top, bottom: footer.bottom },
       viewportHeight: innerHeight, scrollY: window.scrollY, focused: document.activeElement === node,
       centerReachable: hit === node || node.contains(hit), overlap: rect.top < footer.bottom && rect.bottom > footer.top };
   });
-  for (const theme of ["dark", "light"]) for (const width of [1280, 390]) {
-    await page.setViewportSize({ width, height: 900 }); await page.goto(`${origin}/new`);
+  const assertReachable = value => {
+    assert.equal(value.focused, true, "Expected keyboard focus on inspected control");
+    assert.equal(value.centerReachable, true, "Focused control center must receive pointer events");
+    assert.equal(value.overlap, false, "Focused control must not intersect footer");
+    assert.ok(value.summary.top >= 0 && value.summary.bottom <= value.viewportHeight, "Focused control must be entirely visible");
+  };
+  for (const role of ["custom", "native"]) for (const theme of ["dark", "light"]) for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 900 }); await page.goto(`${origin}/new${role === "native" ? "?native=1" : ""}`);
     await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
     await page.getByLabel("Title", { exact: true }).fill("Synthetic footer diagnostic");
     const metadata = page.getByRole("textbox", { name: "Evidence reference", exact: true });
@@ -55,20 +62,55 @@ try {
     await page.getByRole("button", { name: "Collapse all steps", exact: true }).click();
     await metadata.focus(); await page.keyboard.press("Tab");
     const keyboard = await geometry();
-    await page.screenshot({ path: path.join(output, `keyboard-${theme}-${width}.png`) });
+    assertReachable(keyboard);
+    await page.screenshot({ path: path.join(output, `keyboard-${role}-${theme}-${width}.png`) });
     await page.keyboard.press("Enter");
     await expect(page.locator("details").filter({ has: page.locator("summary").filter({ hasText: "Clear or unset value" }) })).toHaveAttribute("open", "");
     const expanded = await geometry();
+    assertReachable(expanded);
+    const expandedControls = [];
+    for (const name of ["Set NULL explicitly", "Remove value (unset)"]) {
+      await page.keyboard.press("Tab");
+      const control = page.getByRole("button", { name, exact: true });
+      const position = await geometry(control); assertReachable(position);
+      await control.click({ trial: true }); // Reachability only: never clear fixture values.
+      expandedControls.push({ name, ...position });
+    }
+    await page.screenshot({ path: path.join(output, `expanded-${role}-${theme}-${width}.png`) });
+    await page.keyboard.press("Shift+Tab"); await page.keyboard.press("Shift+Tab");
     await page.keyboard.press("Enter");
     await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
     await expect.poll(async () => (await geometry()).centerReachable).toBe(true);
     const bottom = await geometry();
-    await page.screenshot({ path: path.join(output, `bottom-${theme}-${width}.png`) });
+    await page.screenshot({ path: path.join(output, `bottom-${role}-${theme}-${width}.png`) });
     await page.locator("summary").filter({ hasText: "Clear or unset value" }).click();
+    await page.keyboard.press("Enter"); // Close again before testing initial scroll positions.
+    const scrollStarts = [];
+    for (const start of ["top", "mid", "end"]) {
+      await page.getByLabel("Title", { exact: true }).focus();
+      const initialScrollY = await page.evaluate(start => {
+        const end = Math.max(0, document.documentElement.scrollHeight - innerHeight);
+        window.scrollTo(0, start === "top" ? 0 : start === "mid" ? end / 2 : end);
+        return window.scrollY;
+      }, start);
+      await metadata.focus(); await page.keyboard.press("Tab");
+      const position = await geometry(); assertReachable(position);
+      scrollStarts.push({ start, initialScrollY, ...position });
+    }
+    await expect(metadata).toHaveValue("Synthetic evidence");
+    await expect(page.getByLabel("Title", { exact: true })).toHaveValue("Synthetic footer diagnostic");
+    const save = page.getByRole("button", { name: "Create test case", exact: true });
+    await save.focus(); await save.click({ trial: true });
+    const footerPosition = await page.locator(".case-editor-footer").evaluate(node => getComputedStyle(node).position);
+    assert.equal(footerPosition, width === 1280 ? "sticky" : "static");
     assert.equal(await page.evaluate(() => window.fixture.snapshot().calls.length), 0);
-    observations.push({ theme, width, keyboard, expanded, bottom, keyboardToggle: true, bottomClick: true, saveMutations: 0 });
+    observations.push({ role, theme, width, keyboard, expanded, expandedControls, scrollStarts, bottom, footerPosition, keyboardToggle: true, bottomClick: true, saveMutations: 0 });
   }
   assert.deepEqual(errors, []);
-  await writeFile(path.join(output, "result.json"), JSON.stringify({ sourceCommit: execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim(), hashes, observations, errors, hostedAcceptance: false }, null, 2), { flag: "wx" });
-  console.log(JSON.stringify({ output, observations }));
+  const screenshotHashes = Object.fromEntries(await Promise.all((await readdir(output)).filter(file => file.endsWith(".png")).map(async file => [file, createHash("sha256").update(await readFile(path.join(output, file))).digest("hex")])));
+  await writeFile(path.join(output, "result.json"), JSON.stringify({ passed: true, sourceCommit: execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim(), hashes, screenshotHashes, observations, errors, hostedAcceptance: false, providerAcceptance: false }, null, 2), { flag: "wx" });
+  console.log(JSON.stringify({ output, combinations: observations.length, screenshots: Object.keys(screenshotHashes).length, passed: true }));
+} catch (error) {
+  await writeFile(path.join(output, "result.json"), JSON.stringify({ passed: false, hashes, observations, errors, error: String(error), hostedAcceptance: false }, null, 2), { flag: "wx" });
+  throw error;
 } finally { await browser?.close(); await new Promise(resolve => server.close(resolve)); }

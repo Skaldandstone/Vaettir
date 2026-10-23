@@ -8,7 +8,10 @@ const initial = {
   fieldFetching: false, fieldError: false, fieldEditable: true, fieldOrganizationId: null,
   actionProjectId: null, actionSubject: null, actionOrganizationId: null, failSave: false,
 };
-let state = { ...initial, ...(location.search === "?denied=1" ? { permissions: [], seatType: "LIGHT" } : {}) };
+let state = { ...initial,
+  ...(location.search === "?denied=1" ? { permissions: [], seatType: "LIGHT" } : {}),
+  ...(location.search === "?native=1" ? { permissions: [], role: "EDITOR" } : {}),
+};
 const subscribe = fn => { listeners.add(fn); return () => listeners.delete(fn); };
 function useRevision() { return useSyncExternalStore(subscribe, () => revision); }
 const calls = [], navigations = [], queryObservations = [];

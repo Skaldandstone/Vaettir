@@ -75,8 +75,14 @@ node apps/web/e2e/identity-case-authoring/footer.mjs --output-dir .local/identit
 
 This records actual viewport screenshots and summary/footer rectangles after
 Tab, Enter and bottom scrolling, plus a center-point hit test. It performs no
-save mutation. Diagnostic completion does not imply all recorded states pass
-visual acceptance: `overlap` and `centerReachable` must be inspected.
+save mutation. The regression asserts full viewport visibility, no footer
+intersection and center-point reachability of the focused summary and both
+expanded controls; pointer checks for the clearing buttons use trial mode only.
+Top, middle and end scroll starting offsets are recorded before focusing. Native
+editors and custom case authors run in both themes at 1280 and 390 pixels.
+Values remain unchanged, the save button remains reachable without invocation,
+and desktop sticky/mobile static behavior is preserved. A passing result records
+eight role/theme/width combinations and 24 hashed viewport screenshots.
 
 At e42047e, the New editor at 1280x900 in both themes reproduced a focused
 Clear/unset summary behind the sticky footer. Summary y836.047..857.047 overlaps
@@ -84,5 +90,9 @@ footer y846..900, and its center hit target is the footer. Enter still toggles
 the details. Scrolling to the bottom exposes the summary and pointer interaction
 works. At 390x900 the static footer does not obscure this control. This is a
 separate local UX finding, not a failure of the bounded synthetic save-permission
-checks, and not yet a hosted finding. Shared-source repair requires ownership
-agreement with the deployment operator.
+checks, and not yet a hosted finding. The operator authorized a CSS-only repair:
+96px block-end scroll margin on case-editor controls reserves room during native
+focus scrolling without changing field values, component logic or sticky-save
+positioning. The regression checks the previously obscured focused control;
+arbitrary unfocused content underneath a sticky footer is not promised visible
+at every manual scroll offset. Hosted acceptance remains separate.
