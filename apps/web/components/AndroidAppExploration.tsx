@@ -41,7 +41,7 @@ const reasonText: Record<string, string> = {
   FORM_AUTH_OR_EMBEDDED_CONTENT:
     "This screen has a protected or unrecognized form, authentication, payment or embedded content. Exploration stopped.",
   SCREEN_CHANGED_REVIEW_REQUIRED:
-    "The screen changed outside this session. Exploration stopped for review.",
+    "The screen’s controls or content changed before the next action. Exploration stopped for review.",
   TARGET_OR_OBSERVATION_UNAVAILABLE:
     "The selected app or its screen could not be verified.",
   ACTION_OUTCOME_UNCERTAIN_NO_RETRY:

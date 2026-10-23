@@ -27,8 +27,15 @@ scope. This metadata read still grants no processing permission: local consent
 is a separate operation admission, and hosted disclosure is another review.
 
 One step performs at most one navigation action. It reobserves the complete
-supported target screen and refuses a stale screen digest. Accessible named
-navigation controls must match the approved labels exactly; duplicates and
+supported target screen and refuses a stale navigation/content digest. Passive
+animation may change bounds, index or drawing order without ending exploration.
+All other passive attributes (including labels, object identifiers, class and
+state) remain part of screen identity. Every attribute on clickable, long-clickable,
+scrollable, checkable or focusable objects stays exact, even when unnamed or
+disabled. Search/filter exclusion geometry also stays exact. A moving navigation
+target, new overlay/control, changed content or protected screen still stops;
+there is no fuzzy matching, automatic retry or broader navigation authority.
+Accessible named navigation controls must match the approved labels exactly; duplicates and
 known sensitive action labels are excluded. Passwords, recognized authentication
 or payment screens, unrecognized forms, embedded web content and foreign package
 hierarchies stop traversal. Back and scrolling are

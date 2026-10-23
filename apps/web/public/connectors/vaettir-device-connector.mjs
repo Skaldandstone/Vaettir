@@ -1098,7 +1098,12 @@ function observeAndroidExplorerWindow(serial, expectedPackage) {
     if (isField) { semantics.push(["ordinary-search-filter-field",androidExplorerBounds(a.bounds)]); continue; }
     if (withinField) continue;
     const role = nativeRole(a, "node"), name = a.text || a["content-desc"] || a["resource-id"] || "";
-    semantics.push(Object.keys(a).sort().map(key=>[key,a[key]]));
+    // A decorative animation can move or repaint without changing navigation.
+    // Ignore only its geometry/paint bookkeeping, never its content or identity.
+    // Keep every attribute on interactive (even disabled/unnamed) objects, and
+    // keep ordinary-field geometry above. Moving targets/scroll areas still stop.
+    const interactive = ["clickable", "long-clickable", "scrollable", "checkable", "focusable"].some(key => a[key] === "true");
+    semantics.push(Object.keys(a).sort().filter(key => interactive || !["bounds", "index", "drawing-order"].includes(key)).map(key=>[key,a[key]]));
     if (a.scrollable === "true" && a.enabled !== "false" && !scroll) {
       const b=androidExplorerBounds(a.bounds),x=Math.floor((b[0]+b[2])/2),y1=Math.floor(b[1]+(b[3]-b[1])*0.3),y2=Math.floor(b[1]+(b[3]-b[1])*0.8);
       if (!boundary.fields.some(f=>x>=f[0]&&x<f[2]&&y2>=f[1]&&y1<f[3])) scroll = {id:hash(JSON.stringify(semantics.at(-1))),bounds:b,target:androidExplorerObjectTarget(a,b,nodes,expectedPackage)};
