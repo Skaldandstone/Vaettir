@@ -301,7 +301,7 @@ test("acknowledged publication permits the next fresh report even when catalog r
   assert.equal(state.draftStatus, "published");
   assert.equal(state.open, false);
   assert.equal(state.review.id, "synthetic-approved");
-  assert.match(state.message, /acknowledged/);
+  assert.match(state.message, /sharing was confirmed/);
   h.begin();
   assert.equal(state.draftStatus, "draft");
   assert.equal(state.title, "Quality status review");
@@ -371,7 +371,7 @@ test("keeping the local report restores visible focus before clearing the replac
   assert.equal(state.replacement, null);
   assert.equal(draft(state), before);
   assert.match(source.replace(/\s+/g, " "), /ref=\{closeButton\} className="btn-secondary modal-close"/);
-  assert.match(source, /onClick=\{keepCurrentReport\}>Keep current report/);
+  assert.match(source, /onClick=\{keepCurrentReport\}\s*>\s*Keep current report/);
 });
 
 test("replacement confirmation focuses before writes and refused routes never focus or clear review", () => {

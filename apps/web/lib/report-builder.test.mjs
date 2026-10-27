@@ -14,11 +14,11 @@ test("custom UTC interval and exact recorded scopes are progressively exposed, v
   assert.match(builder, /Start date \(UTC\)/);
   assert.match(builder, /End date \(UTC, inclusive\)/);
   assert.match(builder, /366 \* 86400000/);
-  assert.match(builder, /Limit to recorded execution scope \(optional\)/);
+  assert.match(builder, /Choose specific tests or runs \(optional\)/);
   assert.match(builder, /scopeOptions.useQuery\([\s\S]*enabled: open/);
   assert.match(builder, /Exact plan \/ older run identity/);
   assert.match(builder, /runId.*platform.*environment.*build/);
-  assert.match(builder, /Scoped defect counts are excluded/);
+  assert.match(builder, /When you select specific tests, defect counts need matching imported evidence/);
   assert.match(builder, /invalidInterval/);
 });
 test("cached access and saved previews cannot authorize paused, failed or wrong-project report review", () => {
@@ -28,9 +28,18 @@ test("cached access and saved previews cannot authorize paused, failed or wrong-
     builder,
     /open && !resume.error && !resume.isFetching && !resume.isPaused && resume.data\?\.id === resumeId/,
   );
-  assert.match(builder, /enabled: open && !!resumeId && !readOnly, staleTime: 0/);
-  assert.match(builder, /resume.data.projectId === projectId && resume.data.organizationId === project.data\?\.organizationId/);
-  assert.match(builder, /setReview\(\{ \.\.\.result, reviewOrgId: originalOrganizationId, reviewActorId: originalActorId \}\)/);
+  assert.match(
+    builder,
+    /enabled: open && !!resumeId && !readOnly, staleTime: 0/,
+  );
+  assert.match(
+    builder,
+    /resume.data.projectId === projectId && resume.data.organizationId === project.data\?\.organizationId/,
+  );
+  assert.match(
+    builder,
+    /setReview\(\{ \.\.\.result, reviewOrgId: originalOrganizationId, reviewActorId: originalActorId \}\)/,
+  );
   assert.match(
     builder,
     /open && !readOnly && project.data\?\.id === projectId && scopeOptions.data\?\.projectId === projectId && scopeOptions.data.organizationId === project.data.organizationId && !scopeOptions.error && !scopeOptions.isFetching && !scopeOptions.isPaused \? scopeOptions.data/,
@@ -79,7 +88,7 @@ test("capture and reusable definition retry frozen exact payloads after uncertai
     /if \(request \|\| saveRequest\) \{\s*setOpen\(true\); return;/,
   );
   assert.match(builder, /Resume pending report/);
-  assert.match(builder, /Retry same definition save/);
+  assert.match(builder, /Retry same settings save/);
   assert.match(
     builder,
     /if \(\s*!request && \(code === "BAD_REQUEST" \|\| code === "NOT_FOUND" \|\| code === "PRECONDITION_FAILED"\)\s*\)/,
@@ -93,11 +102,11 @@ test("approval pins the frozen private preview and selected sections use no prov
   );
   assert.match(
     builder,
-    /Project-wide scope[\s\S]*does not apply the case-query filters/,
+    /All project tests are included by default[\s\S]*case-query filters[\s\S]*do not apply here/,
   );
   assert.match(
     builder,
-    /Capture costs 0 AI credits. No source or external provider data is fetched/,
+    /Creating this report uses 0 AI credits. No source or external provider data is fetched/,
   );
   assert.match(builder, /definition.sections.includes\(section\)/);
   assert.match(
@@ -113,13 +122,16 @@ test("report presentation never invents optional notes, selection, evidence or l
     frozen,
     /REPORT_SECTIONS.filter\(\s*\(?section\)? => report.definition.sections.includes\(section\),?\s*\)/,
   );
-  assert.match(frozen, /Evidence boundaries and missing data/);
-  assert.match(frozen, /This snapshot never updates itself/);
+  assert.match(frozen, /Data limitations and missing evidence/);
+  assert.match(frozen, /This saved report does not update itself/);
   assert.match(frozen, /renderFrozenReportHtml\(report\)/);
   assert.match(frozen, /review recipients before sharing/);
 });
 test("workspace snapshot route gates sharing and exports to approved accessible reports", () => {
-  assert.match(route, /accessReady && !snapshot.error && !snapshot.isFetching && !snapshot.isPaused && snapshot.data\?\.id === snapshotId && snapshot.data.projectId === projectId && snapshot.data.organizationId === organizationId \? snapshot.data : null/);
+  assert.match(
+    route,
+    /accessReady && !snapshot.error && !snapshot.isFetching && !snapshot.isPaused && snapshot.data\?\.id === snapshotId && snapshot.data.projectId === projectId && snapshot.data.organizationId === organizationId \? snapshot.data : null/,
+  );
   assert.match(route, /payload.state === "approved"/);
   assert.match(route, /Recipients must already have access to this workspace/);
   assert.match(route, /Current workspace access is required/);

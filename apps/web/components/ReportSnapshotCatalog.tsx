@@ -150,7 +150,7 @@ function Catalog({ projectId }: { projectId: string }) {
   if (!actorMatches) return <p role="status">Report catalog context is retained but hidden until the original account is signed in.</p>;
   return (
     <section aria-label="Approved report catalog" style={{ marginTop: 20 }}>
-      <h3>Approved snapshots</h3>
+      <h3>Approved reports</h3>
       {compareOpen && actorMatches &&
         selectionOrganization === organizationId &&
         currentSelected.length === 2 && (
@@ -211,7 +211,7 @@ function Catalog({ projectId }: { projectId: string }) {
           </button>
         </div>
         <details style={{ marginBlock: 12 }}>
-          <summary>Filter by audience, purpose or capture date</summary>
+          <summary>Filter by audience, report type or date saved</summary>
           <div
             style={{
               display: "grid",
@@ -263,7 +263,7 @@ function Catalog({ projectId }: { projectId: string }) {
               </select>
             </label>
             <label style={{ display: "grid", gap: 6 }}>
-              Captured from (UTC)
+              Saved from (UTC)
               <input
                 type="date"
                 value={start}
@@ -271,7 +271,7 @@ function Catalog({ projectId }: { projectId: string }) {
               />
             </label>
             <label style={{ display: "grid", gap: 6 }}>
-              Captured through (UTC)
+              Saved through (UTC)
               <input
                 type="date"
                 value={end}
@@ -330,7 +330,7 @@ function Catalog({ projectId }: { projectId: string }) {
             }}
           >
             <p>
-              {currentSelected.length} of 2 snapshots selected for comparison.
+              {currentSelected.length} of 2 reports selected for comparison.
               Selection stays across catalog pages.
             </p>
             <button
@@ -339,7 +339,7 @@ function Catalog({ projectId }: { projectId: string }) {
               disabled={currentSelected.length !== 2}
               onClick={() => setCompareOpen(true)}
             >
-              Compare selected snapshots
+              Compare selected reports
             </button>
             {!!currentSelected.length && (
               <button
@@ -383,10 +383,10 @@ function Catalog({ projectId }: { projectId: string }) {
           >
             <p role="status">
               {!data.total
-                ? "No approved snapshots match these filters."
+                ? "No approved reports match these filters."
                 : !data.items.length
-                  ? "No snapshots on this page. Return to the first page or refresh."
-                  : `${filters.page * 20 + 1}–${filters.page * 20 + data.items.length} of ${data.total} matching snapshots`}
+                  ? "No reports on this page. Return to the first page or refresh."
+                  : `${filters.page * 20 + 1}–${filters.page * 20 + data.items.length} of ${data.total} matching reports`}
             </p>
             <label>
               Sort{" "}
@@ -513,7 +513,7 @@ function Catalog({ projectId }: { projectId: string }) {
               disabled={filters.page === 0}
               onClick={() => setFilters({ ...filters, page: filters.page - 1 })}
             >
-              Previous snapshots
+              Previous reports
             </button>
             <button
               type="button"
@@ -529,14 +529,14 @@ function Catalog({ projectId }: { projectId: string }) {
               disabled={!data.hasMore || filters.page >= 24}
               onClick={() => setFilters({ ...filters, page: filters.page + 1 })}
             >
-              Next snapshots
+              Next reports
             </button>
             <button
               type="button"
               className="btn-secondary"
               onClick={() => void refresh()}
             >
-              Refresh snapshots
+              Refresh reports
             </button>
           </div>
           {data.total > 500 && (

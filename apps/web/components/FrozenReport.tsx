@@ -4,6 +4,7 @@ import {
   reportMetricRows,
   REPORT_SECTIONS,
   readableMetric,
+  reportSectionLabel,
   renderFrozenReportHtml,
   reportScopeSummary,
   type FrozenReportPayload,
@@ -89,10 +90,11 @@ export function FrozenReport({
     window.setTimeout(cleanup, 60000);
   }
   return (
-    <article aria-label="Frozen report preview">
+    <article className="report-document" aria-label="Report preview">
       <header>
         <p className="eyebrow">
-          {readableMetric(report.definition.audience)} · {report.state}
+          {readableMetric(report.definition.audience)} ·{" "}
+          {report.state === "approved" ? "Approved report" : "Private preview"}
         </p>
         <h2>{report.title}</h2>
         {report.definition.templateId && (
@@ -102,7 +104,7 @@ export function FrozenReport({
           </p>
         )}
         <p className="text-muted">
-          {report.projectName} · Captured{" "}
+          {report.projectName} · Data saved{" "}
           {new Date(report.asOf).toLocaleString()}
         </p>
         <p className="text-muted">
@@ -146,11 +148,11 @@ export function FrozenReport({
         {exportAllowed && (
           <section aria-label="Reviewed portable report export">
             <p className="text-muted">
-              HTML and print retain authored commentary. Aggregate CSV includes
-              selected metrics, exact captured scope/windows and evidence
-              boundaries, but no summary, risks or next-action commentary or raw
-              entity identities. Captured titles and scope labels are still
-              internal text. CSV is not a full-fidelity backup.
+              HTML and PDF include charts and your notes. CSV includes summary
+              counts, the selected tests and dates, and data limitations. It
+              leaves out notes and internal record IDs. Titles and test
+              selection labels can still contain private information. CSV is not
+              a full backup.
             </p>
             <label
               style={{
@@ -172,8 +174,8 @@ export function FrozenReport({
                   setExportMessage("");
                 }}
               />
-              I reviewed this frozen report, its missing evidence and captured
-              text, and will check recipients before downloading or printing.
+              I reviewed this report, its missing evidence and saved text, and
+              will check recipients before downloading or printing.
             </label>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               <button
@@ -190,7 +192,7 @@ export function FrozenReport({
                 disabled={!reviewed}
                 onClick={() => download("csv")}
               >
-                Download aggregate CSV
+                Download summary CSV
               </button>
               <button
                 className="btn-secondary"
@@ -209,7 +211,7 @@ export function FrozenReport({
       {(
         [
           ["Summary", report.definition.summary],
-          ["Risks and impediments", report.definition.risks],
+          ["Risks and blockers", report.definition.risks],
           ["Next actions", report.definition.nextActions],
         ] as const
       ).map(([title, text]) => (
@@ -224,7 +226,7 @@ export function FrozenReport({
         report.definition.sections.includes(section),
       ).map((section) => (
         <section key={section} style={{ marginBlock: 20 }}>
-          <h3>{readableMetric(section)}</h3>
+          <h3>{reportSectionLabel(section)}</h3>
           <div className="table-scroll">
             <table
               className="workspace-table"
@@ -283,15 +285,15 @@ export function FrozenReport({
         </section>
       ))}
       <details>
-        <summary>Evidence boundaries and missing data</summary>
+        <summary>Data limitations and missing evidence</summary>
         <ul>
           {report.limitations.map((note) => (
             <li key={note}>{note}</li>
           ))}
         </ul>
         <p>
-          This snapshot never updates itself. Downloaded files contain internal
-          project metrics; review recipients before sharing.
+          This saved report does not update itself. Downloaded files contain
+          internal project metrics; review recipients before sharing.
         </p>
       </details>
     </article>

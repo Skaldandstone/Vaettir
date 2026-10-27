@@ -67,3 +67,12 @@ Architecture mappings support free manual test-to-element links without an AI pr
 The project selector uses compact searchable cards and keyboard-accessible action tooltips. Overview inventory is a compact navigation strip above modular panels. Release readiness uses the available workbench width and collapses provider release discovery. Plan settings, quality review and activity/history no longer compete with the primary plan actions.
 
 Run `node apps/web/e2e/ui-plan-mapping/run.mjs` for the real plan editor, architecture workbench and project selector using synthetic transport. It verifies selection/order/save/reload, retained drafts, manual links, two themes, 390px layouts, search and keyboard tooltips. Evidence is ignored under `.local/ui-plan-mapping-20261020/`; fonts fall back locally. This is not hosted acceptance. The native plan-save integration fixture remains explicitly opt-in for an owned disposable test database.
+
+
+### Report builder and portable reports
+
+The report builder uses named radio cards, a labeled five-step progress list, section choices with short explanations, and a local notes preview. Closing and reopening retains the chosen report, dates, test selection and authored notes. Reopened choices and note fields keep stable accessible names. Private preview, exact-request retry, sharing approval and export review remain separate actions. Report settings and approved reports retain distinct catalogs; stored definitions, state values and evidence are unchanged.
+
+Portable HTML and print/save-PDF use the same Vaettir chart model as the on-screen report, with exact counts, notes and honest missing-data states. They remain self-contained with escaped text and no scripts, external assets or raw record IDs. CSV remains a separate summary-data format.
+
+Run `node apps/web/e2e/report-builder/run.mjs` for the actual builder, preview and export components with isolated synthetic transport, both themes, desktop/narrow layouts, keyboard focus, retained drafts, account changes, date validation, lost-response retry and full chart/legend/export parity. Evidence stays ignored under `.local/report-builder-20261027/`. These checks do not establish authenticated aTwist, live provider, customer-record or OS print-dialog acceptance. No provider setup or identity activation is included in this presentation change.

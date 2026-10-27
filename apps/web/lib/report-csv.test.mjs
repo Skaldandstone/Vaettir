@@ -261,7 +261,7 @@ test("native snapshot and comparison export actions require the exact reviewed c
     /review.projectId === projectId && review.snapshotId === snapshotId/,
   );
   assert.match(ui, /if \(!exportAllowed \|\| !reviewed\) return/);
-  assert.match(ui, /Download aggregate CSV/);
+  assert.match(ui, /Download summary CSV/);
   assert.match(ui, /No partial CSV was downloaded/);
   const compare = readFileSync(
     new URL("../components/ReportSnapshotComparison.tsx", import.meta.url),

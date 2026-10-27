@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   buildQualityVisualReport,
   buildReleaseVisualReport,
+  renderQualityVisualReportHtml,
 } from "./qualityVisuals.js";
 const source = {
   definition: { sections: ["automation"] },
@@ -80,5 +81,40 @@ describe("Vaettir visual reports", () => {
     expect(report.charts[0]?.rows.map((r) => r.value)).toEqual([6, 4]);
     expect(report.charts[1]?.rows.map((r) => r.value)).toEqual([2, 4, 4]);
     expect(report.charts[2]?.rows).toHaveLength(1);
+  });
+});
+
+describe("portable report charts", () => {
+  it("preserves selected chart models and exact counts without external assets", () => {
+    const model = buildQualityVisualReport(source);
+    const html = renderQualityVisualReportHtml(model);
+    expect(html).toContain('data-chart-id="automation"');
+    expect(html).toContain("Automation mix");
+    expect(html).toContain("<strong>7</strong>");
+    expect(html).toContain("<strong>3</strong>");
+    expect(html).not.toContain("PRIVATE_UNUSED");
+    expect(html).not.toMatch(/<script|<img|https?:|NaN|Infinity/);
+  });
+  it("escapes chart text and rejects executable color attributes", () => {
+    const model = buildQualityVisualReport(source);
+    model.charts[0]!.title = '<img src=x onerror="attack()">';
+    model.charts[0]!.rows[0]!.label = "<script>alert(1)</script>";
+    model.charts[0]!.rows[0]!.color =
+      "red; background:url(https://private.invalid)";
+    const html = renderQualityVisualReportHtml(model);
+    expect(html).toContain("&lt;img");
+    expect(html).toContain("&lt;script&gt;");
+    expect(html).not.toMatch(/<img|<script|private\.invalid|background:url/);
+    expect(html).toContain("#697F98");
+  });
+  it("renders honest empty states without drawing invented result segments", () => {
+    const model = buildQualityVisualReport({
+      ...source,
+      inventory: { active: 0 },
+    });
+    const html = renderQualityVisualReportHtml(model);
+    expect(html).toContain("No cases recorded in this capture.");
+    expect(html).not.toContain("stroke-dasharray");
+    expect(html).not.toMatch(/NaN|Infinity/);
   });
 });

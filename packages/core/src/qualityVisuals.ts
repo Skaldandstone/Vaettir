@@ -9,6 +9,59 @@ export type QualityVisual = {
   rows: Array<{ label: string; value: number; color: string }>;
 };
 export type QualityVisualReport = { version: 1; charts: QualityVisual[] };
+
+/** Portable report charts use the same display model as the application.
+ * Only escaped text, validated colors and numeric geometry enter the markup.
+ * No source records, scripts, links or external assets are included.
+ */
+export function renderQualityVisualReportHtml(
+  model: QualityVisualReport,
+): string {
+  const escape = (value: string) =>
+    value
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;");
+  const color = (value: string) =>
+    /^#[a-f\d]{6}$/i.test(value) ? value : "#697F98";
+  return `<div class="quality-visual-report">${model.charts
+    .map((chart) => {
+      const rows = chart.rows.filter(
+        (row) => Number.isSafeInteger(row.value) && row.value > 0,
+      );
+      const total = rows.reduce((sum, row) => sum + row.value, 0);
+      const max = Math.max(1, ...rows.map((row) => row.value));
+      let offset = 0;
+      const shape =
+        chart.kind === "donut"
+          ? `<svg viewBox="0 0 240 220" role="img" aria-label="${escape(total ? `${chart.title}: ${rows.map((row) => `${row.label} ${row.value}`).join(", ")}` : chart.empty)}"><circle cx="120" cy="106" r="76" fill="none" stroke="var(--line)" stroke-width="24"/>${rows
+              .map((row) => {
+                const length = (row.value / total) * 100,
+                  start = offset;
+                offset += length;
+                return `<circle cx="120" cy="106" r="76" fill="none" stroke="${color(row.color)}" stroke-width="24" pathLength="100" stroke-dasharray="${length} ${100 - length}" stroke-dashoffset="${-start}" transform="rotate(-90 120 106)"/>`;
+              })
+              .join(
+                "",
+              )}<text x="120" y="108" text-anchor="middle" fill="currentColor" font-size="32" font-weight="650">${total ? total.toLocaleString() : "—"}</text><text x="120" y="132" text-anchor="middle" fill="currentColor" font-size="12">${escape(total ? chart.unit : "No data")}</text></svg>`
+          : `<svg viewBox="0 0 400 ${Math.max(150, rows.length * 52)}" role="img" aria-label="${escape(chart.title)}">${rows.map((row, index) => `<g transform="translate(0 ${index * 52})"><text x="0" y="15" fill="currentColor" font-size="13">${escape(row.label)}</text><text x="398" y="15" text-anchor="end" fill="currentColor" font-size="13">${row.value}</text><rect x="0" y="24" width="400" height="13" rx="6" fill="var(--line)"/><rect x="0" y="24" width="${(row.value / max) * 400}" height="13" rx="6" fill="${color(row.color)}"/></g>`).join("")}</svg>`;
+      return `<figure class="quality-visual" data-chart-id="${escape(chart.id)}"><figcaption><h3>${escape(chart.title)}</h3></figcaption>${shape}${total ? `<ul class="quality-visual-legend">${rows.map((row) => `<li><span><i style="background:${color(row.color)}"></i>${escape(row.label)}</span><strong>${row.value.toLocaleString()}</strong></li>`).join("")}</ul>` : `<p>${escape(chart.empty)}</p>`}<p class="text-muted"><small>${escape(chart.note)}</small></p></figure>`;
+    })
+    .join("")}</div>`;
+}
+
+/** Self-contained light/print styling; geometry and exact legends match the UI. */
+export const QUALITY_VISUAL_REPORT_CSS = `
+.quality-visual-report{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:20px;margin-block:24px;align-items:stretch}
+.quality-visual{margin:0;padding:22px;min-width:0;border:1px solid var(--line);border-radius:16px;background:var(--panel);break-inside:avoid}
+.quality-visual h3{margin:0 0 12px}.quality-visual svg{width:100%;max-height:250px;display:block}
+.quality-visual-legend{list-style:none;padding:0;margin:12px 0}.quality-visual-legend li{display:flex;justify-content:space-between;gap:16px;margin:8px 0}
+.quality-visual-legend li span{display:flex;gap:8px;align-items:center;min-width:0;overflow-wrap:anywhere}.quality-visual-legend strong{font-variant-numeric:tabular-nums}
+.quality-visual-legend i{width:10px;height:10px;flex-shrink:0;border-radius:50%}
+@media print{.quality-visual-report{grid-template-columns:repeat(2,minmax(0,1fr))}.quality-visual{padding:14px;border-radius:8px;print-color-adjust:exact;-webkit-print-color-adjust:exact}}
+`;
 type Count = { key: string; count: number };
 export type QualityVisualSource = {
   definition?: { sections: readonly string[] };

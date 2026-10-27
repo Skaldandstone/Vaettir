@@ -1,4 +1,9 @@
 import type { FrozenReportPayload } from "@vaettir/api/src/routers/reportSnapshots";
+import {
+  buildQualityVisualReport,
+  renderQualityVisualReportHtml,
+  QUALITY_VISUAL_REPORT_CSS,
+} from "@vaettir/core";
 export type { FrozenReportPayload };
 export const REPORT_SECTIONS = [
   "inventory",
@@ -36,6 +41,19 @@ export function readableMetric(value: string) {
     .replaceAll("_", " ")
     .toLowerCase()
     .replace(/^./, (first) => first.toUpperCase());
+}
+export function reportSectionLabel(section: string) {
+  return (
+    (
+      {
+        inventory: "Test inventory",
+        execution: "Test results",
+        traceability: "Requirements coverage",
+        defects: "Defects",
+        automation: "Automation",
+      } as Record<string, string>
+    )[section] ?? readableMetric(section)
+  );
 }
 export function reportMetricRows(report: FrozenReportPayload) {
   const rows: {
@@ -229,9 +247,9 @@ export function renderFrozenReportHtml(report: FrozenReportPayload): string {
     report.definition.sections.includes(section),
   );
   const rows = reportMetricRows(report);
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escape(report.title)}</title><style>body{font:16px/1.5 system-ui;color:#182225;background:#fff;max-width:1100px;margin:40px auto;padding:0 24px}h1{line-height:1.15}small,p{overflow-wrap:anywhere}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:12px;border-bottom:1px solid #c7d0ce}td{font-variant-numeric:tabular-nums}small{display:block;color:#52625c}.note{border-left:4px solid #70957e;padding:12px;background:#edf3ee}section{break-inside:avoid}pre{font:inherit;white-space:pre-wrap;overflow-wrap:anywhere}@media print{body{margin:0;max-width:none;padding:0}button{display:none}}</style></head><body><header><small>VAETTIR · ${escape(report.projectName)} · ${escape(report.state)}</small><h1>${escape(report.title)}</h1><p>${escape(readableMetric(report.definition.audience))} review · Snapshot ${escape(report.asOf)}</p><p>Execution window (UTC): ${escape(report.windowStart)} to ${escape(report.windowEnd ?? report.asOf)}. ${escape(reportScopeSummary(report, true))}.</p>${report.scope ? `<p>${escape(report.scope.cohortBasis)}</p>` : ""}</header>${[
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escape(report.title)}</title><style>:root{--line:#d4dfe8;--panel:#ffffff}body{font:16px/1.5 system-ui;color:#182636;background:#fff;max-width:1100px;margin:40px auto;padding:0 24px}h1{line-height:1.15}small,p{overflow-wrap:anywhere}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:12px;border-bottom:1px solid #c7d0ce}td{font-variant-numeric:tabular-nums}small{display:block;color:#52625c}.note{border-left:4px solid #70957e;padding:12px;background:#edf3ee}section{break-inside:avoid}table{table-layout:fixed}th,td{overflow-wrap:anywhere}pre{font:inherit;white-space:pre-wrap;overflow-wrap:anywhere}@media print{body{margin:0;max-width:none;padding:0}button{display:none}}${QUALITY_VISUAL_REPORT_CSS}</style></head><body><header><small>VAETTIR · ${escape(report.projectName)} · ${escape(report.state)}</small><h1>${escape(report.title)}</h1><p>${escape(readableMetric(report.definition.audience))} review · Data saved ${escape(report.asOf)}</p><p>Execution window (UTC): ${escape(report.windowStart)} to ${escape(report.windowEnd ?? report.asOf)}. ${escape(reportScopeSummary(report, true))}.</p>${report.scope ? `<p>${escape(report.scope.cohortBasis)}</p>` : ""}</header>${renderQualityVisualReportHtml(buildQualityVisualReport(report))}${[
     ["Summary", report.definition.summary],
-    ["Risks and impediments", report.definition.risks],
+    ["Risks and blockers", report.definition.risks],
     ["Next actions", report.definition.nextActions],
   ]
     .map(
@@ -241,7 +259,7 @@ export function renderFrozenReportHtml(report: FrozenReportPayload): string {
     .join("")}${groups
     .map(
       (section) =>
-        `<section><h2>${escape(readableMetric(section))}</h2>${section === "execution" ? renderReportOutcomeChart(report) : ""}<table><thead><tr><th scope="col">Metric</th><th scope="col">Recorded value</th></tr></thead><tbody>${rows
+        `<section><h2>${escape(reportSectionLabel(section))}</h2><table><thead><tr><th scope="col">Metric</th><th scope="col">Recorded value</th></tr></thead><tbody>${rows
           .filter((row) => row.section === section)
           .map(
             (row) =>
@@ -251,5 +269,5 @@ export function renderFrozenReportHtml(report: FrozenReportPayload): string {
     )
     .join(
       "",
-    )}<section class="note"><h2>Evidence boundaries and missing data</h2><ul>${report.limitations.map((note) => `<li>${escape(note)}</li>`).join("")}</ul><p>Frozen snapshot. Later changes to cases, links or runs do not update these values. Sharing this downloaded file can expose internal project metrics; review recipients first.</p></section></body></html>`;
+    )}<section class="note"><h2>Data limitations and missing evidence</h2><ul>${report.limitations.map((note) => `<li>${escape(note)}</li>`).join("")}</ul><p>Saved report. Later changes to cases, links or runs do not update these values. Sharing this downloaded file can expose internal project metrics; review recipients first.</p></section></body></html>`;
 }
