@@ -156,13 +156,21 @@ Clerk is the existing authentication provider. Use its SAML/OIDC and Directory S
 
 The installed backend SDK exposes enterprise connection CRUD, but the inspected Session model does not itself expose a verified connection-specific authentication field. Do not fabricate that proof from `user.enterpriseAccounts`, email domain, or `lastActiveOrganizationId`. Confirm a documented provider enforcement/session mechanism before enabling the policy predicate in production.
 
-Directory group mappings and custom attributes are not part of Clerk's documented self-serve directory wizard. The official BAPI 2026-08-20 schema does expose `/directories`, directory detail and `group_role_mappings` routes, even though the installed SDK lacks the corresponding convenience API. Validate the exact response/group membership schemas and tenant-specific visibility before wiring Vaettir's picker; do not call undocumented dashboard endpoints. Provider-native default-role behavior must not silently grant Vaettir access when its last mapping is removed.
+Google Directory Sync supports custom attributes and group-to-Role mappings in the Clerk Dashboard. The self-serve guide checked October 27 still places those controls outside its wizard and says self-serve directories initially have Role mapping disabled. Self-serve Directory Sync also requires its own per-Organization setting in addition to self-serve SSO; enabling SSO alone does not expose the directory section. Verify the deployed SDK and actual Organization settings rather than infer UI availability from provider capability. The official BAPI 2026-08-20 schema exposes `/directories`, directory detail and `group_role_mappings` routes; validate response schemas and tenant visibility before wiring Vaettir's picker. Do not use undocumented dashboard endpoints or let a provider default role grant Vaettir access after its last mapping is removed.
 
 The same official schema exposes a session-scoped reverification read endpoint. Its existence is not proof of connection-specific SSO: validate the response schema and actual completed SSO factor before using it for enforcement. Frontend `prepareFirstFactorVerification` accepts an enterprise connection ID but a browser-supplied factor is not trusted server evidence.
 
 Provider lifecycle details require actual acceptance tests: the current directory overview and self-serve documentation describe different membership-retention outcomes on directory removal. Vaettir should explicitly invalidate its own connection-sourced grants on disconnect; do not assume a provider UI action supplies that guarantee.
 
-Sources checked October 21, 2026:
+### October 27 execution clarification
+
+`identityDirectoryGroupReader.ts` implements the documented BAPI directory/group/member reads as an internal authenticated transport, with fixed API origin, tenant-binding recheck callback, cursor traversal, response/page/member limits, duplicate rejection and before/after configuration/group revision checks. It projects only external subject and linked Clerk IDs, including unprovisioned null links. It has no route, scheduler, grant mutation or observation-store wiring. Pagination and revision checks do not establish an atomic provider snapshot, source-specific active state, complete subject groups or current-session SSO. A 404 or partial read is an error, never revocation evidence. Its focused synthetic transport checks are local source validation, not real directory acceptance.
+
+Owner authorization for the existing identity work is established and was explicitly reaffirmed. Historical awaiting-clearance wording is not a reason to request that approval again. Main remains the sole provider/deployment operator; overlapping-path coordination prevents competing writers. Actual provider/session contracts, configured access and observed end-to-end behavior must still be verified. Existing exclusions on new credentials/accounts/grants, expanded directory consent and customer changes remain in force.
+
+Both Directory Sync guides were refreshed October 27. Google still requires delegated directory access and syncs the Workspace domain's users/groups; a Vaettir group mapping does not reduce that read scope. The provider documentation describes multi-directory lifecycle behavior, but it does not establish that Vaettir has a usable authenticated source-specific observation adapter. Global user state remains insufficient for source-specific revocation. Main's configuration inventory and schema investigation must supply that evidence before production enforcement.
+
+Sources (Directory Sync guides refreshed October 27, 2026; other entries retain the October 21 inspection date):
 
 - [Clerk enterprise SSO](https://clerk.com/docs/guides/organizations/add-members/sso)
 - [Directory Sync](https://clerk.com/docs/guides/configure/auth-strategies/enterprise-connections/directory-sync)
@@ -170,4 +178,4 @@ Sources checked October 21, 2026:
 - [Official Backend API schema 2026-08-20](https://raw.githubusercontent.com/clerk/openapi-specs/main/bapi/2026-08-20.yml)
 - [Session verification methods](https://clerk.com/docs/js-frontend/reference/objects/session)
 
-No provider plan, add-on, credential, organization, grant or connection has been created or changed by this checkpoint. Any configuration or cost approval remains separate from source completion.
+This documentation refresh makes no provider configuration change. Existing work approval is distinct from verified provider behavior and does not expand the explicit exclusions above.
