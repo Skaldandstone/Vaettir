@@ -3,10 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { readWorkbookPreview } from "@/lib/read-workbook-preview";
-import { reassignImportColumn, remainingNonCaseRows } from "@/lib/reassign-import-column";
-import { importReviewRows, typeReviewCase, typeReviewLabel, type TypeReviewCase } from "@/lib/import-type-review";
+import { reassignImportColumn, remainingNonCaseRows, editedImportOverrides } from "@/lib/reassign-import-column";
+import { importReviewRows, typeReviewCase, typeReviewLabel } from "@/lib/import-type-review";
 import { GoogleSheetsImportSource, GoogleSheetsAccessDisclosure } from "@/components/GoogleSheetsImportSource";
 import type { GoogleSheetSnapshot } from "@/lib/google-sheets-import";
+import { SmartCaseSuggestions, SmartColumnMapping, type ImportSuggestionPatch } from "@/components/SmartCaseSuggestions";
 
 // P11-10: "Migration assistant" wizard. Every backend piece this orchestrates
 // already existed and worked (P11-01/02's CSV mapping+preview, P11-03's
@@ -57,7 +58,7 @@ const SOURCE_INFO: Record<
     label: "Smart file import",
     mark: "CSV",
     blurb:
-      "CSV or Excel (.xlsx) from Qase, Tricentis, TestRail, qTest, or another test system. Vaettir detects fields and automatically reviews mapped case definitions with its AI provider to recommend test types, included free. Nothing is imported until you confirm.",
+      "CSV or Excel (.xlsx) from Qase, Tricentis, TestRail, qTest, or another test system. Vaettir detects fields and can propose column mappings, test types, suites and priorities after your separate approval for AI analysis, included free. Nothing is imported until you confirm.",
     accept:
       ".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   },
@@ -225,7 +226,7 @@ function ImportRecommendations({ rows, overrides, onChange, analysis, manualOnly
   if (!rows?.length) return null;
   return <details className="import-repair-panel" open={manualOnly ? undefined : true}>
     <summary>{rows.length} cases with automatic suggestions · For review</summary>
-    <p className="text-muted">{manualOnly ? "Review the mapped source fields and choose a test type where needed. Unspecified types stay Unclassified and For review. Sheets imports do not use AI analysis. Priority and automation default to Medium and Manual when absent." : "Already applied, no detection button needed. Free AI review reads each complete case definition and recommends its primary testing objective with supporting excerpts. Missing or uncertain classifications stay Unclassified and For review, not Functional by default. You can change any recommendation. Priority and automation use Medium and Manual defaults if unspecified; those defaults are not verified source facts. No missing steps are invented."}</p>
+    <p className="text-muted">{manualOnly ? "Review the mapped source fields and choose a test type where needed. Unspecified types stay Unclassified and For review. Smart suggestions require separate approval above; connecting Sheets does not start analysis. Priority and automation default to Medium and Manual when absent." : "Source-layout suggestions are already applied to the preview. Use the separate smart review above to propose types, suites and priorities from complete definitions with supporting excerpts. Missing or uncertain classifications stay Unclassified and For review, not Functional by default. You can change any recommendation. Priority and automation use Medium and Manual defaults if unspecified; those defaults are not verified source facts. No missing steps are invented."}</p>
     <div className="table-scroll" style={{ maxHeight: 320 }}><table className="workspace-table">
       <thead><tr><th>Row</th><th>Case name</th><th>Section within suite</th><th>Test type</th><th>Why / status</th><th>Details</th></tr></thead>
       <tbody>{rows.map(proposed => {
@@ -239,7 +240,7 @@ function ImportRecommendations({ rows, overrides, onChange, analysis, manualOnly
             {["UNIT", "FUNCTIONAL", "CONTRACT", "INSTRUMENTATION", "SMOKE", "SANITY", "REGRESSION", "E2E", "PERFORMANCE", "SECURITY", "ACCESSIBILITY", "EXPLORATORY", "COMPLIANCE", "OTHER"].map(type => <option key={type} value={type}>{type === "OTHER" && row.typeOrigin === "UNCLASSIFIED" && !recommendation?.testType ? "Unclassified · For review" : typeReviewLabel(type)}</option>)}
           </select></td>
           <td><span className="status-pill status-warning">For review{recommendation ? ` · ${recommendation.confidence.toLowerCase()} confidence` : ""}</span>
-            {recommendation ? <><p><strong>{recommendation.objective}</strong></p><p>{recommendation.reason}</p>{recommendation.evidence.map((quote, i) => <blockquote key={i} style={{ margin: "4px 0", fontSize: 12 }}>{quote}</blockquote>)}</> : <p>{row.typeOrigin === "REVIEWER" ? "Reviewer-selected type." : manualOnly && row.typeOrigin === "UNCLASSIFIED" ? "Unclassified: choose a test type if needed. No AI analysis is used for Sheets imports." : proposed.typeRecommendation || proposed.reviewReasons?.join(" ")}</p>}</td>
+            {recommendation ? <><p><strong>{recommendation.objective}</strong></p><p>{recommendation.reason}</p>{recommendation.evidence.map((quote, i) => <blockquote key={i} style={{ margin: "4px 0", fontSize: 12 }}>{quote}</blockquote>)}</> : <p>{row.typeOrigin === "REVIEWER" ? "Reviewer-selected type." : manualOnly && row.typeOrigin === "UNCLASSIFIED" ? "Unclassified: choose a type or use the separately approved smart review above." : proposed.typeRecommendation || proposed.reviewReasons?.join(" ")}</p>}</td>
           <td><button className="btn-secondary" onClick={() => onChange(row)}>Edit details</button></td>
         </tr>;
       })}</tbody>
@@ -436,61 +437,11 @@ export function MigrationWizard({
   const [xlsxRowOverrides, setXlsxRowOverrides] = useState<
     Record<string, Record<number, EditableImportRow>>
   >({});
-  type TypeAnalysis = RouterOutputs["importJobs"]["typeAnalysisStatus"];
-  const [typeReview, setTypeReview] = useState<{ input: string; requestId?: string; state?: TypeAnalysis; error?: string } | null>(null);
-  const [typeRetry, setTypeRetry] = useState(0);
-  const typeJob = useRef<string | null>(null);
-  const typeCases: TypeReviewCase[] = source !== "csv" || importMethod === "google-sheets" || step === "done" ? [] : xlsxPreview ? xlsxPreview.sheets
-    .filter(sheet => selectedSheets.has(sheet.name) && xlsxMappings[sheet.name]?.title)
-    .flatMap(sheet => importReviewRows(sheet.recommendations, xlsxRowOverrides[sheet.name] ?? {})
-      .filter(row => row.title && row.typeOrigin !== "SOURCE" && row.typeOrigin !== "REVIEWER")
-      .map(row => typeReviewCase(sheet.name, row))) : importReviewRows(csvPreview?.recommendations, csvRowOverrides)
-        .filter(row => row.title && row.typeOrigin !== "SOURCE" && row.typeOrigin !== "REVIEWER")
-        .map(row => typeReviewCase("", row));
-  const typeInput = JSON.stringify(typeCases);
-  useEffect(() => {
-    const cases = JSON.parse(typeInput) as TypeReviewCase[];
-    if (!cases.length) return;
-    const controller = new AbortController();
-    let ownedRequest: string | undefined;
-    const timer = setTimeout(() => {
-      setTypeReview({ input: typeInput });
-      void (async () => {
-        const previous = typeJob.current;
-        if (previous) await utils.client.importJobs.cancelTypeAnalysis.mutate({ projectId, requestId: previous }).catch(() => undefined);
-        if (controller.signal.aborted) return;
-        const started = await utils.client.importJobs.startTypeAnalysis.mutate({ projectId, requestId: crypto.randomUUID(), cases });
-        ownedRequest = started.requestId;
-        if (controller.signal.aborted) { void utils.client.importJobs.cancelTypeAnalysis.mutate({ projectId, requestId: ownedRequest }).catch(() => undefined); return; }
-        typeJob.current = ownedRequest;
-        let failures = 0;
-        while (!controller.signal.aborted) {
-          let state: TypeAnalysis;
-          try { state = await utils.client.importJobs.typeAnalysisStatus.query({ projectId, requestId: ownedRequest }); failures = 0; }
-          catch (error) { if (++failures >= 3) throw error; await new Promise(resolve => setTimeout(resolve, 1500)); continue; }
-          if (controller.signal.aborted) return;
-          setTypeReview({ input: typeInput, requestId: ownedRequest, state });
-          if (state.status !== "READING") return;
-          await new Promise(resolve => setTimeout(resolve, 1500));
-        }
-      })().catch(error => { if (!controller.signal.aborted) setTypeReview({ input: typeInput, error: importErrorMessage(error) }); });
-    }, 600);
-    return () => { clearTimeout(timer); controller.abort(); if (ownedRequest) void utils.client.importJobs.cancelTypeAnalysis.mutate({ projectId, requestId: ownedRequest }).catch(() => undefined); };
-  }, [typeInput, projectId, typeRetry, utils.client]);
-  const currentTypeReview = typeReview?.input === typeInput ? typeReview : null;
-  const typeReviewPending = typeCases.length > 0 && !currentTypeReview?.error && currentTypeReview?.state?.status !== "READY";
-  const typeReviewBlocked = typeCases.length > 0 && currentTypeReview?.state?.status !== "READY";
-  function sheetTypeResults(sheet: string) {
-    return Object.fromEntries((currentTypeReview?.state?.results ?? []).flatMap(r => {
-      const [name, row] = JSON.parse(r.id) as [string, number]; return name === sheet ? [[row, r]] : [];
-    }));
-  }
-  function displayedType(sheet: string, row: EditableImportRow) {
-    const result = row.typeOrigin === "SOURCE" || row.typeOrigin === "REVIEWER" ? undefined : sheetTypeResults(sheet)[row.rowNumber];
-    return result ? result.testType ? typeReviewLabel(result.testType) : "Unclassified · For review" : typeReviewLabel(row.testType, row.typeOrigin);
-  }
+  // Provider analysis is admitted only through the explicitly approved smart
+  // review. Parsing/source suggestions remain available without disclosure.
+  function sheetTypeResults(_sheet: string): Record<number, RouterOutputs["importJobs"]["typeAnalysisStatus"]["results"][number]> { return {}; }
+  function displayedType(_sheet: string, row: EditableImportRow) { return typeReviewLabel(row.testType, row.typeOrigin); }
 
-  // TestRail/Xray preview state
   const [filePreview, setFilePreview] = useState<{
     format: string;
     formatLabel: string;
@@ -583,7 +534,7 @@ export function MigrationWizard({
     if (selectionSignal.aborted) { cancelSelection(); return; }
     setError(null); setLoading(true); setCsvPreview(null); setXlsxPreview(null);
     setRawContent(""); setGoogleSnapshots([]); setMapping({});
-    setCsvPreviewRows([]); setCsvRowOverrides({}); setTypeReview(null);
+    setCsvPreviewRows([]); setCsvRowOverrides({});
     try {
       const sheets = [];
       for (const snapshot of snapshots) {
@@ -766,6 +717,11 @@ export function MigrationWizard({
 
   async function updateMapping(field: TargetField, column: string) {
     const next = reassignImportColumn(mapping, field, column);
+    return applyCsvMapping(next);
+  }
+
+  async function applyCsvMapping(next: Partial<Record<TargetField, string>>) {
+    const sourceRead = activeFileRead.current;
     setMapping(next);
     setCsvPreviewRows([]);
     setError(null);
@@ -779,17 +735,19 @@ export function MigrationWizard({
         projectId,
         csvText: rawContent,
         mapping: next as Record<TargetField, string>,
-        overrides: Object.values(csvRowOverrides),
+        overrides: editedImportOverrides(csvRowOverrides, csvPreview?.incompleteRows),
       });
+      if (activeFileRead.current !== sourceRead || sourceRead?.signal.aborted) return;
       setCsvPreviewRows(res.previewRows);
-      setCsvPreview(current => current ? { ...current, nonCaseRows: res.nonCaseRows, previewSkipped: res.previewSkipped, rowMappingSuggestions: res.rowMappingSuggestions, recommendations: res.recommendations } : current);
+      setCsvPreview(current => current ? { ...current, incompleteRows: res.incompleteRows, nonCaseRows: res.nonCaseRows, previewSkipped: res.previewSkipped, rowMappingSuggestions: res.rowMappingSuggestions, recommendations: res.recommendations } : current);
       setCsvRowOverrides((current) =>
         reconcileRowOverrides(current, res.incompleteRows),
       );
     } catch (e) {
+      if (activeFileRead.current !== sourceRead) return;
       setError(importErrorMessage(e));
     } finally {
-      setLoading(false);
+      if (activeFileRead.current === sourceRead) setLoading(false);
     }
   }
 
@@ -800,6 +758,12 @@ export function MigrationWizard({
   ) {
     const previousMapping = xlsxMappings[sheetName] ?? {};
     const nextMapping = reassignImportColumn(previousMapping, field, column);
+    return applySheetMapping(sheetName, nextMapping);
+  }
+
+  async function applySheetMapping(sheetName: string, nextMapping: Partial<Record<TargetField, string>>) {
+    const sourceRead = activeFileRead.current;
+    const previousMapping = xlsxMappings[sheetName] ?? {};
     setXlsxMappings((current) => ({ ...current, [sheetName]: nextMapping }));
     setXlsxPreview(current => current ? { sheets: current.sheets.map(sheet => sheet.name === sheetName ? { ...sheet, previewRows: [] } : sheet) } : current);
     setError(null);
@@ -812,9 +776,11 @@ export function MigrationWizard({
     setError(null);
     try {
       const googleSnapshot = googleSnapshots.find(snapshot => snapshot.label === sheetName);
+      const overrides = editedImportOverrides(xlsxRowOverrides[sheetName] ?? {}, xlsxPreview?.sheets.find(s => s.name === sheetName)?.incompleteRows);
       const res = importMethod === "google-sheets" && googleSnapshot
-        ? await previewWithMappingMutation.mutateAsync({ projectId, csvText: googleSnapshot.csvText, mapping: nextMapping as Record<TargetField, string>, overrides: Object.values(xlsxRowOverrides[sheetName] ?? {}) }).then(result => ({ ...result, skippedCount: result.previewSkipped.length }))
-        : await previewXlsxSheetMutation.mutateAsync({ projectId, fileBase64: xlsxBase64, sheetName, mapping: nextMapping as Record<TargetField, string>, overrides: Object.values(xlsxRowOverrides[sheetName] ?? {}) });
+        ? await previewWithMappingMutation.mutateAsync({ projectId, csvText: googleSnapshot.csvText, mapping: nextMapping as Record<TargetField, string>, overrides }).then(result => ({ ...result, skippedCount: result.previewSkipped.length }))
+        : await previewXlsxSheetMutation.mutateAsync({ projectId, fileBase64: xlsxBase64, sheetName, mapping: nextMapping as Record<TargetField, string>, overrides });
+      if (activeFileRead.current !== sourceRead || sourceRead?.signal.aborted) return;
       setXlsxPreview((current) =>
         current
           ? {
@@ -843,13 +809,15 @@ export function MigrationWizard({
         ),
       }));
     } catch (e) {
+      if (activeFileRead.current !== sourceRead) return;
       setError(importErrorMessage(e));
     } finally {
-      setLoading(false);
+      if (activeFileRead.current === sourceRead) setLoading(false);
     }
   }
 
   function updateCsvRepair(row: EditableImportRow) {
+    setCsvPreviewRows(current => current.map(value => value.rowNumber === row.rowNumber ? row : value));
     setCsvRowOverrides((current) => ({
       ...current,
       [row.rowNumber]: row,
@@ -857,6 +825,7 @@ export function MigrationWizard({
   }
 
   function updateXlsxRepair(sheetName: string, row: EditableImportRow) {
+    setXlsxPreview(current => current ? { sheets: current.sheets.map(sheet => sheet.name === sheetName ? { ...sheet, previewRows: sheet.previewRows.map(value => value.rowNumber === row.rowNumber ? row : value) } : sheet) } : current);
     setXlsxRowOverrides((current) => ({
       ...current,
       [sheetName]: {
@@ -866,8 +835,24 @@ export function MigrationWizard({
     }));
   }
 
+  const smartRows = xlsxPreview ? xlsxPreview.sheets.filter(sheet => selectedSheets.has(sheet.name))
+    .flatMap(sheet => importReviewRows(sheet.recommendations, xlsxRowOverrides[sheet.name] ?? {}).filter(row => row.title.trim()).map(row => ({ sheet: sheet.name, row })))
+    : importReviewRows(csvPreview?.recommendations, csvRowOverrides).filter(row => row.title.trim()).map(row => ({ sheet: "", row }));
+  const smartCases = smartRows.map(({ sheet, row }) => ({ ...typeReviewCase(sheet, row), priority: row.priority, testType: row.testType,
+    priorityContext: (sheet ? xlsxMappings[sheet]?.priority : mapping.priority) ? "A source priority column is mapped; missing or invalid source priorities may still default to Medium." : "Medium is an import default: no source priority column was mapped." }));
+  function useSmartImportPatches(patches: ImportSuggestionPatch[]) {
+    const byId = new Map(smartRows.map(value => [JSON.stringify([value.sheet, value.row.rowNumber]), value]));
+    for (const patch of patches) {
+      const original = byId.get(patch.id);
+      if (!original) continue;
+      const { id: _id, reason, ...values } = patch;
+      const row: EditableImportRow = { ...original.row, ...values, ...(patch.testType ? { typeOrigin: "REVIEWER" as const } : {}),
+        reviewReasons: [`Reviewer accepted AI suggestions: ${reason}`, ...(original.row.reviewReasons ?? [])] };
+      if (xlsxPreview) updateXlsxRepair(original.sheet, row); else updateCsvRepair(row);
+    }
+  }
+
   async function commit() {
-    if (typeReviewBlocked) return;
     setError(null);
     try {
       let res: FileCommitResult;
@@ -898,7 +883,7 @@ export function MigrationWizard({
               return { source: snapshot.source, name: sheet.name, csvText: snapshot.csvText, mapping: sheet.mapping, overrides: sheet.overrides };
             }) });
           } else {
-            res = await commitXlsxMutation.mutateAsync({ projectId, fileBase64: xlsxBase64, sourceLabel: fileName, typeAnalysisRequestId: currentTypeReview?.requestId, sheets });
+            res = await commitXlsxMutation.mutateAsync({ projectId, fileBase64: xlsxBase64, sourceLabel: fileName, sheets });
           }
         } else {
           if (!mapping.title) return;
@@ -908,7 +893,6 @@ export function MigrationWizard({
             mapping: mapping as Record<TargetField, string>,
             overrides: Object.values(csvRowOverrides),
             sourceLabel: fileName || undefined,
-            typeAnalysisRequestId: importMethod === "google-sheets" ? undefined : currentTypeReview?.requestId,
           });
         }
       } else if (source === "xray") {
@@ -1219,14 +1203,7 @@ export function MigrationWizard({
         </div>
       )}
 
-      {source === "csv" && typeCases.length > 0 && (step === "upload" || step === "review") && <section className="panel" aria-label="Automatic test type review" style={{ marginTop: 16 }}>
-        <strong>{typeReviewPending ? "Reading each case’s testing objective…" : currentTypeReview?.error ? "Type review needs attention" : "Test-type review complete"}</strong>
-        <p className="text-muted">Included free with import. No AI credits are deducted and no cases are imported. Recommendations read the complete mapped title, preconditions, actions, results and context. Uncertain cases stay For review.</p>
-        <progress aria-label="Cases reviewed for test type" max={typeCases.length} value={currentTypeReview?.state?.completed ?? 0} style={{ width: "100%" }} />
-        <p role="status">{currentTypeReview?.state?.completed ?? 0} of {typeCases.length} cases reviewed{currentTypeReview?.state?.failed ? ` · ${currentTypeReview.state.failed} could not be verified` : ""}</p>
-        {currentTypeReview?.error && <p role="alert">{currentTypeReview.error}</p>}
-        {(currentTypeReview?.error || currentTypeReview?.state?.failed) && <button className="btn-secondary" type="button" onClick={() => setTypeRetry(value => value + 1)}>Retry type review</button>}
-      </section>}
+      {source === "csv" && smartCases.length > 0 && (step === "upload" || step === "review") && <SmartCaseSuggestions projectId={projectId} cases={smartCases} onApplyImport={useSmartImportPatches} />}
 
       {step === "upload" && source === "csv" && xlsxPreview && (
         <div className="xlsx-mapping-workspace">
@@ -1288,6 +1265,9 @@ export function MigrationWizard({
                   {importMethod === "google-sheets" && <button type="button" className="btn-secondary" aria-expanded={expandedGoogleSheet === sheet.name} onClick={() => setExpandedGoogleSheet(current => current === sheet.name ? null : sheet.name)}>{expandedGoogleSheet === sheet.name ? "Collapse fields" : "Review fields"}<span className="sr-only"> for {sheet.name}</span></button>}
                   {sheet.headers.length > 0 && (importMethod !== "google-sheets" || expandedGoogleSheet === sheet.name) && (
                     <>
+                      <SmartColumnMapping projectId={projectId} currentMapping={sheetMapping}
+                        {...(importMethod === "google-sheets" ? { csvText: googleSnapshots.find(s => s.label === sheet.name)?.csvText } : { fileBase64: xlsxBase64, sheetName: sheet.name })}
+                        onApply={next => applySheetMapping(sheet.name, next)} />
                       <div className="xlsx-field-grid">
                         {TARGET_FIELDS.map((field) => (
                           <label key={field}>
@@ -1430,6 +1410,7 @@ export function MigrationWizard({
             &quot;External ID&quot; to a column with a stable per-row id to make
             this import re-runnable.
           </p>
+          <SmartColumnMapping projectId={projectId} csvText={rawContent} currentMapping={mapping} onApply={applyCsvMapping} />
           <div
             style={{
               display: "grid",
@@ -1589,7 +1570,7 @@ export function MigrationWizard({
             <button
               className={importMethod === "google-sheets" ? "btn-primary" : undefined}
               onClick={commit}
-              disabled={committing || typeReviewBlocked || selectedSheets.size === 0 || missingGoogleIds || missingGoogleTitles}
+              disabled={committing || selectedSheets.size === 0 || missingGoogleIds || missingGoogleTitles}
             >
               {committing ? "Importing…" : "Import selected worksheets"}
             </button>
@@ -1608,7 +1589,7 @@ export function MigrationWizard({
             <button className="btn-secondary" onClick={() => setStep("upload")}>
               Back to mapping
             </button>
-            <button onClick={commit} disabled={committing || typeReviewBlocked}>
+            <button onClick={commit} disabled={committing}>
               {committing
                 ? "Importing…"
                 : `Import ${(csvPreview?.rowCount ?? 0) - remainingNonCaseRows(csvPreview?.nonCaseRows, csvRowOverrides).length} cases`}

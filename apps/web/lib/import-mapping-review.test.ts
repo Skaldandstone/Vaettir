@@ -87,7 +87,7 @@ it("shows automatically applied type and section suggestions with editable field
   let changed: typeof proposed | undefined;
   const tree = actual.ImportRecommendations({ rows: [proposed], overrides: {}, onChange: (next: typeof proposed) => { changed = next; } });
   const markup = renderToStaticMarkup(tree);
-  expect(markup).toContain("Already applied"); expect(markup).toContain("For review");
+  expect(markup).toContain("Source-layout suggestions are already applied to the preview"); expect(markup).toContain("For review");
   expect(markup).toContain("Functional is tentative"); expect(markup).toContain("not verified source facts");
   const nodes = elements(tree);
   nodes.find(node => node.type === "select")!.props.onChange!({ target: { value: "REGRESSION" } });
