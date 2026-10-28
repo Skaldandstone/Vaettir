@@ -35,7 +35,7 @@ export function createIdentityDirectoryGroupReader(options: {
   async function read(path: string) {
     await options.assertCurrent();
     const response = await request(`https://api.clerk.com${path}`, {
-      method: "GET", headers: { Authorization: `Bearer ${options.secretKey}`, Accept: "application/json", "Cache-Control": "no-store" },
+      method: "GET", headers: { Authorization: `Bearer ${options.secretKey}`, Accept: "application/json", "Cache-Control": "no-store", "Clerk-API-Version": "2026-08-20" },
       redirect: "error", signal: AbortSignal.timeout(10000),
     });
     if (response.status !== 200 || response.redirected || !response.body) {

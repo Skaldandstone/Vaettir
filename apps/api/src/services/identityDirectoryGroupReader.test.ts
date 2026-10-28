@@ -26,8 +26,9 @@ describe("internal directory group reader (synthetic transport only)", () => {
     expect(calls[3]![0]).toBe("https://api.clerk.com/v1/directories/dir_test/groups/group_test/members?limit=500&starting_after=next%26cursor");
     for (const [url, init] of calls) {
       expect(new URL(url).origin).toBe("https://api.clerk.com");
+      expect(new URL(url).searchParams.has("__clerk_api_version")).toBe(false);
       expect(init).toMatchObject({ method: "GET", redirect: "error",
-        headers: { Authorization: "Bearer sk_test_SYNTHETIC", "Cache-Control": "no-store" } });
+        headers: { Authorization: "Bearer sk_test_SYNTHETIC", "Cache-Control": "no-store", "Clerk-API-Version": "2026-08-20" } });
     }
     expect(f.assertCurrent).toHaveBeenCalledTimes(7);
   });
