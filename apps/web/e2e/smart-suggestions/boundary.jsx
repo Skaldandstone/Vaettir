@@ -17,7 +17,7 @@ const api = {
     fixture().analyses.push(input);
     const cases = input.cases ?? fixture().stored;
     return { reviewId: `00000000-0000-4000-8000-${String(fixture().analyses.length).padStart(12, "0")}`,
-      knownSuites: ["Billing", "Accounts"], before: cases.map(c => ({ ...c, suitePath: c.suitePath ?? null, priority: c.priority ?? null, testType: c.testType ?? null })),
+      knownSuites: ["Billing", "Accounts"], legacySuitePaths: ["Legacy Sheet / Unsorted"], before: cases.map(c => ({ ...c, suitePath: c.suitePath ?? null, priority: c.priority ?? null, testType: c.testType ?? null })),
       suggestions: cases.map(c => ({ id: c.id, suitePath: "Billing/Restoration", priority: "HIGH", testType: "FUNCTIONAL", confidence: "HIGH", reason: "Restoring purchased access must retain the entitlement without another charge.", evidence: ["Access retained"] })) };
   } },
   applyReviewed: { mutate: async input => {

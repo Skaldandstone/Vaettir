@@ -16,6 +16,8 @@ Column analysis sends the headers and first 25 complete data rows. It handles un
 
 Case analysis sends complete selected definitions, tags, current metadata and current project suite paths. Existing source-derived placement is included. Existing suites are preferred; new paths may contain up to eight named levels under the existing 240-character path limit. Priority is a reasoned execution recommendation, not a risk-score or severity fact. Missing priority is identified as a default when no source column was mapped. There is no forced Medium or Functional recommendation and no invented procedure or assertion.
 
+Older imported labels that do not match the writable folder format remain exact read-only context and are shown as the current placement. They participate in hierarchy and source revision checks; they are never normalized into folder records or dropped to unblock analysis. A reviewed canonical placement updates only the selected case, preserving the original source path. Invalid explicit folder records and the existing hierarchy bounds still refuse the operation.
+
 Each returned case identity must match exactly once, evidence must occur in the supplied definition, and low-confidence proposals become no-change values. The reviewer can select or discard suite, priority and type changes separately, or select/clear all proposed changes. An import still requires its final explicit commit. Existing-case changes require a separate Apply selected changes action.
 
 ## Bounds, persistence and retry

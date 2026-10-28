@@ -111,6 +111,24 @@ describe("reviewed organization suggestions on real PostgreSQL", () => {
     await expect(applySmartRecommendations(prisma, userId!, clerk, { ...scope(), requestId: randomUUID(), reviewIds: [r.reviewId], approved: true, selections: [selection(item.id)] })).rejects.toThrow("changed after analysis");
     expect((await prisma.testCase.findUniqueOrThrow({ where: { id: item.id } })).suitePath).toBeNull();
   });
+  it("reviews legacy imported labels without normalizing provenance or relaxing writable folders", async () => {
+    const legacyPath = "Legacy Sheet / Unsorted";
+    const item = await prisma.testCase.create({ data: { projectId: projectId!, title: "Legacy restore case", given: [], when: ["Restore"], then: ["Access retained"], tags: [], testType: "OTHER", priority: "MEDIUM", source: { create: { filePath: legacyPath, framework: "synthetic" } } } });
+    const r = await review([item.id]);
+    expect(r.before[0]!.suitePath).toBe(legacyPath);
+    expect(r.legacySuitePaths).toContain(legacyPath);
+    expect(r.knownSuites).not.toContain(legacyPath);
+    expect((await prisma.testCase.findUniqueOrThrow({ where: { id: item.id } })).suitePath).toBeNull();
+    await applySmartRecommendations(prisma, userId!, clerk, { ...scope(), requestId: randomUUID(), reviewIds: [r.reviewId], approved: true, selections: [selection(item.id)] });
+    expect(await prisma.testCase.findUniqueOrThrow({ where: { id: item.id }, include: { source: true } })).toMatchObject({ suitePath: "Billing/Restore", source: { filePath: legacyPath } });
+    const folders = await prisma.caseFolderState.findUniqueOrThrow({ where: { projectId } });
+    expect(JSON.stringify(folders.folders)).not.toContain(legacyPath);
+    // Invalid explicit folder state still refuses analysis; it is not treated as
+    // an old imported label and never replaced with an empty/default tree.
+    await prisma.caseFolderState.update({ where: { projectId }, data: { folders: [{ id: "invalid", path: legacyPath }] } });
+    try { await expect(review([item.id])).rejects.toThrow("Stored folder definitions need repair"); }
+    finally { await prisma.caseFolderState.update({ where: { projectId }, data: { folders: folders.folders! } }); }
+  });
   it("rolls back earlier case, version, folder and audit writes when a later write fails", async () => {
     for (const id of caseIds) await prisma.testCase.update({ where: { id }, data: { suitePath: "Before review", priority: "MEDIUM" } });
     const r = await review(caseIds), before = await prisma.testCaseVersion.count({ where: { testCase: { projectId } } }), audits = await prisma.auditLog.count({ where: { projectId } });

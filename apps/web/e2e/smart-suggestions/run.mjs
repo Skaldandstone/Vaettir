@@ -36,8 +36,12 @@ try {
   check("import review is separate from persistence", await page.evaluate(() => window.smartFixture.saves.length === 0 && window.smartFixture.writes === 0));
   await page.getByText("Restore purchase · high confidence", { exact: true }).click();
   await page.getByText("Avoid duplicate charge · high confidence", { exact: true }).click();
+  let darkBackground;
   for (const theme of ["dark", "light"]) for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: 960 }); await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
+    const background = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+    if (theme === "dark") darkBackground = background;
+    else check(`light/${width} applies the light palette`, background !== darkBackground);
     check(`${theme}/${width} wraps content`, await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
     await page.screenshot({ path: path.join(output, `import-${theme}-${width}.png`), fullPage: true });
   }
@@ -50,6 +54,8 @@ try {
   await page.getByRole("button", { name: "Generate suggestions", exact: true }).click();
   await page.getByRole("button", { name: "Apply selected changes", exact: true }).waitFor();
   await page.getByText("Restore purchase · high confidence", { exact: true }).click();
+  check("legacy labels are explained before review", await page.getByText(/Older imported suite labels remain unchanged/).isVisible());
+  await page.evaluate(() => document.documentElement.dataset.theme = "light");
   await page.screenshot({ path: path.join(output, "existing-review-light-390.png"), fullPage: true });
   await page.getByRole("button", { name: "Apply selected changes", exact: true }).click();
   await page.getByRole("button", { name: "Retry the exact reviewed save" }).waitFor();

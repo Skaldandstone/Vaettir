@@ -5,7 +5,7 @@ import { z } from "zod";
 import { captureAiUsage, smartCaseSchema, suggestCaseOrganization, suggestImportColumns, type SmartCase, type SmartCaseSuggestion } from "@vaettir/ai-agent";
 import { lockCaseFieldProject } from "./caseFields.js";
 import { lockCurrentCaseFieldActor } from "./caseFieldReadScope.js";
-import { readTree } from "./caseFolders.js";
+import { readFolders } from "./caseFolders.js";
 import { folderAncestors, folderPathSchema } from "./caseFolderSchema.js";
 import { testCaseContentRevision } from "./testCaseContentRevision.js";
 import { snapshotTestCaseVersion } from "./testCaseVersion.js";
@@ -22,6 +22,24 @@ const requests = new Map<string, { digest: string; expires: number; work: Promis
 const starts = new Map<string, number[]>();
 let active = 0;
 const scopeKey = (actor: string, scope: Scope) => JSON.stringify([actor, scope.projectId, scope.originalOrganizationId, scope.expectedClerkActorId]);
+async function readSuggestionTree(tx: Prisma.TransactionClient, projectId: string) {
+  const state = await tx.caseFolderState.findUnique({ where: { projectId } });
+  // Explicit folder records keep the ordinary folder editor's strict contract.
+  // Older imported labels are read-only context, never silently normalized into
+  // writable folder records. The original labels participate in stale checks.
+  const explicit = readFolders(state?.folders ?? []);
+  const [oversized] = await tx.$queryRaw<Array<{ invalid: boolean }>>`SELECT EXISTS(SELECT 1 FROM "TestCase" c LEFT JOIN "TestCaseSource" s ON s."testCaseId"=c.id WHERE c."projectId"=${projectId} AND (octet_length(coalesce(nullif(c."suitePath",''),s."filePath"))>960 OR octet_length(s."filePath")>4096)) AS invalid`;
+  if (oversized?.invalid) throw new TRPCError({ code: "BAD_REQUEST", message: "A legacy suite or source path exceeds the bounded hierarchy view. No labels were truncated." });
+  const locations = await tx.$queryRaw<Array<{ path: string }>>`SELECT DISTINCT coalesce(nullif(c."suitePath",''),s."filePath") AS path FROM "TestCase" c LEFT JOIN "TestCaseSource" s ON s."testCaseId"=c.id WHERE c."projectId"=${projectId} AND coalesce(nullif(c."suitePath",''),s."filePath") IS NOT NULL ORDER BY path LIMIT 501`;
+  if (locations.length > 500) throw new TRPCError({ code: "BAD_REQUEST", message: "Project exceeds the 500-suite review bound. No labels were hidden." });
+  const paths = new Set<string>(), legacyPaths = new Set<string>();
+  for (const path of [...explicit.map(f => f.path), ...locations.map(r => r.path)]) {
+    if (folderPathSchema.safeParse(path).success) for (const parent of folderAncestors(path)) paths.add(parent);
+    else legacyPaths.add(path);
+  }
+  if (paths.size + legacyPaths.size > 500) throw new TRPCError({ code: "BAD_REQUEST", message: "Hierarchy exceeds the 500-suite review bound. No branches were hidden." });
+  return { explicit, paths: [...paths].sort(), legacyPaths: [...legacyPaths].sort(), revision: state?.revision ?? 0 };
+}
 export function smartSuggestionsEnabled(projectId: string, value = process.env.VAETTIR_SMART_SUGGESTIONS_PROJECTS) {
   if (value === "*") return true;
   try { const ids: unknown = JSON.parse(value ?? "[]"); return Array.isArray(ids) && ids.every(id => typeof id === "string") && ids.includes(projectId); }
@@ -106,7 +124,7 @@ export async function smartRecommendations(db: PrismaClient, actor: string, cler
   requireEnabled(input.projectId);
   await authorizeAnalysis(db, actor, clerk, input);
   const captured = await authorized(db, actor, clerk, input, async tx => {
-    const tree = await readTree(tx, input.projectId);
+    const tree = await readSuggestionTree(tx, input.projectId);
     if (input.caseIds) for (const id of input.caseIds) {
       const [size] = await tx.$queryRaw<Array<{ bytes: bigint; steps: bigint; shared: boolean }>>`
         SELECT (octet_length(row_to_json(c)::text) + coalesce((SELECT sum(octet_length(row_to_json(s)::text)) FROM "TestCaseStep" s WHERE s."testCaseId"=c.id),0))::bigint AS bytes,
@@ -132,7 +150,7 @@ export async function smartRecommendations(db: PrismaClient, actor: string, cler
     const reviewId = randomUUID();
     previews.set(reviewId, { scope: key, expires: Date.now() + 30 * 60_000, treeHash: hash(captured.tree), suggestions: result,
       cases: captured.stored.map(c => ({ id: c.id, revision: testCaseContentRevision(c), updatedAt: c.updatedAt.getTime(), effectivePath: c.suitePath || c.source?.filePath || null })) });
-    return { reviewId, suggestions: result, knownSuites: captured.tree.paths, before: captured.cases.map(c => ({ id: c.id, title: c.title, suitePath: c.suitePath ?? null, priority: c.priority ?? null, testType: c.testType ?? null })) };
+    return { reviewId, suggestions: result, knownSuites: captured.tree.paths, legacySuitePaths: captured.tree.legacyPaths, before: captured.cases.map(c => ({ id: c.id, title: c.title, suitePath: c.suitePath ?? null, priority: c.priority ?? null, testType: c.testType ?? null })) };
   });
 }
 
@@ -151,7 +169,7 @@ export async function applySmartRecommendations(db: PrismaClient, actor: string,
     if (selectedReviews.some(p => !p || p.scope !== key || p.expires < Date.now() || !p.cases.length)) return refuse("This organization review expired. Generate and review new suggestions; nothing was applied.");
     const preview = { cases: selectedReviews.flatMap(p => p!.cases), suggestions: selectedReviews.flatMap(p => p!.suggestions) };
     if (new Set(preview.cases.map(c => c.id)).size !== preview.cases.length) return refuse("Review batches must contain distinct cases.");
-    const tree = await readTree(tx, input.projectId);
+    const tree = await readSuggestionTree(tx, input.projectId);
     if (selectedReviews.some(p => hash(tree) !== p!.treeHash)) return refuse("Suite structure changed. Review current placement before applying suggestions.");
     const folders = new Map(tree.explicit.map(f => [f.path, f]));
     const paths = new Set(tree.paths), changes = [];
@@ -176,7 +194,7 @@ export async function applySmartRecommendations(db: PrismaClient, actor: string,
       }
       changes.push({ current, data, reason: suggestion.reason });
     }
-    if (paths.size > 500) return refuse("These suggestions exceed the 500-folder limit. Choose fewer new suites.");
+    if (paths.size + tree.legacyPaths.length > 500) return refuse("These suggestions exceed the 500-folder limit. Choose fewer new suites.");
     for (const { current, data, reason } of changes) {
       const changed = await tx.testCase.update({ where: { id: current.id }, data });
       await snapshotTestCaseVersion(tx, { ...changed, testCaseId: changed.id, steps: current.steps, actorId: actor });
