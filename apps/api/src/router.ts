@@ -72,6 +72,7 @@ import { testCaseAttachmentsRouter } from "./routers/testCaseAttachments.js";
 import { exploratorySessionsRouter } from "./routers/exploratorySessions.js";
 import { testCaseDatasetsRouter } from "./routers/testCaseDatasets.js";
 import { importJobsRouter } from "./routers/importJobs.js";
+import { caseSuggestionsRouter } from "./routers/caseSuggestions.js";
 import { staffRouter } from "./routers/staff.js";
 import { userRouter } from "./routers/user.js";
 import { betaRouter } from "./routers/beta.js";
@@ -170,6 +171,7 @@ export const appRouter = router({
   exploratorySessions: exploratorySessionsRouter,
   testCaseDatasets: testCaseDatasetsRouter,
   importJobs: importJobsRouter,
+  caseSuggestions: caseSuggestionsRouter,
   staff: staffRouter,
   user: userRouter,
   liveAppGeneration: liveAppGenerationRouter,
