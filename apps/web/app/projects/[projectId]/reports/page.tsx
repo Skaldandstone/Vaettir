@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useLayoutEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { Modal } from "@/components/Modal";
+import { ReportWorkspace } from "@/components/ReportWorkspace";
 import { ReportBuilder } from "@/components/ReportBuilder";
 import { trpcReact } from "@/lib/trpcReact";
 import { canEditProject } from "@/lib/membership";
@@ -115,7 +116,20 @@ export default function ProjectReportsPage() {
         <button type="button" className="btn-secondary" onClick={() => downloadReport("csv")} disabled={!data || !project.data}>Download CSV</button>
       </div>
     </div>
+    <details style={{ marginBlock: 18 }}><summary>Browse report families</summary>
+      <nav aria-label="Report families" style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBlock: 14 }}>
+        <Link href={`/projects/${projectId}/recorded-run-comparison`}>Compare recorded runs</Link>
+        <Link href={`/projects/${projectId}/manual-run-comparison`}>Compare manual runs</Link>
+        <Link href={`/projects/${projectId}/execution-trends`}>Execution trends</Link>
+        <Link href={`/projects/${projectId}/requirement-coverage`}>Requirement coverage</Link>
+        <Link href={`/projects/${projectId}/defect-map`}>Defect traceability</Link>
+        <Link href={`/projects/${projectId}/releases`}>Release summaries</Link>
+        <Link href="/dashboard">Workspace portfolio</Link>
+      </nav>
+      <p className="text-muted">Each report states its evidence window and limitations. Creation activity, recorded version activity and measured duration are available as custom dashboard metrics.</p>
+    </details>
     <ReportBuilder projectId={projectId} />
+    <ReportWorkspace key={projectId} projectId={projectId} organizationId={originalOrganization ?? ""} clerkActorId={originalActor ?? ""} ready={accessReady} editable={writeReady} />
     <p><Link href={`/projects/${projectId}/execution-trends`}>Explore daily recorded outcomes and the runs behind them</Link>. This live view is separate from approved immutable stakeholder snapshots.</p>
     <section className="panel" aria-label="Case report query" style={{ marginBottom: 16 }}>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "end", justifyContent: "space-between" }}>

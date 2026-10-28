@@ -47,6 +47,7 @@ export const forgeSharingRecord = z.object({
   snapshotIds: z.array(z.string().length(64)).max(50),
   shareTicketTests: z.boolean().default(false),
   shareApprovedProjectQuality: z.boolean().default(false),
+  shareLiveProjectQuality: z.boolean().default(false),
   releaseLinks: z.array(forgeReleaseLink).max(50).default([]),
   closureSnapshotIds: z.array(z.string().length(64)).max(50).default([]),
 });
@@ -309,6 +310,7 @@ export async function listForgeSharing(
     projectName: string;
     shareTicketTests: boolean;
     hasSnapshots: boolean;
+    hasLive: boolean;
     hasReleases: boolean;
     hasClosures: boolean;
   }> = [];
@@ -324,7 +326,7 @@ export async function listForgeSharing(
     if (
       identity.moduleKey === "vaettir-issue-quality"
         ? !sharing.shareTicketTests
-        : !sharing.shareApprovedProjectQuality &&
+        : !sharing.shareLiveProjectQuality && !sharing.shareApprovedProjectQuality &&
           !sharing.snapshotIds.length &&
           !sharing.releaseLinks.length &&
           !sharing.closureSnapshotIds.length
@@ -338,6 +340,7 @@ export async function listForgeSharing(
       key,
       projectName: project.name,
       shareTicketTests: sharing.shareTicketTests,
+      hasLive: identity.product === "confluence" && sharing.shareLiveProjectQuality,
       hasSnapshots:
         sharing.shareApprovedProjectQuality || !!sharing.snapshotIds.length,
       hasReleases: !!sharing.releaseLinks.length,

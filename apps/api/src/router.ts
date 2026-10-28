@@ -1,3 +1,4 @@
+import { reportWorkflowsRouter } from "./routers/reportWorkflows.js";
 import { router } from "./trpc.js";
 import { aiDisclosureRouter } from "./routers/aiDisclosure.js";
 import { architectureRouter } from "./routers/architecture.js";
@@ -123,6 +124,7 @@ export const appRouter = router({
   runHistory: runHistoryRouter,
   ciRunDetails: ciRunDetailsRouter,
   reportSnapshots: reportSnapshotsRouter,
+  reportWorkflows: reportWorkflowsRouter,
   driveConnections:driveConnectionsRouter,
   linearConnections:linearConnectionsRouter,
   jiraConnections:jiraConnectionsRouter,

@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import {
   reportMetricRows,
   REPORT_SECTIONS,
@@ -38,6 +38,34 @@ export function FrozenReport({
     review.projectId === projectId &&
     review.snapshotId === snapshotId;
   const exportAllowed = allowExport && report.state === "approved";
+  const [deckBusy, setDeckBusy] = useState(false);
+  const exportScope = useRef({ report, projectId, snapshotId, ready: exportAllowed && reviewed });
+  useLayoutEffect(() => {
+    exportScope.current = { report, projectId, snapshotId, ready: exportAllowed && reviewed };
+    return () => { exportScope.current.ready = false; };
+  }, [report, projectId, snapshotId, exportAllowed, reviewed]);
+  async function downloadDeck() {
+    if (!exportAllowed || !reviewed || deckBusy) return;
+    const captured = exportScope.current;
+    setDeckBusy(true);
+    setExportMessage("");
+    try {
+      const { renderReportDeck } = await import("@/lib/report-deck");
+      const blob = await renderReportDeck(report);
+      if (exportScope.current !== captured || !captured.ready) return;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `vaettir-quality-update-${report.asOf.slice(0, 10)}.pptx`;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch {
+      if (exportScope.current === captured && captured.ready)
+        setExportMessage("The PowerPoint could not be created. Your approved report is unchanged. Try the export again.");
+    } finally { setDeckBusy(false); }
+  }
   function download(format: "html" | "csv") {
     if (!exportAllowed || !reviewed) return;
     let content: string;
@@ -201,6 +229,9 @@ export function FrozenReport({
                 onClick={print}
               >
                 Print / save PDF
+              </button>
+              <button className="btn-secondary" type="button" disabled={!reviewed || deckBusy} onClick={downloadDeck}>
+                {deckBusy ? "Creating PowerPoint…" : "Download editable PowerPoint"}
               </button>
             </div>
             {exportMessage && <p role="alert">{exportMessage}</p>}

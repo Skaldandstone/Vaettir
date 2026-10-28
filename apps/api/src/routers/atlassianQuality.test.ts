@@ -111,6 +111,15 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllEnvs());
 describe("administrator-owned explicit Atlassian sharing", () => {
+  it("requires a separate Confluence live grant and refuses an old-client scope reduction", async () => {
+    const f = fixture();
+    await expect(f.caller.publish({ ...request, shareLiveProjectQuality: true })).rejects.toThrow();
+    expect(f.rows).toHaveLength(0);
+    const live = { ...request, binding: { ...binding, product: "confluence" as const }, shareTicketTests: false, shareLiveProjectQuality: true };
+    await f.caller.publish(live);
+    expect(f.rows[0]!.metadata.shareLiveProjectQuality).toBe(true);
+    await expect(f.caller.publish({ ...live, expectedVersion: 1, requestId: "10000000-0000-4000-8000-000000000008", shareLiveProjectQuality: undefined, shareApprovedProjectQuality: true })).rejects.toThrow(/Refresh/);
+  });
   it("requires fresh full-seat admin authority, not a stale context or paid feature entitlement", async () => {
     for (const [role, seat] of [
       ["EDITOR", "FULL"],

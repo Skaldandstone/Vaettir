@@ -28,6 +28,7 @@ export function AtlassianQualitySettings({
     [snapshots, setSnapshots] = useState<string[]>([]),
     [tickets, setTickets] = useState(false),
     [projectQuality, setProjectQuality] = useState(false),
+    [liveQuality, setLiveQuality] = useState(false),
     [releaseLinks, setReleaseLinks] = useState<Publish["releaseLinks"]>([]),
     [closureIds, setClosureIds] = useState<string[]>([]),
     [approved, setApproved] = useState(false),
@@ -77,6 +78,7 @@ export function AtlassianQualitySettings({
       snapshotIds: snapshots,
       shareTicketTests: tickets && binding.product === "jira",
       shareApprovedProjectQuality: projectQuality,
+      shareLiveProjectQuality: liveQuality && binding.product === "confluence",
       releaseLinks: binding.product === "jira" ? releaseLinks : [],
       closureSnapshotIds: closureIds,
       approveTargetSharing: true,
@@ -203,6 +205,7 @@ export function AtlassianQualitySettings({
                       </td>
                       <td>
                         {c.snapshotIds.length} approved captures
+                        {c.shareLiveProjectQuality ? " · Live aggregate dashboard" : ""}
                         {c.shareApprovedProjectQuality ? " · Approved project quality summaries" : ""}
                         {c.shareTicketTests ? " · Linked ticket tests" : ""}
                         {c.releaseLinks.length
@@ -228,6 +231,7 @@ export function AtlassianQualitySettings({
                               setSnapshots(c.snapshotIds);
                               setTickets(c.shareTicketTests);
                               setProjectQuality(c.shareApprovedProjectQuality);
+                              setLiveQuality(c.shareLiveProjectQuality);
                               setReleaseLinks(c.releaseLinks);
                               setClosureIds(c.closureSnapshotIds);
                               setApproved(false);
@@ -278,6 +282,10 @@ export function AtlassianQualitySettings({
                   source, architecture and attachments are excluded.
                 </p>
               )}
+              {binding?.product === "confluence" && <label>
+                <input type="checkbox" checked={liveQuality} onChange={event => { setLiveQuality(event.target.checked); setApproved(false); }} />
+                Share a live aggregate dashboard with readers of this Confluence space. Includes current case counts and the last 30 days of recorded outcomes; no case contents or notes.
+              </label>}
               <label style={{ display: "flex", gap: 10, alignItems: "start", marginBlock: 16 }}>
                 <input type="checkbox" checked={projectQuality} onChange={event => { setProjectQuality(event.target.checked); setApproved(false); }} />
                 <span>Share this project’s approved quality summaries, including newly approved captures. Drafts, raw source, architecture and attachments are excluded.</span>
@@ -592,6 +600,7 @@ export function AtlassianQualitySettings({
                   disabled={busy}
                   onClick={() => {
                     setConnectionId(null);
+                    setLiveQuality(false);
                     setBaselineVersion(0);
                     setBindingText("");
                     setSnapshots([]);

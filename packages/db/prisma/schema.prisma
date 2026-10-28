@@ -334,6 +334,8 @@ model Project {
   populationDraft             ProjectPopulationDraft?
   defectMap                   DefectMapState?
   caseTraceability            CaseTraceabilityState?
+  reportDashboards            ProjectReportDashboard[]
+  reportSchedules             ProjectReportSchedule[]
   reportDefinitions           ProjectReportDefinition[]
   reportDefinitionWrites      ProjectReportDefinitionWrite[]
   reportSnapshots             ProjectReportSnapshot[]
@@ -724,6 +726,61 @@ model CaseTraceabilityWrite {
   createdAt      DateTime              @default(now())
 
   @@index([projectId, createdAt])
+}
+
+
+model ProjectReportDashboard {
+  id String @id
+  projectId String
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  organizationId String
+  ownerId String
+  name String
+  config Json
+  visibility String @default("private")
+  archived Boolean @default(false)
+  version Int @default(1)
+  lastRequestId String
+  lastRequestHash String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([projectId, organizationId, ownerId])
+}
+
+model ProjectReportSchedule {
+  id String @id
+  projectId String
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  organizationId String
+  membershipId String
+  ownerId String
+  name String
+  config Json
+  enabled Boolean @default(false)
+  pauseReason String?
+  version Int @default(1)
+  nextRunAt DateTime
+  lastRequestId String
+  lastRequestHash String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  runs ProjectReportScheduleRun[]
+  @@index([enabled, nextRunAt])
+  @@index([projectId, organizationId, ownerId])
+}
+
+model ProjectReportScheduleRun {
+  id String @id
+  scheduleId String
+  schedule ProjectReportSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  scheduledFor DateTime
+  scheduleVersion Int
+  status String
+  snapshotId String?
+  failureCode String?
+  completedAt DateTime?
+  createdAt DateTime @default(now())
+  @@unique([scheduleId, scheduledFor])
 }
 
 model ProjectReportDefinition {
