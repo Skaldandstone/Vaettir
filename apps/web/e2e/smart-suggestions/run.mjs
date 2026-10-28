@@ -39,7 +39,7 @@ try {
   let darkBackground;
   for (const theme of ["dark", "light"]) for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: 960 }); await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
-    const background = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+    const background = await page.evaluate(() => window.getComputedStyle(document.body).backgroundColor);
     if (theme === "dark") darkBackground = background;
     else check(`light/${width} applies the light palette`, background !== darkBackground);
     check(`${theme}/${width} wraps content`, await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
