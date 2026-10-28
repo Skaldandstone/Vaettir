@@ -17,13 +17,13 @@ test("catalog is project-keyed and refuses cached errors, paused states or misma
     /query.data.requestKey === reportCatalogKey\(filters\)/,
   );
   assert.match(catalog, /No cached reports or empty result/);
-  assert.match(catalog, /Previous snapshots/);
-  assert.match(catalog, /Next snapshots/);
+  assert.match(catalog, /Previous reports/);
+  assert.match(catalog, /Next reports/);
 });
 test("report catalog supports explicit filters and capture approval refreshes it", () => {
   assert.match(catalog, /reportCatalogInput.safeParse/);
-  assert.match(catalog, /Filter by audience, purpose or capture date/);
-  assert.match(catalog, /Captured from \(UTC\)/);
+  assert.match(catalog, /Filter by audience, report type or date saved/);
+  assert.match(catalog, /Saved from \(UTC\)/);
   assert.match(catalog, /captured-desc/);
   assert.match(catalog, /title-asc/);
   assert.match(builder, /utils.reportSnapshots.catalog.invalidate\(\)/);

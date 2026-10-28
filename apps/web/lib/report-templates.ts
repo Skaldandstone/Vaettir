@@ -16,7 +16,7 @@ export const REPORT_TEMPLATES = {
   "quality-status": {
     title: "Quality status review",
     description:
-      "A stakeholder overview of test inventory, execution, linked requirements and recorded defects.",
+      "Tests, results, requirements and defects in one overview.",
     audience: "stakeholders",
     sections: ["inventory", "execution", "traceability", "defects"],
     reviewPrompts: [
@@ -28,7 +28,7 @@ export const REPORT_TEMPLATES = {
   "execution-progress": {
     title: "Test execution progress",
     description:
-      "Recorded outcomes, planned-but-unrecorded checks and priority-based execution coverage.",
+      "See recorded results and planned checks still waiting for a result.",
     audience: "quality",
     sections: ["inventory", "execution"],
     reviewPrompts: [
@@ -40,7 +40,7 @@ export const REPORT_TEMPLATES = {
   "requirements-coverage": {
     title: "Requirements coverage review",
     description:
-      "Explicit requirement-to-case links alongside recorded execution. A link alone is not verification.",
+      "See which requirements have linked tests, alongside their recorded results. Links do not prove a pass.",
     audience: "quality",
     sections: ["inventory", "execution", "traceability"],
     reviewPrompts: [
@@ -52,7 +52,7 @@ export const REPORT_TEMPLATES = {
   "defect-review": {
     title: "Defect and regression review",
     description:
-      "Recorded execution, reviewed defect clusters and task mapping. Task closure does not prove a fix.",
+      "Review failures, recorded defects and linked tasks. A closed task does not prove a fix.",
     audience: "engineering",
     sections: ["execution", "traceability", "defects"],
     reviewPrompts: [
@@ -64,7 +64,7 @@ export const REPORT_TEMPLATES = {
   "automation-progress": {
     title: "Automation improvement review",
     description:
-      "Inventory labels and changes against an approved snapshot with matching scope. Not an automation ROI estimate.",
+      "See automation labels and changes since an approved report with the same tests. Labels do not prove a successful run.",
     audience: "engineering",
     sections: ["inventory", "execution", "automation"],
     reviewPrompts: [

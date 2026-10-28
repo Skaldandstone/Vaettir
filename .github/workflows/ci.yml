@@ -179,6 +179,7 @@ jobs:
           pnpm --filter @vaettir/web exec playwright install --with-deps chromium
           node scripts/form-layout-ui.test.mjs
           node scripts/quality-visuals-ui.test.mjs
+          node apps/web/e2e/report-builder/run.mjs
           node scripts/forge-connection-ui.test.mjs
           node scripts/workspace-address-ui.test.mjs
           node --test scripts/example-workspace-ui.test.mjs scripts/project-deletion-ui.test.mjs

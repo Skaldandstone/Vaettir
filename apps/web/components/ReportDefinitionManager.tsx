@@ -55,10 +55,10 @@ function Manager({ projectId }: { projectId: string }) {
       style={{ marginBlock: 16 }}
       onToggle={(event) => setExpanded(event.currentTarget.open)}
     >
-      <summary>Manage reusable report definitions</summary>
+      <summary>Manage saved report settings</summary>
       <p>
         Reuse settings, archive without deleting, review sharing or recover a
-        recorded version. Captured reports remain separate and unchanged.
+        recorded version. Saved reports remain separate and unchanged.
       </p>
       <label>
         <input

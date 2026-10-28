@@ -2,6 +2,8 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 export const NODE_BROTLI_DOCKERFILE_SHA256 =
+  "3053480495dd451d4297717aadea4ad0f61e1923c1359c69ccd40b9f0e1aadda";
+const beforeExplicitBaseline =
   "37f053f2a97c3e13854527012221d80df5adb8e008d2ba5f3ae661deb3b13b3e";
 const prior =
   "401ae9ef8a65cd212f52d999864695ff210db6dddd947a83f8420f3830917374";
@@ -73,7 +75,14 @@ export function restorePreNodeBrotliDockerfileFixture(raw) {
     NODE_BROTLI_DOCKERFILE_SHA256,
     "Unknown complete Node/Brotli edit",
   );
-  const lines = text.split("\n");
+  // Undo only the isolated proof-stage APT selection, then require the exact
+  // previously reviewed complete Dockerfile before its historical inverse.
+  const baselineLine = hunks[0].lines[6];
+  const pinnedLine = baselineLine.replace(" libbrotli1 ", " libbrotli1=1.1.0-2+b7 ");
+  assert.equal(text.split(pinnedLine).length, 2);
+  const previousText = text.replace(pinnedLine, baselineLine);
+  assert.equal(sha(Buffer.from(previousText)), beforeExplicitBaseline);
+  const lines = previousText.split("\n");
   for (const h of [...hunks].reverse()) {
     assert.deepEqual(lines.slice(h.start, h.start + h.lines.length), h.lines);
     lines.splice(h.start, h.lines.length);

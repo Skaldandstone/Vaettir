@@ -148,3 +148,29 @@ test("portable export omits captured native entity identities and internal links
   assert.ok(!html.includes("/test-cases/") && !html.includes("/test-runs"));
   assert.ok(html.includes("Selected recorded run"));
 });
+
+test("portable report includes the full selected chart set alongside exact metric tables", () => {
+  const html = renderFrozenReportHtml({
+    ...payload,
+    definition: {
+      ...payload.definition,
+      sections: ["automation", "execution", "inventory", "traceability"],
+    },
+    inventory: { ...payload.inventory, priority: [{ key: "HIGH", count: 2 }] },
+  });
+  for (const id of [
+    "automation",
+    "outcomes",
+    "coverage",
+    "plan-progress",
+    "priority",
+    "requirements",
+  ])
+    assert.ok(html.includes(`data-chart-id="${id}"`), id);
+  assert.equal((html.match(/<figure /g) ?? []).length, 6);
+  assert.ok(html.includes("<table>"));
+  assert.ok(
+    html.includes("Coverage was not captured or its counts are inconsistent."),
+  );
+  assert.ok(!html.includes("private-cohort-id"));
+});

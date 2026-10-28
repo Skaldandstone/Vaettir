@@ -124,6 +124,47 @@ select { padding-right: 28px; text-overflow: ellipsis; }
 .report-step-track { display: flex; gap: 5px; margin-bottom: 16px; }
 .report-step-track span { height: 3px; flex: 1; background: var(--line); }
 .report-step-track [data-complete="true"] { background: var(--accent); }
+
+/* Report choices and progress remain readable without turning navigation into
+   a shortcut around the existing capture and approval workflow. */
+.report-start > label { margin-block: 18px; }
+.report-builder-dialog .modal-header { align-items: start; }
+.report-builder-dialog .modal-header .eyebrow { margin: 0 0 4px; }
+.report-builder-steps { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 8px; list-style: none; margin: 0; padding: 0 0 18px; border-bottom: 1px solid var(--line); }
+.report-builder-steps li { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--muted); font-size: 12px; }
+.report-step-number { width: 26px; height: 26px; display: grid; place-items: center; flex: 0 0 auto; border: 1px solid var(--line); border-radius: 50%; font-variant-numeric: tabular-nums; }
+.report-builder-steps [aria-current="step"] { color: var(--fg); font-weight: 650; }
+.report-builder-steps [aria-current="step"] .report-step-number { background: var(--selection); border-color: var(--accent); }
+.report-builder-steps [data-complete="true"] .report-step-number { color: var(--fg); background: var(--panel-2); }
+.report-step-heading .eyebrow { margin: 0 0 6px; }
+.report-step-heading h3 { margin: 0; font-size: 21px; }
+.report-step-heading > p:last-child { margin: 8px 0 0; }
+.report-type-options { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; padding: 0; border: 0; margin: 0; }
+.report-type-options label.report-type-option, .report-section-option { display: flex; align-items: start; gap: 12px; min-width: 0; margin: 0; padding: 16px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+.report-type-option[data-selected="true"] { border-color: var(--accent); background: var(--selection); }
+.report-type-option:focus-within, .report-section-option:focus-within { outline: 2px solid var(--link); outline-offset: 3px; }
+.report-type-option > span, .report-section-option > span { min-width: 0; display: grid; gap: 5px; }
+.report-type-option strong, .report-section-option strong { color: var(--fg); font-size: 14px; }
+.report-type-option small, .report-section-option small { color: var(--muted); font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; }
+.report-type-option input, .report-section-option input { flex: 0 0 auto; margin-top: 4px; }
+.report-builder-dialog fieldset:has(.report-section-option) { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; padding: 0; border: 0; }
+.report-builder-dialog fieldset:has(.report-section-option) legend { margin-bottom: 12px; font-weight: 600; }
+.report-document > header { padding-bottom: 18px; border-bottom: 1px solid var(--line); }
+.report-document > header h2 { margin: 4px 0 12px; }
+.report-document > header .eyebrow { margin-top: 0; }
+.report-document > section { padding-block: 12px; }
+.report-document > section h3 { margin-top: 0; }
+.report-document > details { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin-top: 20px; }
+@media (pointer: coarse) {
+  .report-builder-dialog .wizard-footer button, .report-start button { min-height: 44px; }
+  .report-builder-dialog .modal-close { min-width: 44px; min-height: 44px; }
+}
+@media (max-width: 600px) {
+  .report-builder-steps { gap: 4px; }
+  .report-builder-steps li { flex-direction: column; gap: 5px; text-align: center; font-size: 10px; }
+  .report-step-number { width: 24px; height: 24px; }
+  .report-type-options, .report-builder-dialog fieldset:has(.report-section-option) { grid-template-columns: minmax(0,1fr); }
+}
 .layout-panel-body > .panel { border: 0; padding: 0; margin: 0; }
 .project-connection-chips { gap: 8px; }
 .record-list { list-style: none; padding: 0; display: grid; gap: 8px; }

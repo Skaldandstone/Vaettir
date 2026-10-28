@@ -23,13 +23,13 @@ function visit(node){
 }
 visit(ast);assert.ok(commentary,'Actual commentary subtree exists');
 const fixture=compile(`function Scenario(){
- const [definition,setDefinition]=useState({templateId:'quality-status',summary:'',risks:'',nextActions:''});const frozen=false,title='Synthetic stakeholder report';
+ const [definition,setDefinition]=useState({templateId:'quality-status',summary:'',risks:'',nextActions:''});const frozen=false,title='Synthetic stakeholder report',projectId='synthetic';
  const [value,setValue]=useState('long');
  return <DialogFrame open={true} onClose={()=>{}} className="modal-panel" label="Create stakeholder report" style={{width:'min(900px, calc(100vw - 32px))',maxWidth:'calc(100vw - 32px)'}}>
  <div className="modal-header"><h2>Create stakeholder report</h2><button className="btn-secondary modal-close" aria-label="Close report builder">×</button></div>
  <div className="report-builder-content"><p className="eyebrow">Step 4 of 5 · Commentary</p>{${commentary}}
  <label>Release<ReadableSelect value={value} onChange={e=>setValue(e.target.value)}><option value="long">Synthetic release with a deliberately long descriptive name for verifying that the full selected text remains available on a narrow screen</option><option value="short">Short release</option></ReadableSelect></label>
- <div className="wizard-footer"><button className="btn-secondary">Back</button><button className="btn-secondary">Save definition</button><button className="btn-primary">Capture private preview</button></div></div></DialogFrame>;
+ <div className="wizard-footer"><button className="btn-secondary">Back</button><button className="btn-secondary">Save settings</button><button className="btn-primary">Save private preview</button></div></div></DialogFrame>;
 }`);
 const scripts={
   ...reactBrowserScripts(),
@@ -55,7 +55,7 @@ test('actual report commentary fields stack full-width beneath their labels in b
  const p=await page();try{
  for(const theme of ['light','dark'])for(const width of [390,1280]){
   await p.setViewportSize({width,height:1000});await p.evaluate(t=>document.documentElement.dataset.theme=t,theme);
-  for(const title of ['Summary (optional)','Risks and impediments (optional)','Next actions (optional)']){
+  for(const title of ['Summary (optional)','Risks and blockers (optional)','Next actions (optional)']){
    const field=p.getByLabel(title,{exact:true});
    assert.equal(await field.evaluate(el=>{
     const field=el.getBoundingClientRect(),label=el.parentElement.getBoundingClientRect();const range=document.createRange();range.selectNodeContents(el.parentElement.firstChild);const text=range.getBoundingClientRect();
@@ -78,8 +78,8 @@ test('long selected values wrap in a full-value caption, while ordinary values d
 });
 test('short-height dialogs retain scroll and keyboard access to all actions without horizontal overflow',async()=>{
  const p=await page(390,568);try{
- await p.getByRole('button',{name:'Capture private preview',exact:true}).focus();
- const bounds=await p.getByRole('button',{name:'Capture private preview',exact:true}).boundingBox();assert.ok(bounds.y>=0&&bounds.y+bounds.height<=568);
+ await p.getByRole('button',{name:'Save private preview',exact:true}).focus();
+ const bounds=await p.getByRole('button',{name:'Save private preview',exact:true}).boundingBox();assert.ok(bounds.y>=0&&bounds.y+bounds.height<=568);
  assert.equal(await p.getByRole('dialog').evaluate(el=>el.scrollHeight>el.clientHeight&&el.scrollWidth<=el.clientWidth),true);
  await p.keyboard.press('Tab');await p.getByRole('button',{name:'Close report builder'}).evaluate(el=>{if(el!==document.activeElement)throw Error('Focus did not wrap inside native dialog')});
  }finally{await p.close()}
