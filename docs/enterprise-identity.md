@@ -12,6 +12,8 @@ Workspace Settings > Access will have three compact sections:
 
 Default existing workspace behavior remains unchanged. No workspace is enrolled by email domain alone. No provider credentials belong in screenshots, audit metadata, browser storage or repository files.
 
+The internal `satisfiesEnterpriseSignIn` contract requires the evidence's `sessionId` to exactly match a separately supplied ID from independently verified server human-session context. With enforcement required, both IDs must be nonempty opaque strings of at most 512 characters without whitespace or control characters. Missing or malformed equal values cannot establish a match. The adapter must authenticate the evidence and its connection provenance; supplying matching IDs does not make either input trustworthy. This predicate remains unwired and does not resolve provider proof limitations. Opt-out behavior is unchanged, and suspension still denies access.
+
 ## Implemented checkpoint
 
 `IdentityAccessDraft` adds a workspace-owned preparation record with revision CAS. The `identityAccess` router rechecks a verified human Clerk subject, current full-seat administrator membership, workspace host and suspension inside its transaction. It validates current tenant members/projects, saves and audits atomically under Serializable isolation. No native membership, seat, provider connection or authorization policy is modified by a draft save.

@@ -148,14 +148,16 @@ test('planning does not mutate catalog, input scopes, binding, or source snapsho
 
 function signInFixture() {
   const f = fixture();
-  return { userId: 'local-user', organizationId: 'workspace-a', required: true, suspended: false, connections: [f.connection], now: 1_000,
-    session: { userId: 'local-user', organizationId: 'workspace-a', providerConnectionId: 'enterprise-a', authenticatedAt: 900, expiresAt: 2_000 } };
+  return { sessionId: 'session-a', userId: 'local-user', organizationId: 'workspace-a', required: true, suspended: false, connections: [f.connection], now: 1_000,
+    session: { sessionId: 'session-a', userId: 'local-user', organizationId: 'workspace-a', providerConnectionId: 'enterprise-a', authenticatedAt: 900, expiresAt: 2_000 } };
 }
 test('enterprise enforcement accepts only current-session evidence for the selected workspace connection', () => {
   assert.equal(satisfiesEnterpriseSignIn(signInFixture()), true);
 });
 for (const [name, mutate] of [
   ['no session proof', f => { f.session = null; }],
+  ['same subject with a different session', f => { f.session.sessionId = 'session-b'; }],
+  ['case-different session', f => { f.session.sessionId = 'Session-a'; }],
   ['wrong subject', f => { f.session.userId = 'other'; }],
   ['wrong workspace', f => { f.session.organizationId = 'other'; }],
   ['wrong enterprise connection', f => { f.session.providerConnectionId = 'other'; }],
@@ -167,7 +169,40 @@ for (const [name, mutate] of [
   const f = signInFixture(); mutate(f); assert.equal(satisfiesEnterpriseSignIn(f), false);
 });
 test('SSO opt-in does not change legacy authentication, but suspension still wins', () => {
-  const f = signInFixture(); f.required = false; f.session = null;
+  const f = signInFixture(); f.required = false; f.session = null; f.sessionId = null;
   assert.equal(satisfiesEnterpriseSignIn(f), true);
   f.suspended = true; assert.equal(satisfiesEnterpriseSignIn(f), false);
+});
+
+for (const [name, value] of [
+  ['absent', undefined], ['null', null], ['empty', ''], ['spaces', '   '],
+  ['leading space', ' session-a'], ['trailing space', 'session-a '],
+  ['embedded space', 'session a'], ['tab', 'session\ta'], ['newline', 'session\na'],
+  ['unicode whitespace', 'session\u00a0a'], ['null byte', 'session\u0000a'],
+  ['delete control', 'session\u007fa'], ['C1 control', 'session\u0085a'],
+  ['format control', 'session\u200ba'], ['oversized', 's'.repeat(513)],
+  ['number', 42], ['boolean', true], ['object', {}], ['array', ['session-a']],
+]) {
+  for (const side of ['current', 'evidence', 'both']) {
+    test(`SSO enforcement denies ${name} session ID on ${side}`, () => {
+      const f = signInFixture();
+      if (side !== 'evidence') f.sessionId = value;
+      if (side !== 'current') f.session.sessionId = value;
+      assert.equal(satisfiesEnterpriseSignIn(f), false);
+    });
+  }
+}
+
+test('SSO session IDs accept exact opaque values at the length boundaries', () => {
+  for (const sessionId of ['s', 's'.repeat(512)]) {
+    const f = signInFixture(); f.sessionId = sessionId; f.session.sessionId = sessionId;
+    assert.equal(satisfiesEnterpriseSignIn(f), true);
+  }
+});
+
+test('SSO opt-out ignores malformed session IDs while suspension still denies', () => {
+  const f = signInFixture(); f.required = false; f.sessionId = ''; f.session.sessionId = '\u0000';
+  assert.equal(satisfiesEnterpriseSignIn(f), true);
+  f.suspended = true;
+  assert.equal(satisfiesEnterpriseSignIn(f), false);
 });

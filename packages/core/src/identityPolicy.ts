@@ -208,20 +208,29 @@ export function resolveIdentityPermissions(input: {
 }
 
 export type EnterpriseSessionEvidence = {
-  userId: string; organizationId: string; providerConnectionId: string;
+  sessionId: string; userId: string; organizationId: string; providerConnectionId: string;
   // Evidence must describe this session's authentication, not the user's list
   // of linked enterprise accounts. Adapter verifies it server-side.
   authenticatedAt: number; expiresAt: number;
 };
+function validSessionId(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= 512 &&
+    !/[\s\p{Cc}\p{Cf}]/u.test(value);
+}
 export function satisfiesEnterpriseSignIn(input: {
   userId: string; organizationId: string; required: boolean; suspended: boolean;
+  // Independently verified current server session, null without a verified human
+  // session. Matching caller-supplied IDs alone do not authenticate either input.
+  sessionId: string | null;
   connections: IdentityConnection[]; session: EnterpriseSessionEvidence | null; now: number;
 }): boolean {
   if (input.suspended !== false || !Number.isSafeInteger(input.now) || input.now < 0) return false;
   if (input.required === false) return true;
   if (input.required !== true) return false;
   const session = input.session;
-  return !!session && session.userId === input.userId && session.organizationId === input.organizationId &&
+  return !!session && validSessionId(input.sessionId) && validSessionId(session.sessionId) &&
+    session.sessionId === input.sessionId &&
+    session.userId === input.userId && session.organizationId === input.organizationId &&
     Number.isSafeInteger(session.authenticatedAt) && session.authenticatedAt >= 0 && session.authenticatedAt <= input.now &&
     Number.isSafeInteger(session.expiresAt) && session.expiresAt > input.now &&
     input.connections.some(connection => connection.enabled === true && connection.organizationId === input.organizationId &&
