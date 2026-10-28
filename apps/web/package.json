@@ -21,6 +21,8 @@
     "@trpc/react-query": "^11.19.0",
     "@trpc/server": "^11.19.0",
     "@vaettir/core": "workspace:*",
+    "docx": "9.15.0",
+    "exceljs": "4.4.0",
     "next": "^15.5.28",
     "pptxgenjs": "4.0.1",
     "react": "19.3.0",

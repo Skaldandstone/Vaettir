@@ -13,6 +13,10 @@ import {
   lockedProcessingReader,
 } from "../services/repositoryProcessingApproval.js";
 import { readReportMetric } from "../services/reportMetricQuery.js";
+import {
+  reportDestinationHash,
+  requireReportSlackDestination,
+} from "../services/reportDelivery.js";
 import { captureReportPreview } from "./reportSnapshots.js";
 import {
   dashboardConfigSchema,
@@ -65,7 +69,7 @@ async function access<T>(
     { isolationLevel: "RepeatableRead", timeout: 20000 },
   );
 }
-async function liveDashboard(
+async function singleDashboard(
   tx: Prisma.TransactionClient,
   orgId: string,
   actorId: string,
@@ -107,12 +111,83 @@ async function liveDashboard(
     limitations: report.payload.limitations,
   };
 }
+async function dashboardProjects(
+  tx: Prisma.TransactionClient,
+  orgId: string,
+  actorId: string,
+  projectId: string,
+  config: ReturnType<typeof dashboardConfigSchema.parse>,
+) {
+  const ids = [
+    projectId,
+    ...(config.additionalProjectIds ?? []).filter((id) => id !== projectId),
+  ];
+  for (const id of [...ids].sort())
+    await lockedProcessingReader(tx, orgId, actorId, id);
+  const rows = await tx.project.findMany({
+    where: { id: { in: ids }, organizationId: orgId },
+    select: { id: true, name: true },
+  });
+  if (rows.length !== ids.length)
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message:
+        "Every dashboard project must remain in this workspace and currently accessible. No partial portfolio is shown.",
+    });
+  return ids.map((id) => rows.find((row) => row.id === id)!);
+}
+async function liveDashboard(
+  tx: Prisma.TransactionClient,
+  orgId: string,
+  actorId: string,
+  projectId: string,
+  raw: unknown,
+) {
+  const config = dashboardConfigSchema.parse(raw);
+  const projects = await dashboardProjects(
+    tx,
+    orgId,
+    actorId,
+    projectId,
+    config,
+  );
+  const panels = [];
+  for (const project of projects)
+    panels.push({
+      project,
+      data: await singleDashboard(tx, orgId, actorId, project.id, config),
+    });
+  return {
+    ...panels[0]!.data,
+    widgets: panels.flatMap(({ project, data }) =>
+      data.widgets.map((widget) => ({
+        ...widget,
+        id: `${project.id}:${widget.id}`,
+        visual: widget.visual && {
+          ...widget.visual,
+          title:
+            projects.length > 1
+              ? `${project.name} · ${widget.visual.title}`
+              : widget.visual.title,
+        },
+      })),
+    ),
+    limitations: [
+      ...new Set(panels.flatMap((panel) => panel.data.limitations)),
+      ...(projects.length > 1
+        ? [
+            "Portfolio panels retain each project's own counts and denominators. No combined percentage or partial portfolio total is inferred.",
+          ]
+        : []),
+    ],
+  };
+}
 export const reportWorkflowsRouter = router({
   list: protectedProcedure
     .input(reportWorkflowListInput)
     .query(({ ctx, input }) =>
       access(ctx, input, false, async (tx, orgId) => {
-        const [dashboards, schedules] = await Promise.all([
+        const [dashboards, schedules, projects] = await Promise.all([
           tx.projectReportDashboard.findMany({
             where: {
               projectId: input.projectId,
@@ -135,6 +210,12 @@ export const reportWorkflowsRouter = router({
             take: 101,
             include: { runs: { orderBy: { scheduledFor: "desc" }, take: 10 } },
           }),
+          tx.project.findMany({
+            where: { organizationId: orgId },
+            select: { id: true, name: true },
+            orderBy: [{ name: "asc" }, { id: "asc" }],
+            take: 101,
+          }),
         ]);
         if (dashboards.length > 100 || schedules.length > 100)
           throw new TRPCError({
@@ -145,6 +226,8 @@ export const reportWorkflowsRouter = router({
           projectId: input.projectId,
           organizationId: orgId,
           clerkActorId: ctx.authenticatedClerkSubject!,
+          projects: projects.slice(0, 100),
+          projectCatalogLimited: projects.length > 100,
           dashboards: dashboards.map((row) => ({
             ...row,
             editable: row.ownerId === ctx.user.id,
@@ -207,6 +290,13 @@ export const reportWorkflowsRouter = router({
     .input(dashboardSaveInput)
     .mutation(({ ctx, input }) =>
       access(ctx, input, true, async (tx, orgId) => {
+        await dashboardProjects(
+          tx,
+          orgId,
+          ctx.user.id,
+          input.projectId,
+          input.config,
+        );
         const previous = await tx.projectReportDashboard.findUnique({
             where: { id: input.id },
           }),
@@ -334,7 +424,37 @@ export const reportWorkflowsRouter = router({
             },
           },
         });
+        let deliveryDestinationHash: string | null = null;
+        if (input.config.delivery === "slack") {
+          if (
+            !input.approveRecurringDelivery ||
+            !["OWNER", "ADMIN"].includes(member.role)
+          )
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message:
+                "A current workspace admin must explicitly enable recurring Slack aggregate delivery.",
+            });
+          if (
+            !input.config.definition.sections.some(
+              (section) => section === "inventory" || section === "execution",
+            )
+          )
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message:
+                "Slack delivery requires test inventory or recorded results in the report.",
+            });
+          const org = await tx.organization.findUniqueOrThrow({
+            where: { id: orgId },
+            select: { slackWebhookUrl: true },
+          });
+          deliveryDestinationHash = reportDestinationHash(
+            requireReportSlackDestination(org.slackWebhookUrl),
+          );
+        }
         const data = {
+          deliveryDestinationHash,
           pauseReason: null,
           membershipId: member.id,
           name: input.name,
@@ -373,6 +493,7 @@ export const reportWorkflowsRouter = router({
               enabled: row.enabled,
               requestId: input.requestId,
               publication: "private-preview",
+              delivery: input.config.delivery,
             },
           },
         });

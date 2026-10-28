@@ -9,6 +9,7 @@ import {
 import { captureReportPreview } from "../routers/reportSnapshots.js";
 import { createSafeSchedulerRunner } from "./safeSchedulerRunner.js";
 import { recordHeartbeat } from "../services/heartbeat.js";
+import { deliverPendingReports } from "../services/reportDelivery.js";
 
 export const REPORT_SCHEDULE_INTERVAL_MS = 60000;
 const digest = (text: string) =>
@@ -95,6 +96,7 @@ export async function runDueReportSchedules(
               scheduledFor: current.nextRunAt,
               scheduleVersion: current.version,
               status: "CAPTURED",
+              deliveryStatus: config.delivery === "slack" ? "PENDING" : "NOT_REQUESTED",
               snapshotId: report.id,
               completedAt: now,
             },
@@ -187,6 +189,7 @@ export function startReportScheduleWorker() {
     try {
       recordHeartbeat("reportScheduleWorker");
       await runDueReportSchedules();
+      await deliverPendingReports(prisma);
     } catch {
       throw new Error(
         "Scheduled reporting is unavailable; inspect the private run receipts.",

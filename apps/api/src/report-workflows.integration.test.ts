@@ -4,6 +4,7 @@ import { resolve, dirname, relative } from "node:path";
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
 import { prisma } from "@vaettir/db";
 import { reportWorkflowsRouter } from "./routers/reportWorkflows.js";
+import { deliverPendingReports } from "./services/reportDelivery.js";
 import { runDueReportSchedules } from "./jobs/reportScheduleWorker.js";
 import { readForgeLiveQuality } from "./services/forgeLiveQuality.js";
 import {
@@ -516,5 +517,276 @@ describe("native reporting workflow transactions", () => {
       );
       await prisma.$executeRawUnsafe(`DROP FUNCTION ${name}()`);
     }
+  });
+  const fakeDestination =
+    "https://hooks.slack.com/services/SYNTHETIC/REPORT/NO_REAL_TOKEN";
+  async function pendingDelivery() {
+    await prisma.organization.update({
+      where: { id: orgId },
+      data: { slackWebhookUrl: fakeDestination },
+    });
+    const input = {
+      ...schedule(),
+      config: { ...scheduleConfig, delivery: "slack" as const },
+      approveRecurringDelivery: true as const,
+    };
+    await owner.saveSchedule(input);
+    await prisma.projectReportSchedule.update({
+      where: { id: input.id },
+      data: { nextRunAt: new Date(Date.now() - 60000) },
+    });
+    await runDueReportSchedules(prisma);
+    const receipt = await prisma.projectReportScheduleRun.findFirstOrThrow({
+      where: { scheduleId: input.id },
+    });
+    expect(receipt.deliveryStatus).toBe("PENDING");
+    return { input, receipt };
+  }
+  it("requires a separate current admin mandate for the existing Slack destination", async () => {
+    await prisma.organization.update({
+      where: { id: orgId },
+      data: { slackWebhookUrl: fakeDestination },
+    });
+    const input = {
+      ...schedule(),
+      config: { ...scheduleConfig, delivery: "slack" as const },
+    };
+    await expect(owner.saveSchedule(input)).rejects.toThrow(/explicitly/);
+    await prisma.membership.update({
+      where: { id: membershipId },
+      data: { role: "EDITOR" },
+    });
+    try {
+      await expect(
+        owner.saveSchedule({ ...input, approveRecurringDelivery: true }),
+      ).rejects.toThrow(/admin/);
+    } finally {
+      await prisma.membership.update({
+        where: { id: membershipId },
+        data: { role: "OWNER" },
+      });
+    }
+  });
+  it("delivers each captured aggregate once under concurrent workers without notes or raw identities", async () => {
+    const { receipt } = await pendingDelivery();
+    const sent: unknown[] = [];
+    const transport = async (_url: string, payload: unknown) => {
+      sent.push(payload);
+    };
+    await Promise.all([
+      deliverPendingReports(prisma, transport),
+      deliverPendingReports(prisma, transport),
+    ]);
+    expect(sent).toHaveLength(1);
+    expect(JSON.stringify(sent[0])).toContain("Automated aggregate capture");
+    expect(JSON.stringify(sent[0])).not.toContain("Synthetic report");
+    expect(JSON.stringify(sent[0])).not.toContain(userId);
+    expect(
+      (
+        await prisma.projectReportScheduleRun.findUniqueOrThrow({
+          where: { id: receipt.id },
+        })
+      ).deliveryStatus,
+    ).toBe("SENT");
+    await deliverPendingReports(prisma, transport);
+    expect(sent).toHaveLength(1);
+  });
+  it("never retries an ambiguous delivery or a crashed claimed send", async () => {
+    const { receipt } = await pendingDelivery();
+    let calls = 0;
+    const transport = async () => {
+      calls++;
+      throw Error("synthetic timeout");
+    };
+    await deliverPendingReports(prisma, transport);
+    await deliverPendingReports(prisma, transport);
+    expect(calls).toBe(1);
+    expect(
+      (
+        await prisma.projectReportScheduleRun.findUniqueOrThrow({
+          where: { id: receipt.id },
+        })
+      ).deliveryStatus,
+    ).toBe("UNKNOWN");
+    const next = await pendingDelivery();
+    await prisma.projectReportScheduleRun.update({
+      where: { id: next.receipt.id },
+      data: {
+        deliveryStatus: "SENDING",
+        deliveryAttemptAt: new Date(Date.now() - 600000),
+      },
+    });
+    await deliverPendingReports(prisma, transport);
+    expect(calls).toBe(1);
+    expect(
+      (
+        await prisma.projectReportScheduleRun.findUniqueOrThrow({
+          where: { id: next.receipt.id },
+        })
+      ).deliveryStatus,
+    ).toBe("UNKNOWN");
+  });
+  it("cancels pending delivery after a destination change-and-restore", async () => {
+    const { input, receipt } = await pendingDelivery();
+    await prisma.organization.update({
+      where: { id: orgId },
+      data: { slackWebhookUrl: fakeDestination + "_CHANGED" },
+    });
+    await prisma.organization.update({
+      where: { id: orgId },
+      data: { slackWebhookUrl: fakeDestination },
+    });
+    expect((await owner.saveSchedule(input)).enabled).toBe(false);
+    let calls = 0;
+    await deliverPendingReports(prisma, async () => {
+      calls++;
+    });
+    expect(calls).toBe(0);
+    expect(
+      (
+        await prisma.projectReportScheduleRun.findUniqueOrThrow({
+          where: { id: receipt.id },
+        })
+      ).deliveryStatus,
+    ).toBe("CANCELLED");
+  });
+  it("cancels pending delivery after an admin downgrade-and-restore or schedule edit", async () => {
+    const { receipt } = await pendingDelivery();
+    await prisma.membership.update({
+      where: { id: membershipId },
+      data: { role: "EDITOR" },
+    });
+    await prisma.membership.update({
+      where: { id: membershipId },
+      data: { role: "OWNER" },
+    });
+    let calls = 0;
+    const transport = async () => {
+      calls++;
+    };
+    await deliverPendingReports(prisma, transport);
+    expect(calls).toBe(0);
+    expect(
+      (
+        await prisma.projectReportScheduleRun.findUniqueOrThrow({
+          where: { id: receipt.id },
+        })
+      ).deliveryStatus,
+    ).toBe("CANCELLED");
+    const next = await pendingDelivery();
+    await owner.saveSchedule({
+      ...next.input,
+      expectedVersion: 1,
+      requestId: randomUUID(),
+      enabled: false,
+    });
+    await deliverPendingReports(prisma, transport);
+    expect(calls).toBe(0);
+    expect(
+      (
+        await prisma.projectReportScheduleRun.findUniqueOrThrow({
+          where: { id: next.receipt.id },
+        })
+      ).deliveryStatus,
+    ).toBe("CANCELLED");
+  });
+  it("keeps portfolio denominators separate and refuses foreign or transferred projects", async () => {
+    const second = await prisma.project.create({
+      data: {
+        organizationId: orgId,
+        name: "Synthetic portfolio second",
+        slug: randomUUID(),
+      },
+    });
+    await prisma.testCase.create({
+      data: {
+        projectId: second.id,
+        title: "PRIVATE_PORTFOLIO_CASE",
+        testType: "FUNCTIONAL",
+        given: [],
+        when: [],
+        then: [],
+        tags: [],
+      },
+    });
+    const input = {
+      ...dashboard(),
+      config: { ...config, additionalProjectIds: [second.id] },
+    };
+    await owner.saveDashboard(input);
+    const result = await owner.read({ ...base(), id: input.id });
+    expect(result.widgets).toHaveLength(config.widgets.length * 2);
+    expect(
+      result.widgets.some((widget) =>
+        widget.visual?.title.startsWith("Synthetic portfolio second"),
+      ),
+    ).toBe(true);
+    expect(JSON.stringify(result)).not.toContain("PRIVATE_PORTFOLIO_CASE");
+    expect(
+      result.limitations.some((text) =>
+        text.includes("No combined percentage"),
+      ),
+    ).toBe(true);
+    const tier = await prisma.planTier.findUniqueOrThrow({
+      where: { key: "free" },
+    });
+    const foreign = await prisma.organization.create({
+      data: {
+        name: tag + "portfolio",
+        slug: randomUUID(),
+        planTierId: tier.id,
+      },
+    });
+    await prisma.project.update({
+      where: { id: second.id },
+      data: { organizationId: foreign.id },
+    });
+    await expect(owner.read({ ...base(), id: input.id })).rejects.toThrow();
+    await expect(
+      owner.saveDashboard({
+        ...input,
+        id: randomUUID(),
+        requestId: randomUUID(),
+      }),
+    ).rejects.toThrow();
+  });
+  it("rechecks delivery authority after the durable claim and before dispatch", async () => {
+    const { receipt } = await pendingDelivery();
+    let transactions = 0,
+      sends = 0;
+    const wrapped = new Proxy(prisma, {
+      get(target, key) {
+        if (key !== "$transaction") return Reflect.get(target, key);
+        return async (...args: unknown[]) => {
+          const result = await (
+            target.$transaction as (...values: unknown[]) => Promise<unknown>
+          )(...args);
+          if (++transactions === 1)
+            await prisma.membership.update({
+              where: { id: membershipId },
+              data: { role: "EDITOR" },
+            });
+          return result;
+        };
+      },
+    });
+    try {
+      await deliverPendingReports(wrapped, async () => {
+        sends++;
+      });
+    } finally {
+      await prisma.membership.update({
+        where: { id: membershipId },
+        data: { role: "OWNER" },
+      });
+    }
+    expect(sends).toBe(0);
+    expect(
+      (
+        await prisma.projectReportScheduleRun.findUniqueOrThrow({
+          where: { id: receipt.id },
+        })
+      ).deliveryStatus,
+    ).toBe("CANCELLED");
   });
 });

@@ -758,6 +758,7 @@ model ProjectReportSchedule {
   config Json
   enabled Boolean @default(false)
   pauseReason String?
+  deliveryDestinationHash String?
   version Int @default(1)
   nextRunAt DateTime
   lastRequestId String
@@ -778,9 +779,13 @@ model ProjectReportScheduleRun {
   status String
   snapshotId String?
   failureCode String?
+  deliveryStatus String @default("NOT_REQUESTED")
+  deliveryAttemptAt DateTime?
+  deliveredAt DateTime?
   completedAt DateTime?
   createdAt DateTime @default(now())
   @@unique([scheduleId, scheduledFor])
+  @@index([deliveryStatus, createdAt])
 }
 
 model ProjectReportDefinition {

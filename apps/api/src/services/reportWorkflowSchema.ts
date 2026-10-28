@@ -40,17 +40,26 @@ export const dashboardConfigSchema = z
         "Choose each chart once",
       ),
     columns: z.union([z.literal(1), z.literal(2)]),
+    additionalProjectIds: z
+      .array(z.string().min(1).max(120))
+      .max(4)
+      .refine(
+        (ids) => new Set(ids).size === ids.length,
+        "Choose each project once",
+      )
+      .optional(),
   })
   .strict()
   .superRefine((value, ctx) => {
     if (
-      value.widgets.some((widget) => widget.query) &&
+      (value.widgets.some((widget) => widget.query) ||
+        !!value.additionalProjectIds?.length) &&
       (value.definition.executionScope || value.definition.dateInterval)
     )
       ctx.addIssue({
         code: "custom",
         message:
-          "Custom metrics currently use project-wide rolling windows. Remove the specific run/date scope or the custom widgets.",
+          "Custom metrics and portfolio dashboards use project-wide rolling windows. Remove the specific run/date scope or those widgets/projects.",
       });
   });
 export const reportScheduleConfigSchema = z
@@ -60,6 +69,7 @@ export const reportScheduleConfigSchema = z
       "Recurring reports use a rolling window",
     ),
     cadence: z.enum(["daily", "weekly", "monthly"]),
+    delivery: z.enum(["private", "slack"]).default("private"),
     timeZone: z
       .string()
       .min(1)
@@ -101,6 +111,7 @@ export const scheduleSaveInput = write.extend({
   config: reportScheduleConfigSchema,
   enabled: z.boolean(),
   approveRecurringCapture: z.literal(true),
+  approveRecurringDelivery: z.literal(true).optional(),
 });
 export const dashboardReadInput = base.extend({ id: z.string().uuid() });
 export const dashboardPreviewInput = base.extend({

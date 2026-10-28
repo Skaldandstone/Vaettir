@@ -210,6 +210,9 @@ export function ReportWorkspace({
               config: { ...schedule, definition: config.definition },
               enabled,
               approveRecurringCapture: true,
+              ...(schedule.delivery === "slack"
+                ? { approveRecurringDelivery: true as const }
+                : {}),
             },
           },
     );
@@ -242,7 +245,8 @@ export function ReportWorkspace({
       <summary>Dashboards and scheduled reports</summary>
       <p>
         Choose a saved view or start with an overview. Scheduled reports save a
-        private capture for review; they are never published automatically.
+        private capture for review. Workspace admins can also opt into recurring
+        Slack aggregate delivery.
       </p>
       <div className={styles.actions} aria-label="Reporting tools">
         <button
@@ -400,6 +404,53 @@ export function ReportWorkspace({
                 <option value={2}>Two columns</option>
               </select>
             </label>
+            <details className={styles.full}>
+              <summary>Include other projects</summary>
+              <p>
+                This project is always included. Choose up to four more
+                workspace projects; each keeps its own charts and denominators.
+              </p>
+              {(catalog?.projects ?? [])
+                .filter((project) => project.id !== projectId)
+                .map((project) => (
+                  <label
+                    key={project.id}
+                    style={{ display: "block", marginBlock: 8 }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={
+                        config.additionalProjectIds?.includes(project.id) ??
+                        false
+                      }
+                      disabled={
+                        !config.additionalProjectIds?.includes(project.id) &&
+                        (config.additionalProjectIds?.length ?? 0) >= 4
+                      }
+                      onChange={(event) =>
+                        setConfig((value) => ({
+                          ...value,
+                          additionalProjectIds: event.target.checked
+                            ? [
+                                ...(value.additionalProjectIds ?? []),
+                                project.id,
+                              ]
+                            : value.additionalProjectIds?.filter(
+                                (id) => id !== project.id,
+                              ),
+                        }))
+                      }
+                    />{" "}
+                    {project.name}
+                  </label>
+                ))}
+              {catalog?.projectCatalogLimited && (
+                <p>
+                  The first 100 workspace projects are listed. This is a limited
+                  project picker, not a complete portfolio.
+                </p>
+              )}
+            </details>
             <details className={styles.full}>
               <summary>Customize charts</summary>
               <ol>
@@ -619,6 +670,30 @@ export function ReportWorkspace({
               />{" "}
               Enable recurring private captures using my current access
             </label>
+            <label className={styles.full}>
+              <input
+                type="checkbox"
+                checked={schedule.delivery === "slack"}
+                onChange={(event) =>
+                  setSchedule((value) => ({
+                    ...value,
+                    delivery: event.target.checked ? "slack" : "private",
+                  }))
+                }
+              />{" "}
+              Also deliver selected inventory and result totals to the
+              configured workspace Slack destination
+            </label>
+            {schedule.delivery === "slack" && (
+              <p className={styles.full}>
+                Saving authorizes recurring delivery to the current workspace
+                Slack destination. Workspace admin access is required. Project
+                name, capture time, window and selected totals are sent;
+                authored notes and raw records stay private. Changing the
+                destination or losing admin access pauses delivery. An uncertain
+                send is never automatically retried.
+              </p>
+            )}
             <p className={styles.full}>
               Daylight-saving gaps move to the next valid time; repeated hours
               run once. If access changes or capture fails, the schedule pauses.
@@ -799,6 +874,20 @@ export function ReportWorkspace({
                     ) : (
                       "Capture failed. Check report scope and snapshot capacity, then enable to retry."
                     )}
+                    {run.deliveryStatus &&
+                      run.deliveryStatus !== "NOT_REQUESTED" && (
+                        <span>
+                          {" "}
+                          ·{" "}
+                          {run.deliveryStatus === "SENT"
+                            ? "Delivered to Slack"
+                            : run.deliveryStatus === "PENDING"
+                              ? "Delivery queued"
+                              : run.deliveryStatus === "CANCELLED"
+                                ? "Delivery cancelled after schedule or access changed"
+                                : "Delivery outcome unconfirmed. Check Slack before sharing manually; no automatic retry."}
+                        </span>
+                      )}
                   </li>
                 ))}
               </ul>
