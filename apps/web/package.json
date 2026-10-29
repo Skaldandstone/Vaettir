@@ -14,9 +14,9 @@
     "lint": "eslint ."
   },
   "dependencies": {
-    "@clerk/nextjs": "^7.9.14",
+    "@clerk/nextjs": "^7.9.21",
     "@sentry/nextjs": "^10.75.2",
-    "@tanstack/react-query": "^5.104.2",
+    "@tanstack/react-query": "^5.105.0",
     "@trpc/client": "^11.19.0",
     "@trpc/react-query": "^11.19.0",
     "@trpc/server": "^11.19.0",
@@ -25,8 +25,8 @@
     "exceljs": "4.4.0",
     "next": "^15.5.28",
     "pptxgenjs": "4.0.1",
-    "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.0",
@@ -36,6 +36,6 @@
     "@vaettir/api": "workspace:*",
     "@vaettir/db": "workspace:*",
     "typescript": "^6.0.3",
-    "vitest": "^5.0.0"
+    "vitest": "^5.0.5"
   }
 }
