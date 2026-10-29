@@ -95,7 +95,11 @@ export function ReportWorkspace({
     };
   }, [ready, projectId, organizationId, clerkActorId]);
   const query = trpcReact.reportWorkflows.list.useQuery(
-    { projectId, expectedClerkActorId: clerkActorId },
+    {
+      projectId,
+      expectedOrganizationId: organizationId,
+      expectedClerkActorId: clerkActorId,
+    },
     { enabled: expanded && ready, retry: false, staleTime: 0 },
   );
   const catalog =
@@ -109,7 +113,12 @@ export function ReportWorkspace({
       ? query.data
       : null;
   const preview = trpcReact.reportWorkflows.preview.useQuery(
-    { projectId, expectedClerkActorId: clerkActorId, config },
+    {
+      projectId,
+      expectedOrganizationId: organizationId,
+      expectedClerkActorId: clerkActorId,
+      config,
+    },
     {
       enabled: expanded && ready && tab === "dashboards" && !!catalog,
       retry: false,
@@ -191,6 +200,7 @@ export function ReportWorkspace({
     }
     const base = {
       projectId,
+      expectedOrganizationId: organizationId,
       expectedClerkActorId: clerkActorId,
       name: name.trim(),
       id: selected.id || crypto.randomUUID(),

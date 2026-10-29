@@ -92,6 +92,7 @@ export type ReportScheduleConfig = z.infer<typeof reportScheduleConfigSchema>;
 const base = z
   .object({
     projectId: z.string().min(1).max(120),
+    expectedOrganizationId: z.string().min(1).max(120),
     expectedClerkActorId: z.string().min(1).max(200),
   })
   .strict();

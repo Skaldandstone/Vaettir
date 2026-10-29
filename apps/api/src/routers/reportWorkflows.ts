@@ -34,7 +34,11 @@ const hash = (value: unknown) =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
 async function access<T>(
   ctx: Actor,
-  input: { projectId: string; expectedClerkActorId: string },
+  input: {
+    projectId: string;
+    expectedOrganizationId: string;
+    expectedClerkActorId: string;
+  },
   write: boolean,
   action: (tx: Prisma.TransactionClient, orgId: string) => Promise<T>,
 ) {
@@ -49,6 +53,13 @@ async function access<T>(
     input.projectId,
     write ? "EDITOR" : "VIEWER",
   );
+  // Preserve the workspace reviewed by the original request even on entry
+  // ingress, where the same actor can legitimately belong to both workspaces.
+  if (project.organizationId !== input.expectedOrganizationId)
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "This project's workspace changed. Reload before continuing.",
+    });
   return ctx.prisma.$transaction(
     async (tx) => {
       await (write ? lockedProcessingEditor : lockedProcessingReader)(

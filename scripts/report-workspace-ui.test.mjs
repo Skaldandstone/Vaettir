@@ -140,7 +140,10 @@ test("report workspace saves, retries, validates and reorders through real brows
     const requests = await page.evaluate(() => window.harness.requests);
     assert.equal(requests.length, 2);
     assert.deepEqual(requests[0], requests[1]);
-    assert.deepEqual(requests[0].config.additionalProjectIds, ["second-project"]);
+    assert.equal(requests[0].expectedOrganizationId, "synthetic-org");
+    assert.deepEqual(requests[0].config.additionalProjectIds, [
+      "second-project",
+    ]);
     assert.equal(requests[0].config.widgets[0].id, "coverage");
     assert.equal(requests[0].config.widgets.at(-1).query.dimension, "week");
     await page.getByText("Customize charts", { exact: true }).click();
@@ -189,12 +192,19 @@ test("report workspace saves, retries, validates and reorders through real brows
     await page
       .getByLabel("Enable recurring private captures using my current access")
       .check();
-    await page.getByLabel("Also deliver selected inventory and result totals to the configured workspace Slack destination").check();
+    await page
+      .getByLabel(
+        "Also deliver selected inventory and result totals to the configured workspace Slack destination",
+      )
+      .check();
     await page
       .getByRole("button", { name: "Enable schedule", exact: true })
       .click();
     await page.getByText(/Schedule enabled/).waitFor();
-    const scheduleRequest = await page.evaluate(() => window.harness.requests.at(-1));
+    const scheduleRequest = await page.evaluate(() =>
+      window.harness.requests.at(-1),
+    );
+    assert.equal(scheduleRequest.expectedOrganizationId, "synthetic-org");
     assert.equal(scheduleRequest.config.delivery, "slack");
     assert.equal(scheduleRequest.approveRecurringDelivery, true);
     await page.evaluate(() => window.changeAccess(false));

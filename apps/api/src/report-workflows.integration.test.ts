@@ -66,7 +66,11 @@ describe("native reporting workflow transactions", () => {
     viewer: typeof owner,
     other: typeof owner,
     service: typeof owner;
-  const base = () => ({ projectId, expectedClerkActorId: tag });
+  const base = () => ({
+    projectId,
+    expectedOrganizationId: orgId,
+    expectedClerkActorId: tag,
+  });
   const dashboard = () => ({
     ...base(),
     id: randomUUID(),
@@ -175,6 +179,7 @@ describe("native reporting workflow transactions", () => {
     await expect(
       viewer.read({
         projectId,
+        expectedOrganizationId: orgId,
         expectedClerkActorId: tag + "viewer",
         id: input.id,
       }),
@@ -189,6 +194,7 @@ describe("native reporting workflow transactions", () => {
       (
         await viewer.read({
           projectId,
+          expectedOrganizationId: orgId,
           expectedClerkActorId: tag + "viewer",
           id: input.id,
         })
@@ -197,6 +203,91 @@ describe("native reporting workflow transactions", () => {
     expect(
       await prisma.projectReportSnapshot.count({ where: { projectId } }),
     ).toBe(0);
+  });
+  it("refuses stale workspace requests after transfer even for an owner in both workspaces", async () => {
+    const destination = await prisma.organization.create({
+      data: {
+        name: `${tag}-destination`,
+        slug: `${tag}-destination`,
+        planTierId: (
+          await prisma.planTier.findUniqueOrThrow({ where: { key: "free" } })
+        ).id,
+      },
+    });
+    await prisma.membership.create({
+      data: {
+        organizationId: destination.id,
+        userId,
+        role: "OWNER",
+        seatType: "FULL",
+      },
+    });
+    const project = await prisma.project.create({
+      data: {
+        organizationId: orgId,
+        name: `${tag}-stale-request`,
+        slug: `${tag}-stale-request`,
+      },
+    });
+    const staleRequest = { ...schedule(), projectId: project.id };
+    const actor = await prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      include: { memberships: true },
+    });
+    // Entry/legacy ingress intentionally permits the actor's multiple workspaces.
+    const entry = reportWorkflowsRouter.createCaller({
+      prisma,
+      user: actor,
+      authenticatedClerkSubject: tag,
+      workspaceOrganizationId: null,
+    });
+    await prisma.project.update({
+      where: { id: project.id },
+      data: { organizationId: destination.id },
+    });
+    await expect(entry.saveSchedule(staleRequest)).rejects.toThrow();
+    await expect(
+      entry.saveDashboard({ ...dashboard(), projectId: project.id }),
+    ).rejects.toThrow();
+    await expect(
+      entry.list({ ...base(), projectId: project.id }),
+    ).rejects.toThrow();
+    await expect(
+      entry.preview({ ...base(), projectId: project.id, config }),
+    ).rejects.toThrow();
+    expect(
+      await prisma.projectReportSchedule.count({
+        where: { projectId: project.id },
+      }),
+    ).toBe(0);
+    expect(
+      await prisma.projectReportDashboard.count({
+        where: { projectId: project.id },
+      }),
+    ).toBe(0);
+    // A fresh review of the destination is allowed; expected scope never grants
+    // access by itself and workspace ingress must still match independently.
+    const freshRequest = {
+      ...staleRequest,
+      expectedOrganizationId: destination.id,
+    };
+    await expect(entry.saveSchedule(freshRequest)).resolves.toMatchObject({
+      enabled: true,
+      version: 1,
+    });
+    const sourceHost = reportWorkflowsRouter.createCaller({
+      prisma,
+      user: actor,
+      authenticatedClerkSubject: tag,
+      workspaceOrganizationId: orgId,
+    });
+    await expect(
+      sourceHost.saveSchedule({
+        ...freshRequest,
+        id: randomUUID(),
+        requestId: randomUUID(),
+      }),
+    ).rejects.toThrow();
   });
   it("captures once under concurrent ticks and leaves approval private", async () => {
     const input = schedule();
