@@ -222,6 +222,7 @@ function Manager({ projectId }: { projectId: string }) {
         <DefinitionReview
           key={id}
           projectId={projectId}
+          organizationId={originalOrganization ?? ""}
           id={id}
           open={open && accessReady}
           accessReady={accessReady}
@@ -244,6 +245,7 @@ function Manager({ projectId }: { projectId: string }) {
 }
 function DefinitionReview({
   projectId,
+  organizationId,
   id,
   open,
   accessReady,
@@ -255,6 +257,7 @@ function DefinitionReview({
   onSaved,
 }: {
   projectId: string;
+  organizationId: string;
   id: string;
   open: boolean;
   accessReady: boolean;
@@ -557,6 +560,7 @@ function DefinitionReview({
                       <>
                         <ReportDefinitionSettingsEditor
                           projectId={projectId}
+                          organizationId={organizationId}
                           value={settings.definition}
                           onChange={(definition) => {
                             setSettings({ ...settings, definition });

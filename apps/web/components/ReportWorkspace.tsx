@@ -716,6 +716,7 @@ export function ReportWorkspace({
           <summary>More report settings</summary>
           <ReportDefinitionSettingsEditor
             projectId={projectId}
+            organizationId={organizationId}
             value={config.definition}
             onChange={(value) =>
               setConfig((current) => ({ ...current, definition: value }))
