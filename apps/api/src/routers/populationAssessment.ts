@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { assessPopulation } from "../services/populationAssessment.js";
 export const populationAssessmentRouter = router({

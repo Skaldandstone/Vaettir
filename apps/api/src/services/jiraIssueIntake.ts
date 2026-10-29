@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { repositoryProviderJson } from "./repositoryProviderHttp.js";
 import { jiraSiteOrigin, type JiraSourceCredentials } from "./jiraSourceConnection.js";
 

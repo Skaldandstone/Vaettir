@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { TRPCError } from "@trpc/server";
 import { Prisma } from "@vaettir/db";
 import {
@@ -200,496 +200,29 @@ const output = (row: {
   payload: payloadSchema.parse(row.payload),
 });
 
-export const reportSnapshotsRouter = router({
-  definitionCatalog: protectedProcedure
-    .input(reportDefinitionListInput)
-    .query(({ ctx, input }) =>
-      access(ctx, input.projectId, false, (tx, orgId) =>
-        reportDefinitionList(
-          tx,
-          input.projectId,
-          orgId,
-          ctx.user.id,
-          input.page,
-          input.includeArchived,
-        ),
-      ),
-    ),
-  definitionHistory: protectedProcedure
-    .input(reportDefinitionHistoryInput)
-    .query(({ ctx, input }) =>
-      access(ctx, input.projectId, false, (tx, orgId) =>
-        reportDefinitionHistory(
-          tx,
-          input.projectId,
-          orgId,
-          ctx.user.id,
-          input.id,
-          input.page,
-          (value) => reportDefinitionSchema.parse(value),
-        ),
-      ),
-    ),
-  manageDefinition: protectedProcedure
-    .input(reportDefinitionManageInput)
-    .mutation(({ ctx, input }) =>
-      access(ctx, input.projectId, true, (tx, orgId) =>
-        manageReportDefinition(tx, orgId, ctx.user.id, input, (value) =>
-          reportDefinitionSchema.parse(value),
-        ),
-      ),
-    ),
-  compare: protectedProcedure
-    .input(reportComparisonInput)
-    .query(({ ctx, input }) =>
-      access(ctx, input.projectId, false, async (tx, orgId) => {
-        const rows = await tx.projectReportSnapshot.findMany({
-          where: {
-            id: { in: [input.baselineId, input.targetId] },
-            projectId: input.projectId,
-            organizationId: orgId,
-            payload: { path: ["state"], equals: "approved" },
-          },
-          select: { id: true, payload: true },
-        });
-        if (rows.length !== 2)
-          throw new TRPCError({
-            code: "NOT_FOUND",
-            message:
-              "Both approved snapshots must be available in this project.",
-          });
-        const before = rows.find((row) => row.id === input.baselineId)!;
-        const after = rows.find((row) => row.id === input.targetId)!;
-        try {
-          return {
-            projectId: input.projectId,
-            organizationId: orgId,
-            ...compareApprovedReports(
-              { id: before.id, payload: payloadSchema.parse(before.payload) },
-              { id: after.id, payload: payloadSchema.parse(after.payload) },
-            ),
-          };
-        } catch {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message:
-              "Cannot compare these captures: choose an earlier approved baseline with the same exact scope and at least one selected section in common. Unsupported legacy metrics must be reviewed in their original reports.",
-          });
-        }
-      }),
-    ),
-  catalog: protectedProcedure
-    .input(reportCatalogInput)
-    .query(({ ctx, input }) =>
-      access(ctx, input.projectId, false, (tx, orgId) =>
-        readReportCatalog(tx, orgId, input),
-      ),
-    ),
-  scopeOptions: protectedProcedure.input(projectInput).query(({ ctx, input }) =>
-    access(ctx, input.projectId, false, async (tx, orgId) => {
-      const [plans, runs, releases] = await Promise.all([
-        tx.$queryRaw<Array<{ id: string; name: string; nameExcerpt: boolean }>>`
-          SELECT id, left(name, 160) AS name, length(name) > 160 AS "nameExcerpt"
-          FROM "TestPlan" WHERE "projectId" = ${input.projectId}
-          ORDER BY name ASC, id ASC LIMIT 101`,
-        tx.$queryRaw<
-          Array<{
-            id: string;
-            startedAt: Date;
-            ciProvider: string;
-            providerExcerpt: boolean;
-            build: string | null;
-            platform: string | null;
-            environment: string | null;
-          }>
-        >`
-          SELECT id, "startedAt", left("ciProvider", 100) AS "ciProvider",
-            length("ciProvider") > 100 AS "providerExcerpt",
-            CASE WHEN "ciProvider" = 'manual' THEN
-              CASE WHEN "executionContext"->'version' = '1'::jsonb THEN left("executionContext"->'configuration'->>'build', 300) END
-              ELSE left("commitSha", 300) END AS build,
-            CASE WHEN "executionContext"->'version' = '1'::jsonb THEN left("executionContext"->'configuration'->>'platform', 300) END AS platform,
-            CASE WHEN "executionContext"->'version' = '1'::jsonb THEN left("executionContext"->'configuration'->>'environment', 2000) END AS environment
-          FROM "TestRun" WHERE "projectId" = ${input.projectId}
-          ORDER BY "startedAt" DESC, id DESC LIMIT 101`,
-        tx.$queryRaw<Array<{ id: string; name: string; nameExcerpt: boolean }>>`
-          SELECT id,left(name,160) AS name,length(name)>160 AS "nameExcerpt"
-          FROM "Release" WHERE "projectId"=${input.projectId}
-          ORDER BY name ASC,id ASC LIMIT 101`,
-      ]);
-      return {
-        projectId: input.projectId,
-        organizationId: orgId,
-        plans: plans.slice(0, 100),
-        runs: runs.slice(0, 100),
-        plansLimited: plans.length > 100,
-        runsLimited: runs.length > 100,
-        releases: releases.slice(0, 100),
-        releasesLimited: releases.length > 100,
-      };
-    }),
-  ),
-  definitions: protectedProcedure.input(projectInput).query(({ ctx, input }) =>
-    access(ctx, input.projectId, false, async (tx, orgId) => {
-      const rows = await tx.projectReportDefinition.findMany({
-        where: {
-          projectId: input.projectId,
-          organizationId: orgId,
-          OR: [{ userId: ctx.user.id }, { visibility: "project" }],
-          archivedAt: null,
-        },
-        orderBy: { updatedAt: "desc" },
-        take: 100,
-      });
-      return rows.map((row) => ({
-        id: row.id,
-        name: row.name,
-        version: row.version,
-        visibility: row.visibility,
-        definition: reportDefinitionSchema.parse(row.definition),
-      }));
-    }),
-  ),
-  saveDefinition: protectedProcedure
-    .input(
-      projectInput
-        .extend({
-          requestId: z.string().uuid(),
-          id: z.string().optional(),
-          version: z.number().int().positive().optional(),
-          name: z.string().trim().min(1).max(80),
-          definition: reportDefinitionSchema,
-        })
-        .refine(
-          (v) => !!v.id === !!v.version,
-          "Updating needs the original version",
-        ),
-    )
-    .mutation(({ ctx, input }) =>
-      access(ctx, input.projectId, true, async (tx, orgId) => {
-        const key = hash([input.projectId, ctx.user.id, input.requestId]);
-        const requestHash = hash([
-          input.id ?? null,
-          input.version ?? null,
-          input.name,
-          input.definition,
-        ]);
-        const receipt = await tx.projectReportDefinitionWrite.findUnique({
-          where: { key },
-        });
-        if (receipt) {
-          if (
-            receipt.organizationId !== orgId ||
-            receipt.requestHash !== requestHash
-          )
-            throw conflict();
-          return { id: receipt.definitionId, version: receipt.appliedVersion };
-        }
-        if (input.definition.executionScope?.releaseId) {
-          const release = await resolveReportReleaseScope(
-            tx,
-            input.projectId,
-            input.definition.executionScope.releaseId,
-          );
-          if (
-            input.definition.executionScope.planId &&
-            !release.planIds.includes(input.definition.executionScope.planId)
-          )
-            throw new TRPCError({
-              code: "PRECONDITION_FAILED",
-              message:
-                "Selected plan does not belong to this release. No settings saved.",
-            });
-        }
-        if (
-          (await tx.projectReportDefinitionWrite.count({
-            where: { projectId: input.projectId },
-          })) >= 2000
-        )
-          throw new TRPCError({
-            code: "PRECONDITION_FAILED",
-            message:
-              "Definition retry retention limit reached. Existing definitions remain saved.",
-          });
-        const record = async (
-          id: string,
-          version: number,
-          beforeState?: ReturnType<typeof retainedReportDefinitionState>,
-        ) => {
-          const saved = await tx.projectReportDefinition.findFirstOrThrow({
-            where: { id, projectId: input.projectId, organizationId: orgId },
-          });
-          await tx.projectReportDefinitionWrite.create({
-            data: {
-              key,
-              projectId: input.projectId,
-              organizationId: orgId,
-              actorId: ctx.user.id,
-              requestHash,
-              definitionId: id,
-              appliedVersion: version,
-              ...(beforeState ? { beforeState } : {}),
-              afterState: retainedReportDefinitionState(saved, (value) =>
-                reportDefinitionSchema.parse(value),
-              ),
-            },
-          });
-          return { id, version };
-        };
-        if (input.id) {
-          const priorBody = await tx.projectReportDefinition.findFirst({
-            where: {
-              id: input.id,
-              projectId: input.projectId,
-              organizationId: orgId,
-              userId: ctx.user.id,
-              visibility: "private",
-              archivedAt: null,
-              version: input.version,
-            },
-          });
-          if (!priorBody) throw conflict();
-          const changed = await tx.projectReportDefinition.updateMany({
-            where: {
-              id: input.id,
-              projectId: input.projectId,
-              organizationId: orgId,
-              userId: ctx.user.id,
-              version: input.version,
-              visibility: "private",
-              archivedAt: null,
-            },
-            data: {
-              name: input.name,
-              definition: input.definition,
-              version: { increment: 1 },
-            },
-          });
-          if (changed.count !== 1) throw conflict();
-          return record(
-            input.id,
-            input.version! + 1,
-            retainedReportDefinitionState(priorBody, (value) =>
-              reportDefinitionSchema.parse(value),
-            ),
-          );
-        }
-        const id = hash([
-          "definition",
-          input.projectId,
-          ctx.user.id,
-          input.requestId,
-        ]);
-        const prior = await tx.projectReportDefinition.findUnique({
-          where: { id },
-        });
-        if (prior) {
-          if (
-            prior.organizationId !== orgId ||
-            prior.visibility !== "private" ||
-            prior.archivedAt !== null ||
-            prior.name !== input.name ||
-            hash(reportDefinitionSchema.parse(prior.definition)) !==
-              hash(input.definition)
-          )
-            throw conflict();
-          return record(id, prior.version);
-        }
-        if (
-          (await tx.projectReportDefinition.count({
-            where: { projectId: input.projectId, userId: ctx.user.id },
-          })) >= 50
-        )
-          throw new TRPCError({
-            code: "PRECONDITION_FAILED",
-            message:
-              "Keep at most 50 retained report definitions per author, including archives.",
-          });
-        await tx.projectReportDefinition.create({
-          data: {
-            id,
-            projectId: input.projectId,
-            organizationId: orgId,
-            userId: ctx.user.id,
-            name: input.name,
-            definition: input.definition,
-          },
-        });
-        return record(id, 1);
-      }),
-    ),
-  drafts: protectedProcedure.input(projectInput).query(({ ctx, input }) =>
-    access(ctx, input.projectId, false, async (tx, orgId) =>
-      tx.projectReportSnapshot.findMany({
-        where: {
-          projectId: input.projectId,
-          organizationId: orgId,
-          createdById: ctx.user.id,
-          payload: { path: ["state"], equals: "preview" },
-        },
-        orderBy: [{ createdAt: "desc" }, { id: "asc" }],
-        take: 25,
-        select: { id: true, title: true, asOf: true },
-      }),
-    ),
-  ),
-  list: protectedProcedure.input(projectInput).query(({ ctx, input }) =>
-    access(ctx, input.projectId, false, async (tx, orgId) =>
-      tx.projectReportSnapshot.findMany({
-        where: {
-          projectId: input.projectId,
-          organizationId: orgId,
-          payload: { path: ["state"], equals: "approved" },
-        },
-        orderBy: [{ createdAt: "desc" }, { id: "asc" }],
-        take: 50,
-        select: { id: true, title: true, asOf: true, createdAt: true },
-      }),
-    ),
-  ),
-  get: protectedProcedure
-    .input(projectInput.extend({ id: z.string().max(64) }))
-    .query(({ ctx, input }) =>
-      access(ctx, input.projectId, false, async (tx, orgId) => {
-        const row = await tx.projectReportSnapshot.findFirst({
-          where: {
-            id: input.id,
-            projectId: input.projectId,
-            organizationId: orgId,
-          },
-        });
-        if (!row) throw new TRPCError({ code: "NOT_FOUND" });
-        const result = output(row);
-        if (
-          result.payload.state === "preview" &&
-          row.createdById !== ctx.user.id
-        )
-          throw new TRPCError({ code: "NOT_FOUND" });
-        return {
-          ...result,
-          projectId: row.projectId,
-          organizationId: row.organizationId,
-        };
-      }),
-    ),
-  evidence: protectedProcedure
-    .input(
-      projectInput.extend({
-        id: z.string().length(64),
-        kind: z.enum(["cases", "runs"]),
-        page: z.number().int().min(0).max(400).default(0),
-      }),
-    )
-    .query(({ ctx, input }) =>
-      access(ctx, input.projectId, false, async (tx, orgId) => {
-        const row = await tx.projectReportSnapshot.findFirst({
-          where: {
-            id: input.id,
-            projectId: input.projectId,
-            organizationId: orgId,
-          },
-        });
-        if (!row) throw new TRPCError({ code: "NOT_FOUND" });
-        const payload = payloadSchema.parse(row.payload);
-        if (payload.state === "preview" && row.createdById !== ctx.user.id)
-          throw new TRPCError({ code: "NOT_FOUND" });
-        const start = input.page * 50;
-        if (input.kind === "cases") {
-          const all =
-            payload.evidence?.cases ??
-            payload.cohort.map((c) => ({
-              id: c.id,
-              displayId: "",
-              automationStatus: c.status,
-              priority: null,
-              outcomes: null,
-              plannedRuns: null,
-              notRecordedRuns: null,
-            }));
-          const items = all.slice(start, start + 50);
-          const current = await tx.testCase.findMany({
-            where: {
-              projectId: input.projectId,
-              id: { in: items.map((c) => c.id) },
-            },
-            select: { id: true },
-          });
-          const available = new Set(current.map((c) => c.id));
-          return {
-            kind: "cases" as const,
-            total: all.length,
-            page: input.page,
-            complete: !!payload.evidence,
-            asOf: payload.asOf,
-            items: items.map((c, index) => ({
-              ...c,
-              id: available.has(c.id) ? c.id : null,
-              referenceIndex: start + index + 1,
-              available: available.has(c.id),
-            })),
-          };
-        }
-        const all =
-          payload.evidence?.runs ??
-          (payload.scope?.contributingRunIds ?? []).map((id) => ({
-            id,
-            startedAt: null,
-            provider: null,
-            outcomes: null,
-            plannedCases: null,
-            notRecordedCases: null,
-          }));
-        const items = all.slice(start, start + 50);
-        const current = await tx.testRun.findMany({
-          where: {
-            projectId: input.projectId,
-            id: { in: items.map((r) => r.id) },
-          },
-          select: { id: true },
-        });
-        const available = new Set(current.map((r) => r.id));
-        return {
-          kind: "runs" as const,
-          total: all.length,
-          page: input.page,
-          complete: !!payload.evidence,
-          asOf: payload.asOf,
-          items: items.map((r, index) => ({
-            ...r,
-            id: available.has(r.id) ? r.id : null,
-            referenceIndex: start + index + 1,
-            available: available.has(r.id),
-          })),
-        };
-      }),
-    ),
-  preview: protectedProcedure
-    .input(
-      projectInput.extend({
-        requestId: z.string().uuid(),
-        title: z.string().trim().min(1).max(120),
-        definition: reportDefinitionSchema,
-        definitionId: z.string().optional(),
-      }),
-    )
-    .mutation(({ ctx, input }) =>
-      access(ctx, input.projectId, true, async (tx, orgId) => {
-        const id = hash([input.projectId, ctx.user.id, input.requestId]);
+/** Caller must hold current organization/member/project authorization locks.
+ * persist=false is a live read; it neither approves nor stores a snapshot. */
+export async function captureReportPreview(
+  tx: Prisma.TransactionClient, orgId: string, actorId: string,
+  input: { projectId: string; requestId: string; title: string; definition: z.infer<typeof reportDefinitionSchema>; definitionId?: string },
+  persist = true,
+) {
+        const id = hash([input.projectId, actorId, input.requestId]);
         const inputHash = hash([
           input.title,
           input.definition,
           input.definitionId ?? null,
         ]);
-        const prior = await tx.projectReportSnapshot.findUnique({
+        const prior = persist ? await tx.projectReportSnapshot.findUnique({
           where: { id },
-        });
+        }) : null;
         if (prior) {
           if (prior.organizationId !== orgId || prior.inputHash !== inputHash)
             throw conflict();
           return output(prior);
         }
         if (
-          (await tx.projectReportSnapshot.count({
+          persist && (await tx.projectReportSnapshot.count({
             where: { projectId: input.projectId },
           })) >= 500
         )
@@ -704,7 +237,7 @@ export const reportSnapshotsRouter = router({
               id: input.definitionId,
               projectId: input.projectId,
               organizationId: orgId,
-              OR: [{ userId: ctx.user.id }, { visibility: "project" }],
+              OR: [{ userId: actorId }, { visibility: "project" }],
               archivedAt: null,
             },
           });
@@ -1220,13 +753,14 @@ export const reportSnapshotsRouter = router({
             message:
               "Captured report exceeds 8 MiB; narrow the scope. No partial report retained.",
           });
+        if (!persist) return { id, asOf, payload };
         return output(
           await tx.projectReportSnapshot.create({
             data: {
               id,
               projectId: input.projectId,
               organizationId: orgId,
-              createdById: ctx.user.id,
+              createdById: actorId,
               inputHash,
               title: input.title,
               definitionId: input.definitionId,
@@ -1235,7 +769,482 @@ export const reportSnapshotsRouter = router({
             },
           }),
         );
+}
+
+export const reportSnapshotsRouter = router({
+  definitionCatalog: protectedProcedure
+    .input(reportDefinitionListInput)
+    .query(({ ctx, input }) =>
+      access(ctx, input.projectId, false, (tx, orgId) =>
+        reportDefinitionList(
+          tx,
+          input.projectId,
+          orgId,
+          ctx.user.id,
+          input.page,
+          input.includeArchived,
+        ),
+      ),
+    ),
+  definitionHistory: protectedProcedure
+    .input(reportDefinitionHistoryInput)
+    .query(({ ctx, input }) =>
+      access(ctx, input.projectId, false, (tx, orgId) =>
+        reportDefinitionHistory(
+          tx,
+          input.projectId,
+          orgId,
+          ctx.user.id,
+          input.id,
+          input.page,
+          (value) => reportDefinitionSchema.parse(value),
+        ),
+      ),
+    ),
+  manageDefinition: protectedProcedure
+    .input(reportDefinitionManageInput)
+    .mutation(({ ctx, input }) =>
+      access(ctx, input.projectId, true, (tx, orgId) =>
+        manageReportDefinition(tx, orgId, ctx.user.id, input, (value) =>
+          reportDefinitionSchema.parse(value),
+        ),
+      ),
+    ),
+  compare: protectedProcedure
+    .input(reportComparisonInput)
+    .query(({ ctx, input }) =>
+      access(ctx, input.projectId, false, async (tx, orgId) => {
+        const rows = await tx.projectReportSnapshot.findMany({
+          where: {
+            id: { in: [input.baselineId, input.targetId] },
+            projectId: input.projectId,
+            organizationId: orgId,
+            payload: { path: ["state"], equals: "approved" },
+          },
+          select: { id: true, payload: true },
+        });
+        if (rows.length !== 2)
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message:
+              "Both approved snapshots must be available in this project.",
+          });
+        const before = rows.find((row) => row.id === input.baselineId)!;
+        const after = rows.find((row) => row.id === input.targetId)!;
+        try {
+          return {
+            projectId: input.projectId,
+            organizationId: orgId,
+            ...compareApprovedReports(
+              { id: before.id, payload: payloadSchema.parse(before.payload) },
+              { id: after.id, payload: payloadSchema.parse(after.payload) },
+            ),
+          };
+        } catch {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "Cannot compare these captures: choose an earlier approved baseline with the same exact scope and at least one selected section in common. Unsupported legacy metrics must be reviewed in their original reports.",
+          });
+        }
       }),
+    ),
+  catalog: protectedProcedure
+    .input(reportCatalogInput)
+    .query(({ ctx, input }) =>
+      access(ctx, input.projectId, false, (tx, orgId) =>
+        readReportCatalog(tx, orgId, input),
+      ),
+    ),
+  scopeOptions: protectedProcedure.input(projectInput).query(({ ctx, input }) =>
+    access(ctx, input.projectId, false, async (tx, orgId) => {
+      const [plans, runs, releases] = await Promise.all([
+        tx.$queryRaw<Array<{ id: string; name: string; nameExcerpt: boolean }>>`
+          SELECT id, left(name, 160) AS name, length(name) > 160 AS "nameExcerpt"
+          FROM "TestPlan" WHERE "projectId" = ${input.projectId}
+          ORDER BY name ASC, id ASC LIMIT 101`,
+        tx.$queryRaw<
+          Array<{
+            id: string;
+            startedAt: Date;
+            ciProvider: string;
+            providerExcerpt: boolean;
+            build: string | null;
+            platform: string | null;
+            environment: string | null;
+          }>
+        >`
+          SELECT id, "startedAt", left("ciProvider", 100) AS "ciProvider",
+            length("ciProvider") > 100 AS "providerExcerpt",
+            CASE WHEN "ciProvider" = 'manual' THEN
+              CASE WHEN "executionContext"->'version' = '1'::jsonb THEN left("executionContext"->'configuration'->>'build', 300) END
+              ELSE left("commitSha", 300) END AS build,
+            CASE WHEN "executionContext"->'version' = '1'::jsonb THEN left("executionContext"->'configuration'->>'platform', 300) END AS platform,
+            CASE WHEN "executionContext"->'version' = '1'::jsonb THEN left("executionContext"->'configuration'->>'environment', 2000) END AS environment
+          FROM "TestRun" WHERE "projectId" = ${input.projectId}
+          ORDER BY "startedAt" DESC, id DESC LIMIT 101`,
+        tx.$queryRaw<Array<{ id: string; name: string; nameExcerpt: boolean }>>`
+          SELECT id,left(name,160) AS name,length(name)>160 AS "nameExcerpt"
+          FROM "Release" WHERE "projectId"=${input.projectId}
+          ORDER BY name ASC,id ASC LIMIT 101`,
+      ]);
+      return {
+        projectId: input.projectId,
+        organizationId: orgId,
+        plans: plans.slice(0, 100),
+        runs: runs.slice(0, 100),
+        plansLimited: plans.length > 100,
+        runsLimited: runs.length > 100,
+        releases: releases.slice(0, 100),
+        releasesLimited: releases.length > 100,
+      };
+    }),
+  ),
+  definitions: protectedProcedure.input(projectInput).query(({ ctx, input }) =>
+    access(ctx, input.projectId, false, async (tx, orgId) => {
+      const rows = await tx.projectReportDefinition.findMany({
+        where: {
+          projectId: input.projectId,
+          organizationId: orgId,
+          OR: [{ userId: ctx.user.id }, { visibility: "project" }],
+          archivedAt: null,
+        },
+        orderBy: { updatedAt: "desc" },
+        take: 100,
+      });
+      return rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        version: row.version,
+        visibility: row.visibility,
+        definition: reportDefinitionSchema.parse(row.definition),
+      }));
+    }),
+  ),
+  saveDefinition: protectedProcedure
+    .input(
+      projectInput
+        .extend({
+          requestId: z.string().uuid(),
+          id: z.string().optional(),
+          version: z.number().int().positive().optional(),
+          name: z.string().trim().min(1).max(80),
+          definition: reportDefinitionSchema,
+        })
+        .refine(
+          (v) => !!v.id === !!v.version,
+          "Updating needs the original version",
+        ),
+    )
+    .mutation(({ ctx, input }) =>
+      access(ctx, input.projectId, true, async (tx, orgId) => {
+        const key = hash([input.projectId, ctx.user.id, input.requestId]);
+        const requestHash = hash([
+          input.id ?? null,
+          input.version ?? null,
+          input.name,
+          input.definition,
+        ]);
+        const receipt = await tx.projectReportDefinitionWrite.findUnique({
+          where: { key },
+        });
+        if (receipt) {
+          if (
+            receipt.organizationId !== orgId ||
+            receipt.requestHash !== requestHash
+          )
+            throw conflict();
+          return { id: receipt.definitionId, version: receipt.appliedVersion };
+        }
+        if (input.definition.executionScope?.releaseId) {
+          const release = await resolveReportReleaseScope(
+            tx,
+            input.projectId,
+            input.definition.executionScope.releaseId,
+          );
+          if (
+            input.definition.executionScope.planId &&
+            !release.planIds.includes(input.definition.executionScope.planId)
+          )
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message:
+                "Selected plan does not belong to this release. No settings saved.",
+            });
+        }
+        if (
+          (await tx.projectReportDefinitionWrite.count({
+            where: { projectId: input.projectId },
+          })) >= 2000
+        )
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "Definition retry retention limit reached. Existing definitions remain saved.",
+          });
+        const record = async (
+          id: string,
+          version: number,
+          beforeState?: ReturnType<typeof retainedReportDefinitionState>,
+        ) => {
+          const saved = await tx.projectReportDefinition.findFirstOrThrow({
+            where: { id, projectId: input.projectId, organizationId: orgId },
+          });
+          await tx.projectReportDefinitionWrite.create({
+            data: {
+              key,
+              projectId: input.projectId,
+              organizationId: orgId,
+              actorId: ctx.user.id,
+              requestHash,
+              definitionId: id,
+              appliedVersion: version,
+              ...(beforeState ? { beforeState } : {}),
+              afterState: retainedReportDefinitionState(saved, (value) =>
+                reportDefinitionSchema.parse(value),
+              ),
+            },
+          });
+          return { id, version };
+        };
+        if (input.id) {
+          const priorBody = await tx.projectReportDefinition.findFirst({
+            where: {
+              id: input.id,
+              projectId: input.projectId,
+              organizationId: orgId,
+              userId: ctx.user.id,
+              visibility: "private",
+              archivedAt: null,
+              version: input.version,
+            },
+          });
+          if (!priorBody) throw conflict();
+          const changed = await tx.projectReportDefinition.updateMany({
+            where: {
+              id: input.id,
+              projectId: input.projectId,
+              organizationId: orgId,
+              userId: ctx.user.id,
+              version: input.version,
+              visibility: "private",
+              archivedAt: null,
+            },
+            data: {
+              name: input.name,
+              definition: input.definition,
+              version: { increment: 1 },
+            },
+          });
+          if (changed.count !== 1) throw conflict();
+          return record(
+            input.id,
+            input.version! + 1,
+            retainedReportDefinitionState(priorBody, (value) =>
+              reportDefinitionSchema.parse(value),
+            ),
+          );
+        }
+        const id = hash([
+          "definition",
+          input.projectId,
+          ctx.user.id,
+          input.requestId,
+        ]);
+        const prior = await tx.projectReportDefinition.findUnique({
+          where: { id },
+        });
+        if (prior) {
+          if (
+            prior.organizationId !== orgId ||
+            prior.visibility !== "private" ||
+            prior.archivedAt !== null ||
+            prior.name !== input.name ||
+            hash(reportDefinitionSchema.parse(prior.definition)) !==
+              hash(input.definition)
+          )
+            throw conflict();
+          return record(id, prior.version);
+        }
+        if (
+          (await tx.projectReportDefinition.count({
+            where: { projectId: input.projectId, userId: ctx.user.id },
+          })) >= 50
+        )
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "Keep at most 50 retained report definitions per author, including archives.",
+          });
+        await tx.projectReportDefinition.create({
+          data: {
+            id,
+            projectId: input.projectId,
+            organizationId: orgId,
+            userId: ctx.user.id,
+            name: input.name,
+            definition: input.definition,
+          },
+        });
+        return record(id, 1);
+      }),
+    ),
+  drafts: protectedProcedure.input(projectInput).query(({ ctx, input }) =>
+    access(ctx, input.projectId, false, async (tx, orgId) =>
+      tx.projectReportSnapshot.findMany({
+        where: {
+          projectId: input.projectId,
+          organizationId: orgId,
+          createdById: ctx.user.id,
+          payload: { path: ["state"], equals: "preview" },
+        },
+        orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+        take: 25,
+        select: { id: true, title: true, asOf: true },
+      }),
+    ),
+  ),
+  list: protectedProcedure.input(projectInput).query(({ ctx, input }) =>
+    access(ctx, input.projectId, false, async (tx, orgId) =>
+      tx.projectReportSnapshot.findMany({
+        where: {
+          projectId: input.projectId,
+          organizationId: orgId,
+          payload: { path: ["state"], equals: "approved" },
+        },
+        orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+        take: 50,
+        select: { id: true, title: true, asOf: true, createdAt: true },
+      }),
+    ),
+  ),
+  get: protectedProcedure
+    .input(projectInput.extend({ id: z.string().max(64) }))
+    .query(({ ctx, input }) =>
+      access(ctx, input.projectId, false, async (tx, orgId) => {
+        const row = await tx.projectReportSnapshot.findFirst({
+          where: {
+            id: input.id,
+            projectId: input.projectId,
+            organizationId: orgId,
+          },
+        });
+        if (!row) throw new TRPCError({ code: "NOT_FOUND" });
+        const result = output(row);
+        if (
+          result.payload.state === "preview" &&
+          row.createdById !== ctx.user.id
+        )
+          throw new TRPCError({ code: "NOT_FOUND" });
+        return {
+          ...result,
+          projectId: row.projectId,
+          organizationId: row.organizationId,
+        };
+      }),
+    ),
+  evidence: protectedProcedure
+    .input(
+      projectInput.extend({
+        id: z.string().length(64),
+        kind: z.enum(["cases", "runs"]),
+        page: z.number().int().min(0).max(400).default(0),
+      }),
+    )
+    .query(({ ctx, input }) =>
+      access(ctx, input.projectId, false, async (tx, orgId) => {
+        const row = await tx.projectReportSnapshot.findFirst({
+          where: {
+            id: input.id,
+            projectId: input.projectId,
+            organizationId: orgId,
+          },
+        });
+        if (!row) throw new TRPCError({ code: "NOT_FOUND" });
+        const payload = payloadSchema.parse(row.payload);
+        if (payload.state === "preview" && row.createdById !== ctx.user.id)
+          throw new TRPCError({ code: "NOT_FOUND" });
+        const start = input.page * 50;
+        if (input.kind === "cases") {
+          const all =
+            payload.evidence?.cases ??
+            payload.cohort.map((c) => ({
+              id: c.id,
+              displayId: "",
+              automationStatus: c.status,
+              priority: null,
+              outcomes: null,
+              plannedRuns: null,
+              notRecordedRuns: null,
+            }));
+          const items = all.slice(start, start + 50);
+          const current = await tx.testCase.findMany({
+            where: {
+              projectId: input.projectId,
+              id: { in: items.map((c) => c.id) },
+            },
+            select: { id: true },
+          });
+          const available = new Set(current.map((c) => c.id));
+          return {
+            kind: "cases" as const,
+            total: all.length,
+            page: input.page,
+            complete: !!payload.evidence,
+            asOf: payload.asOf,
+            items: items.map((c, index) => ({
+              ...c,
+              id: available.has(c.id) ? c.id : null,
+              referenceIndex: start + index + 1,
+              available: available.has(c.id),
+            })),
+          };
+        }
+        const all =
+          payload.evidence?.runs ??
+          (payload.scope?.contributingRunIds ?? []).map((id) => ({
+            id,
+            startedAt: null,
+            provider: null,
+            outcomes: null,
+            plannedCases: null,
+            notRecordedCases: null,
+          }));
+        const items = all.slice(start, start + 50);
+        const current = await tx.testRun.findMany({
+          where: {
+            projectId: input.projectId,
+            id: { in: items.map((r) => r.id) },
+          },
+          select: { id: true },
+        });
+        const available = new Set(current.map((r) => r.id));
+        return {
+          kind: "runs" as const,
+          total: all.length,
+          page: input.page,
+          complete: !!payload.evidence,
+          asOf: payload.asOf,
+          items: items.map((r, index) => ({
+            ...r,
+            id: available.has(r.id) ? r.id : null,
+            referenceIndex: start + index + 1,
+            available: available.has(r.id),
+          })),
+        };
+      }),
+    ),
+  preview: protectedProcedure
+    .input(
+      projectInput.extend({
+        requestId: z.string().uuid(),
+        title: z.string().trim().min(1).max(120),
+        definition: reportDefinitionSchema,
+        definitionId: z.string().optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) =>
+      access(ctx, input.projectId, true, (tx, orgId) => captureReportPreview(tx, orgId, ctx.user.id, input)),
     ),
   approve: protectedProcedure
     .input(

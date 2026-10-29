@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { repositoryProviderJson } from "./repositoryProviderHttp.js";
 
 // Cloud metadata only. Standard API tokens use site-local Basic authentication:

@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import {
   reportMetricRows,
   REPORT_SECTIONS,
@@ -38,6 +38,60 @@ export function FrozenReport({
     review.projectId === projectId &&
     review.snapshotId === snapshotId;
   const exportAllowed = allowExport && report.state === "approved";
+  const [deckBusy, setDeckBusy] = useState<"pptx" | "docx" | "xlsx" | null>(
+    null,
+  );
+  const exportScope = useRef({
+    report,
+    projectId,
+    snapshotId,
+    ready: exportAllowed && reviewed,
+  });
+  useLayoutEffect(() => {
+    exportScope.current = {
+      report,
+      projectId,
+      snapshotId,
+      ready: exportAllowed && reviewed,
+    };
+    return () => {
+      exportScope.current.ready = false;
+    };
+  }, [report, projectId, snapshotId, exportAllowed, reviewed]);
+  async function downloadDeck(format: "pptx" | "docx" | "xlsx" = "pptx") {
+    if (!exportAllowed || !reviewed || deckBusy) return;
+    const captured = exportScope.current;
+    setDeckBusy(format);
+    setExportMessage("");
+    try {
+      const blob =
+        format === "pptx"
+          ? await (await import("@/lib/report-deck")).renderReportDeck(report)
+          : format === "docx"
+            ? await (
+                await import("@/lib/report-office")
+              ).renderReportDocument(report)
+            : await (
+                await import("@/lib/report-office")
+              ).renderReportWorkbook(report);
+      if (exportScope.current !== captured || !captured.ready) return;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `vaettir-quality-update-${report.asOf.slice(0, 10)}.${format}`;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch {
+      if (exportScope.current === captured && captured.ready)
+        setExportMessage(
+          "The editable file could not be created. Your approved report is unchanged. Try the export again.",
+        );
+    } finally {
+      setDeckBusy(null);
+    }
+  }
   function download(format: "html" | "csv") {
     if (!exportAllowed || !reviewed) return;
     let content: string;
@@ -202,7 +256,47 @@ export function FrozenReport({
               >
                 Print / save PDF
               </button>
+              <button
+                className="btn-secondary"
+                type="button"
+                disabled={!reviewed || !!deckBusy}
+                onClick={() => void downloadDeck()}
+              >
+                {deckBusy === "pptx"
+                  ? "Creating PowerPoint…"
+                  : "Download editable PowerPoint"}
+              </button>
             </div>
+            <details style={{ marginBlock: 12 }}>
+              <summary>Other editable formats</summary>
+              <p className="text-muted">
+                Word includes editable notes and tables. Excel includes typed
+                metrics, chart data and notes on separate sheets. Both are
+                copies of this approved report.
+              </p>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                <button
+                  className="btn-secondary"
+                  type="button"
+                  disabled={!reviewed || !!deckBusy}
+                  onClick={() => void downloadDeck("docx")}
+                >
+                  {deckBusy === "docx"
+                    ? "Creating Word document…"
+                    : "Download Word document"}
+                </button>
+                <button
+                  className="btn-secondary"
+                  type="button"
+                  disabled={!reviewed || !!deckBusy}
+                  onClick={() => void downloadDeck("xlsx")}
+                >
+                  {deckBusy === "xlsx"
+                    ? "Creating Excel workbook…"
+                    : "Download Excel workbook"}
+                </button>
+              </div>
+            </details>
             {exportMessage && <p role="alert">{exportMessage}</p>}
           </section>
         )}

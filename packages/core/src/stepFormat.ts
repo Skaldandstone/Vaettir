@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "./validation.js";
 
 // The structured step-table authoring format: an alternative to BDD
 // given/when/then for test cases where the technical layer (what API call

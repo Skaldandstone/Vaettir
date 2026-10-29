@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { caseQuerySchema, CASE_QUERY_COLUMNS } from "./caseQuerySchema.js";
 import { caseFieldKey } from "./caseFieldSchema.js";
 
@@ -64,7 +64,7 @@ export const approvedCaseQueryExportInput = z
       requestId: value.requestId,
     });
     if (!parsed.success)
-      for (const issue of parsed.error.issues) ctx.addIssue(issue);
+      for (const issue of parsed.error.issues) ctx.addIssue({ ...issue });
   });
 export type CaseQueryExportInput = z.infer<typeof caseQueryExportInput>;
 export type ApprovedCaseQueryExportInput = z.infer<

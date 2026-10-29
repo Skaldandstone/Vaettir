@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { reportDefinitionSchema } from "./reportDefinitionSchema.js";
 const base = z.object({ projectId: z.string().min(1).max(120) }).strict();
 export const reportDefinitionListInput = base.extend({

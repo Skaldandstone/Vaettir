@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { TRPCError } from "@trpc/server";
 import { supportedManualExecutionIdentity } from "./manualExecutionReadScopeSchema.js";
 const identity = z

@@ -1,7 +1,7 @@
 import { router, protectedProcedure, type Context } from "../trpc.js";
 import { TRPCError } from "@trpc/server";
 import { createHash } from "node:crypto";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import {
   listManualRetestLinks,
   prepareManualRetest,

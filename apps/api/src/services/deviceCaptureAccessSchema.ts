@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 
 // Browser-pure metadata contract. Private connector/device/processing inputs do
 // not belong in this hosted read. IDs are exact; never trim or infer a mapping.

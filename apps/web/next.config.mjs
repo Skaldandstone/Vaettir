@@ -23,11 +23,29 @@ export function withNodeNextSourceAliases(config) {
   return config;
 }
 
+// PptxGenJS declares these modules browser:false, but Webpack rejects the
+// node: URI before consulting that map. Strip only these package-local imports
+// in the client build so its own browser map applies; never polyfill Node APIs.
+export function withReportBrowserImports(config, { isServer, webpack }) {
+  withNodeNextSourceAliases(config);
+  if (!isServer) {
+    config.plugins ??= [];
+    config.plugins.push(new webpack.NormalModuleReplacementPlugin(
+      /^node:(fs|https)$/,
+      (resource) => {
+        if (/[\\/]pptxgenjs[\\/]dist(?:[\\/]|$)/.test(resource.context))
+          resource.request = resource.request.slice(5);
+      },
+    ));
+  }
+  return config;
+}
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   deploymentId: process.env.NEXT_PUBLIC_RELEASE_COMMIT,
   transpilePackages: ["@vaettir/core"],
-  webpack: withNodeNextSourceAliases,
+  webpack: withReportBrowserImports,
   async headers() {
     return ["gitlab", "github"].map(provider => ({ source: `/connections/${provider}/callback`, headers: [
       { key: "Referrer-Policy", value: "no-referrer" },

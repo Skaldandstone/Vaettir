@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { retestPreviewInputSchema, retestStartInputSchema } from "./manualRetestInputSchema.js";
 import { manualRetestObservedScopeSchema, manualRetestStartOutputSchema } from "./manualRetestScopeSchema.js";
 import { caseFieldPresentationJsonBytes } from "./caseFieldPresentationSchema.js";

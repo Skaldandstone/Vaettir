@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { Prisma, type PrismaClient } from "@vaettir/db";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { captureAiUsage, smartCaseSchema, suggestCaseOrganization, suggestImportColumns, type SmartCase, type SmartCaseSuggestion } from "@vaettir/ai-agent";
 import { lockCaseFieldProject } from "./caseFields.js";
 import { lockCurrentCaseFieldActor } from "./caseFieldReadScope.js";

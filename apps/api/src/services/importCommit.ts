@@ -1,5 +1,5 @@
 import { type PrismaClient } from "@vaettir/db";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { recordAudit } from "./auditLog.js";
 import { completedImportStatus, HUMAN_EDIT_SKIP_REASON } from "./importOutcome.js";
 import { snapshotTestCaseVersion } from "./testCaseVersion.js";

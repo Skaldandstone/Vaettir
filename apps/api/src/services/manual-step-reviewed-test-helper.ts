@@ -1,7 +1,7 @@
 // TEST SUPPORT ONLY. Never import from application routers/services.
 // Source authoring is NOT permission to connect, execute, seed or erase data.
 import { createHash, randomUUID } from "node:crypto";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import type { PrismaClient, Prisma } from "@vaettir/db";
 import { assertOwnedTestDatabase } from "../testOnlyDatabaseSafety.js";
 import {

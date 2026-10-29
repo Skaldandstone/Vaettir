@@ -1,5 +1,5 @@
 import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from "jose";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { jiraVersionMetadata } from "./forgeReleaseSchema.js";
 
 const jwks = createRemoteJWKSet(

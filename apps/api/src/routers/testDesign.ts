@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { assertApprovedAnalysisReservation, isDefinitiveAnalysisSpendRefusal } from "../services/approvedAnalysisSpend.js";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { TRPCError } from "@trpc/server";
 import { Prisma } from "@vaettir/db";
 import { reviewTestDesign, TestDesignReviewSchema } from "@vaettir/ai-agent";

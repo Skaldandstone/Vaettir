@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 
 export const MAX_CASE_FOLDERS = 500;
 export const MAX_FOLDER_CASES = 1000;

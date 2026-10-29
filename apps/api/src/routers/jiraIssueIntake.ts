@@ -1,5 +1,5 @@
 import {randomUUID} from "node:crypto";
-import {z} from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import {TRPCError} from "@trpc/server";
 import {Prisma,type JiraIssueImportRun} from "@vaettir/db";
 import {router,protectedProcedure,type Context} from "../trpc.js";

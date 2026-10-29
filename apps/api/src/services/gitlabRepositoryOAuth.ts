@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { repositoryProviderJson, repositoryProviderOrigin, repositoryProviderRevokeGitlabToken } from "./repositoryProviderHttp.js";
 
 export const repositorySelectionSchema=z.object({id:z.string().max(100),name:z.string().max(500),url:z.string().max(1000),defaultBranch:z.string().max(200).nullable(),projectId:z.string().max(100).optional(),projectName:z.string().max(200).optional(),scopeKey:z.string().max(700).optional()});

@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import {
   AiDisclosureDenied,
   readAiProjectSummary,

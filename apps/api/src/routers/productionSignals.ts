@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { TRPCError } from "@trpc/server";
 import { tierHasFeature, FEATURE_PRODUCTION_SIGNAL_LINKAGE } from "@vaettir/core";
 import { router, protectedProcedure, requireProjectAccess, isStaffEmail, type Context } from "../trpc.js";

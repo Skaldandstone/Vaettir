@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { Prisma, type PrismaClient } from "@vaettir/db";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import {
   protectedProcedure,
   requireProjectAccess,
@@ -162,6 +162,7 @@ export const atlassianQualityRouter = router({
             .refine((ids) => new Set(ids).size === ids.length),
           shareTicketTests: z.boolean(),
           shareApprovedProjectQuality: z.boolean().optional(),
+          shareLiveProjectQuality: z.boolean().optional(),
           releaseLinks: z
             .array(forgeReleaseLink)
             .max(50)
@@ -180,6 +181,7 @@ export const atlassianQualityRouter = router({
           (v) =>
             v.snapshotIds.length > 0 ||
             v.shareApprovedProjectQuality === true ||
+            (v.shareLiveProjectQuality === true && v.binding.product === "confluence") ||
             v.closureSnapshotIds.length > 0 ||
             ((v.shareTicketTests || v.releaseLinks.length > 0) &&
               v.binding.product === "jira"),
@@ -235,6 +237,8 @@ export const atlassianQualityRouter = router({
               "This connection identifier is already used by another project.",
           });
         const previous = latestForgeSharing(versions);
+        if (input.shareLiveProjectQuality && input.binding.product !== "confluence") throw new TRPCError({ code: "BAD_REQUEST" });
+        if (previous?.shareLiveProjectQuality && input.shareLiveProjectQuality === undefined) throw new TRPCError({ code: "CONFLICT", message: "Refresh before changing live sharing." });
         if (previous?.shareApprovedProjectQuality && input.shareApprovedProjectQuality === undefined)
           throw new TRPCError({ code: "CONFLICT", message: "Refresh Vaettir before updating this project's automatic quality-sharing permission." });
         if (prior) {
@@ -365,6 +369,7 @@ export const atlassianQualityRouter = router({
               shareTicketTests:
                 input.shareTicketTests && input.binding.product === "jira",
               shareApprovedProjectQuality: input.shareApprovedProjectQuality ?? false,
+              shareLiveProjectQuality: input.shareLiveProjectQuality ?? false,
               payloadHash,
             },
           },

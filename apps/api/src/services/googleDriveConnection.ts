@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { isIP } from "node:net";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { repositoryProviderJson } from "./repositoryProviderHttp.js";
 
 // Metadata only, never file content/export, refresh tokens or shared-drive access.

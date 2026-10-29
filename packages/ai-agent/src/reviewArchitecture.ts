@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { traceAnthropicCall } from "./tracing.js";
 
 export const architectureEvidenceSchema = z.object({ id: z.string(), label: z.string(), kind: z.enum(["COMPONENT", "INTERACTION", "TEXT"]), quote: z.string(), line: z.number(), from: z.string().optional(), to: z.string().optional() });

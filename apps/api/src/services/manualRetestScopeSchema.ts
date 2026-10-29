@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 const identity = z.string().min(1).max(200);
 export const manualRetestExpectedScopeSchema = z.object({ projectId: identity, organizationId: identity, clerkActorId: identity }).strict();
 export const manualRetestObservedScopeSchema = manualRetestExpectedScopeSchema.extend({ actorId: identity }).strict();
