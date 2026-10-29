@@ -1,4 +1,4 @@
-import {z} from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import {githubRepositoryAppSecretSchema,githubRepositoryAppInstallationUrl} from "./githubAppRepositoryConnection.js";
 
 const credentialCharacters=(value:string)=>!Array.from(value).some(character=>/\s/.test(character)||character.charCodeAt(0)<32||character.charCodeAt(0)===127);

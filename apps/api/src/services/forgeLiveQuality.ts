@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { type Prisma } from "@vaettir/db";
 import { buildQualityVisualReport } from "@vaettir/core";
 import {

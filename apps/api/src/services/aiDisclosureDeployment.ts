@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 
 const id = z.string().regex(/^[a-zA-Z0-9_-]{1,100}$/);
 const scopes = z

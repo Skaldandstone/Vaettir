@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { Prisma, type PrismaClient } from "@vaettir/db";
 import { TRPCError } from "@trpc/server";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { lockCaseFieldProject } from "./caseFields.js";
 import { lockCaseFieldReadScope, lockCurrentCaseFieldActor, type CaseFieldReadAuthorization } from "./caseFieldReadScope.js";
 

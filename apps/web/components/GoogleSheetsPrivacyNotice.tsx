@@ -28,6 +28,19 @@ const sections = [
     ]
   },
   {
+    "title": "Optional smart import and organization suggestions",
+    "paragraphs": [
+      "Where smart suggestions are enabled, a separate approval is required before analysis. Column suggestions send column names and the first 25 data rows to Vaettir's configured Anthropic AI provider. Case suggestions send the selected complete mapped case definitions, tags, current classification, priority and placement, together with the project's suite names. Google access tokens are never sent to the AI provider. Only select content authorized for this analysis.",
+      "Analysis produces temporary, editable suggestions; it does not import, move or update cases. A separate review and confirmation applies selected changes. Saved changes retain versions and audit history. AI-provider processing is governed by the provider's applicable terms; this notice does not promise zero provider retention or automatic removal of previously processed data. Declining analysis leaves manual import and organization available."
+    ]
+  },
+  {
+    "title": "Limited use of Google data",
+    "paragraphs": [
+      "Vaettir follows the Google Workspace User Data and Developer Policy, including its Limited Use requirements. Google-derived data is used only for the selected import and organization features. Vaettir does not sell it, use it for advertising, or use it to develop, train or improve general-purpose AI models. The smart-suggestion integration does not submit your content as provider feedback or training examples."
+    ]
+  },
+  {
     "title": "Your controls and deletion",
     "paragraphs": [
       "You can cancel before import, select different worksheets or use a CSV/Excel export instead of connecting Google. You can revoke Vaettir's Google permission from your Google account's third-party connections. Revocation stops future authorized Google access; it does not delete cases or results already imported into Vaettir or their retained history.",
@@ -47,7 +60,7 @@ export function GoogleSheetsPrivacyNotice() {
     <header>
       <p className="eyebrow">Vaettir · Google data</p>
       <h1>Google Sheets import privacy</h1>
-      <p className="text-muted">Effective 21 October 2026</p>
+      <p className="text-muted">Effective 28 October 2026</p>
       <p>Vaettir is operated by Skald and Stone LLC. This notice explains the optional Google Sheets import: connect Google, select a spreadsheet and worksheets, review fields and rows, then confirm an import into your Vaettir project.</p>
     </header>
     {sections.map(section => <section key={section.title} style={{ marginTop: 28 }}>
@@ -56,5 +69,6 @@ export function GoogleSheetsPrivacyNotice() {
     </section>)}
     <p><a href="mailto:james@skaldandstone.com?subject=Vaettir%20Google%20data%20question">Contact us about Google data</a></p>
     <p><a href="https://myaccount.google.com/connections" target="_blank" rel="noopener noreferrer">Manage Google account connections</a></p>
+    <p><a href="https://developers.google.com/workspace/workspace-api-user-data-developer-policy" target="_blank" rel="noopener noreferrer">Google Workspace data policy</a>{" · "}<a href="https://privacy.claude.com/en/articles/7996868-is-my-data-used-for-model-training" target="_blank" rel="noopener noreferrer">Anthropic commercial data use</a>{" · "}<a href="https://privacy.claude.com/en/articles/7996866-how-long-do-you-store-my-organization-s-data" target="_blank" rel="noopener noreferrer">Anthropic data retention</a></p>
   </article>;
 }

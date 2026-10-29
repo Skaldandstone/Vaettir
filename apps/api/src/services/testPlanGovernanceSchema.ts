@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { caseFieldReadScopeSchema } from "./caseFieldReadScope.js";
 import { planMetadataChanges } from "./testPlanMetadataSchema.js";
 import { executablePlanTemplateSchema } from "./planTemplateSaveSchema.js";

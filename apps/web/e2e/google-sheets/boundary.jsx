@@ -19,6 +19,7 @@ const fail = () => { throw new Error("Unexpected fixture endpoint"); };
 const endpoints = Object.fromEntries(["commitCsv", "commitXlsx", "commitXray", "commitTestRail", "commitQTest", "commitZephyr", "previewXlsxSheet", "previewXray", "previewTestRail", "previewQTest", "previewZephyr"].map(name => [name, mutation(fail)]));
 export const useParams = () => ({ projectId: "synthetic-project" });
 export const useSession = () => ({ isLoaded: true, session: { id: "synthetic-session", user: { id: "synthetic-actor" } } });
+export const useAuth = () => ({ isLoaded: true, isSignedIn: true, userId: "synthetic-actor", sessionId: "synthetic-session" });
 export const useProjectPermissions = () => ({ loaded: true, canEdit: true });
 let jobs = [];
 const listeners = new Set();

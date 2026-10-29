@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { TRPCError } from "@trpc/server";
 import { generateQaStrategyDraft } from "@vaettir/ai-agent";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";

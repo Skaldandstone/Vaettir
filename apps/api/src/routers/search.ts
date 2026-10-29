@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 
 // A first pass at P1-14: simple case-insensitive substring matching across

@@ -308,3 +308,12 @@ select { padding-right: 28px; text-overflow: ellipsis; }
 .compliance-control-guide summary{cursor:pointer;min-height:44px;display:list-item;align-content:center;color:var(--fg);font-weight:600}
 .compliance-control-guide summary:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 .compliance-control-guide p{line-height:1.6;margin:8px 0}
+
+.smart-case-suggestions { min-width:0; overflow-wrap:anywhere; }
+.smart-case-suggestions summary { cursor:pointer; min-height:44px; align-content:center; }
+.smart-suggestion-list { max-height:65vh; overflow:auto; margin-block:16px; }
+.smart-suggestion-choice { display:flex; align-items:flex-start; gap:10px; min-height:44px; padding-block:8px; overflow-wrap:anywhere; }
+.smart-suggestion-choice input { flex:none; margin-top:5px; }
+.smart-suggestion-choice span { min-width:0; }
+.smart-suggestion-choice blockquote { margin:6px 0; padding-left:12px; border-left:2px solid var(--line); white-space:pre-wrap; }
+@media (pointer:coarse) { .smart-case-suggestions button { min-height:44px; } }

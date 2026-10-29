@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "./validation.js";
 
 // The canonical shape the AI agent must emit when reverse-engineering an
 // automated test into a human-readable BDD test case, and the shape the

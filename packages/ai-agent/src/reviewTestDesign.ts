@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { AutomationFrameworkSchema } from "./generateAutomationDraft.js";
 import { traceAnthropicCall } from "./tracing.js";
 

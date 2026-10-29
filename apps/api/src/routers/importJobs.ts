@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { createHash } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
@@ -23,7 +23,7 @@ import { importTypeAnalysis } from "../services/importTypeAnalysis.js";
 import { googleSheetsImportConfig, googleSheetSourceSchema, prepareGoogleSheetsImport } from "../services/googleSheetsImport.js";
 
 const fieldMappingSchema = z
-  .record(z.enum(TARGET_FIELDS), z.string())
+  .partialRecord(z.enum(TARGET_FIELDS), z.string())
   .refine((m) => Boolean(m.title), {
     message: 'The "title" field must be mapped to a CSV column',
   });
@@ -180,14 +180,10 @@ export const importJobsRouter = router({
     .input(xlsxReadIdentity.extend({ cases: z.array(importTypeCaseSchema).min(1).max(15_000) }))
     .output(z.object({ requestId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const { project } = await requireFreshXlsxAccess(ctx, input.projectId, "EDITOR");
-      try {
-        return importTypeAnalysis.start({ actorId: ctx.user.id, clerkSubject: ctx.authenticatedClerkSubject ?? null, organizationId: project.organizationId, projectId: project.id }, input.requestId, input.cases,
-          async () => {
-            const fresh = await requireFreshXlsxAccess(ctx, input.projectId, "EDITOR");
-            if (fresh.project.organizationId !== project.organizationId) throw new Error("Project access changed.");
-          });
-      } catch (error) { throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Type review could not start." }); }
+      await requireFreshXlsxAccess(ctx, input.projectId, "EDITOR");
+      // Older clients started provider analysis on upload. Do not preserve that
+      // disclosure path after introducing explicit customer approval.
+      throw new TRPCError({ code: "FORBIDDEN", message: "Automatic type analysis has been replaced by reviewed smart suggestions. Refresh the importer and approve the selected analysis before it runs." });
     }),
   typeAnalysisStatus: protectedProcedure.input(xlsxReadIdentity)
     .output(z.object({ status: z.enum(["READING", "READY", "CANCELLED"]), total: z.number(), completed: z.number(), failed: z.number(), results: z.array(importTypeRecommendationSchema.extend({ fingerprint: z.string(), modelAnalyzed: z.boolean() })) }))

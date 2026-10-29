@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { protectedProcedure, requireProjectAccess, router } from "../trpc.js";
 import { prerequisiteAccessInput, prerequisiteAccessOutput, prerequisitePageInput, prerequisitePageOutput, prerequisiteSetInput, prerequisiteSetOutput } from "../services/casePrerequisiteSchema.js";
 import { readPrerequisiteAccess, readPrerequisitePage, setReviewedPrerequisites } from "../services/casePrerequisites.js";

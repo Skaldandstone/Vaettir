@@ -1,7 +1,7 @@
 import { Prisma } from "@vaettir/db";
 import { TRPCError } from "@trpc/server";
 import { TestCaseStepInputSchema } from "@vaettir/core";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import {
   manualExecutionReadScopeInputSchema,
   manualExecutionReadScopeOutputSchema,

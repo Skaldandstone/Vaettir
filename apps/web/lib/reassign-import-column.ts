@@ -24,3 +24,16 @@ export function remainingNonCaseRows<T extends { rowNumber: number }>(
 ): T[] {
   return (rows ?? []).filter(row => !overrides[row.rowNumber]?.title.trim());
 }
+
+/** Seeded repair rows are display defaults, not deliberate edits. Keep actual
+ * edits while allowing a reviewed column correction to repair missing fields. */
+export function editedImportOverrides<T extends { rowNumber: number }>(overrides: Record<number, T>, seeded: T[] | undefined): T[] {
+  const canonical = (value: unknown): unknown => Array.isArray(value) ? value.map(canonical)
+    : value && typeof value === "object" ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => [k, canonical(v)])) : value;
+  const before = new Map((seeded ?? []).map(row => [row.rowNumber, JSON.stringify(canonical(row))]));
+  return Object.values(overrides).filter(row => JSON.stringify(canonical(row)) !== before.get(row.rowNumber));
+}
+
+export function suggestedImportMapping(mapping: Partial<Record<ImportTargetField, string>>, choices: Array<{ field: ImportTargetField; column: string }>): Partial<Record<ImportTargetField, string>> {
+  return choices.reduce((next, choice) => reassignImportColumn(next, choice.field, choice.column), { ...mapping });
+}

@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { requirementCoverageInput, requirementCoverageScope } from "./requirementCoverageSchema.js";
 
 // Pure contract. This is a complete live response, not concatenated browse pages,

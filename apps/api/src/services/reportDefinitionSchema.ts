@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { reportDateIntervalSchema } from "./reportDateIntervalSchema.js";
 import { reportExecutionScopeSchema } from "./reportExecutionScopeSchema.js";
 // Pure contract shared by reviewed settings, captures and the browser editor.

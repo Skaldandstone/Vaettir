@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 export const reportMetricQuerySchema = z
   .object({
     entity: z.enum(["cases", "results", "caseVersions"]),

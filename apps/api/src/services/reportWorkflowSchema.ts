@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { reportMetricQuerySchema } from "./reportMetricQuerySchema.js";
 import { reportDefinitionSchema } from "./reportDefinitionSchema.js";
 

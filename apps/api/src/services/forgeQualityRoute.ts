@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type { PrismaClient } from "@vaettir/db";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import {
   verifyForgeInvocation,
   verifyForgeViewer,

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import type { Prisma } from "@vaettir/db";
 import type { ForgeIdentity } from "./forgeInvocation.js";
 import { forgeReleaseLink } from "./forgeReleaseSchema.js";

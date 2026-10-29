@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { caseFieldReadScopeSchema, caseFieldReadPinFields, pairedCaseFieldReadPins } from "./caseFieldReadScope.js";
 
 const id = z.string().min(1).max(200).refine(value => !value.includes("\0"));

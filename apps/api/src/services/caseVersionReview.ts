@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { Prisma, TestCaseType, type PrismaClient } from "@vaettir/db";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { TestCaseStepInputSchema } from "@vaettir/core";
 import { requireCurrentPlanAccess } from "./testPlanExecution.js";
 import { testCaseContentRevision } from "./testCaseContentRevision.js";

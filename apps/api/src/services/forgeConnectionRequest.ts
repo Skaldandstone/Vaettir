@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, createHmac, randomBytes, randomUUID, createHash } from "node:crypto";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { forgeQualityBinding } from "./atlassianQualitySharing.js";
 import { productJson, type ForgeIdentity } from "./forgeInvocation.js";
 

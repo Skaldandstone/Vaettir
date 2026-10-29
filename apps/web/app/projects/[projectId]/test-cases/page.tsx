@@ -22,6 +22,7 @@ import { DurableCaseAnalysis } from "@/components/DurableCaseAnalysis";
 import { CaseQueryExplorer } from "@/components/CaseQueryExplorer";
 import { TestCaseFolders } from "@/components/TestCaseFolders";
 import { TestCaseProcedureReimport } from "@/components/TestCaseProcedureReimport";
+import { SmartCaseSuggestions } from "@/components/SmartCaseSuggestions";
 import { ProjectCaseFields } from "@/components/ProjectCaseFields";
 import {
   CaseAuthoringPresets,
@@ -1027,6 +1028,7 @@ export default function TestCasesPage() {
           )}
         </div>
       )}
+      {!readOnly && <SmartCaseSuggestions projectId={projectId} caseIds={selected.size ? [...selected] : visibleCases.filter(c => !c.archived).map(c => c.id)} onSaved={() => { reload(); void utils.caseFolders.list.invalidate({ projectId }); }} />}
       <TestCaseFolders
         key={`${projectId}:folders`}
         projectId={projectId}

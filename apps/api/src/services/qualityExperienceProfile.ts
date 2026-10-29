@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { experienceProfileSchema } from "@vaettir/core";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { manualRetestMetadataSchema } from "./manualRetestSchema.js";
 
 function canonicalJson(value: unknown): string {

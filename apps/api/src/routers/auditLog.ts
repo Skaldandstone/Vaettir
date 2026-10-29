@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 
 // P3-06: read side of the audit trail. Project-scoped (not org-wide) to

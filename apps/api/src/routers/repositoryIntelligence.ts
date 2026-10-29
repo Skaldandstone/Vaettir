@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, requireProjectAccess, type Context } from "../trpc.js";
 import { lockedProcessingEditor } from "../services/repositoryProcessingApproval.js";

@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import type { ManualRunStartLegacyRawInput } from "./manualRunStartLegacySchema.js";
 import {
   manualRunStartReviewedAuthenticatedSubject as identity,

@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { supportedManualExecutionIdentity } from "./manualExecutionReadScopeSchema.js";
 import { planExecutionTemplateExactSchema } from "./planExecutionTemplateExactSchema.js";
 

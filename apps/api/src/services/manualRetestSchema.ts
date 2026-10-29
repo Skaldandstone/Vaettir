@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { observationsSchema } from "./physicalValidation.js";
 
 const hash = z.string().regex(/^[a-f0-9]{64}$/);

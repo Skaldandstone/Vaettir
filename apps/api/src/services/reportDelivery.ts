@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import type { Prisma, PrismaClient } from "@vaettir/db";
 import { TRPCError } from "@trpc/server";
 import { lockedProcessingEditor } from "./repositoryProcessingApproval.js";

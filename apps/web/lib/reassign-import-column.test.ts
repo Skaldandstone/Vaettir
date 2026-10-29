@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { reassignImportColumn, remainingNonCaseRows } from "./reassign-import-column";
+import { reassignImportColumn, remainingNonCaseRows, editedImportOverrides, suggestedImportMapping } from "./reassign-import-column";
 
 describe("editable smart import mappings", () => {
   it("moves a guessed column to the human-corrected role without duplicate assignments", () => {
@@ -23,4 +23,18 @@ describe("editable smart import mappings", () => {
     expect(remainingNonCaseRows(rows, { 2: { title: "Reviewed case" } })).toEqual([{ rowNumber: 4 }]);
     expect(remainingNonCaseRows(undefined, {})).toEqual([]);
   });
+});
+
+it("remaps initial empty repair buffers while preserving deliberate inline edits", () => {
+  const seed = { rowNumber: 2, title: "", when: ["Original procedure"], priority: "MEDIUM" };
+  expect(editedImportOverrides({ 2: { priority: "MEDIUM", when: ["Original procedure"], title: "", rowNumber: 2 } }, [seed])).toEqual([]);
+  const edited = { ...seed, when: ["Human-corrected procedure"] };
+  expect(editedImportOverrides({ 2: edited }, [seed])).toEqual([edited]);
+  expect(editedImportOverrides({ 3: { ...seed, rowNumber: 3, title: "Rescued case" } }, [seed])).toHaveLength(1);
+});
+it("prepares the same complete mapping diff, including implied unmapping, without changing source choices", () => {
+  const before = { title: "A", when: "B" };
+  expect(suggestedImportMapping(before, [{ field: "title", column: "B" }])).toEqual({ title: "B" });
+  expect(suggestedImportMapping(before, [{ field: "title", column: "B" }, { field: "when", column: "A" }])).toEqual({ title: "B", when: "A" });
+  expect(before).toEqual({ title: "A", when: "B" });
 });

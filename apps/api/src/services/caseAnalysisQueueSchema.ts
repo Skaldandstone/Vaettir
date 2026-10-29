@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 export const MAX_ANALYSIS_SELECTION = 1000;
 export const caseAnalysisScopeFields = {
   originalOrganizationId: z.string().min(1).max(120).optional(),

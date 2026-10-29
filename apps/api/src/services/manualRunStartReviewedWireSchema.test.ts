@@ -135,7 +135,7 @@ describe("reviewed run-start read wire (no write/hash contract)", () => {
       .filter(ts.isImportDeclaration)
       .map((node) => (node.moduleSpecifier as ts.StringLiteral).text);
     expect(imports).toEqual([
-      "zod",
+      "@vaettir/core/dist/validation.js",
       "@vaettir/core",
       "./manualExecutionReadScopeSchema.js",
     ]);

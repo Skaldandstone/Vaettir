@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { Prisma } from "@vaettir/db";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 
 const id = z.string().min(1).max(200);
 export const caseFieldReadPinFields = {

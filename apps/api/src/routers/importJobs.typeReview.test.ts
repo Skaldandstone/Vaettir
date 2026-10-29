@@ -12,13 +12,12 @@ function fixture(role = "EDITOR") {
   return { caller, prisma, revoke: () => { user = null; } };
 }
 afterEach(() => vi.restoreAllMocks());
-describe("automatic import type review authorization", () => {
-  it("starts only an authorized free preview and refreshes authorization inside the worker", async () => {
-    const f = fixture(); let authorize: (() => Promise<unknown>) | undefined;
-    const start = vi.spyOn(importTypeAnalysis, "start").mockImplementation((_scope, id, _cases, guard) => { authorize = guard; return { requestId: id }; });
-    expect(await f.caller.startTypeAnalysis({ projectId: "project", requestId, cases: [c] })).toEqual({ requestId });
-    expect(start.mock.calls[0]![0]).toEqual({ actorId: "actor", clerkSubject: "clerk", organizationId: "org", projectId: "project" });
-    await authorize!(); f.revoke(); await expect(authorize!()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+describe("retired automatic import type review authorization", () => {
+  it.each(["OWNER", "ADMIN", "EDITOR"])("refuses the old upload-triggered provider path even for %s", async role => {
+    const f = fixture(role);
+    const start = vi.spyOn(importTypeAnalysis, "start");
+    await expect(f.caller.startTypeAnalysis({ projectId: "project", requestId, cases: [c] })).rejects.toMatchObject({ code: "FORBIDDEN", message: expect.stringContaining("approve the selected analysis") });
+    expect(start).not.toHaveBeenCalled();
     expect(Object.keys(f.prisma).sort()).toEqual(["organization", "project", "user"]);
   });
   it("denies viewer-funded inference and revoked-user result reads before touching the manager", async () => {
