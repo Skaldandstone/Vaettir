@@ -13,6 +13,15 @@ function response(body: unknown = page(), account: unknown = identity) {
 beforeEach(() => vi.resetAllMocks());
 
 describe("Jira Cloud metadata-only adapter", () => {
+  it("uses a validated cloud gateway and Bearer for OAuth, checking the same account",async()=>{
+    response();const cloudId="01234567-89ab-cdef-0123-456789abcdef";
+    const oauth={kind:"oauth" as const,siteUrl:credentials.siteUrl,cloudId,accessToken:"synthetic-oauth",accountId:identity.accountId,accountName:identity.displayName};
+    const result=await listJiraProjects(oauth);expect(result.projects[0]?.url).toBe(credentials.siteUrl+"/browse/SYN");
+    expect(vi.mocked(repositoryProviderJson).mock.calls).toEqual([["https://api.atlassian.com",`/ex/jira/${cloudId}/rest/api/3/myself`,{token:oauth.accessToken}],["https://api.atlassian.com",`/ex/jira/${cloudId}/rest/api/3/project/search?startAt=0&maxResults=50`,{token:oauth.accessToken}]]);
+  });
+  it("does not read a project list after an OAuth identity mismatch",async()=>{
+    response();await expect(listJiraProjects({kind:"oauth",siteUrl:credentials.siteUrl,cloudId:"01234567-89ab-cdef-0123-456789abcdef",accessToken:"synthetic-oauth",accountId:"different-account",accountName:"Synthetic"})).rejects.toThrow("identity changed");expect(repositoryProviderJson).toHaveBeenCalledTimes(1);
+  });
   it("verifies the active account before listing 50 projects and derives site-bound links", async () => {
     response();
     await expect(listJiraProjects(credentials)).resolves.toEqual({

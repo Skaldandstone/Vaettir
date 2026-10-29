@@ -189,6 +189,7 @@ jobs:
           node apps/web/e2e/ui-workbench/run.mjs
           node apps/web/e2e/ui-plan-mapping/run.mjs
           node apps/web/e2e/jira-defect/run.mjs
+          node apps/web/e2e/atlassian-oauth/run.mjs
           node apps/web/e2e/google-sheets/run.mjs
           node apps/web/e2e/google-sheets/picker-frame.mjs
           node apps/web/e2e/android-exploration/run.mjs

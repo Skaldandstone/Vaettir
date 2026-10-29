@@ -1,6 +1,6 @@
 import { z } from "@vaettir/core/dist/validation.js";
 import { repositoryProviderJson } from "./repositoryProviderHttp.js";
-import { jiraSiteOrigin, type JiraSourceCredentials } from "./jiraSourceConnection.js";
+import { jiraSiteOrigin, jiraReadTransport, type JiraReadCredentials } from "./jiraSourceConnection.js";
 
 const nativeId = z.string().min(1).max(32).regex(/^[1-9][0-9]*$/);
 const issueKey = z.string().min(3).max(133).regex(/^[A-Z][A-Z0-9_]*-[1-9][0-9]*$/);
@@ -29,11 +29,6 @@ export const jiraIssueSchema = z.object({
   }
 });
 
-const credentialsSchema = z.object({
-  siteUrl: z.string().max(300),
-  email: z.string().email().max(320).regex(/^[\x21-\x7e]+$/).refine(value => !value.includes(":")),
-  apiToken: z.string().min(1).max(10000).regex(/^[\x21-\x7e]+$/).refine(value => !value.includes(":")),
-});
 const projectScopeSchema = z.array(nativeId).min(1).max(20)
   .refine(ids => new Set(ids).size === ids.length);
 // Jira commonly emits +0000 rather than ISO's +00:00. Normalize that syntax,
@@ -67,12 +62,12 @@ const providerPageSchema = z.object({
  * Browse Projects and any issue-level security permission; missing is not deleted.
  */
 export async function listJiraIssuePage(
-  credentials: JiraSourceCredentials,
+  credentials: JiraReadCredentials,
   projectIds: string[],
   nextPageToken: string | null = null,
 ) {
-  const input = credentialsSchema.parse(credentials);
-  const origin = jiraSiteOrigin(input.siteUrl);
+  const transport=jiraReadTransport(credentials);
+  const origin = transport.siteUrl;
   const scope = projectScopeSchema.parse(projectIds);
   const cursor = cursorSchema.nullable().parse(nextPageToken);
   const query = new URLSearchParams({
@@ -81,9 +76,8 @@ export async function listJiraIssuePage(
     maxResults: "20",
   });
   if (cursor !== null) query.set("nextPageToken", cursor);
-  const page = providerPageSchema.parse(await repositoryProviderJson(origin,
-    `/rest/api/3/search/jql?${query.toString()}`,
-    { basic: { username: input.email, password: input.apiToken } }));
+  const page = providerPageSchema.parse(await repositoryProviderJson(transport.origin,
+    `${transport.prefix}/rest/api/3/search/jql?${query.toString()}`,transport.options));
   const next = page.nextPageToken ?? null;
   if ((page.isLast && next !== null) || (!page.isLast && (next === null || page.issues.length === 0)) ||
       (next !== null && next === cursor))

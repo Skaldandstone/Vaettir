@@ -1,6 +1,7 @@
 "use client";
 
 import { ActionButton } from "@/components/ui/ActionButton";
+import { AtlassianOAuthConnection } from "./AtlassianOAuthConnection";
 import { useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { trpcReact, type RouterInputs } from "@/lib/trpcReact";
@@ -146,6 +147,11 @@ export function AtlassianQualitySettings({
   }
   if (!canConfigure) return null;
   return (
+    <>
+    <section className="panel" aria-label="Confluence connection" style={{ marginBlock: 24, padding: 24 }}>
+      <AtlassianOAuthConnection projectId={projectId} product="confluence" />
+      <p className="text-muted">Connecting does not publish reports. Approve sharing separately below.</p>
+    </section>
     <section
       id="atlassian-quality"
       className="panel"
@@ -636,5 +642,6 @@ export function AtlassianQualitySettings({
         </>
       )}
     </section>
+    </>
   );
 }
