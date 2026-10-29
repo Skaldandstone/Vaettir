@@ -77,7 +77,9 @@ async function authorized<T>(db: PrismaClient, actor: string, clerk: string | nu
     const project = await tx.project.findUniqueOrThrow({ where: { id: scope.projectId }, select: { organizationId: true } });
     if (project.organizationId !== scope.originalOrganizationId) throw new TRPCError({ code: "FORBIDDEN", message: "The original workspace changed. Nothing was applied." });
     return work(tx);
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead, timeout: 60_000 }); }
+  // Receipt predicates must also serialize when a reviewed selection changes no
+  // case row. Row/advisory locks alone retain an older RR snapshot after waiting.
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 60_000 }); }
   catch (error) {
     // Only a documented, rolled-back serialization failure is retried. Unknown
     // transport outcomes keep their exact request for receipt reconciliation.

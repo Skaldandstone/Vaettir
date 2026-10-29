@@ -129,6 +129,52 @@ describe("reviewed organization suggestions on real PostgreSQL", () => {
     try { await expect(review([item.id])).rejects.toThrow("Stored folder definitions need repair"); }
     finally { await prisma.caseFolderState.update({ where: { projectId }, data: { folders: folders.folders! } }); }
   });
+  it("keeps one receipt for concurrent unchanged selections", async () => {
+    await prisma.testCase.update({ where: { id: caseIds[0] }, data: { suitePath: "Billing/Restore", priority: "HIGH" } });
+    const r = await review([caseIds[0]!]);
+    const versions = await prisma.testCaseVersion.count({ where: { testCaseId: caseIds[0] } });
+    const input = { ...scope(), requestId: randomUUID(), reviewIds: [r.reviewId], approved: true as const, selections: [{ id: caseIds[0]!, suitePath: true, priority: false, testType: false }] };
+    let entered = 0;
+    let release!: () => void;
+    const bothSnapshots = new Promise<void>(resolve => { release = resolve; });
+    const pinned = prisma.$extends({ query: { project: { async findUnique({ args, query }) {
+      const result = await query(args);
+      if (args.where.id === projectId && args.select?.organizationId && entered < 2) {
+        entered++; if (entered === 2) release(); await bothSnapshots;
+      }
+      return result;
+    } } } }) as unknown as typeof prisma;
+    const results = await Promise.all([applySmartRecommendations(pinned, userId!, clerk, input), applySmartRecommendations(pinned, userId!, clerk, input)]);
+    expect(entered).toBe(2);
+    expect(results.every(result => result.changed === 0)).toBe(true);
+    expect(results.filter(result => result.replayed).length).toBe(1);
+    expect(await prisma.auditLog.count({ where: { projectId, entityType: "SmartCaseSuggestionReceipt", entityId: input.requestId } })).toBe(1);
+    expect(await prisma.testCaseVersion.count({ where: { testCaseId: caseIds[0] } })).toBe(versions);
+  });
+  it("admits only one payload when an unchanged and a changed selection share a concurrent UUID", async () => {
+    await prisma.testCase.update({ where: { id: caseIds[0] }, data: { suitePath: "Billing/Restore", priority: "HIGH", testType: "OTHER" } });
+    const r = await review([caseIds[0]!]), versions = await prisma.testCaseVersion.count({ where: { testCaseId: caseIds[0] } });
+    const unchanged = { ...scope(), requestId: randomUUID(), reviewIds: [r.reviewId], approved: true as const, selections: [{ id: caseIds[0]!, suitePath: true, priority: false, testType: false }] };
+    const changed = { ...unchanged, selections: [{ ...unchanged.selections[0]!, testType: true }] };
+    let entered = 0;
+    let release!: () => void;
+    const bothSnapshots = new Promise<void>(resolve => { release = resolve; });
+    const pinned = prisma.$extends({ query: { project: { async findUnique({ args, query }) {
+      const result = await query(args);
+      if (args.where.id === projectId && args.select?.organizationId && entered < 2) {
+        entered++; if (entered === 2) release(); await bothSnapshots;
+      }
+      return result;
+    } } } }) as unknown as typeof prisma;
+    const results = await Promise.allSettled([applySmartRecommendations(pinned, userId!, clerk, unchanged), applySmartRecommendations(pinned, userId!, clerk, changed)]);
+    expect(entered).toBe(2);
+    expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+    const rejected = results.find(result => result.status === "rejected");
+    expect(rejected?.status === "rejected" && rejected.reason).toMatchObject({ code: "CONFLICT" });
+    expect(await prisma.auditLog.count({ where: { projectId, entityType: "SmartCaseSuggestionReceipt", entityId: unchanged.requestId } })).toBe(1);
+    const winner = results.find(result => result.status === "fulfilled");
+    expect(await prisma.testCaseVersion.count({ where: { testCaseId: caseIds[0] } })).toBe(versions + (winner?.status === "fulfilled" ? winner.value.changed : 0));
+  });
   it("rolls back earlier case, version, folder and audit writes when a later write fails", async () => {
     for (const id of caseIds) await prisma.testCase.update({ where: { id }, data: { suitePath: "Before review", priority: "MEDIUM" } });
     const r = await review(caseIds), before = await prisma.testCaseVersion.count({ where: { testCase: { projectId } } }), audits = await prisma.auditLog.count({ where: { projectId } });
