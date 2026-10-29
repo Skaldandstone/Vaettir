@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useLayoutEffect, useRef, useState } from "react";
 import { useIsMutating } from "@tanstack/react-query";
 import { useProjectPermissions } from "@/lib/use-project-permissions";
@@ -44,8 +46,8 @@ export function ProjectPopulationModal({ projectId, onClose }: { projectId: stri
       {visited.includes("requirements") && <div hidden={screen !== "requirements"}><PopulationRequirements projectId={projectId} /></div>}
       {visited.includes("assessment") && <div hidden={screen !== "assessment"}><PopulationAssessment projectId={projectId} /></div>}
       {repositoryProviders.map(([provider])=>visited.includes(provider)&&<div key={provider} hidden={screen!==provider}><RepositoryConnectionContent provider={provider} projectId={projectId} initialAuthorization={authorizations[provider]} active={screen===provider&&!closing&&canEdit} onConnected={()=>{}} onClose={()=>go("setup")}/></div>)}
-      {repositoryProviders.some(([provider])=>screen===provider)&&<button className="btn-secondary" disabled={busy} onClick={()=>go("setup")}>Back to setup</button>}
-      {screen!=="setup"&&screens.includes(screen)&&<footer className="population-modal-navigation"><button className="btn-secondary" onClick={() => go(screens[screens.indexOf(screen) - 1]!)}>Back</button><button className="btn-secondary" onClick={() => go("setup")}>Back to setup</button>{screen !== "assessment" && <button className="btn-primary" onClick={() => go(screens[screens.indexOf(screen) + 1]!)}>{screen === "documents" ? "Review requirement suggestions" : "Check evidence gaps"}</button>}</footer>}
+      {repositoryProviders.some(([provider])=>screen===provider)&&<ActionButton className="btn-secondary" disabled={busy} onClick={()=>go("setup")} tooltip={<> Back to setup </>}> Back </ActionButton>}
+      {screen!=="setup"&&screens.includes(screen)&&<footer className="population-modal-navigation"><button className="btn-secondary" onClick={() => go(screens[screens.indexOf(screen) - 1]!)}>Back</button><ActionButton className="btn-secondary" onClick={() => go("setup")} tooltip={<> Back to setup </>}> Back </ActionButton>{screen !== "assessment" && <ActionButton className="btn-primary" onClick={() => go(screens[screens.indexOf(screen) + 1]!)} tooltip={<> {screen === "documents" ? "Review requirement suggestions" : "Check evidence gaps"} </>}>{screen === "documents" ? "Review" : "Check"}</ActionButton>}</footer>}
     </div>
   </Modal>;
 }

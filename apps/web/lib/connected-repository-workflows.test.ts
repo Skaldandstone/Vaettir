@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import React from "react";
@@ -17,7 +18,7 @@ function fixture(state:{isSuccess:boolean;isFetching?:boolean;isPaused?:boolean;
   // These are access/selection contracts, not the wrapper's browser layout.
   Object.assign(sandbox,{ReadableSelect:"select"});
   vm.createContext(sandbox);const declarations=ast.statements.filter(ts.isFunctionDeclaration).map(node=>printer.printNode(ts.EmitHint.Unspecified,node,ast).replace("export function","function")).join("\n");
-  vm.runInContext(ts.transpileModule(declarations+"\nthis.actual=ConnectedRepositoryPicker;",{compilerOptions:{jsx:ts.JsxEmit.React,target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None}}).outputText,sandbox);
+  vm.runInContext(controllerTranspile(declarations+"\nthis.actual=ConnectedRepositoryPicker;",{compilerOptions:{jsx:ts.JsxEmit.React,target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None}}).outputText,sandbox);
   const render=(sandbox as typeof sandbox&{actual:(props:unknown)=>React.ReactElement}).actual;
   const element=render({projectId:"synthetic",selectedId:"repo-2",onSelect:(value:unknown)=>changes.push(value)});
   return {element,html:renderToStaticMarkup(element),changes,reads};
@@ -54,7 +55,7 @@ it("release discovery checks project references automatically in bounded batches
   const data={projectId:"synthetic",offset:0,nextOffset:5,repositories:[{repositoryId:"repo-1",url:repositories[1]!.url,status:"CHECKED",releases:[{tag:"v1",name:"Synthetic release",url:repositories[1]!.url+"/-/releases/v1",commitSha:"a".repeat(40),releasedAt:"2026-10-09T12:00:00Z"}],hasMore:true}]};
   function render(overrides:Record<string,unknown>={},readable=true){
     const reads:unknown[]=[];const sandbox={React,repositoryDisplayName,useState:()=>[0,()=>{}],useCaseFieldAccess:()=>({readable,canEdit:readable,origin:null}),trpcReact:{repositoryIntelligence:{projectReleases:{useQuery:(input:unknown)=>{reads.push(input);return {data,isSuccess:true,isFetching:false,isPaused:false,error:null,...overrides};}}}}};
-    vm.createContext(sandbox);vm.runInContext(ts.transpileModule(declarations+"\nthis.actual=ProjectReleaseBatch;",{compilerOptions:{jsx:ts.JsxEmit.React,target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None}}).outputText,sandbox);
+    vm.createContext(sandbox);vm.runInContext(controllerTranspile(declarations+"\nthis.actual=ProjectReleaseBatch;",{compilerOptions:{jsx:ts.JsxEmit.React,target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None}}).outputText,sandbox);
     const element=(sandbox as typeof sandbox&{actual:(props:unknown)=>React.ReactElement}).actual({projectId:"synthetic",offset:0,onOffsetChange:()=>{},onBrowse:()=>{}});return{html:renderToStaticMarkup(element),reads};
   }
   expect(render().reads).toEqual([{projectId:"synthetic",offset:0}]);expect(render().html).toContain("Synthetic release");expect(render().html).toContain("Next repositories");

@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
@@ -8,7 +9,7 @@ import { describe, expect, it } from "vitest";
 const source = readFileSync(new URL("../components/DeviceHelperBlockedLaunchGuidance.tsx", import.meta.url), "utf8");
 const ast = ts.createSourceFile("DeviceHelperBlockedLaunchGuidance.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 const functions = ast.statements.filter(ts.isFunctionDeclaration).map(node => ts.createPrinter().printNode(ts.EmitHint.Unspecified, node, ast).replace(/\bexport\s+/, "")).join("\n");
-const code = ts.transpileModule(functions + "\nthis.render=DeviceHelperBlockedLaunchGuidance;", { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
+const code = controllerTranspile(functions + "\nthis.render=DeviceHelperBlockedLaunchGuidance;", { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
 type Button = React.ReactElement<{ "aria-expanded": boolean; "aria-controls": string; onClick(): void }>;
 function descendants(node: unknown): React.ReactElement[] {
   if (Array.isArray(node)) return node.flatMap(descendants);
@@ -52,7 +53,7 @@ describe("actual public blocked-helper guidance renderer: no native or device ac
   });
   it("actual source imports only presentation hooks and has no transport/private-data/OS or default external action", () => {
     const imports = ast.statements.filter(ts.isImportDeclaration).map(node => (node.moduleSpecifier as ts.StringLiteral).text);
-    expect(imports).toEqual(["react"]);
+    expect(imports).toEqual(["@/components/ui/ActionButton", "react"]);
     const identifiers: string[] = [];
     // The only callback is a functional local visibility change.
     const calls: string[] = [];
@@ -64,7 +65,7 @@ describe("actual public blocked-helper guidance renderer: no native or device ac
     const page = readFileSync(new URL("../app/projects/[projectId]/live-app-generation/page.tsx", import.meta.url), "utf8");
     expect(page).toContain('import { DeviceHelperBlockedLaunchGuidance } from "@/components/DeviceHelperBlockedLaunchGuidance"');
     expect(page).toContain('connectorStatus === "blocked" && <div role="status"><DeviceHelperBlockedLaunchGuidance reportedBlocked={true} />');
-    expect(page).toContain('onClick={showPolicyPermittedManualSetup}>Show manual instructions only if policy permits');
+    expect(page).toContain('onClick={showPolicyPermittedManualSetup} tooltip={<> Show manual instructions only if policy permits </>}');
     expect(page).toContain("Your private pairing draft remains retained");
     expect(page).toContain("launch outcome remains unverified");
     expect(page).not.toContain("not started. Do not disable");

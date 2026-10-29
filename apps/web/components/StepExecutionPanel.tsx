@@ -1,5 +1,7 @@
 "use client";
 
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useState } from "react";
 import type { RouterOutputs } from "@/lib/trpcReact";
 import { currentSessionScope } from "@/lib/auth-query-cache";
@@ -47,7 +49,7 @@ export function StepExecutionPanel({ testRunId, testCase, stepFieldLabels, activ
         <h3>Step outcomes</h3><p className="text-muted">{testCase.stepResults.filter(item => item.current).length} / {testCase.steps.length} recorded in this summary. The case verdict is derived only after all steps have an outcome; no missing step is assumed to pass.</p>
         <ol style={{ paddingLeft: 20, margin: 0 }}>{testCase.steps.map((step, index) => {
           const result = testCase.stepResults.find(item => item.stepIndex === index);
-          return <li key={index} className="panel" style={{ padding: 10, marginBottom: 10, overflowWrap: "anywhere" }}><strong style={{ whiteSpace: "pre-wrap" }}>{step.action}</strong><p>{result?.current?.status ?? "Not recorded"}</p><p className="text-muted">Open the native review to see the aligned saved tester/technical fields, exact observation and history.</p>{!retention.has(index) && <button type="button" className="btn-secondary" onClick={() => visit(index)}>Review step {index + 1} observation</button>}{retention.has(index) && <p className="text-muted">Step {index + 1} has retained review controls below.</p>}</li>;
+          return <li key={index} className="panel" style={{ padding: 10, marginBottom: 10, overflowWrap: "anywhere" }}><strong style={{ whiteSpace: "pre-wrap" }}>{step.action}</strong><p>{result?.current?.status ?? "Not recorded"}</p><details><summary>Details</summary><p className="text-muted">Open the native review to see the aligned saved tester/technical fields, exact observation and history.</p></details>{!retention.has(index) && <ActionButton type="button" className="btn-secondary" onClick={() => visit(index)} tooltip={<> Review step {index + 1} observation </>}>Review observation</ActionButton>}{retention.has(index) && <p className="text-muted">Step {index + 1} has retained review controls below.</p>}</li>;
         })}</ol>
       </>}
     </>}

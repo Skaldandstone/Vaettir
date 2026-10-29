@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { trpcReact, type RouterInputs } from "@/lib/trpcReact";
@@ -482,7 +484,7 @@ export function AtlassianQualitySettings({
                           </label>
                         ))}
                       </fieldset>
-                      <button
+                      <ActionButton
                         type="button"
                         onClick={() => {
                           setReleaseLinks((current) =>
@@ -490,12 +492,13 @@ export function AtlassianQualitySettings({
                           );
                           setApproved(false);
                         }}
-                      >
+                       tooltip={<>
                         Remove this release link
-                      </button>
+                       </>}>
+                         Remove </ActionButton>
                     </div>
                   ))}
-                  <button
+                  <ActionButton
                     type="button"
                     disabled={releaseLinks.length >= 50}
                     onClick={() => {
@@ -505,9 +508,10 @@ export function AtlassianQualitySettings({
                       ]);
                       setApproved(false);
                     }}
-                  >
+                   tooltip={<>
                     Link a release
-                  </button>
+                   </>}>
+                     Link release </ActionButton>
                 </section>
               )}
               {!!data.closures.length && (
@@ -577,7 +581,7 @@ export function AtlassianQualitySettings({
               </label>
             </fieldset>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
-              <button
+              <ActionButton
                 type="submit"
                 disabled={
                   busy ||
@@ -589,11 +593,15 @@ export function AtlassianQualitySettings({
                     !(releaseLinks.length && binding.product === "jira") &&
                     !(tickets && binding.product === "jira"))
                 }
-              >
+               tooltip={<>
                 {publishRetained
                   ? "Recover this save"
                   : "Save sharing approval"}
-              </button>
+               </>}>
+                {publishRetained
+                  ? "Recover"
+                  : "Approve sharing"}
+              </ActionButton>
               {!retained && (
                 <button
                   type="button"
@@ -614,13 +622,14 @@ export function AtlassianQualitySettings({
                 </button>
               )}
               {revokeRetained && (
-                <button
+                <ActionButton
                   type="button"
                   disabled={busy}
                   onClick={() => void stopSharing(pendingRevoke.current!.id)}
-                >
+                 tooltip={<>
                   Recover stop-sharing request
-                </button>
+                 </>}>
+                   Recover </ActionButton>
               )}
             </div>
           </form>}

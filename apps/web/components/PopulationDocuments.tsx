@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useState } from "react";
 import { TRPCClientError } from "@trpc/client";
 import { trpcReact } from "../lib/trpcReact";
@@ -129,7 +131,7 @@ export function PopulationDocuments({ projectId }: { projectId: string }) {
         </details>
       )}
       {!editing ? (
-        <button
+        <ActionButton
           className="btn-secondary"
           onClick={() => {
             setEditing(true);
@@ -139,9 +141,10 @@ export function PopulationDocuments({ projectId }: { projectId: string }) {
             setPermission(false);
             setMessage("");
           }}
-        >
+         tooltip={<>
           Add or update a document
-        </button>
+         </>}>
+           Add </ActionButton>
       ) : !preview.data ? (
         <div>
           <fieldset
@@ -239,14 +242,15 @@ export function PopulationDocuments({ projectId }: { projectId: string }) {
               {preview.data.content}
             </pre>
           </details>
-          <button
+          <ActionButton
             className="btn-primary"
             disabled={busy || preview.data.status === "conflict"}
             onClick={() => void commit()}
-          >
+           tooltip={<>
             Approve document evidence · 0 credits
-          </button>
-          <button
+           </>}>
+             Approve evidence </ActionButton>
+          <ActionButton
             className="btn-secondary"
             disabled={
               busy ||
@@ -257,9 +261,10 @@ export function PopulationDocuments({ projectId }: { projectId: string }) {
               approve.reset();
               setRequestId(null);
             }}
-          >
+           tooltip={<>
             Edit and preview again
-          </button>
+           </>}>
+             Edit preview </ActionButton>
         </div>
       )}
       <p role="status">{message}</p>

@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useMemo, useState } from "react";
 import { FOLDER_DRAG_TYPE, caseFolderNodeCatalog, caseFolderKindLabel, encodeFolderDrag, reviewedFolderDrop, supportedCaseFolderPath, type CaseFolderCatalog, type CaseFolderNode, type FolderReviewIntent } from "@/lib/case-folder-tree";
 import { IconButton } from "./ui/IconButton";
@@ -154,7 +156,7 @@ function TreeNodeView({
         <IconButton icon="edit" label={`Rename folder ${node.path}`} onClick={() => reviewFolder("RENAME")} />
       </div>}
       {!entry.supported && <p style={{ marginLeft: 8 + depth * 14, fontSize: 11 }}>Raw path retained. Move/rename is unsupported; no source path is normalized.</p>}
-      {!entry.supported && node.path === UNASSIGNED && <button type="button" onClick={() => onSelect(null)}>View retained raw-path cases in All test cases</button>}
+      {!entry.supported && node.path === UNASSIGNED && <ActionButton type="button" onClick={() => onSelect(null)} tooltip={<> View retained raw-path cases in All test cases </>}> View cases </ActionButton>}
       {open && (
         <>
           {[...node.children.values()]

@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import {
   useCallback,
   useEffect,
@@ -242,7 +244,7 @@ export function CaseCustomFieldsForm({
         <p role="alert">
           {initialError}{" "}
           {caseId === undefined && fresh && (
-            <button
+            <ActionButton
               type="button"
               onClick={() => {
                 setValues(fresh.values);
@@ -253,9 +255,10 @@ export function CaseCustomFieldsForm({
                 setControlsValid(true);
                 setValueSession((value) => value + 1);
               }}
-            >
+             tooltip={<>
               Start with current fields without preset defaults
-            </button>
+             </>}>
+               Start </ActionButton>
           )}
         </p>
       )}
@@ -278,7 +281,7 @@ export function CaseCustomFieldsForm({
         <p role="alert">
           Fields or definitions changed after this draft opened. Your draft is
           retained. Review current values before replacing it.{" "}
-          <button
+          <ActionButton
             type="button"
             onClick={() => {
               if (fresh) {
@@ -290,9 +293,10 @@ export function CaseCustomFieldsForm({
                 setValueSession((value) => value + 1);
               }
             }}
-          >
+           tooltip={<>
             Load current values
-          </button>
+           </>}>
+             Load current </ActionButton>
         </p>
       )}
       {!access.readable && (
@@ -543,21 +547,23 @@ function CaseFieldEditor({
       )}
       {access.canEdit &&
         (!pending || sameCaseFieldOrigin(pending.origin, access.current)) && (
-          <button
+          <ActionButton
             type="button"
             className="btn-secondary"
             onClick={() => {
               setOpen(true);
             }}
-          >
+           tooltip={<>
             {pending ? "Resume exact field save" : "Edit case fields"}
-          </button>
+           </>}>
+            {pending ? "Resume" : "Edit"}
+          </ActionButton>
         )}
-      <p className="text-muted">
+      <details><summary>Details</summary><p className="text-muted">
         Metadata saves retain an actor-attributed before/after audit. Procedure
         version comparison and restore preserve current metadata. Supported
         metadata snapshots can be reviewed and restored separately below.
-      </p>
+      </p></details>
       <CaseFieldHistory projectId={projectId} caseId={caseId} />
       {access.readable && notice && <p role="status">{notice}</p>}
       <Modal
@@ -615,7 +621,7 @@ function CaseFieldEditor({
           )}
         {access.readable && notice && <p role="alert">{notice}</p>}
         {access.readable && (
-          <button
+          <ActionButton
             type="button"
             className="btn-primary"
             disabled={
@@ -633,13 +639,19 @@ function CaseFieldEditor({
                   !confirmed))
             }
             onClick={() => void commit()}
-          >
+           tooltip={<>
             {save.isPending
               ? "Saving…"
               : pending
                 ? "Retry exact save"
                 : "Save reviewed fields"}
-          </button>
+           </>}>
+            {save.isPending
+              ? "Saving…"
+              : pending
+                ? "Retry"
+                : "Save"}
+          </ActionButton>
         )}
         {!access.readable && (
           <p role="status">

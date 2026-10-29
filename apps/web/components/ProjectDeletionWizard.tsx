@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useState } from "react";
 import Link from "next/link";
 import { trpcReact } from "../lib/trpcReact";
@@ -186,14 +188,15 @@ export function ProjectDeletionWizard({
               Retrying keeps the same request ID, so a completed deletion will
               not run twice.
             </p>
-            <button
+            <ActionButton
               className="btn-secondary"
               type="button"
               disabled={busy}
               onClick={reviewAgain}
-            >
+             tooltip={<>
               Refresh contents and start a new review
-            </button>
+             </>}>
+               Refresh </ActionButton>
           </div>
         )}
         <div className="review-actions">
@@ -221,11 +224,11 @@ export function ProjectDeletionWizard({
             </button>
           )}
           {confirming ? (
-            <button
+            <ActionButton
               type="submit"
               className="btn-danger"
               disabled={!ready || busy}
-            >
+             tooltip={<>
               {busy
                 ? "Deleting…"
                 : deletion.error
@@ -233,18 +236,27 @@ export function ProjectDeletionWizard({
                   : data?.hasContents
                     ? "Delete project and contents"
                     : "Delete project"}
-            </button>
+             </>}>
+              {busy
+                ? "Deleting…"
+                : deletion.error
+                  ? "Retry deletion"
+                  : data?.hasContents
+                    ? "Delete project"
+                    : "Delete project"}
+            </ActionButton>
           ) : (
-            <button
+            <ActionButton
               type="button"
               className="btn-primary"
               disabled={!data || data.blocked || preview.isFetching}
               onClick={() => {
                 if (data) setReviewedFingerprint(data.fingerprint);
               }}
-            >
+             tooltip={<>
               Continue to confirmation
-            </button>
+             </>}>
+               Continue </ActionButton>
           )}
         </div>
       </form>

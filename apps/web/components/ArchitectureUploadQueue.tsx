@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useLayoutEffect, useRef, useState } from "react";
 import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "@vaettir/api/src/router";
@@ -96,8 +98,8 @@ export function ArchitectureUploadQueue({ projectId, organizationId, actorClerkU
     {scopeAvailable && rows.length > 0 && <section aria-label="Bulk architecture upload" style={{ marginTop: 12 }}>
       <p>{rows.length} diagrams selected. Inspect each file, review its preview, then save the valid versions. Files are saved individually; partial progress is retained.</p>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <button type="button" disabled={disabled || rows.every(row => row.preview)} onClick={() => void inspectAll()}>Inspect selected diagrams</button>
-        <button type="button" disabled={disabled || !ready} onClick={() => void saveReviewed()}>{ready ? `Save ${ready} reviewed ${ready === 1 ? "version" : "versions"}` : "Save reviewed versions"}</button>
+        <ActionButton type="button" disabled={disabled || rows.every(row => row.preview)} onClick={() => void inspectAll()} tooltip={<> Inspect selected diagrams </>}> Inspect diagrams </ActionButton>
+        <ActionButton type="button" disabled={disabled || !ready} onClick={() => void saveReviewed()} tooltip={<> {ready ? `Save ${ready} reviewed ${ready === 1 ? "version" : "versions"}` : "Save reviewed versions"} </>}>{ready ? `Save ${ready} reviewed ${ready === 1 ? "version" : "versions"}` : "Save"}</ActionButton>
       </div>
       <ul>{rows.map((row, index) => <li key={index} style={{ marginBlock: 10, overflowWrap: "anywhere" }}>
         <strong>{row.file.name}</strong>{" · "}{row.saved ? "Saved" : row.preview ? `${row.preview.document.elements.length} elements · ready for review` : row.error ? "Could not inspect" : "Not inspected"}
@@ -107,7 +109,7 @@ export function ArchitectureUploadQueue({ projectId, organizationId, actorClerkU
           {row.preview.document.warnings.map((warning, i) => <p key={i}>{warning}</p>)}
           {row.preview.document.elements.slice(0, 5).map(element => <span key={element.id} style={{ display: "block" }}>{element.kind.toLowerCase()}: {element.label}</span>)}
           {row.preview.document.elements.length > 5 && <small>Open the preview to review all elements.</small>}
-          <button type="button" disabled={disabled} onClick={() => row.source && row.preview && onOpen(row.source, row.preview)}>Open preview for {row.file.name}</button>
+          <ActionButton type="button" disabled={disabled} onClick={() => row.source && row.preview && onOpen(row.source, row.preview)} tooltip={<> Open preview for {row.file.name} </>}> Open {row.file.name}</ActionButton>
           {!row.preview.canSpend && <p>Editor access is required to save this version.</p>}
         </>}
       </li>)}</ul>

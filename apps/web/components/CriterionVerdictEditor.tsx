@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useState } from "react";
 import { trpcReact, type RouterInputs } from "@/lib/trpcReact";
 import { usePlanGovernance } from "@/lib/use-plan-governance";
@@ -181,17 +183,18 @@ export function CriterionVerdictEditor({
           </p>
         ) : (
           <div style={{ display: "grid", gap: 12 }}>
-            <p className="text-muted">
+            <details><summary>Details</summary><p className="text-muted">
               Change only this native criterion verdict. Wording, linked
               requirements and all other criteria stay unchanged. A manual
               decision does not constitute executed test evidence.
-            </p>
+            </p></details>
             {query.error && (
               <p role="alert">
                 {query.error.message}
-                <button onClick={() => void query.refetch()}>
+                <ActionButton onClick={() => void query.refetch()} tooltip={<>
                   Retry plan read
-                </button>
+                 </>}>
+                   Retry </ActionButton>
               </p>
             )}
             {fresh?.editBlockedReason && (
@@ -204,12 +207,13 @@ export function CriterionVerdictEditor({
               </p>
             )}
             {!draft && !pending && (
-              <button
+              <ActionButton
                 onClick={review}
                 disabled={!fresh?.canEdit || !fresh.manualVerdicts}
-              >
+               tooltip={<>
                 Load native criterion for review
-              </button>
+               </>}>
+                 Load </ActionButton>
             )}
             {draft && !pending && (
               <>
@@ -259,7 +263,7 @@ export function CriterionVerdictEditor({
                   I reviewed this verdict; existing wording and requirement
                   links remain unchanged.
                 </label>
-                <button
+                <ActionButton
                   onClick={() => void commit()}
                   disabled={
                     preparing ||
@@ -269,16 +273,18 @@ export function CriterionVerdictEditor({
                     !confirmed ||
                     !reason.trim()
                   }
-                >
+                 tooltip={<>
                   Save reviewed verdict
-                </button>
-                <button
+                 </>}>
+                   Save </ActionButton>
+                <ActionButton
                   className="btn-secondary"
                   disabled={preparing || save.isPending}
                   onClick={review}
-                >
+                 tooltip={<>
                   Reload current criterion (replaces unsaved decision)
-                </button>
+                 </>}>
+                   Replace draft </ActionButton>
               </>
             )}
             {pending && (
@@ -287,12 +293,13 @@ export function CriterionVerdictEditor({
                   Verdict {pending.input.status} is awaiting acknowledgement.
                   Closing this panel retains the exact request.
                 </p>
-                <button
+                <ActionButton
                   disabled={save.isPending || !access.canEdit}
                   onClick={() => void commit()}
-                >
+                 tooltip={<>
                   Retry same verdict request
-                </button>
+                 </>}>
+                   Retry </ActionButton>
               </>
             )}
             {notice && <p role="status">{notice}</p>}

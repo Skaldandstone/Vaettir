@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { trpcReact, type RouterInputs } from "@/lib/trpcReact";
@@ -134,15 +136,16 @@ export default function SharedStepsPage() {
             </p>
             {g.description && <p>{g.description}</p>}
           </div>
-          <button
+          <ActionButton
             disabled={historyPending && library !== g.id}
             onClick={() => {
               setLibrary(g.id);
               setHistoryOpen(true);
             }}
-          >
+           tooltip={<>
             History and review
-          </button>
+           </>}>
+             History </ActionButton>
         </article>
       ))}
       {groups?.length === 0 && (
@@ -222,12 +225,11 @@ export default function SharedStepsPage() {
                   />
                 </label>
               ))}
-              <button
+              <ActionButton
                 disabled={steps.length === 1}
-                onClick={() => setSteps(steps.filter((_, j) => j !== i))}
-              >
+                onClick={() => setSteps(steps.filter((_, j) => j !== i))} tooltip={<>
                 Remove step {i + 1}
-              </button>
+               </>}>Remove step</ActionButton>
             </div>
           ))}
           <button
@@ -265,7 +267,7 @@ export default function SharedStepsPage() {
           style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}
         >
           <button onClick={() => setOpen(false)}>Close</button>
-          <button
+          <ActionButton
             className="btn-primary"
             disabled={
               !canEdit ||
@@ -287,13 +289,19 @@ export default function SharedStepsPage() {
               pendingReceipt.current ??= { input: request, uncertain: false };
               create.mutate(request);
             }}
-          >
+           tooltip={<>
             {create.isPending
               ? "Saving…"
               : pending
                 ? "Retry exact creation"
                 : "Create reviewed library"}
-          </button>
+           </>}>
+            {create.isPending
+              ? "Saving…"
+              : pending
+                ? "Retry"
+                : "Create library"}
+          </ActionButton>
         </div>
       </Modal>
     </div>

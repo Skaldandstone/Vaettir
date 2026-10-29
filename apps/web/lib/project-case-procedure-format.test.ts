@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 // Genuine complete component with synthetic hook/RPC/Modal boundaries. This
 // models retained preferences and callbacks, not native or browser acceptance.
 import { readFileSync } from "node:fs";
@@ -20,7 +21,7 @@ function text(value: unknown): string {
   return typeof value === "string" || typeof value === "number" ? String(value) : React.isValidElement(value) ? text((value as Element).props.children) : Array.isArray(value) ? value.map(text).join("") : "";
 }
 const source = readFileSync(new URL("../components/ProjectCasePresentation.tsx", import.meta.url), "utf8");
-const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } }).outputText;
+const compiled = controllerTranspile(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } }).outputText;
 type Request = { projectId: string; originalOrganizationId: string; expectedClerkActorId: string; expectedProfileHash: string; configuration: core.CasePresentation; reason: string; confirmed: true; requestId: string };
 function harness() {
   const origin: CaseFieldOrigin = { projectId: "p", organizationId: "o", caseId: null, clerkActorId: "cl" };

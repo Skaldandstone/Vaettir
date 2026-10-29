@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useId, useLayoutEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { trpcReact, type RouterInputs } from "@/lib/trpcReact";
@@ -269,7 +271,7 @@ function AiDisclosureControls({
           classification stays the same. A label does not scan or sanitize
           project data.
         </p>
-        <button
+        <ActionButton
           type="button"
           disabled={locked || (classification === "SYNTHETIC" && !attest)}
           onClick={() =>
@@ -285,9 +287,10 @@ function AiDisclosureControls({
               },
             })
           }
-        >
+         tooltip={<>
           Save classification and revoke earlier grants
-        </button>
+         </>}>
+           Save/revoke </ActionButton>
       </fieldset>
       <fieldset
         disabled={locked || data?.classification !== "SYNTHETIC"}
@@ -324,7 +327,7 @@ function AiDisclosureControls({
           connection. I understand a bearer credential can be used by anyone who
           holds it.
         </label>
-        <button
+        <ActionButton
           type="button"
           disabled={
             locked ||
@@ -347,19 +350,21 @@ function AiDisclosureControls({
               },
             })
           }
-        >
+         tooltip={<>
           Approve and issue credential
-        </button>
+         </>}>
+           Issue credential </ActionButton>
       </fieldset>
       {uncertain && !busy && (
-        <button
+        <ActionButton
           type="button"
           className="btn-secondary"
           disabled={!data}
           onClick={() => pending.current && void perform(pending.current)}
-        >
+         tooltip={<>
           Recover pending request
-        </button>
+         </>}>
+           Recover </ActionButton>
       )}
       {message && <p role="status">{message}</p>}
       {data && token && (
@@ -429,7 +434,7 @@ function AiDisclosureControls({
                       : "Approved"}{" "}
                 · expires {new Date(grant.expiresAt).toLocaleDateString()}
               </p>
-              <button
+              <ActionButton
                 type="button"
                 className="btn-secondary"
                 disabled={
@@ -453,9 +458,10 @@ function AiDisclosureControls({
                     },
                   })
                 }
-              >
+               tooltip={<>
                 Approve replacement credential
-              </button>{" "}
+               </>}>
+                 Issue replacement </ActionButton>{" "}
               <button
                 type="button"
                 className="btn-secondary"

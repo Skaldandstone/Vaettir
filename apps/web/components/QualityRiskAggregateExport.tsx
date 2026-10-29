@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { renderBoundedSpreadsheetCsv } from "@vaettir/core";
 import { type RouterOutputs } from "@/lib/trpcReact";
@@ -119,7 +121,7 @@ export function QualityRiskAggregateExport({
   }
   return (
     <>
-      <button
+      <ActionButton
         type="button"
         className="btn-secondary"
         disabled={!active}
@@ -128,9 +130,10 @@ export function QualityRiskAggregateExport({
           setMessage("");
           setOpen(true);
         }}
-      >
+       tooltip={<>
         Export reviewed risk overview
-      </button>
+       </>}>
+         Export </ActionButton>
       {active && message && <p role="status">{message}</p>}
       <Modal
         open={open}
@@ -249,14 +252,15 @@ export function QualityRiskAggregateExport({
           >
             Cancel
           </button>
-          <button
+          <ActionButton
             type="button"
             className="btn-primary"
             disabled={!canExport}
             onClick={download}
-          >
+           tooltip={<>
             Prepare reviewed file
-          </button>
+           </>}>
+             Download </ActionButton>
         </div>
       </Modal>
     </>

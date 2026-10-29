@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { trpcReact } from "@/lib/trpcReact";
 import { REPORT_SECTIONS, readableMetric } from "@/lib/frozen-report";
 import {
@@ -212,13 +214,14 @@ export function ReportDefinitionSettingsEditor({
               />
             </label>
             {value.dateInterval && (
-              <button
+              <ActionButton
                 type="button"
                 className="btn-secondary"
                 onClick={() => onChange({ ...value, dateInterval: undefined })}
-              >
+               tooltip={<>
                 Use rolling dates instead
-              </button>
+               </>}>
+                 Use </ActionButton>
             )}
           </details>
         </>
@@ -323,13 +326,14 @@ export function ReportDefinitionSettingsEditor({
                 Suggestions are unavailable. No cached choices are shown; your
                 written scope is retained.
               </p>
-              <button
+              <ActionButton
                 type="button"
                 className="btn-secondary"
                 onClick={() => void scopeOptions.refetch()}
-              >
+               tooltip={<>
                 Retry scope suggestions
-              </button>
+               </>}>
+                 Retry </ActionButton>
             </div>
           )}
           {scopeOptions.isPaused && (
@@ -383,13 +387,14 @@ export function ReportDefinitionSettingsEditor({
             </label>
           </details>
           {value.executionScope && (
-            <button
+            <ActionButton
               type="button"
               className="btn-secondary"
               onClick={() => onChange({ ...value, executionScope: undefined })}
-            >
+             tooltip={<>
               Clear scope filters
-            </button>
+             </>}>
+               Clear </ActionButton>
           )}
         </>
       )}
@@ -419,22 +424,24 @@ export function ReportDefinitionSettingsEditor({
       )}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
         {screen > 0 && (
-          <button
+          <ActionButton
             type="button"
             className="btn-secondary"
             onClick={() => onScreen(screen - 1)}
-          >
+           tooltip={<>
             Previous settings screen
-          </button>
+           </>}>
+             Previous </ActionButton>
         )}
         {screen < 3 && (
-          <button
+          <ActionButton
             type="button"
             className="btn-primary"
             onClick={() => onScreen(screen + 1)}
-          >
+           tooltip={<>
             Next settings screen
-          </button>
+           </>}>
+             Next </ActionButton>
         )}
       </div>
     </section>

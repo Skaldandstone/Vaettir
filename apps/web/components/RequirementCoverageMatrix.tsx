@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import Link from "next/link";
@@ -356,7 +358,7 @@ function Matrix({ projectId }: { projectId: string }) {
     more: boolean,
     step: number,
     change: (n: number) => void,
-  ) => (
+  ) => !position && !more ? null : (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBlock: 12 }}>
       <button
         type="button"
@@ -380,10 +382,6 @@ function Matrix({ projectId }: { projectId: string }) {
   return (
     <section>
       <h1>Requirement coverage</h1>
-      <p>
-        Explore declared requirement → case relationships and recorded execution
-        evidence. No passing result certifies a requirement or release.
-      </p>
       <div
         style={{
           display: "flex",
@@ -393,7 +391,7 @@ function Matrix({ projectId }: { projectId: string }) {
         }}
       >
         <label style={{ ...label, flex: "1 1 240px" }}>
-          Find current requirements
+          Search requirements
           <input
             style={control}
             value={search}
@@ -413,14 +411,14 @@ function Matrix({ projectId }: { projectId: string }) {
             setFiltersOpen(true);
           }}
         >
-          Execution scope
+          Scope
         </button>
         <button
           type="button"
           className="btn-secondary"
           onClick={() => void recheckAccess(true)}
         >
-          Refresh current records
+          Refresh
         </button>
         <RequirementCoverageExport
           projectId={projectId}
@@ -431,16 +429,6 @@ function Matrix({ projectId }: { projectId: string }) {
           revision={list.dataUpdatedAt}
         />
       </div>
-      <p className="text-muted">
-        Run-start UTC days: {scope.interval?.start} through{" "}
-        {scope.interval?.end}.{" "}
-        {scope.scope
-          ? Object.entries(scope.scope)
-              .map(([key, value]) => `${readableMetric(key)}: ${value}`)
-              .join(" · ")
-          : "All recorded configurations"}
-        .
-      </p>
       {denied ? (
         <div role="alert">
           <p>
@@ -452,7 +440,7 @@ function Matrix({ projectId }: { projectId: string }) {
             className="btn-secondary"
             onClick={() => void recheckAccess()}
           >
-            Recheck current access
+            Refresh
           </button>
         </div>
       ) : accessPaused ? (
@@ -466,7 +454,7 @@ function Matrix({ projectId }: { projectId: string }) {
             The matrix could not be loaded. No empty coverage or zero counts
             have been substituted. {list.error.message}
           </p>
-          {retry(list, "Retry requirement matrix")}
+          {retry(list, "Retry")}
         </div>
       ) : !catalog ? (
         <p role="status">
@@ -476,6 +464,19 @@ function Matrix({ projectId }: { projectId: string }) {
         </p>
       ) : (
         <>
+          <p>{catalog.total} requirements · {catalog.projectExecution.runs} project runs · {catalog.projectExecution.resultRecords} result records</p>
+          <details><summary>Details</summary>
+            <p>Declared requirement-to-case links and recorded execution evidence. A passing result does not certify a requirement or release.</p>
+      <p className="text-muted">
+        Run-start UTC days: {scope.interval?.start} through{" "}
+        {scope.interval?.end}.{" "}
+        {scope.scope
+          ? Object.entries(scope.scope)
+              .map(([key, value]) => `${readableMetric(key)}: ${value}`)
+              .join(" · ")
+          : "All recorded configurations"}
+        .
+      </p>
           <p>
             {catalog.total} current requirements. Project-wide execution in this
             scope: {catalog.projectExecution.runs} runs;{" "}
@@ -491,10 +492,10 @@ function Matrix({ projectId }: { projectId: string }) {
             {catalog.window.start} – {catalog.window.end}; not a frozen
             historical snapshot.
           </p>
+          </details>
           {!catalog.items.length ? (
             <p>
-              No current native requirements match this search. This does not
-              imply complete coverage.
+              No requirements match this search.
             </p>
           ) : (
             <>
@@ -539,7 +540,7 @@ function Matrix({ projectId }: { projectId: string }) {
                             className="btn-secondary"
                             onClick={() => chooseRequirement(row.id)}
                           >
-                            Explore cases and outcomes
+                            View cases
                           </button>
                         </td>
                       </tr>
@@ -554,7 +555,7 @@ function Matrix({ projectId }: { projectId: string }) {
             closeCases();
           })}
           <details>
-            <summary>Evidence and scope limitations</summary>
+            <summary>Coverage limits</summary>
             <ul>
               {catalog.limits.map((limit) => (
                 <li key={limit}>{limit}</li>
@@ -706,14 +707,14 @@ function Matrix({ projectId }: { projectId: string }) {
           </p>
         ) : (
           scopeOptions && (
-            <p className="text-muted">
+            <details><summary>Details</summary><p className="text-muted">
               Suggestions include at most 100 current plans and 100 recent runs
               {scopeOptions.plansLimited || scopeOptions.runsLimited
                 ? "; additional records are not listed"
                 : ""}
               . Missing metadata is not inferred. Exact older native references
               may be entered.
-            </p>
+            </p></details>
           )
         )}
         {filterError && <p role="alert">{filterError}</p>}
@@ -725,14 +726,15 @@ function Matrix({ projectId }: { projectId: string }) {
           >
             Cancel
           </button>
-          <button
+          <ActionButton
             type="button"
             className="btn-primary"
             disabled={!ready || denied}
             onClick={apply}
-          >
+           tooltip={<>
             Apply recorded scope
-          </button>
+           </>}>
+             Apply scope </ActionButton>
         </div>
       </Modal>
       <Modal
@@ -757,7 +759,7 @@ function Matrix({ projectId }: { projectId: string }) {
               The direct case relationships could not be verified; no
               zero-coverage substitute is shown. {cases.error.message}
             </p>
-            {retry(cases, "Retry explicit case relationships")}
+            {retry(cases, "Retry")}
           </div>
         ) : !casePage ? (
           <p role="status">
@@ -834,13 +836,14 @@ function Matrix({ projectId }: { projectId: string }) {
                             without a recorded result
                           </td>
                           <td>
-                            <button
+                            <ActionButton
                               type="button"
                               className="btn-secondary"
                               onClick={() => chooseCase(row.id)}
-                            >
+                             tooltip={<>
                               Runs and defect links
-                            </button>
+                             </>}>
+                               Related records </ActionButton>
                           </td>
                         </tr>
                       ))}
@@ -867,7 +870,7 @@ function Matrix({ projectId }: { projectId: string }) {
                       Recorded evidence could not be verified. Cached outcomes
                       and native links are withheld. {evidence.error.message}
                     </p>
-                    {retry(evidence, "Retry recorded evidence")}
+                    {retry(evidence, "Retry")}
                   </div>
                 ) : !records ? (
                   <p role="status">
@@ -967,12 +970,12 @@ function Matrix({ projectId }: { projectId: string }) {
                       setResultOffset,
                     )}
                     <h4>Explicit current native defect relationships</h4>
-                    <p className="text-muted">
+                    <details><summary>Details</summary><p className="text-muted">
                       Not filtered by run date/configuration; a case link is not
                       evidence that a specific run tested or resolved the
                       defect. No tracker closure is interpreted as runtime
                       resolution.
-                    </p>
+                    </p></details>
                     {!records.defects.items.length ? (
                       <p>
                         No explicit retained native defect links on this page.

@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useId, useLayoutEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
@@ -64,9 +66,9 @@ function StringListField({
           </button>
         </div>
       ))}
-      <button type="button" className="btn-secondary" style={{ fontSize: 12 }} onClick={() => change([...rows, { id: `${prefix}:${state.generation}:${state.nextId}`, value: "" }], state.nextId + 1)}>
+      <ActionButton type="button" className="btn-secondary" style={{ fontSize: 12 }} onClick={() => change([...rows, { id: `${prefix}:${state.generation}:${state.nextId}`, value: "" }], state.nextId + 1)} tooltip={<>
         + Add {label.toLowerCase().replace(/s$/, "")}
-      </button>
+       </>}>Add item</ActionButton>
     </div>
   );
 }
@@ -133,11 +135,13 @@ function SuggestRiskAreasButton({
 
   return (
     <div style={{ marginTop: 4 }}>
-      <button type="button" className="btn-secondary" style={{ fontSize: 12 }} onClick={suggest} disabled={loading || !ready}>
+      <ActionButton type="button" className="btn-secondary" style={{ fontSize: 12 }} onClick={suggest} disabled={loading || !ready} tooltip={<>
         {loading ? "Checking…" : "Suggest from existing data"}
-      </button>
+       </>}>
+        {loading ? "Checking…" : "Suggest"}
+      </ActionButton>
       {error && <span className="text-muted" style={{ fontSize: 12, marginLeft: 8 }}>{error}</span>}
-      <p className="text-muted" style={{ fontSize: 12 }}>Suggestions apply only while these exact strategy fields and the original signed-in session remain current. If that context changes, the earlier response is not added and cannot replace a newer notice. Retry with the retained current fields.</p>
+      <details><summary>Details</summary><p className="text-muted" style={{ fontSize: 12 }}>Suggestions apply only while these exact strategy fields and the original signed-in session remain current. If that context changes, the earlier response is not added and cannot replace a newer notice. Retry with the retained current fields.</p></details>
     </div>
   );
 }
@@ -262,9 +266,9 @@ function StrategySignalsSection({ projectId }: { projectId: string }) {
   return (
     <div style={{ marginBottom: 24 }}>
       <h2>Current signals</h2>
-      <p className="text-muted" style={{ fontSize: 13, marginTop: -4 }}>
+      <details><summary>Details</summary><p className="text-muted" style={{ fontSize: 13, marginTop: -4 }}>
         Real project-wide data to check your exit criteria against - not an automatic verdict on any one criterion.
-      </p>
+      </p></details>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 }}>
         <div className="panel">
           <div className="text-muted" style={{ fontSize: 12 }}>Recent pass rate</div>
@@ -456,9 +460,11 @@ function TestCaseQualityReviewSection({ testPlanId, projectId }: { testPlanId: s
         this plan's {caseCount ?? "…"} test case{caseCount === 1 ? "" : "s"}. Diagnostic only -- nothing is edited
         automatically.
       </p>
-      <button className="btn-secondary" onClick={review} disabled={reviewing || caseCount === null}>
+      <ActionButton className="btn-secondary" onClick={review} disabled={reviewing || caseCount === null} tooltip={<>
         {reviewing ? "Reviewing…" : result ? "Review again" : "Review test case quality"}
-      </button>
+       </>}>
+        {reviewing ? "Reviewing…" : result ? "Review again" : "Review"}
+      </ActionButton>
       {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
       {result && (
         <div style={{ marginTop: 12 }}>
@@ -580,7 +586,7 @@ export function TestPlanDetailContent({
       {loadError && <div role="alert" style={{ color: "var(--ember)", marginBottom: 12 }}>
         <p>{loadError}</p>
         <p>Your mounted drafts remain here. A failed response is not proof that a save was rejected.</p>
-        <button type="button" className="btn-secondary" onClick={load}>Refresh saved plan without clearing drafts</button>
+        <ActionButton type="button" className="btn-secondary" onClick={load} tooltip={<> Refresh saved plan without clearing drafts </>}> Refresh </ActionButton>
       </div>}
       <header className="plan-workbench-header">
         <div><p className="workspace-eyebrow">{plan.testPlanType.name} plan · {status}</p><h1>{plan.name}</h1>{description && <p className="muted">{description}</p>}</div>

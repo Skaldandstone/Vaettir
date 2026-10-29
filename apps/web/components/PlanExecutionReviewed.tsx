@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { trpcReact } from "@/lib/trpcReact";
@@ -87,9 +89,9 @@ export function PlanExecutionReviewed({ projectId, testPlanId, organizationId, o
     {(legacyBlocked || legacyHasDraft) && <p role="status">A legacy draft or request is retained privately in its original mounted owner. It is not migrated, resent or assigned a newly observed native identity. {legacyBlocked ? "A held legacy request blocks replacement here." : "The new flow starts separately; old draft contents are not adopted."}</p>}
     {!legacyBlocked && <>
       <details><summary>Refresh access & run settings</summary><div className="workspace-toolbar">
-        <button type="button" className="btn-secondary" disabled={view.busy} onClick={() => { if (exactFrame()) plan.refresh(); }}>Recheck original plan access</button>
-        <button type="button" className="btn-secondary" disabled={view.busy || !plan.origin} onClick={() => { if (exactFrame()) profile.refresh(); }}>Recheck original run-profile access</button>
-        <button type="button" className="btn-secondary" disabled={view.busy || !currentProfile} onClick={() => { if (exactFrame()) profile.readPreview(); }}>Read current run profile</button>
+        <ActionButton type="button" className="btn-secondary" disabled={view.busy} onClick={() => { if (exactFrame()) plan.refresh(); }} tooltip={<> Recheck original plan access </>}> Refresh </ActionButton>
+        <ActionButton type="button" className="btn-secondary" disabled={view.busy || !plan.origin} onClick={() => { if (exactFrame()) profile.refresh(); }} tooltip={<> Recheck original run-profile access </>}> Refresh </ActionButton>
+        <ActionButton type="button" className="btn-secondary" disabled={view.busy || !currentProfile} onClick={() => { if (exactFrame()) profile.readPreview(); }} tooltip={<> Read current run profile </>}> Read </ActionButton>
       </div></details>
       {!page && <p role="status">Loading the current plan and run settings…</p>}
       {active && (plan.error || profile.error) && <p role="alert">Unable to verify this plan. Use Refresh access & run settings to try again.</p>}
@@ -127,14 +129,14 @@ export function PlanExecutionReviewed({ projectId, testPlanId, organizationId, o
         <button type="button" className="btn-primary" disabled={!page || !view.canSend} onClick={() => { if (fullPage()) void controller.submit(input => start.mutateAsync(input), onSaved); }}>Start run</button>
         {recovery && view.canRetry && <button type="button" className="btn-secondary" onClick={() => { if (exactFrame()) void controller.submit(input => start.mutateAsync(input), onSaved); }}>Retry start</button>}
         {recovery && view.canDiscard && <button type="button" className="btn-secondary" onClick={() => { if (exactFrame()) controller.discard(); }}>Cancel review</button>}
-        {recovery && view.canAnother && <button type="button" className="btn-secondary" onClick={() => { if (exactFrame()) controller.another(); }}>Prepare another run</button>}
+        {recovery && view.canAnother && <ActionButton type="button" className="btn-secondary" onClick={() => { if (exactFrame()) controller.another(); }} tooltip={<> Prepare another run </>}> New run </ActionButton>}
       </div>
       {privateNotice && <p role="status">{view.notice}</p>}
       {view.pending && <p role="status">An original request is retained while this component stays mounted. Close or access loss does not reset its body or key. Reload/route replacement recovery is not provided here.</p>}
-      {recovery && view.confirmedRunId && <p>Exact original receipt confirmed. <button type="button" className="btn-secondary" onClick={() => {
+      {recovery && view.confirmedRunId && <p>Exact original receipt confirmed. <ActionButton type="button" className="btn-secondary" onClick={() => {
         if (!exactFrame() || !recovery || controller.view().confirmedRunId !== view.confirmedRunId) return;
         router.push(`/projects/${encodeURIComponent(projectId)}/test-runs/manual/${encodeURIComponent(view.confirmedRunId!)}`);
-      }}>Open the confirmed manual run</button></p>}
+      }} tooltip={<> Open the confirmed manual run </>}> Open </ActionButton></p>}
     </>}
   </Modal>;
 }

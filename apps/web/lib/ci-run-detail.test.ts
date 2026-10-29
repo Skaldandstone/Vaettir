@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
@@ -37,7 +38,7 @@ const visualSource = readFileSync(
     new URL("../components/MetricVisuals.tsx", import.meta.url),
     "utf8",
   ),
-  code = ts.transpileModule(
+  code = controllerTranspile(
     `${compileFunctions(visualSource)}\n${compileFunctions(source)}\nthis.component=CiRunDetail;this.badge=CiOutcomeBadge;this.card=CiResultCard;`,
     {
       compilerOptions: {

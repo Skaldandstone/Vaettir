@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 import React, { createElement } from "react";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
@@ -28,7 +29,7 @@ const sdk = { trpcReact: {
 } };
 // Transpile the complete actual module, avoiding Vite's jsx:preserve limitation.
 // Explicit stubs are synthetic SDK reads only, never runtime or OAuth proof.
-const code = ts.transpileModule(readFileSync(new URL("../components/GitlabRepositoryConnection.tsx", import.meta.url), "utf8"), {
+const code = controllerTranspile(readFileSync(new URL("../components/GitlabRepositoryConnection.tsx", import.meta.url), "utf8"), {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.React, esModuleInterop: true },
 }).outputText;
 const imports: Record<string, unknown> = {
@@ -123,7 +124,7 @@ function workflow() {
   });
   const source = readFileSync(new URL("../components/GitlabRepositoryConnection.tsx", import.meta.url), "utf8"), ast = ts.createSourceFile("connection.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX), printer = ts.createPrinter();
   const body = ast.statements.filter(node => !ts.isImportDeclaration(node)).map(node => printer.printNode(ts.EmitHint.Unspecified, node, ast).replace(/^export\s+/gm, "")).join("\n");
-  vm.runInContext(ts.transpileModule(`${body}\nthis.actual=RepositoryOAuthConnection`, { compilerOptions: { target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } }).outputText, harnessContext);
+  vm.runInContext(controllerTranspile(`${body}\nthis.actual=RepositoryOAuthConnection`, { compilerOptions: { target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } }).outputText, harnessContext);
   function render() { let turns = 0; do { if (++turns > 30) throw Error("Unsettled synthetic hook model"); cursor = 0; dirty = false; current = (harnessContext as unknown as { actual: typeof Component }).actual(props); while (effects.length) effects.shift()!(); } while (dirty); return current; }
   render();
   function button(label: string | RegExp) { return required(elements(current).find(node => node.type === "button" && (typeof label === "string" ? text(node) === label : label.test(text(node))))); }

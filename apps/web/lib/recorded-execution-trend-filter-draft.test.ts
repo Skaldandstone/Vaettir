@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import React from "react";
@@ -46,7 +47,7 @@ const source = readFileSync(
         .replace(/\bexport\s+/, ""),
     )
     .join("\n"),
-  code = ts.transpileModule(`${functions}\nthis.component=ExecutionTrend;`, {
+  code = controllerTranspile(`${functions}\nthis.component=ExecutionTrend;`, {
     compilerOptions: {
       target: ts.ScriptTarget.ES2022,
       module: ts.ModuleKind.None,

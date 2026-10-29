@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import Link from "next/link";
 import { type FormEvent, useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
@@ -265,16 +267,21 @@ function OnboardingWorkspace() {
             {domainOptions.data?.enabled && <WorkspaceAddressFields
               name={workspaceName} onNameChange={setWorkspaceName} confirmed={confirmAddress} onConfirmedChange={setConfirmAddress}
               disabled={bootstrapMutation.isPending || confirmDomain.isPending} />}
-            <button
+            <ActionButton
               className="btn-primary"
               type="submit"
               disabled={bootstrapMutation.isPending || confirmDomain.isPending || (!selectingExistingAddress && !organizationName.trim()) || Boolean(domainOptions.data?.enabled && !confirmAddress)}
-            >
+             tooltip={<>
               {bootstrapMutation.isPending || confirmDomain.isPending
                 ? "Saving workspace…"
                 : selectingExistingAddress ? "Confirm permanent address" : "Create workspace and continue"}
               {!bootstrapMutation.isPending && <Icon name="arrow" size={16} />}
-            </button>
+             </>}>
+              {bootstrapMutation.isPending || confirmDomain.isPending
+                ? "Saving workspace…"
+                : selectingExistingAddress ? "Confirm address" : "Create workspace"}
+              {!bootstrapMutation.isPending && <Icon name="arrow" size={16} />}
+            </ActionButton>
             {error && (
               <p className="text-error onboarding-action-error" role="alert">
                 {error}

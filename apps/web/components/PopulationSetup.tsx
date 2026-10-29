@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useState } from "react";
 import type {RepositoryProvider} from "./RepositoryConnectionContent";
 import type {RepositoryAuthorizationIntent} from "./RepositoryProviderPicker";
@@ -144,12 +146,13 @@ function Editor({
         onExit={onExit}
       />
       {pending && !busy && !latest && (
-        <button
+        <ActionButton
           className="btn-primary"
           onClick={() => void save(pending.document)}
-        >
+         tooltip={<>
           Retry and confirm save
-        </button>
+         </>}>
+           Retry </ActionButton>
       )}
       {latest && (
         <section className="card" aria-label="Compare setup drafts">
@@ -167,7 +170,7 @@ function Editor({
               {JSON.stringify(latest.document, null, 2)}
             </pre>
           </details>
-          <button
+          <ActionButton
             className="btn-secondary"
             onClick={() => {
               setVersion(latest.version);
@@ -176,10 +179,11 @@ function Editor({
               setPending(null);
               setStatus("Loaded the latest saved draft after your review.");
             }}
-          >
+           tooltip={<>
             Use latest saved draft
-          </button>
-          <button
+           </>}>
+             Load saved </ActionButton>
+          <ActionButton
             className="btn-secondary"
             onClick={() => {
               setVersion(latest.version);
@@ -189,16 +193,17 @@ function Editor({
                 "Your draft is retained. Review it before saving over the latest draft.",
               );
             }}
-          >
+           tooltip={<>
             Keep my draft for review
-          </button>
+           </>}>
+             Keep draft </ActionButton>
         </section>
       )}
       <details><summary>Continue with evidence and suggestions</summary>
         <p>Add a specification, review suggested requirements, then check what still needs evidence.</p>
-        <button type="button" className="btn-secondary" onClick={() => onScreen("documents")}>Add document evidence</button>{" "}
-        <button type="button" className="btn-secondary" onClick={() => onScreen("requirements")}>Review requirement suggestions</button>{" "}
-        <button type="button" className="btn-secondary" onClick={() => onScreen("assessment")}>Check evidence gaps</button>
+        <ActionButton type="button" className="btn-secondary" onClick={() => onScreen("documents")} tooltip={<> Add document evidence </>}> Add </ActionButton>{" "}
+        <ActionButton type="button" className="btn-secondary" onClick={() => onScreen("requirements")} tooltip={<> Review requirement suggestions </>}> Review </ActionButton>{" "}
+        <ActionButton type="button" className="btn-secondary" onClick={() => onScreen("assessment")} tooltip={<> Check evidence gaps </>}> Check </ActionButton>
       </details>
     </div>
   );

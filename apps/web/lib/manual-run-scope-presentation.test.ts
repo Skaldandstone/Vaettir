@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
@@ -14,7 +15,7 @@ it("actual summary renders one of three planned identities, not one of two avail
   const data = { plannedCaseIds: ["a", "b", "missing"], unavailableCases: [{ testCaseId: "missing", reason: "MISSING_CASE_AND_FROZEN_DEFINITION" }], scopeAvailability: { plannedCount: 3, availableCount: 2, unavailableCount: 1, complete: false, procedureBasis: "LEGACY_CURRENT_CASE_DEFINITIONS" }, cases: [{ testCaseId: "a", displayId: "CASE-1", currentResult: { status: "PASS" } }, { testCaseId: "b", displayId: "CASE-2", currentResult: null }] };
   const visual = readFileSync(new URL("../components/MetricVisuals.tsx", import.meta.url), "utf8");
   const context = vm.createContext({ React, useState: () => [null, vi.fn()] });
-  vm.runInContext(ts.transpileModule(`${functions(visual)}\n${functions(source)}\nthis.component=RunExecutionSummary;`, { compilerOptions: { jsx: ts.JsxEmit.React, target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText, context);
+  vm.runInContext(controllerTranspile(`${functions(visual)}\n${functions(source)}\nthis.component=RunExecutionSummary;`, { compilerOptions: { jsx: ts.JsxEmit.React, target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText, context);
   const tree = context.component({ cases: data.cases, runId: "run", projectId: "p", status: "RUNNING", executionContext: null, stepFieldLabels: {}, canExport: () => true, plannedScope: admittedManualRunProgress(data) });
   const html = renderToStaticMarkup(tree);
   expect(html).toContain("33% recorded");

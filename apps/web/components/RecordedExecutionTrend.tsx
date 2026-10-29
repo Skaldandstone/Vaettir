@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import {
   useEffect,
   useLayoutEffect,
@@ -437,14 +439,15 @@ function ExecutionTrend({ projectId, active }: { projectId: string; active: bool
                   ))}
                 </select>
               </label>
-              <button
+              <ActionButton
                 type="button"
                 className="btn-secondary"
                 disabled={!datePreset}
                 onClick={useDateShortcut}
-              >
+               tooltip={<>
                 Use shortcut dates
-              </button>
+               </>}>
+                 Use </ActionButton>
             </div>
           </details>
           {applied &&
@@ -498,22 +501,24 @@ function ExecutionTrend({ projectId, active }: { projectId: string; active: bool
             </div>
           </details>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-            <button
+            <ActionButton
               type="submit"
               className="btn-primary"
               disabled={query.isFetching}
-            >
+             tooltip={<>
               Show recorded outcomes
-            </button>
+             </>}>
+               Show </ActionButton>
             {applied && (
-              <button
+              <ActionButton
                 type="button"
                 className="btn-secondary"
                 disabled={query.isFetching || query.isPaused}
                 onClick={() => void query.refetch()}
-              >
+               tooltip={<>
                 Refresh applied scope
-              </button>
+               </>}>
+                 Refresh </ActionButton>
             )}
           </div>
         </form>
@@ -607,16 +612,17 @@ function ExecutionTrend({ projectId, active }: { projectId: string; active: bool
             <h2 style={{ margin: 0 }}>
               {grouping === "DAY" ? "Daily" : "Weekly"} outcomes
             </h2>
-            <button
+            <ActionButton
               type="button"
               className="btn-secondary"
               onClick={() => {
                 setExportOpen(true);
                 setReviewed(null);
               }}
-            >
+             tooltip={<>
               Export recorded outcome overview
-            </button>
+             </>}>
+               Export </ActionButton>
           </div>
           {grouping === "WEEK" && (
             <p>
@@ -699,15 +705,14 @@ function ExecutionTrend({ projectId, active }: { projectId: string; active: bool
                     ))}
                     <td>
                       {grouping === "DAY" ? (
-                        <button
+                        <ActionButton
                           type="button"
                           className="btn-secondary"
                           disabled={day.runs === 0}
-                          onClick={() => setSelectedDay(day.start)}
-                        >
+                          onClick={() => setSelectedDay(day.start)} tooltip={<>
                           View runs
                           <span className="sr-only"> on {day.start}</span>
-                        </button>
+                         </>}>View runs</ActionButton>
                       ) : (
                         <details>
                           <summary>Inspect days ({day.days.length})</summary>
@@ -942,7 +947,7 @@ function ExecutionTrend({ projectId, active }: { projectId: string; active: bool
           >
             Cancel
           </button>
-          <button
+          <ActionButton
             type="button"
             className="btn-primary"
             disabled={
@@ -954,9 +959,10 @@ function ExecutionTrend({ projectId, active }: { projectId: string; active: bool
               reviewedEpoch !== exportEpoch
             }
             onClick={download}
-          >
+           tooltip={<>
             Prepare reviewed file
-          </button>
+           </>}>
+             Download </ActionButton>
         </div>
       </DialogFrame>
     </section>
@@ -1100,13 +1106,14 @@ function TrendRunDrilldown({
         </>
       )}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 16 }}>
-        <button
+        <ActionButton
           type="button"
           className="btn-secondary"
           onClick={() => void query.refetch()}
-        >
+         tooltip={<>
           Refresh this page
-        </button>
+         </>}>
+           Refresh </ActionButton>
         <button type="button" className="btn-secondary" onClick={onClose}>
           Close
         </button>

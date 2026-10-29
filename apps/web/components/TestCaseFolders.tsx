@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { Modal } from "@/components/Modal";
@@ -410,9 +412,10 @@ export function TestCaseFolders({
         ) : !ready ? (
           <div role="status">
             <p>Checking current project access…</p>
-            <button disabled={!actorReady} onClick={() => void refreshAccess()}>
+            <ActionButton disabled={!actorReady} onClick={() => void refreshAccess()} tooltip={<>
               Retry current access
-            </button>
+             </>}>
+               Retry </ActionButton>
           </div>
         ) : !list.data?.canEdit ? (
           <p role="alert">
@@ -668,7 +671,7 @@ export function TestCaseFolders({
                   >
                     Back
                   </button>
-                  <button
+                  <ActionButton
                     className="btn-primary"
                     disabled={
                       disabled ||
@@ -713,13 +716,19 @@ export function TestCaseFolders({
                       setPending(input);
                       mutation.mutate(input);
                     }}
-                  >
+                   tooltip={<>
                     {mutation.isPending
                       ? "Saving…"
                       : pending
                         ? "Retry exact approved change"
                         : "Approve folder change"}
-                  </button>
+                   </>}>
+                    {mutation.isPending
+                      ? "Saving…"
+                      : pending
+                        ? "Retry"
+                        : "Approve"}
+                  </ActionButton>
                 </div>
               </div>
             )}
@@ -728,11 +737,11 @@ export function TestCaseFolders({
         <button onClick={close} style={{ marginTop: 12 }}>
           Close
         </button>
-        {ready && list.data?.canEdit && draftStarted && !pending && <button type="button" disabled={mutation.isPending} style={{ marginTop: 12, marginLeft: 8 }} onClick={() => {
+        {ready && list.data?.canEdit && draftStarted && !pending && <ActionButton type="button" disabled={mutation.isPending} style={{ marginTop: 12, marginLeft: 8 }} onClick={() => {
           if (mutation.isPending || receipt.current || pending || !liveScope.current.scopeReady) return;
           setDraftStarted(false); setPrepared(null); setApproved(false); setApprovedHash(null); setFresh(false); setReason(""); setName(""); setSource(""); setParent(""); mutation.reset(); setOpen(false);
           setMessage("Editable folder draft explicitly discarded. No saved folder, case placement or uncertain request was changed.");
-        }}>Discard editable folder draft</button>}
+        }} tooltip={<> Discard editable folder draft </>}> Discard </ActionButton>}
       </Modal>
     </div>
   );

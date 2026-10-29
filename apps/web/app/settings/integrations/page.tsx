@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import Link from "next/link";
 import { useState } from "react";
 import { trpcReact } from "@/lib/trpcReact";
@@ -185,12 +187,12 @@ export default function IntegrationsHealthPage() {
           </article>
         ))}
       </div>
-      <p className="text-muted">This summary covers existing organization settings. Project-scoped connections are reviewed inside each project and are not included in the legacy counts above.</p>
+      <details><summary>Details</summary><p className="text-muted">This summary covers existing organization settings. Project-scoped connections are reviewed inside each project and are not included in the legacy counts above.</p></details>
       <Modal open={Boolean(active)} title={`${active ?? "Integration"} setup`} onClose={() => { setActive(null); setProjectId(null); }}>
         {active && projectScoped ? selectedProject ? <>
           <p role="status">Project: <strong>{selectedProject.name}</strong></p>
           {active === "Jira" || active === "Linear" ? <SourceConnectionChips projectId={selectedProject.id} only={[active.toLowerCase()]} /> : <ProductionSignalChips projectId={selectedProject.id} />}
-          <button type="button" className="btn-secondary" onClick={() => setProjectId(null)}>Choose another project</button>
+          <ActionButton type="button" className="btn-secondary" onClick={() => setProjectId(null)} tooltip={<> Choose another project </>}> Choose </ActionButton>
         </> : <>
           <h3>Which project should use {active}?</h3>
           <p>Choose the destination before authorizing access or saving routing. No provider is contacted by this project picker.</p>

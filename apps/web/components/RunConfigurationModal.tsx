@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import {
   useEffect,
   useId,
@@ -625,14 +627,15 @@ export function RunConfigurationModal({
             configuring or retrying. Private configuration is hidden; drafts and
             identical requests remain retained.
           </p>
-          <button
+          <ActionButton
             type="button"
             className="btn-secondary"
             disabled={busy || refreshing}
             onClick={recheckOriginalAccess}
-          >
+           tooltip={<>
             Recheck original access
-          </button>
+           </>}>
+             Refresh </ActionButton>
           {localError && <p role="alert">{localError}</p>}
         </section>
       ) : legacyOpaque ? (
@@ -650,9 +653,10 @@ export function RunConfigurationModal({
             Project access could not be checked. A new record has not been
             started.
           </p>
-          <button className="btn-secondary" onClick={() => void retryAccess()}>
+          <ActionButton className="btn-secondary" onClick={() => void retryAccess()} tooltip={<>
             Retry access check
-          </button>
+           </>}>
+             Retry </ActionButton>
         </div>
       ) : !loaded ? (
         <p role="status">Checking project access…</p>
@@ -689,10 +693,10 @@ export function RunConfigurationModal({
             </p>
           )}
           {screen.id === "configuration" && (
-            <p className="text-muted">
+            <details><summary>Details</summary><p className="text-muted">
               These fields describe what you intend to test. They do not claim
               the build is deployed or the equipment is ready.
-            </p>
+            </p></details>
           )}
           {screen.id === "configuration" && bulkScopes && onSelectionChange && (
             <section
@@ -701,11 +705,11 @@ export function RunConfigurationModal({
               style={{ padding: 12, marginBottom: 16 }}
             >
               <h4 style={{ marginTop: 0 }}>Build the selected case set</h4>
-              <p className="text-muted">
+              <details><summary>Details</summary><p className="text-muted">
                 Set replaces the selection, Add keeps it and adds matches,
                 Remove subtracts matches. Browsing suites or changing filters
                 does not apply these operations.
-              </p>
+              </p></details>
               <fieldset
                 disabled={
                   busy || refreshing || !completion.canEdit || !bulkScopesReady
@@ -773,12 +777,11 @@ export function RunConfigurationModal({
                     scope was not replaced with different cases.
                   </p>
                 )}
-                <button
+                <ActionButton
                   type="button"
                   className="btn-secondary"
                   disabled={!bulkPreview?.ok}
-                  onClick={applyBulk}
-                >
+                  onClick={applyBulk} tooltip={<>
                   Apply{" "}
                   {bulkMode === "SET"
                     ? "Set"
@@ -786,7 +789,7 @@ export function RunConfigurationModal({
                       ? "Add"
                       : "Remove"}{" "}
                   selection
-                </button>
+                 </>}>Apply selection</ActionButton>
               </fieldset>
               {!bulkScopesReady && (
                 <p role="status">
@@ -927,11 +930,11 @@ export function RunConfigurationModal({
                   </ul>
                 </details>
               )}
-              <p className="text-muted">
+              <details><summary>Details</summary><p className="text-muted">
                 Starting creates a record for people to execute and report. It
                 does not actuate machinery, execute imported code, spend AI
                 credits or certify safety/compliance.
-              </p>
+              </p></details>
               {!retainedRequest &&
                 (!selectionReviewed || !completion.canStart) && (
                   <p role="alert">
@@ -999,7 +1002,7 @@ export function RunConfigurationModal({
               </button>
             </div>
             {confirmedStart ? (
-              <button
+              <ActionButton
                 type="button"
                 className="btn-primary"
                 disabled={busy || refreshing || !completion.canOpen}
@@ -1011,11 +1014,12 @@ export function RunConfigurationModal({
                     completion.activationEpoch,
                   )
                 }
-              >
+               tooltip={<>
                 Open confirmed run
-              </button>
+               </>}>
+                 Open </ActionButton>
             ) : screen.id === "review" || pendingRequest ? (
-              <button
+              <ActionButton
                 className="btn-primary"
                 disabled={
                   busy ||
@@ -1028,13 +1032,19 @@ export function RunConfigurationModal({
                   (!!pendingRequest && (!completion.canRetry || legacyOpaque))
                 }
                 onClick={() => void start()}
-              >
+               tooltip={<>
                 {busy
                   ? "Starting…"
                   : pendingRequest
                     ? "Retry retained run start"
                     : "Start execution record"}
-              </button>
+               </>}>
+                {busy
+                  ? "Starting…"
+                  : pendingRequest
+                    ? "Retry"
+                    : "Start"}
+              </ActionButton>
             ) : (
               <button
                 className="btn-primary"
@@ -1048,14 +1058,15 @@ export function RunConfigurationModal({
             )}
           </footer>
           {error && (
-            <button
+            <ActionButton
               className="btn-secondary"
               disabled={busy || refreshing || !completion.canEdit}
               style={{ marginTop: 12 }}
               onClick={() => void refreshContext()}
-            >
+             tooltip={<>
               Refresh project context and review again
-            </button>
+             </>}>
+               Refresh </ActionButton>
           )}
         </>
       )}

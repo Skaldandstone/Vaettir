@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useId, useState, type ReactNode } from "react";
 import { trpcReact, type RouterInputs } from "@/lib/trpcReact";
 import { describeRetainedPlanValue, finitePlanNumber } from "@/lib/plan-custom-fields";
@@ -17,7 +19,7 @@ function MetadataStringRows({ label, values, onChange }: { label: string; values
   return <fieldset style={{ minWidth: 0 }}><legend>{label}</legend><p>Each row is one exact item. Empty text, commas, multiline content, order and duplicates are preserved.</p>
     {!rows.length && <p>Empty list (zero rows).</p>}
     {rows.map((row, index) => <div key={row.id} style={{ display: "flex", alignItems: "start", gap: 8, marginBottom: 8 }}><label style={{ ...fieldLabel, flex: 1 }}>Item {index + 1}<textarea style={fieldControl} rows={2} maxLength={10000} value={row.value} onChange={event => change(editStrategyRow(rows, row.id, event.target.value))} /></label><button type="button" className="btn-secondary" style={{ alignSelf: "start", marginTop: 22 }} aria-label={`Remove ${label} row ${index + 1}`} onClick={() => change(removeStrategyRow(rows, row.id))}>Remove row</button></div>)}
-    <button type="button" disabled={rows.length >= 500} onClick={() => change([...rows, { id: `${prefix}:${state.generation}:${state.nextId}`, value: "" }], state.nextId + 1)}>Add {label} row</button>
+    <ActionButton type="button" disabled={rows.length >= 500} onClick={() => change([...rows, { id: `${prefix}:${state.generation}:${state.nextId}`, value: "" }], state.nextId + 1)} tooltip={<> Add {label} row </>}>Add row</ActionButton>
   </fieldset>;
 }
 export function PlanCustomFieldsEditor({ projectId, testPlanId, organizationId, readOnly = false, onChanged, renderFields }: { projectId: string; testPlanId: string; organizationId: string; readOnly?: boolean; onChanged: () => void; renderFields?: (values: Record<string, unknown>, onChange: (values: Record<string, unknown>) => void, context: { active: boolean; projectId: string; testPlanId: string }) => ReactNode }) {
@@ -39,13 +41,13 @@ export function PlanCustomFieldsEditor({ projectId, testPlanId, organizationId, 
     catch (cause) { editor.change({ values: { ...current.values, rendererError: cause instanceof Error ? cause.message : "The specialized field change was refused; native values remain unchanged." } }); }
   }
   return <>
-    {(!readOnly || editor.pending) && <button type="button" className="btn-secondary" onClick={editor.show}>{editor.pending ? "Reconcile plan metadata request" : "Edit plan metadata"}</button>}
+    {(!readOnly || editor.pending) && <ActionButton type="button" className="btn-secondary" onClick={editor.show} tooltip={<> {editor.pending ? "Reconcile plan metadata request" : "Edit plan metadata"} </>}>{editor.pending ? "Recover" : "Edit"}</ActionButton>}
     <Modal open={editor.open} onClose={editor.close} title="Review selected plan metadata" keepMounted size="wide">
       {!editor.readable ? <p>Restore the original project, plan and native signed-in reader with current full-editor access. Retained drafts and uncertain requests stay mounted but private.</p> : <div style={{ display: "grid", gap: 12 }}>
         <p>Only explicit SET/REMOVE operations for supported declared keys are submitted. Unknown keys, native NULL, incompatible values and unsupported schemas remain read-only and are never replaced by an empty object.</p>
         {editor.reads.fresh?.metadataSchema.blockedReason && <p role="alert">{editor.reads.fresh.metadataSchema.blockedReason}</p>}
-        {editor.pending ? <><p>Retained original request. Retry exact UUID, operations, schema hash, reason and complete-plan revision; do not send a replacement record.</p><details><summary>Exact reviewed metadata request</summary><pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{JSON.stringify(editor.pending.input, null, 2)}</pre></details><button type="button" disabled={editor.busy} onClick={() => void editor.commit()}>Retry identical metadata request</button></> : <>
-          <button type="button" disabled={editor.busy || !editor.reads.fresh?.metadataSchema.canEdit} onClick={editor.review}>{editor.draft ? "Load current metadata (replaces unsaved metadata draft)" : "Load current metadata for review"}</button>
+        {editor.pending ? <><p>Retained original request. Retry exact UUID, operations, schema hash, reason and complete-plan revision; do not send a replacement record.</p><details><summary>Exact reviewed metadata request</summary><pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{JSON.stringify(editor.pending.input, null, 2)}</pre></details><ActionButton type="button" disabled={editor.busy} onClick={() => void editor.commit()} tooltip={<> Retry identical metadata request </>}> Retry </ActionButton></> : <>
+          <ActionButton type="button" disabled={editor.busy || !editor.reads.fresh?.metadataSchema.canEdit} onClick={editor.review} tooltip={<> {editor.draft ? "Load current metadata (replaces unsaved metadata draft)" : "Load current metadata for review"} </>}>{editor.draft ? "Replace draft" : "Load"}</ActionButton>
           {!planMetadataObject(editor.reads.fresh?.snapshot.customFields) && <section><h3>Retained native metadata root</h3><pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{describeRetainedPlanValue(editor.reads.fresh?.snapshot.customFields, true)}</pre></section>}
           {editor.draft && <fieldset disabled={editor.busy || !editor.reads.fresh?.metadataSchema.canEdit} style={{ border: 0, padding: 0, display: "grid", gap: 12, minWidth: 0 }}>
             {!renderFields && <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(260px, 100%), 1fr))", gap: 12 }}>{fields.map(field => {
@@ -57,18 +59,18 @@ export function PlanCustomFieldsEditor({ projectId, testPlanId, organizationId, 
                   {field.kind === "number" && <label style={fieldLabel}>{field.label}<input style={fieldControl} type="text" inputMode="decimal" maxLength={40000} value={numericText} aria-invalid={Object.hasOwn(editor.draft!.values.numberBuffers, field.key) && finitePlanNumber(numericText) === null} onChange={event => { if (editor.draftRef.current) editor.change({ values: setPlanMetadataNumber(editor.draftRef.current.values, field.key, event.target.value) }); }} /></label>}
                   {field.kind === "boolean" && <label style={fieldLabel}>{field.label}<select style={fieldControl} value={value.present ? value.value === false ? "FALSE" : "TRUE" : "ABSENT"} onChange={event => { if (event.target.value !== "ABSENT") setValue(field.key, event.target.value === "TRUE"); }}><option value="ABSENT" disabled>Not set (no default)</option><option value="FALSE">False</option><option value="TRUE">True</option></select></label>}
                   {field.kind === "string-array" && <MetadataStringRows label={field.label} values={value.present ? value.value as string[] : []} onChange={next => setValue(field.key, next)} />}
-                  {!value.present && (field.kind === "string" || field.kind === "string-array") && <button type="button" onClick={() => setValue(field.key, field.kind === "string" ? "" : [])}>Set empty {field.kind === "string" ? "text" : "list"} explicitly</button>}
-                  {field.present && <button type="button" className="btn-secondary" style={{ justifySelf: "start" }} onClick={() => { if (editor.draftRef.current) editor.change({ values: removePlanMetadataValue(editor.draftRef.current.values, field.key) }); }}>Remove saved value for {field.label}</button>}
-                  {changed && <button type="button" onClick={() => { if (editor.draftRef.current) editor.change({ values: leavePlanMetadataUnchanged(editor.draftRef.current.values, field.key) }); }}>Leave {field.label} unchanged</button>}
+                  {!value.present && (field.kind === "string" || field.kind === "string-array") && <ActionButton type="button" onClick={() => setValue(field.key, field.kind === "string" ? "" : [])} tooltip={<> Set empty {field.kind === "string" ? "text" : "list"} explicitly </>}>Set empty</ActionButton>}
+                  {field.present && <ActionButton type="button" className="btn-secondary" style={{ justifySelf: "start" }} onClick={() => { if (editor.draftRef.current) editor.change({ values: removePlanMetadataValue(editor.draftRef.current.values, field.key) }); }} tooltip={<> Remove saved value for {field.label} </>}> Remove {field.label}</ActionButton>}
+                  {changed && <ActionButton type="button" onClick={() => { if (editor.draftRef.current) editor.change({ values: leavePlanMetadataUnchanged(editor.draftRef.current.values, field.key) }); }} tooltip={<> Leave {field.label} unchanged </>}>Keep value</ActionButton>}
                 </>}
               </section>;
             })}</div>}
-            {editor.draft.values.rendererError && <><p role="alert">{editor.draft.values.rendererError}</p><button type="button" onClick={() => { const current = editor.draftRef.current; if (!current) return; const { rendererError: _error, ...values } = current.values; editor.change({ values }); }}>Discard refused specialized edit attempt</button></>}
+            {editor.draft.values.rendererError && <><p role="alert">{editor.draft.values.rendererError}</p><ActionButton type="button" onClick={() => { const current = editor.draftRef.current; if (!current) return; const { rendererError: _error, ...values } = current.values; editor.change({ values }); }} tooltip={<> Discard refused specialized edit attempt </>}> Discard </ActionButton></>}
             {editor.problem && <p role="alert">{editor.problem}</p>}
             <details><summary>Reviewed before / after operations</summary>{reviewedChanges ? <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{JSON.stringify(reviewedChanges.map(change => ({ key: change.key, before: { present: Object.hasOwn(editor.draft!.baseline.snapshot.customFields as object, change.key), value: (editor.draft!.baseline.snapshot.customFields as Record<string, unknown>)[change.key] }, after: change.operation === "REMOVE" ? { present: false } : { present: true, value: change.value }, operation: change.operation })), null, 2)}</pre> : <p>Fix the invalid draft before reviewing any submitted operations. No prior finite value is being prepared for save.</p>}</details>
             <label style={fieldLabel}>Reason<textarea style={fieldControl} rows={2} maxLength={1000} value={editor.draft.reason} onChange={event => editor.change({ reason: event.target.value })} /></label>
             <label><input type="checkbox" checked={editor.draft.confirmed} onChange={event => editor.change({ confirmed: event.target.checked })} /> I reviewed these exact declared key changes; all other native metadata and plan content remain unchanged.</label>
-            <button type="button" disabled={!editor.canSave} onClick={() => void editor.commit()}>Save reviewed metadata changes</button>
+            <ActionButton type="button" disabled={!editor.canSave} onClick={() => void editor.commit()} tooltip={<> Save reviewed metadata changes </>}> Save </ActionButton>
           </fieldset>}
         </>}
         {editor.notice && <p role="status">{editor.notice}</p>}

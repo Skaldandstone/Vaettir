@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -408,19 +410,20 @@ export default function ProjectsPage() {
                   placeholder="For example: prove a medical-device controller and its mobile app are safe and ready for pilot production."
                 />
               </label>
-              <p id="new-project-objective-help" className="text-muted">
+              <details><summary>Details</summary><p id="new-project-objective-help" className="text-muted">
                 Add what you know, or leave this blank. You can revisit your
                 objective in Update project understanding later.
-              </p>
+              </p></details>
               {!objective.trim() && (
-                <button
+                <ActionButton
                   type="button"
                   className="btn-secondary"
                   disabled={createMutation.isPending || !name.trim()}
                   onClick={() => setCreateStep(1)}
-                >
+                 tooltip={<>
                   Not sure yet · continue without an objective
-                </button>
+                 </>}>
+                   Skip objective </ActionButton>
               )}
               <WizardChoices
                 title="Project scope"
@@ -485,11 +488,11 @@ export default function ProjectsPage() {
                   setTestEnvironments((values) => toggleValue(values, item))
                 }
               />
-              <p className="text-muted">
+              <details><summary>Details</summary><p className="text-muted">
                 After creating the project, Add sources opens with provider
                 options. Only configured providers can verify access; references
                 remain unverified.
-              </p>
+              </p></details>
             </>
           )}
           {createStep === 2 && (

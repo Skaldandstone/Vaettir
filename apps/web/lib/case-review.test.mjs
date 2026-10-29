@@ -33,7 +33,7 @@ test("review route uses native scoped pages and retained complete-snapshot decis
   assert.match(detail, /active=\{section === "History"\}/);
   assert.doesNotMatch(detail, /testCases\.(approve|reject)\.useMutation/);
   const library = readFileSync(new URL("../app/projects/[projectId]/test-cases/page.tsx", import.meta.url), "utf8");
-  assert.match(library, /Review pending cases in the review queue/);
+  assert.match(library, /onReview=\{\(\) => router.push\(`/);
   assert.doesNotMatch(library, /testCases\.bulkReview|Approve selected|Reject selected/);
   const overview = readFileSync(new URL("../app/projects/[projectId]/page.tsx", import.meta.url), "utf8");
   assert.match(overview, /pendingReviewQueue\.fresh\?\.totalPending \?\? null/);

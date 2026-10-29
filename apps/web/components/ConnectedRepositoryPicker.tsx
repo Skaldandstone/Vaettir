@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import Link from "next/link";
 import { ReadableSelect } from "./ui/ReadableSelect";
 import { repositoryDisplayName } from "@/lib/repository-display";
@@ -19,7 +21,7 @@ export function ConnectedRepositoryPicker({ projectId, selectedId, onSelect, dis
   const ready = access.readable && query.isSuccess && !query.error && !query.isFetching && !query.isPaused;
   if (!ready) return <div>
     <p role={query.error ? "alert" : "status"}>{query.error ? "Connected repositories could not be refreshed." : "Checking project repositories…"}</p>
-    {query.error && <button type="button" className="btn-secondary" onClick={() => void query.refetch()}>Retry project repositories</button>}
+    {query.error && <ActionButton type="button" className="btn-secondary" onClick={() => void query.refetch()} tooltip={<> Retry project repositories </>}> Retry </ActionButton>}
   </div>;
   if (!query.data.length) return <div>
     <p className="text-muted">No repositories connected to this project yet.</p>

@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useRef, useState, useSyncExternalStore } from "react";
 import { useParams } from "next/navigation";
 import { useRouter } from "next/navigation";
@@ -403,7 +405,7 @@ export default function TestRunsPage() {
       >
         <h1 style={{ marginBottom: 4 }}>Test Runs</h1>
         {canEdit && (
-          <button
+          <ActionButton
             className="btn-primary"
             type="button"
             onClick={() =>
@@ -411,11 +413,15 @@ export default function TestRunsPage() {
                 ? setConfigurationOpen(true)
                 : setManualOpen(true)
             }
-          >
+           tooltip={<>
             {configurationSelection !== null
               ? "Reopen run configuration"
               : "Start manual run"}
-          </button>
+           </>}>
+            {configurationSelection !== null
+              ? "Configure run"
+              : "Start run"}
+          </ActionButton>
         )}
       </div>
       <p className="text-muted" style={{ marginBottom: 20 }}>
@@ -463,10 +469,10 @@ export default function TestRunsPage() {
         title="Start a manual test run"
       >
         <div style={{ display: "grid", gap: 10 }}>
-          <p className="text-muted" style={{ margin: 0, fontSize: 13 }}>
+          <details><summary>Details</summary><p className="text-muted" style={{ margin: 0, fontSize: 13 }}>
             Select the cases a tester will execute. Results are recorded in the
             same release and compliance history as CI results.
-          </p>
+          </p></details>
           <input
             value={manualSearch}
             onChange={(event) => setManualSearch(event.target.value)}
@@ -573,7 +579,7 @@ export default function TestRunsPage() {
                 <option value="REMOVE">Remove — subtract matches</option>
               </select>
             </label>
-            <button
+            <ActionButton
               type="button"
               className="btn-secondary"
               disabled={
@@ -582,8 +588,7 @@ export default function TestRunsPage() {
                 !manualBulkReady ||
                 !manualBulkPreview.ok
               }
-              onClick={selectScope}
-            >
+              onClick={selectScope} tooltip={<>
               Apply{" "}
               {manualBulkMode === "SET"
                 ? "Set"
@@ -591,7 +596,7 @@ export default function TestRunsPage() {
                   ? "Add"
                   : "Remove"}{" "}
               selection
-            </button>
+             </>}>Apply selection</ActionButton>
             <button
               type="button"
               className="btn-secondary"
@@ -626,13 +631,13 @@ export default function TestRunsPage() {
               retained; refresh original access before continuing.
             </p>
           )}
-          <p className="text-muted">
+          <details><summary>Details</summary><p className="text-muted">
             Bulk operations use the complete loaded approved scope, not hidden
             or unloaded pages. Filter and suite browsing never changes the
             selection until you apply Set, Add or Remove. Up to 1,000 cases
             including required prerequisites; archived and unreviewed cases are
             excluded. Starting freezes the current procedures for this run.
-          </p>
+          </p></details>
           <div
             style={{
               maxHeight: 320,
@@ -712,7 +717,7 @@ export default function TestRunsPage() {
               >
                 Cancel
               </button>
-              <button
+              <ActionButton
                 className="btn-primary"
                 onClick={continueConfiguration}
                 disabled={
@@ -721,13 +726,19 @@ export default function TestRunsPage() {
                   !manualAccess.canWrite ||
                   (configurationSelection === null && !manualBulkReady)
                 }
-              >
+               tooltip={<>
                 {startManualMutation.isPending
                   ? "Starting…"
                   : configurationSelection !== null
                     ? "Reopen retained configuration"
                     : "Continue to configuration"}
-              </button>
+               </>}>
+                {startManualMutation.isPending
+                  ? "Starting…"
+                  : configurationSelection !== null
+                    ? "Resume configuration"
+                    : "Continue"}
+              </ActionButton>
             </div>
           </div>
         </div>

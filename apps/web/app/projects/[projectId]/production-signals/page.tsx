@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { trpcReact } from "@/lib/trpcReact";
@@ -127,9 +129,11 @@ export default function ProductionSignalsPage() {
                 Redirects to Google to grant read access to your Play Console app.
               </p>
               {!capabilities?.googlePlayConnectAvailable&&<p role="status">{capabilities?"Google Play connection is unavailable until deployment setup is complete.":"Checking connection availability…"}</p>}
-              <button onClick={connectGooglePlay} disabled={connectingGoogle||!capabilities?.googlePlayConnectAvailable}>
+              <ActionButton onClick={connectGooglePlay} disabled={connectingGoogle||!capabilities?.googlePlayConnectAvailable} tooltip={<>
                 {connectingGoogle ? "Redirecting…" : "Connect Google Play"}
-              </button>
+               </>}>
+                {connectingGoogle ? "Redirecting…" : "Google Play"}
+              </ActionButton>
             </>
           )}
         </div>
@@ -176,9 +180,11 @@ export default function ProductionSignalsPage() {
                   placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"
                 />
               </label>
-              <button onClick={connectApple} disabled={connectingApple || !capabilities?.appleConnectAvailable || !issuerId || !keyId || !privateKeyPem}>
+              <ActionButton onClick={connectApple} disabled={connectingApple || !capabilities?.appleConnectAvailable || !issuerId || !keyId || !privateKeyPem} tooltip={<>
                 {connectingApple ? "Connecting…" : "Connect App Store Connect"}
-              </button>
+               </>}>
+                {connectingApple ? "Connecting…" : "App Store"}
+              </ActionButton>
             </fieldset></details>
           )}
         </div>

@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { useParams, useRouter } from "next/navigation";
@@ -80,10 +82,13 @@ export default function AcceptInvitePage() {
             <div><dt>Role</dt><dd>{preview.role.replaceAll("_", " ").toLowerCase()}</dd></div>
             <div><dt>Seat</dt><dd>{preview.seatType.replaceAll("_", " ").toLowerCase()}</dd></div>
           </dl>
-          <button className="btn-primary onboarding-primary-action" type="button" onClick={() => acceptMutation.mutate({ token: params.token })} disabled={acceptMutation.isPending}>
+          <ActionButton className="btn-primary onboarding-primary-action" type="button" onClick={() => acceptMutation.mutate({ token: params.token })} disabled={acceptMutation.isPending} tooltip={<>
             {acceptMutation.isPending ? "Joining workspace…" : "Accept and continue"}
             {!acceptMutation.isPending && <Icon name="arrow" size={16} />}
-          </button>
+           </>}>
+            {acceptMutation.isPending ? "Joining workspace…" : "Accept"}
+            {!acceptMutation.isPending && <Icon name="arrow" size={16} />}
+          </ActionButton>
           {acceptMutation.error && <p className="text-error onboarding-action-error" role="alert">{acceptMutation.error.message}</p>}
           <p className="onboarding-footnote">Only accept invitations you expected. Ask the workspace owner if the role or seat is incorrect.</p>
         </section>

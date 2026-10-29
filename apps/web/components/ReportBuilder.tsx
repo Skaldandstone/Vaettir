@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useLayoutEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { DialogFrame } from "./ui/DialogFrame";
@@ -350,24 +352,30 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
           >
             <div>
               <h2 style={{ marginTop: 0 }}>Reports to share</h2>
-              <p className="text-muted">
+              <details><summary>Details</summary><p className="text-muted">
                 Choose a report, review the results, then share it with your
                 project. Saved reports keep the data you reviewed, even when the
                 project changes.
-              </p>
+              </p></details>
             </div>
-            <button
+            <ActionButton
               type="button"
               className="btn-primary"
               disabled={readOnly}
               onClick={begin}
-            >
+             tooltip={<>
               {request || saveRequest
                 ? "Resume pending report"
                 : draftStatus === "draft"
                   ? "Resume local report draft"
                   : "Create report"}
-            </button>
+             </>}>
+              {request || saveRequest
+                ? "Resume report"
+                : draftStatus === "draft"
+                  ? "Resume draft"
+                  : "Create report"}
+            </ActionButton>
           </div>
           {readOnly && (
             <p className="text-muted">
@@ -377,13 +385,13 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
           )}
           {draftStatus === "draft" && (
             <div>
-              <p className="text-muted">
+              <details><summary>Details</summary><p className="text-muted">
                 Your unfinished report stays in this page. Closing preserves its
                 title, notes, sections, test selection and current step.
                 Reloading or leaving the project may lose an unsubmitted local
                 draft.
-              </p>
-              <button
+              </p></details>
+              <ActionButton
                 type="button"
                 className="btn-secondary"
                 disabled={readOnly || busy || !!request || !!saveRequest}
@@ -395,12 +403,13 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
                     organizationId: project.data.organizationId,
                   });
                 }}
-              >
+               tooltip={<>
                 Start another report
-              </button>
+               </>}>
+                 New report </ActionButton>
             </div>
           )}
-          <button
+          <ActionButton
             type="button"
             className="btn-secondary"
             disabled={
@@ -420,9 +429,10 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
                 ...(resumeId ? [resume.refetch()] : []),
               ]);
             }}
-          >
+           tooltip={<>
             Refresh report access
-          </button>
+           </>}>
+             Refresh </ActionButton>
           <label style={{ display: "grid", gap: 6, maxWidth: 420 }}>
             Saved report settings
             <ReadableSelect
@@ -542,23 +552,25 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
                   </p>
                 )}
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                  <button
+                  <ActionButton
                     type="button"
                     className="btn-secondary"
                     onClick={keepCurrentReport}
-                  >
+                   tooltip={<>
                     Keep current report
-                  </button>
-                  <button
+                   </>}>
+                     Keep </ActionButton>
+                  <ActionButton
                     type="button"
                     className="btn-primary"
                     disabled={!replacementReady}
                     onClick={() => {
                       if (replacementReady) applyStart(replacement);
                     }}
-                  >
+                   tooltip={<>
                     Discard local draft and continue
-                  </button>
+                   </>}>
+                     Discard draft </ActionButton>
                 </div>
               </section>
             )}
@@ -658,11 +670,11 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
                       ),
                     )}
                   </fieldset>
-                  <p className="text-muted">
+                  <details><summary>Details</summary><p className="text-muted">
                     Suggested reports choose sections for you. Your notes, dates
                     and test selection stay unchanged. You can adjust the
                     sections next; nothing is shared until you approve it.
-                  </p>
+                  </p></details>
                 </div>
               )}
               {step === 1 && (
@@ -702,11 +714,11 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
                       <option value="quality">Quality team</option>
                     </ReadableSelect>
                   </label>
-                  <p className="text-muted">
+                  <details><summary>Details</summary><p className="text-muted">
                     All project tests are included by default. Choose a plan,
                     release or run next to narrow the report. The case-query
                     filters on the page behind this builder do not apply here.
-                  </p>
+                  </p></details>
                 </div>
               )}
               {step === 2 && (
@@ -959,13 +971,14 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
                     {scopeOptions.error && (
                       <p role="alert">
                         Recorded choices could not load.{" "}
-                        <button
+                        <ActionButton
                           type="button"
                           className="btn-secondary"
                           onClick={() => void scopeOptions.refetch()}
-                        >
+                         tooltip={<>
                           Retry test and run choices
-                        </button>
+                         </>}>
+                           Retry </ActionButton>
                       </p>
                     )}
                     {scopeOptions.isPaused && (
@@ -1143,7 +1156,7 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
                     Creation and approval are locked until full editor access is
                     verified. Pending requests stay unchanged.
                   </p>
-                  <button
+                  <ActionButton
                     type="button"
                     className="btn-secondary"
                     disabled={
@@ -1156,33 +1169,38 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
                         ...(resumeId ? [resume.refetch()] : []),
                       ])
                     }
-                  >
+                   tooltip={<>
                     Retry workspace access
-                  </button>
+                   </>}>
+                     Retry </ActionButton>
                 </div>
               )}
               <div className="wizard-footer">
-                <button
+                <ActionButton
                   className="btn-secondary"
                   type="button"
                   disabled={busy}
                   onClick={() =>
                     step > 0 && !frozen ? setStep(step - 1) : closeBuilder()
                   }
-                >
+                 tooltip={<>
                   {step > 0 && !frozen ? "Back" : "Close and resume later"}
-                </button>
+                 </>}>
+                  {step > 0 && !frozen ? "Back" : "Close"}
+                </ActionButton>
                 {(!frozen || saveRequest) && (
-                  <button
+                  <ActionButton
                     className="btn-secondary"
                     disabled={
                       busy || readOnly || !title.trim() || invalidInterval
                     }
                     type="button"
                     onClick={() => void saveDefinition()}
-                  >
+                   tooltip={<>
                     {saveRequest ? "Retry same settings save" : "Save settings"}
-                  </button>
+                   </>}>
+                    {saveRequest ? "Retry" : "Save settings"}
+                  </ActionButton>
                 )}
                 {step < 3 && (
                   <button
@@ -1201,7 +1219,7 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
                   </button>
                 )}
                 {step === 3 && (
-                  <button
+                  <ActionButton
                     className="btn-primary"
                     type="button"
                     disabled={
@@ -1213,19 +1231,22 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
                       invalidInterval
                     }
                     onClick={() => void capture()}
-                  >
+                   tooltip={<>
                     {request ? "Retry same preview" : "Save private preview"}
-                  </button>
+                   </>}>
+                    {request ? "Retry" : "Save"}
+                  </ActionButton>
                 )}
                 {step === 4 && (
-                  <button
+                  <ActionButton
                     className="btn-primary"
                     type="button"
                     disabled={busy || readOnly || !current}
                     onClick={() => void publish()}
-                  >
+                   tooltip={<>
                     Approve and share report
-                  </button>
+                   </>}>
+                     Approve </ActionButton>
                 )}
               </div>
             </div>

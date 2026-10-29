@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useLayoutEffect, useRef, useState } from "react";
 import type { CaseExecutionHistoryPage } from "@vaettir/core";
 import {
@@ -170,14 +172,15 @@ export function CaseHistoryPageExport({ page, input, pageNumber }: Props) {
   }
   return (
     <>
-      <button
+      <ActionButton
         type="button"
         className="btn-secondary"
         disabled={!page}
         onClick={reviewPage}
-      >
+       tooltip={<>
         Export this page
-      </button>
+       </>}>
+         Export </ActionButton>
       <Modal
         open={open}
         onClose={close}
@@ -189,14 +192,15 @@ export function CaseHistoryPageExport({ page, input, pageNumber }: Props) {
               This page changed or current access could not be verified. The
               earlier review is not valid. No cached export is available.
             </p>
-            <button
+            <ActionButton
               type="button"
               className="btn-secondary"
               disabled={!page}
               onClick={reviewPage}
-            >
+             tooltip={<>
               Review current page again
-            </button>
+             </>}>
+               Review </ActionButton>
           </>
         ) : (
           <>
@@ -279,14 +283,15 @@ export function CaseHistoryPageExport({ page, input, pageNumber }: Props) {
                 export, not an approval or access grant.
               </span>
             </label>
-            <button
+            <ActionButton
               type="button"
               className="btn-primary"
               disabled={!confirmed}
               onClick={download}
-            >
+             tooltip={<>
               Prepare reviewed page CSV
-            </button>
+             </>}>
+               Download CSV </ActionButton>
           </>
         )}
         {message &&

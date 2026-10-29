@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
@@ -622,13 +624,12 @@ export default function LiveAppGenerationPage() {
                       <div
                         style={{ display: "flex", flexWrap: "wrap", gap: 8 }}
                       >
-                        <button
+                        <ActionButton
                           type="button"
                           onClick={downloadConnectorLauncher}
                           disabled={
                             !helperActorAllowed || !pairingCode || connectorStatus === "connecting"
-                          }
-                        >
+                          } tooltip={<>
                           Download{" "}
                           {connectorPlatform === "windows"
                             ? "Windows"
@@ -636,20 +637,24 @@ export default function LiveAppGenerationPage() {
                               ? "macOS"
                               : "Linux"}{" "}
                           unsigned launcher
-                        </button>
-                        <button
+                         </>}>Download launcher</ActionButton>
+                        <ActionButton
                           type="button"
                           className="btn-secondary"
                           onClick={() => void connectToDeviceConnector()}
                           disabled={
                             !helperActorAllowed || !pairingCode || connectorStatus === "connecting"
                           }
-                        >
+                         tooltip={<>
                           {connectorStatus === "connected"
                             ? "Recheck paired response"
                             : "Check paired response"}
-                        </button>
-                        {connectorPlatform === "windows" && <button type="button" className="btn-secondary" onClick={reportBlockedWindowsHelper} disabled={capturing || generating}>Windows blocked this helper</button>}
+                         </>}>
+                          {connectorStatus === "connected"
+                            ? "Refresh"
+                            : "Check"}
+                        </ActionButton>
+                        {connectorPlatform === "windows" && <ActionButton type="button" className="btn-secondary" onClick={reportBlockedWindowsHelper} disabled={capturing || generating} tooltip={<> Windows blocked this helper </>}> Launch help </ActionButton>}
                       </div>
                       <div
                         className={`status-panel ${
@@ -677,7 +682,7 @@ export default function LiveAppGenerationPage() {
                         </span>
                       </div>
                       {!captureInputsAllowed && <p role="status">Original independent session/project/workspace access is not current. Private pairing, selections, captures and paid drafts remain retained but hidden. Setup metadata and paired liveness do not approve device/source processing.</p>}
-                      {connectorStatus === "blocked" && <div role="status"><DeviceHelperBlockedLaunchGuidance reportedBlocked={true} /><p>Your private pairing draft remains retained. Reporting this did not launch a helper, change policy or perform device capture. Signed trusted distribution and actual Windows/device acceptance remain separate.</p><button type="button" className="btn-secondary" onClick={showPolicyPermittedManualSetup}>Show manual instructions only if policy permits</button></div>}
+                      {connectorStatus === "blocked" && <div role="status"><DeviceHelperBlockedLaunchGuidance reportedBlocked={true} /><p>Your private pairing draft remains retained. Reporting this did not launch a helper, change policy or perform device capture. Signed trusted distribution and actual Windows/device acceptance remain separate.</p><ActionButton type="button" className="btn-secondary" onClick={showPolicyPermittedManualSetup} tooltip={<> Show manual instructions only if policy permits </>}> Show </ActionButton></div>}
                       <details open={manualSetupOpen} onToggle={event => setManualSetupOpen(event.currentTarget.open)}>
                         <summary>Manual setup and troubleshooting</summary>
                         <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
@@ -859,7 +864,7 @@ export default function LiveAppGenerationPage() {
                           style={{ width: "100%" }}
                         />
                       </label>
-                      <button
+                      <ActionButton
                         type="button"
                         onClick={() => void captureCurrentScreen()}
                         disabled={
@@ -870,11 +875,15 @@ export default function LiveAppGenerationPage() {
                           (captureMode !== "android" &&
                             (!appiumUrl.trim() || !appiumSessionId.trim()))
                         }
-                      >
+                       tooltip={<>
                         {capturing
                           ? "Capturing current screen…"
                           : "Capture current screen"}
-                      </button>
+                       </>}>
+                        {capturing
+                          ? "Capturing…"
+                          : "Capture screen"}
+                      </ActionButton>
                       <p role="status" className="text-muted">{CAPTURE_DISPATCH_GAP}</p>
                     </div>
                   </section>
@@ -908,19 +917,25 @@ export default function LiveAppGenerationPage() {
                 </details>
               </>
             )}
-            <button
+            <ActionButton
               onClick={generate}
               disabled={
                 !captureInputsAllowed || generating ||
                 (captureMode === "web" ? !startUrl.trim() : !presentedCapture)
               }
-            >
+             tooltip={<>
               {generating
                 ? "Generating grounded drafts…"
                 : captureMode === "web"
                   ? "Crawl and generate drafts"
                   : "Generate from device capture"}
-            </button>
+             </>}>
+              {generating
+                ? "Generating…"
+                : captureMode === "web"
+                  ? "Generate drafts"
+                  : "Generate"}
+            </ActionButton>
           </div>
 
           {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
@@ -1056,16 +1071,22 @@ export default function LiveAppGenerationPage() {
                     >
                       Discard
                     </button>
-                    <button
+                    <ActionButton
                       onClick={() => commit(i)}
                       disabled={busyIndex === i}
-                    >
+                     tooltip={<>
                       {busyIndex === i
                         ? "Saving…"
                         : draft.coverageDisposition === "STALE_EXISTING"
                           ? "Update existing case for review"
                           : "Save new case for review"}
-                    </button>
+                     </>}>
+                      {busyIndex === i
+                        ? "Saving…"
+                        : draft.coverageDisposition === "STALE_EXISTING"
+                          ? "Update case"
+                          : "Save case"}
+                    </ActionButton>
                   </div>
                 </div>
               ))}

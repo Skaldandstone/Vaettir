@@ -1,3 +1,4 @@
+/* global innerWidth */
 /* global document, window */
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
@@ -145,7 +146,7 @@ test("browser Office exports work, recover from errors and discard output after 
     );
     membership = false;
     await page.evaluate(() => window.refreshExportAccess());
-    var finished = await page.evaluate(() => window.exportFinished);
+    let finished = await page.evaluate(() => window.exportFinished);
     await page.evaluate(() => window.releaseExport());
     await page.waitForFunction((n) => window.exportFinished > n, finished);
     await page.waitForFunction(
@@ -166,7 +167,7 @@ test("browser Office exports work, recover from errors and discard output after 
     );
     payload = { ...sourceReport, title: "Another report" };
     await page.evaluate(() => window.refreshExportAccess());
-    var finished = await page.evaluate(() => window.exportFinished);
+    finished = await page.evaluate(() => window.exportFinished);
     await page.evaluate(() => window.releaseExport());
     await page.waitForFunction((n) => window.exportFinished > n, finished);
     await page.waitForFunction(
@@ -182,7 +183,7 @@ test("browser Office exports work, recover from errors and discard output after 
       () => typeof window.releaseExport === "function",
     );
     const download = page.waitForEvent("download");
-    var finished = await page.evaluate(() => window.exportFinished);
+    finished = await page.evaluate(() => window.exportFinished);
     await page.evaluate(() => window.releaseExport());
     await page.waitForFunction((n) => window.exportFinished > n, finished);
     const result = await download;
@@ -190,7 +191,6 @@ test("browser Office exports work, recover from errors and discard output after 
     const created = await page.evaluate(() => window.createdDownloads);
     assert.equal(created.length, 1);
     assert.ok(created[0].size > 10000);
-    await page.getByText("Other editable formats", { exact: true }).click();
     for (const [label, extension] of [
       ["Word document", "docx"],
       ["Excel workbook", "xlsx"],
@@ -205,7 +205,7 @@ test("browser Office exports work, recover from errors and discard output after 
       membership = false;
       await page.evaluate(() => window.refreshExportAccess());
       await page.getByRole("checkbox").waitFor({ state: "detached" });
-      var finished = await page.evaluate(() => window.exportFinished);
+      finished = await page.evaluate(() => window.exportFinished);
       await page.evaluate(() => window.releaseExport());
       await page.waitForFunction((n) => window.exportFinished > n, finished);
       await page.waitForFunction(
@@ -222,12 +222,11 @@ test("browser Office exports work, recover from errors and discard output after 
         window.releaseExport = null;
         window.failExport = true;
       });
-      await page.getByText("Other editable formats", { exact: true }).click();
-      await page.getByRole("button", { name: `Download ${label}` }).click();
+        await page.getByRole("button", { name: `Download ${label}` }).click();
       await page.waitForFunction(
         () => typeof window.releaseExport === "function",
       );
-      var finished = await page.evaluate(() => window.exportFinished);
+      finished = await page.evaluate(() => window.exportFinished);
       await page.evaluate(() => window.releaseExport());
       await page.waitForFunction((n) => window.exportFinished > n, finished);
       await page
@@ -243,7 +242,7 @@ test("browser Office exports work, recover from errors and discard output after 
         () => typeof window.releaseExport === "function",
       );
       const officeDownload = page.waitForEvent("download");
-      var finished = await page.evaluate(() => window.exportFinished);
+      finished = await page.evaluate(() => window.exportFinished);
       await page.evaluate(() => window.releaseExport());
       await page.waitForFunction((n) => window.exportFinished > n, finished);
       assert.ok(
@@ -277,8 +276,7 @@ test("browser Office exports work, recover from errors and discard output after 
               : "Download Excel workbook",
       });
       if (!(await button.isVisible()))
-        await page.getByText("Other editable formats", { exact: true }).click();
-      await page.evaluate(() => {
+          await page.evaluate(() => {
         window.releaseExport = null;
       });
       await button.click();

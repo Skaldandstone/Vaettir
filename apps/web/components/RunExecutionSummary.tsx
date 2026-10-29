@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useState } from "react";
 
 import { DistributionBar } from "./MetricVisuals";
@@ -80,14 +82,14 @@ export function RunExecutionSummary({
       <p className="text-muted">
         {plannedScope.plannedCount} saved planned identities · {plannedScope.availableCount} available procedures · {plannedScope.unavailableCaseIds.length} unavailable. Missing procedures remain in the denominator, not silently excluded.
       </p>
-      <p className="text-muted">
+      <details><summary>Details</summary><p className="text-muted">
         Recorded progress is not pass rate or release acceptance. Procedures and
         corrections remain in this run’s evidence record.
-      </p>
+      </p></details>
       {exportError && (
         <p role="alert">{exportError} Nothing was silently truncated.</p>
       )}
-      <button
+      <ActionButton
         type="button"
         className="btn-secondary"
         disabled={!completeExportScope}
@@ -134,10 +136,11 @@ export function RunExecutionSummary({
             );
           }
         }}
-      >
+       tooltip={<>
         Export current outcomes · CSV
-      </button>
-      <button
+       </>}>
+         Export </ActionButton>
+      <ActionButton
         type="button"
         className="btn-secondary"
         disabled={!completeExportScope}
@@ -177,10 +180,11 @@ export function RunExecutionSummary({
             );
           }
         }}
-      >
+       tooltip={<>
         Export procedures and current record · JSON
-      </button>
-      <button type="button" className="btn-secondary" disabled={!completeExportScope} style={{ marginLeft: 8 }} onClick={() => {
+       </>}>
+         Export </ActionButton>
+      <ActionButton type="button" className="btn-secondary" disabled={!completeExportScope} style={{ marginLeft: 8 }} onClick={() => {
         setExportError(null);
         if (!completeExportScope || !canExport()) { setExportError("Current original run access and complete planned procedure scope must be verified before export."); return; }
         try {
@@ -188,15 +192,15 @@ export function RunExecutionSummary({
           if (!canExport()) throw new Error("Original run access changed. Nothing was exported.");
           downloadFile(`vaettir-run-${runId}-report.html`, content, "text/html", canExport);
         } catch (cause) { setExportError(cause instanceof Error ? cause.message : "Current run report could not be exported."); }
-      }}>Export printable report · HTML</button>
-      <p className="text-muted">
+      }} tooltip={<> Export printable report · HTML </>}> Export </ActionButton>
+      <details><summary>Details</summary><p className="text-muted">
         {!completeExportScope && "Whole-run exports are unavailable while saved planned procedures are missing. No smaller subset is exported. "}
         Exports include the current authorized run, not just search matches.
         JSON preserves present procedures, configuration and observations, not
         full revision history or attachment files. HTML is an offline printable
         report of the same complete current run, not a signed audit. Legacy procedures without a
         saved snapshot may reflect later edits.
-      </p>
+      </p></details>
     </section>
   );
 }

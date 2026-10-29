@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
@@ -11,7 +12,7 @@ type StatusInput = RouterInputs["releases"]["updateStatus"];
 type Element = React.ReactElement<{ children?: React.ReactNode; role?: string; onChange?: (event: { target: { value: string } }) => Promise<void> }>;
 const source = readFileSync(new URL("../app/projects/[projectId]/releases/[releaseId]/page.tsx", import.meta.url), "utf8");
 const ast = ts.createSourceFile("release.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX), printer = ts.createPrinter();
-const code = ts.transpileModule(ast.statements.filter(node => !ts.isImportDeclaration(node))
+const code = controllerTranspile(ast.statements.filter(node => !ts.isImportDeclaration(node))
   .map(node => printer.printNode(ts.EmitHint.Unspecified, node, ast).replace(/^export\s+(?:default\s+)?/gm, "")).join("\n") +
   "\nthis.actual=ReleaseReadinessPage;", { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
 function elements(node: React.ReactNode): Element[] {

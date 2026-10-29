@@ -13,7 +13,6 @@ import { RepositoryReleaseDiscovery } from "@/components/RepositoryReleaseDiscov
 import { ProductionSignalChips } from "@/components/ProductionSignalChips";
 import { ProjectPopulationModal } from "@/components/ProjectPopulationModal";
 import { ProjectRepositorySummary } from "@/components/ProjectRepositorySummary";
-import { ProjectCaseKey } from "@/components/ProjectCaseKey";
 import { TestTypeDistribution } from "@/components/TestTypeDistribution";
 import {
   QualityExperienceSummary,
@@ -54,7 +53,6 @@ export default function ProjectOverviewPage() {
   return (
     <div className="project-overview-workbench">
       <header className="overview-heading"><div><p className="workspace-eyebrow">Project overview</p><h1>{project.name}</h1>
-      <ProjectCaseKey projectId={projectId} canEdit={canEdit} />
       </div><div className="workspace-toolbar">
       {canEdit && (
         <button

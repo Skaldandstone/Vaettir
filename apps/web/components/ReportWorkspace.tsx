@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import Link from "next/link";
 import { useLayoutEffect, useRef, useState } from "react";
 import { trpcReact, type RouterInputs } from "@/lib/trpcReact";
@@ -730,14 +732,15 @@ export function ReportWorkspace({
       {message && <p role="status">{message}</p>}
       {pending ? (
         <div className={styles.actions}>
-          <button
+          <ActionButton
             type="button"
             disabled={!ready || !editable || busy}
             onClick={() => void send(pending)}
-          >
+           tooltip={<>
             Retry same save
-          </button>
-          <button
+           </>}>
+             Retry </ActionButton>
+          <ActionButton
             type="button"
             disabled={busy || !ready}
             onClick={async () => {
@@ -748,24 +751,31 @@ export function ReportWorkspace({
                 reset();
               }
             }}
-          >
+           tooltip={<>
             Reload saved versions
-          </button>
+           </>}>
+             Refresh </ActionButton>
         </div>
       ) : (
         <div className={styles.actions}>
-          <button
+          <ActionButton
             type="button"
             className="btn-primary"
             disabled={!canSave}
             onClick={() => save()}
-          >
+           tooltip={<>
             {tab === "dashboards"
               ? "Save dashboard"
               : enabled
                 ? "Enable schedule"
                 : "Save paused schedule"}
-          </button>
+           </>}>
+            {tab === "dashboards"
+              ? "Save dashboard"
+              : enabled
+                ? "Enable schedule"
+                : "Save schedule"}
+          </ActionButton>
           {tab === "dashboards" && selected.id && (
             <button
               type="button"

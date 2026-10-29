@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
@@ -10,7 +11,7 @@ type Element = React.ReactElement<{ children?: React.ReactNode; onClick?: () => 
 const source = readFileSync(new URL("../components/DurableCaseAnalysis.tsx", import.meta.url), "utf8");
 const ast = ts.createSourceFile("Analysis.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX), printer = ts.createPrinter();
 const declarations = ast.statements.filter(ts.isFunctionDeclaration).map(node => printer.printNode(ts.EmitHint.Unspecified, node, ast).replace(/\bexport\s+/, "")).join("\n");
-const compiled = ts.transpileModule(declarations + "\nthis.actual=Analysis;", { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
+const compiled = controllerTranspile(declarations + "\nthis.actual=Analysis;", { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
 const scope = { projectId: "synthetic-project", originalOrganizationId: "synthetic-org", expectedClerkActorId: "synthetic-clerk" };
 const ids = (count: number, prefix = "original") => Array.from({ length: count }, (_, index) => `${prefix}-${index}`);
 function elements(node: React.ReactNode): Element[] {

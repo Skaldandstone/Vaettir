@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import {useState} from "react";
 import {trpcReact,type RouterInputs} from "@/lib/trpcReact";
 import { ConnectedRepositoryPicker } from "./ConnectedRepositoryPicker";
@@ -46,11 +48,11 @@ export function RepositoryProcessingReview({projectId,purpose,initialUrl,initial
     {access.readable&&(!scope?<div style={{display:"grid",gap:12}}>
     <p>{purpose==="REQUIREMENTS"?"Find requirement documents in the selected repository. If none are found, optionally draft requirements from the code for your review.":"Find automated tests in the selected repository and prepare cases for review."}</p>
     {runs.isSuccess&&runs.data.length>0&&<label>Previous approved runs<select value="" onChange={event=>{if(event.target.value){setRequestId(event.target.value);setAttempted(true);}}}><option value="">Select a saved run to recover or inspect</option>{runs.data.map(run=><option key={run.requestId} value={run.requestId}>{new Date(run.createdAt).toLocaleString()} · {run.status.toLowerCase()} · {run.repositoryUrl} · {run.ref}</option>)}</select></label>}
-    {runs.error&&<><p role="alert">Saved runs could not be loaded.</p><button type="button" className="btn-secondary" onClick={()=>void runs.refetch()}>Retry saved runs</button></>}
-    {attempted&&status.error&&<><p role="alert">Saved run access could not be confirmed.</p><button type="button" className="btn-secondary" onClick={()=>void status.refetch()}>Retry saved run access</button></>}
+    {runs.error&&<><p role="alert">Saved runs could not be loaded.</p><ActionButton type="button" className="btn-secondary" onClick={()=>void runs.refetch()} tooltip={<> Retry saved runs </>}> Retry </ActionButton></>}
+    {attempted&&status.error&&<><p role="alert">Saved run access could not be confirmed.</p><ActionButton type="button" className="btn-secondary" onClick={()=>void status.refetch()} tooltip={<> Retry saved run access </>}> Retry </ActionButton></>}
     {attempted&&status.isSuccess&&status.data&&<p role="status">Saved run: {status.data.status.toLowerCase()}{status.data.resolvedCommitSha?` · Commit ${status.data.resolvedCommitSha}`:""}</p>}
-    {attempted&&status.isSuccess&&Boolean(status.data?.results)&&onRecovered&&<button type="button" className="btn-secondary" onClick={()=>onRecovered(status.data!.results)}>Recover retained drafts without another AI charge</button>}
-    {repositories.error&&<><p role="alert">Registered repositories could not be loaded. Retry before selecting a saved reference.</p><button type="button" className="btn-secondary" onClick={()=>void repositories.refetch()}>Retry registered repositories</button></>}
+    {attempted&&status.isSuccess&&Boolean(status.data?.results)&&onRecovered&&<ActionButton type="button" className="btn-secondary" onClick={()=>onRecovered(status.data!.results)} tooltip={<> Recover retained drafts without another AI charge </>}> Recover </ActionButton>}
+    {repositories.error&&<><p role="alert">Registered repositories could not be loaded. Retry before selecting a saved reference.</p><ActionButton type="button" className="btn-secondary" onClick={()=>void repositories.refetch()} tooltip={<> Retry registered repositories </>}> Retry </ActionButton></>}
     {!repositoryId&&<label>Public repository HTTPS URL<input value={repoUrl} onChange={event=>setUrl(event.target.value)} style={{width:"100%"}} placeholder="https://github.com/organization/repository"/></label>}
     {purpose==="REQUIREMENTS"&&selectedRepository?.provider==="gitlab"&&<label><input type="checkbox" checked={inferFromCode} onChange={event=>setInferFromCode(event.target.checked)}/> If no requirement documents are found, infer a requirements.md draft from code.</label>}
     <details><summary>Scan options</summary>
@@ -60,13 +62,13 @@ export function RepositoryProcessingReview({projectId,purpose,initialUrl,initial
     <label>Maximum {purpose==="REQUIREMENTS"?"documents":"test files"}<input type="number" min={1} max={purpose==="REQUIREMENTS"?10:25} value={maxItems} onChange={event=>setMaxItems(Number(event.target.value))}/></label>
     </details>
     <p className="text-muted">Automatic discovery excludes secrets, binaries and generated files. Review the source and AI approval before processing. Private source reads currently require a supported GitLab connection.</p>
-    <button type="button" className="btn-primary" disabled={!access.canEdit||!repoUrl.trim()||!ref.trim()||!paths.trim()||maxItems<1||maxItems>(purpose==="REQUIREMENTS"?10:25)} onClick={review}>Review scope and credits</button>
+    <ActionButton type="button" className="btn-primary" disabled={!access.canEdit||!repoUrl.trim()||!ref.trim()||!paths.trim()||maxItems<1||maxItems>(purpose==="REQUIREMENTS"?10:25)} onClick={review} tooltip={<> Review scope and credits </>}> Review </ActionButton>
   </div>:<div style={{display:"grid",gap:12}}>
     <h3>Approve source processing</h3><dl><dt>Repository</dt><dd style={{overflowWrap:"anywhere"}}>{scope.repoUrl}</dd><dt>Selected revision</dt><dd>{scope.ref}</dd><dt>Allowed file paths</dt><dd>{scope.pathPrefixes.join(", ")}</dd><dt>Purpose</dt><dd>{purpose==="REQUIREMENTS"?"Draft requirements for your review":"Draft test cases for review, preserving existing edits and approvals"}</dd></dl>
     {scope.requirementsDiscovery&&<p>Look for requirement documents first. Only if none exist in the complete bounded listing, read eligible code to infer a requirements.md draft. Inferred behavior is unconfirmed and may omit intended requirements. The draft stays in Vaettir; nothing is written to your repository.</p>}
     <p>{scope.repositoryId?"GitLab resolves the selected revision, lists its pinned tree, and reads eligible files within your selected scope using the saved connection. No clone or imported code is executed.":"Cloning downloads the selected repository revision. The path selection limits files read and sent to AI, not the Git network transfer."} The exact resolved commit is retained with this run. A branch or tag does not establish what is deployed.</p>
     {preview.isLoading&&<p role="status">Checking current credit balance…</p>}
-    {preview.error&&<><p role="alert">{preview.error.message}</p><button type="button" className="btn-secondary" onClick={()=>void preview.refetch()}>Retry credit preview</button></>}
+    {preview.error&&<><p role="alert">{preview.error.message}</p><ActionButton type="button" className="btn-secondary" onClick={()=>void preview.refetch()} tooltip={<> Retry credit preview </>}> Retry </ActionButton></>}
     {preview.isSuccess&&preview.data&&<><p>Estimated {preview.data.estimatedCredits} credits for up to {scope.maxItems} files ({preview.data.unitCreditEstimate} per file). Current balance: {preview.data.balance} credits.</p><p className="text-muted">Actual token usage is reconciled per file and can cost more or less than this estimate. This is not a spending cap. Unchanged paid files are skipped, and paid outputs are retained if later steps fail.</p>
       {!preview.data.canSpend&&<p role="alert">A full-seat editor, administrator or owner must approve credit use. Ask your workspace administrator to authorize the appropriate role and credits. No permission request has been sent.</p>}
       <label><input type="checkbox" checked={source} disabled={busy||attempted} onChange={event=>setSource(event.target.checked)}/> I permit Vaettir to fetch this repository and read only the selected file scope.</label>
@@ -75,10 +77,10 @@ export function RepositoryProcessingReview({projectId,purpose,initialUrl,initial
     </>}
     {error&&<p role="alert">{error}</p>}
     {status.isSuccess&&status.data&&<p role="status">Saved run: {status.data.status.toLowerCase()}{status.data.resolvedCommitSha?` · Commit ${status.data.resolvedCommitSha}`:""}</p>}
-    {status.error&&<><p role="alert">Saved run access could not be confirmed.</p><button type="button" className="btn-secondary" onClick={()=>void status.refetch()}>Retry saved run access</button></>}
-    {status.isSuccess&&Boolean(status.data?.results)&&onRecovered&&<button type="button" className="btn-secondary" disabled={busy} onClick={()=>onRecovered(status.data!.results)}>Recover retained drafts without another AI charge</button>}
-    {attempted&&<button type="button" className="btn-secondary" disabled={cancel.isPending} onClick={()=>cancel.mutate({projectId,requestId})}>Cancel remaining source processing</button>}
-    <div style={{display:"flex",flexWrap:"wrap",gap:8}}><button type="button" className="btn-secondary" disabled={busy} onClick={()=>setScope(null)}>Back to scope</button><button type="button" className="btn-primary" disabled={busy||attempted||!source||!ai||!cost||!preview.isSuccess||!preview.data?.canSpend||preview.data.balance<preview.data.estimatedCredits} onClick={()=>void approve()}>{busy?"Processing approved scope…":"Approve and process"}</button></div>
+    {status.error&&<><p role="alert">Saved run access could not be confirmed.</p><ActionButton type="button" className="btn-secondary" onClick={()=>void status.refetch()} tooltip={<> Retry saved run access </>}> Retry </ActionButton></>}
+    {status.isSuccess&&Boolean(status.data?.results)&&onRecovered&&<ActionButton type="button" className="btn-secondary" disabled={busy} onClick={()=>onRecovered(status.data!.results)} tooltip={<> Recover retained drafts without another AI charge </>}> Recover </ActionButton>}
+    {attempted&&<ActionButton type="button" className="btn-secondary" disabled={cancel.isPending} onClick={()=>cancel.mutate({projectId,requestId})} tooltip={<> Cancel remaining source processing </>}> Cancel </ActionButton>}
+    <div style={{display:"flex",flexWrap:"wrap",gap:8}}><ActionButton type="button" className="btn-secondary" disabled={busy} onClick={()=>setScope(null)} tooltip={<> Back to scope </>}> Back </ActionButton><ActionButton type="button" className="btn-primary" disabled={busy||attempted||!source||!ai||!cost||!preview.isSuccess||!preview.data?.canSpend||preview.data.balance<preview.data.estimatedCredits} onClick={()=>void approve()} tooltip={<> {busy?"Processing approved scope…":"Approve and process"} </>}>{busy?"Processing…":"Approve"}</ActionButton></div>
   </div>)}
   </div>;
 }

@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useState } from "react";
 import { DistributionBar } from "./MetricVisuals";
 import { downloadFile } from "@/lib/download";
@@ -105,13 +107,12 @@ export function RunOverview({
           <strong>{remaining}</strong>
           <span>Left to test</span>
         </div>
-        <button
+        <ActionButton
           type="button"
           className="btn-secondary"
-          onClick={exportOverview}
-        >
+          onClick={exportOverview} tooltip={<>
           Export displayed runs · CSV
-        </button>
+         </>}>Export CSV</ActionButton>
         <a className="btn-secondary" href={`/projects/${projectId}/reports`}>
           Project reports
         </a>

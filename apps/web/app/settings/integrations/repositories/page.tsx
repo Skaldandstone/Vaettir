@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import Link from "next/link";
 import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -23,14 +25,14 @@ function RepositoryApplicationSettings() {
       {!organizations.isSuccess && !organizations.error && <p role="status">Checking workspace access…</p>}
       {organizations.isSuccess && !organizations.data.length && <p role="status">Join or create a workspace first.</p>}
       {organizations.isSuccess && organizations.data.length > 1 && <label>Workspace<select value={orgId} onChange={e => setSelectedOrg(e.target.value)}>{organizations.data.map(org => <option key={org.id} value={org.id}>{org.name}</option>)}</select></label>}
-      {projects.error && <><p role="alert">Projects could not be refreshed.</p><button type="button" onClick={() => void projects.refetch()}>Retry project list</button></>}
+      {projects.error && <><p role="alert">Projects could not be refreshed.</p><ActionButton type="button" onClick={() => void projects.refetch()} tooltip={<> Retry project list </>}> Retry </ActionButton></>}
       {orgId && projects.isPending && <p role="status">Loading accessible projects…</p>}
       {projects.isSuccess && !projects.data.length && <p role="status">Create a project in this workspace first.</p>}
       {projects.isSuccess && projects.data.map(project => <button type="button" className="btn-secondary" key={project.id} onClick={() => setProjectId(project.id)}>{project.name}</button>)}
     </section> : <>
       <div role="group" aria-label="Application provider" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
         {(["gitlab", "github"] as const).map(id => <button type="button" key={id} className="btn-secondary" aria-pressed={id === providerId} onClick={() => setProviderId(id)}>{id === "gitlab" ? "GitLab" : "GitHub"}</button>)}
-        <button type="button" className="btn-secondary" onClick={() => setProjectId("")}>Choose another project</button>
+        <ActionButton type="button" className="btn-secondary" onClick={() => setProjectId("")} tooltip={<> Choose another project </>}> Choose </ActionButton>
       </div>
       <RepositoryOAuthApplicationSetup key={`${projectId}:${providerId}:${search.get("origin") ?? ""}`} projectId={projectId} providerId={providerId} initialOrigin={search.get("origin") ?? undefined}/>
     </>}

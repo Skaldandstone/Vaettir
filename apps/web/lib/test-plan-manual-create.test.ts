@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 // Whole actual TSX controller and callbacks, with modeled hook scheduling and
 // synthetic native/SDK boundaries. Not browser, provider or live acceptance.
 import {readFileSync} from "node:fs";
@@ -33,7 +34,7 @@ function fixture(){
   modules["@/components/ui/Workspace"]={Icon:noop,StatusPill:noop};
   modules["@/lib/case-inspector"]={inspectorLabel:noop};
   const source=readFileSync(new URL("../app/projects/[projectId]/test-plans/page.tsx",import.meta.url),"utf8");
-  const output=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.React}}).outputText;
+  const output=controllerTranspile(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.React}}).outputText;
   const exports:Record<string,unknown>={};new Function("require","exports","React","window",output+"\nexports.manual=ManualPlanCreate;")((name:string)=>{if(!(name in modules))throw Error("Unreviewed fixture dependency: "+name);return modules[name];},exports,React,browser);
   const actual=exports.manual as (props:{projectId:string;readOnly:boolean;onCreated:typeof onCreated})=>React.ReactNode;
   const props={projectId:"project-original",readOnly:false,onCreated};

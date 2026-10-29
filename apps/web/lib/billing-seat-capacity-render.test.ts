@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 import React from "react";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
@@ -18,7 +19,7 @@ const sdk = { trpcReact: { organization: {
   listPlanTiers: query([]), createBillingCheckout: mutation, createBillingPortalSession: mutation, createCreditTopup: mutation,
   creditPurchaseStatus:query({status:"NONE",credits:null}),
 }, creditUseRequests: { adminList: query([]), resolve: mutation } } };
-const code = ts.transpileModule(readFileSync(new URL("../app/settings/billing/page.tsx", import.meta.url), "utf8"), {
+const code = controllerTranspile(readFileSync(new URL("../app/settings/billing/page.tsx", import.meta.url), "utf8"), {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.React, esModuleInterop: true },
 }).outputText;
 const imports: Record<string, unknown> = { react: React,

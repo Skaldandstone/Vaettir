@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
@@ -46,7 +47,7 @@ function compile(name: string, context: vm.Context) {
   const source = readFileSync(new URL(`../components/${name}.tsx`, import.meta.url), "utf8");
   const ast = ts.createSourceFile(`${name}.tsx`, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX), printer = ts.createPrinter();
   const body = ast.statements.filter(node => !ts.isImportDeclaration(node)).map(node => printer.printNode(ts.EmitHint.Unspecified, node, ast).replace(/^export\s+(?:default\s+)?/gm, "")).join("\n");
-  vm.runInContext(ts.transpileModule(`${body}\nthis.actual=${name};`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText, context);
+  vm.runInContext(controllerTranspile(`${body}\nthis.actual=${name};`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText, context);
 }
 const repository = (id: string): Listing["repositories"][number] => ({ id, name: `Synthetic ${id}`, url: `https://gitlab.example.com/synthetic/${encodeURIComponent(id)}`, defaultBranch: "main" });
 const listing = (ids: string[], hasMore = false, catalogReset = false): Listing => ({ repositories: ids.map(repository), hasMore, catalogReset, catalogVersion: "c".repeat(64),limitReached:false,listingStatus:hasMore?"more-pages":"end-of-scope",scopeKey:null,githubInstallationRequired:false });
@@ -165,17 +166,18 @@ describe("GitLab token connection actual component workflow (synthetic)", () => 
     expect(h.oauth).not.toHaveBeenCalled();
     expect(h.forbidden).not.toHaveBeenCalled();
   });
-  it("starts with an explicit method choice and never launches OAuth automatically", () => {
+  it("offers OAuth first, keeps token fallback in closed Advanced, and never launches automatically", () => {
     const h = harness("GitlabConnectionChoices");
-    expect(h.html()).toContain("No OAuth application registration is needed");
+    expect(h.html()).toContain("Continue with GitLab OAuth");
+    expect(h.html()).toContain('<details class="connection-options"><summary>Advanced</summary>');
     expect(h.forbidden).not.toHaveBeenCalled();
     expect(h.verify.mutateAsync).not.toHaveBeenCalled();
-    h.button("Use a read-only access token").props.onClick!(); h.render();
+    h.button("Existing token").props.onClick!(); h.render();
     expect(h.tree().type).toBe(h.tokenBoundary);
     expect((h.tree().props as Props).providerId).toBe("gitlab");
     expect(h.oauth).not.toHaveBeenCalled();
     const oauth = harness("GitlabConnectionChoices");
-    oauth.button("Use workspace-configured OAuth").props.onClick!(); oauth.render();
+    oauth.button("Continue").props.onClick!(); oauth.render();
     expect(oauth.tree().type).toBe(oauth.oauth);
     expect(oauth.forbidden).not.toHaveBeenCalled();
   });

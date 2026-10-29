@@ -1,7 +1,10 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useEffect, useRef, useState } from "react";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
+import { ImportMappingReview, type ImportMappingSource } from "@/components/ImportMappingReview";
 import { readWorkbookPreview } from "@/lib/read-workbook-preview";
 import { reassignImportColumn, remainingNonCaseRows, editedImportOverrides } from "@/lib/reassign-import-column";
 import { importReviewRows, typeReviewCase, typeReviewLabel } from "@/lib/import-type-review";
@@ -181,9 +184,11 @@ function NonCaseRowsReview({ rows, overrides, onInclude }: {
           <td>{row.rowNumber}</td><td>{row.externalId || row.tags.join(", ")}</td>
           <td>{row.sourceRowKind === "SECTION" ? "Section within suite" : row.sourceRowKind === "NOTE" ? "Source note" : "ID-only placeholder"}<small>For review</small></td>
           <td>{row.suitePath || row.reviewReasons?.join(" ") || "No case definition"}</td>
-          <td><button className="btn-secondary" disabled={Boolean(overrides[row.rowNumber])} onClick={() => onInclude(row)}>
+          <td><ActionButton className="btn-secondary" disabled={Boolean(overrides[row.rowNumber])} onClick={() => onInclude(row)} tooltip={<>
             {overrides[row.rowNumber] ? "Editing below" : "Also add as case"}
-          </button></td>
+           </>}>
+            {overrides[row.rowNumber] ? "Editing below" : "Add case"}
+          </ActionButton></td>
         </tr>)}</tbody>
       </table></div>
     </details>
@@ -208,7 +213,7 @@ function RowMappingReview({ suggestions, overrides, onChange }: {
           <td style={{ whiteSpace: "pre-wrap" }}>{row.then.join("\n") || "—"}</td>
           <td><div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button className="btn-secondary" onClick={() => onChange(row)}>Edit row</button>
-            <button className="btn-secondary" onClick={() => onChange(original)}>Keep column mapping</button>
+            <ActionButton className="btn-secondary" onClick={() => onChange(original)} tooltip={<> Keep column mapping </>}> Keep mapping </ActionButton>
           </div></td>
         </tr>;
       })}</tbody>
@@ -465,9 +470,6 @@ export function MigrationWizard({
   const [zephyrApiToken, setZephyrApiToken] = useState("");
   const [zephyrProjectKey, setZephyrProjectKey] = useState("");
 
-  const commitCsvMutation = trpcReact.importJobs.commitCsv.useMutation();
-  const commitGoogleSheetsMutation = trpcReact.importJobs.commitGoogleSheets.useMutation();
-  const commitXlsxMutation = trpcReact.importJobs.commitXlsx.useMutation();
   const commitXrayMutation = trpcReact.importJobs.commitXray.useMutation();
   const commitTestRailMutation =
     trpcReact.importJobs.commitTestRail.useMutation();
@@ -576,7 +578,7 @@ export function MigrationWizard({
           }, controller.signal, setWorkbookCheckpoints);
           if (activeFileRead.current !== controller || controller.signal.aborted) return;
           const usableSheets = res.sheets.filter(
-            (sheet) => sheet.suggestedMapping.title,
+            (sheet) => sheet.headers.length > 0,
           );
           setXlsxBase64(fileBase64);
           setXlsxPreview(res);
@@ -852,50 +854,21 @@ export function MigrationWizard({
     }
   }
 
+  function mappingSource(): ImportMappingSource {
+    if (!xlsxPreview) return { format: "CSV", sheets: [{ name: "", csvText: rawContent, mapping, overrides: Object.values(csvRowOverrides) }] };
+    const sheets = [...selectedSheets].map(name => ({ name, mapping: xlsxMappings[name] ?? {}, overrides: Object.values(xlsxRowOverrides[name] ?? {}) }));
+    if (importMethod === "google-sheets") return { format: "SHEETS", sheets: sheets.map(sheet => {
+      const snapshot = googleSnapshots.find(value => value.label === sheet.name);
+      return { ...sheet, csvText: snapshot?.csvText ?? "", source: snapshot?.source };
+    }) };
+    return { format: "XLSX", fileBase64: xlsxBase64, sheets };
+  }
+
   async function commit() {
     setError(null);
     try {
       let res: FileCommitResult;
-      if (source === "csv") {
-        if (xlsxPreview) {
-          if (importMethod === "google-sheets" && [...selectedSheets].some(name => !xlsxMappings[name]?.title))
-            throw new Error("Map a title column for every selected tab, or deselect the tab before importing.");
-          const sheets = [...selectedSheets]
-            .map((name) => ({
-              name,
-              mapping: xlsxMappings[name],
-              overrides: Object.values(xlsxRowOverrides[name] ?? {}),
-            }))
-            .filter(
-              (
-                sheet,
-              ): sheet is {
-                name: string;
-                mapping: Record<TargetField, string>;
-                overrides: EditableImportRow[];
-              } => Boolean(sheet.mapping?.title),
-            );
-          if (sheets.length === 0) return;
-          if (importMethod === "google-sheets") {
-            res = await commitGoogleSheetsMutation.mutateAsync({ projectId, sourceLabel: fileName, sheets: sheets.map(sheet => {
-              const snapshot = googleSnapshots.find(snapshot => snapshot.label === sheet.name);
-              if (!snapshot || !sheet.mapping.externalId) throw new Error(`${sheet.name}: map a stable case ID column so re-imports update the same cases safely.`);
-              return { source: snapshot.source, name: sheet.name, csvText: snapshot.csvText, mapping: sheet.mapping, overrides: sheet.overrides };
-            }) });
-          } else {
-            res = await commitXlsxMutation.mutateAsync({ projectId, fileBase64: xlsxBase64, sourceLabel: fileName, sheets });
-          }
-        } else {
-          if (!mapping.title) return;
-          res = await commitCsvMutation.mutateAsync({
-            projectId,
-            csvText: rawContent,
-            mapping: mapping as Record<TargetField, string>,
-            overrides: Object.values(csvRowOverrides),
-            sourceLabel: fileName || undefined,
-          });
-        }
-      } else if (source === "xray") {
+      if (source === "xray") {
         res = await commitXrayMutation.mutateAsync({
           projectId,
           content: rawContent,
@@ -938,14 +911,12 @@ export function MigrationWizard({
   }
 
   const committing =
-    commitCsvMutation.isPending || commitGoogleSheetsMutation.isPending ||
-    commitXlsxMutation.isPending ||
     commitXrayMutation.isPending ||
     commitTestRailMutation.isPending ||
     commitQTestMutation.isPending ||
     commitZephyrMutation.isPending;
-  const stepNumber = { source: 1, upload: 2, review: 3, done: 4 }[step];
-  const totalSteps = 4;
+  const totalSteps = source === "csv" ? 3 : 4;
+  const stepNumber = Math.min({ source: 1, upload: 2, review: 3, done: 4 }[step], totalSteps);
   const unresolvedCsvRows = Object.values(csvRowOverrides).filter(
     (row) => !row.title.trim(),
   );
@@ -955,8 +926,6 @@ export function MigrationWizard({
     ),
   );
   const missingGoogleIds = importMethod === "google-sheets" && [...selectedSheets].some(name => !xlsxMappings[name]?.externalId);
-  const ScopeDetails = importMethod === "google-sheets" ? "details" : "div";
-  const selectedCaseCount = xlsxPreview?.sheets.filter(sheet => selectedSheets.has(sheet.name)).reduce((sum, sheet) => sum + sheet.rowCount - remainingNonCaseRows(sheet.nonCaseRows, xlsxRowOverrides[sheet.name] ?? {}).length, 0) ?? 0;
   const missingGoogleTitles = importMethod === "google-sheets" && [...selectedSheets].some(name => !xlsxMappings[name]?.title);
 
   return (
@@ -1046,12 +1015,13 @@ export function MigrationWizard({
                 cases. Use a supported API or upload an export to map and review
                 cases now.
               </p>
-              <button
+              <ActionButton
                 className="btn-primary"
                 onClick={() => setImportMethod("file")}
-              >
+               tooltip={<>
                 Import a file
-              </button>
+               </>}>
+                 Import file </ActionButton>
             </div>
           )}
           {(importMethod === "api" || importMethod === "file") && (
@@ -1063,11 +1033,11 @@ export function MigrationWizard({
                     : s === "csv" || s === "testrail" || s === "xray",
                 )
                 .map((s) => (
-                  <button
+                  <ActionButton
                     key={s}
                     onClick={() => chooseSource(s)}
                     className="source-connection-chip"
-                  >
+                   tooltip={<>
                     <span
                       className={`provider-mark provider-${s}`}
                       aria-hidden="true"
@@ -1078,7 +1048,18 @@ export function MigrationWizard({
                       <strong>{SOURCE_INFO[s].label}</strong>
                       <small>{importMethod === "api" ? "Connect API" : s === "csv" ? "CSV / Excel" : s === "testrail" ? "XML export" : "CSV / JSON export"}</small>
                     </span>
-                  </button>
+                   </>}>
+                    <span
+                      className={`provider-mark provider-${s}`}
+                      aria-hidden="true"
+                    >
+                      {SOURCE_INFO[s].mark}
+                    </span>
+                    <span>
+                      <strong>{SOURCE_INFO[s].label}</strong>
+                      <small>{importMethod === "api" ? "Connect API" : s === "csv" ? "CSV/Excel" : s === "testrail" ? "XML export" : "CSV/JSON"}</small>
+                    </span>
+                  </ActionButton>
                 ))}
             </div>
           )}
@@ -1152,7 +1133,7 @@ export function MigrationWizard({
               style={{ width: "100%" }}
             />
           </label>
-          <button
+          <ActionButton
             onClick={connectQTest}
             disabled={
               loading ||
@@ -1161,9 +1142,11 @@ export function MigrationWizard({
               !qtestProjectId.trim()
             }
             style={{ marginTop: 4 }}
-          >
+           tooltip={<>
             {loading ? "Connecting…" : "Connect and scan"}
-          </button>
+           </>}>
+            {loading ? "Connecting…" : "Connect"}
+          </ActionButton>
         </div>
       )}
 
@@ -1191,29 +1174,31 @@ export function MigrationWizard({
               style={{ width: "100%" }}
             />
           </label>
-          <button
+          <ActionButton
             onClick={connectZephyr}
             disabled={
               loading || !zephyrApiToken.trim() || !zephyrProjectKey.trim()
             }
             style={{ marginTop: 4 }}
-          >
+           tooltip={<>
             {loading ? "Connecting…" : "Connect and scan"}
-          </button>
+           </>}>
+            {loading ? "Connecting…" : "Connect"}
+          </ActionButton>
         </div>
       )}
 
-      {source === "csv" && smartCases.length > 0 && (step === "upload" || step === "review") && <SmartCaseSuggestions projectId={projectId} cases={smartCases} onApplyImport={useSmartImportPatches} />}
+      {source === "csv" && smartCases.length > 0 && step === "upload" && <SmartCaseSuggestions projectId={projectId} cases={smartCases} onApplyImport={useSmartImportPatches} />}
 
       {step === "upload" && source === "csv" && xlsxPreview && (
         <div className="xlsx-mapping-workspace">
           <div className="xlsx-workbook-heading">
             <div>
               <h3>Review workbook — {fileName}</h3>
-              <p className="text-muted">
+              <details><summary>Details</summary><p className="text-muted">
                 {xlsxPreview.sheets.length} worksheets detected. Columns are matched automatically.
                 Change any mapping below to update the preview before importing.
-              </p>
+              </p></details>
             </div>
             <span className="status-pill status-info">
               {selectedSheets.size} selected
@@ -1236,7 +1221,6 @@ export function MigrationWizard({
                       <input
                         type="checkbox"
                         checked={selected}
-                        disabled={importMethod !== "google-sheets" && !sheetMapping.title}
                         onChange={(event) =>
                           setSelectedSheets((current) => {
                             const next = new Set(current);
@@ -1262,7 +1246,7 @@ export function MigrationWizard({
                       </span>
                     )}
                   </div>
-                  {importMethod === "google-sheets" && <button type="button" className="btn-secondary" aria-expanded={expandedGoogleSheet === sheet.name} onClick={() => setExpandedGoogleSheet(current => current === sheet.name ? null : sheet.name)}>{expandedGoogleSheet === sheet.name ? "Collapse fields" : "Review fields"}<span className="sr-only"> for {sheet.name}</span></button>}
+                  {importMethod === "google-sheets" && <ActionButton type="button" className="btn-secondary" aria-expanded={expandedGoogleSheet === sheet.name} onClick={() => setExpandedGoogleSheet(current => current === sheet.name ? null : sheet.name)} tooltip={<> {expandedGoogleSheet === sheet.name ? "Collapse fields" : "Review fields"}<span className="sr-only"> for {sheet.name}</span> </>}>Fields</ActionButton>}
                   {sheet.headers.length > 0 && (importMethod !== "google-sheets" || expandedGoogleSheet === sheet.name) && (
                     <>
                       <SmartColumnMapping projectId={projectId} currentMapping={sheetMapping}
@@ -1373,20 +1357,16 @@ export function MigrationWizard({
             disabled={
               loading ||
               Boolean(error) ||
-              selectedSheets.size === 0 ||
-              unresolvedXlsxRows.length > 0
-              || missingGoogleIds
-              || missingGoogleTitles
+              selectedSheets.size === 0
             }
           >
-            Review import scope
+            Review
           </button>
-          {missingGoogleIds && <p role="status" className="xlsx-sheet-note">Map a Case ID or External ID column for each selected tab. Every case needs a unique, stable ID so repeating an import updates the same case safely.</p>}
-          {missingGoogleTitles && <p role="status" className="xlsx-sheet-note">Map a title column for every selected tab, or deselect that tab. Selected tabs are never silently left out.</p>}
+          {missingGoogleIds && <p role="status" className="xlsx-sheet-note">Rows without stable source IDs stay in the mapping queue.</p>}
+          {missingGoogleTitles && <p role="status" className="xlsx-sheet-note">Rows without titles stay in the mapping queue; selected tabs are retained.</p>}
           {unresolvedXlsxRows.length > 0 && (
             <p className="xlsx-sheet-note" role="status">
-              Complete {unresolvedXlsxRows.length} required title field(s) to
-              continue. Rows with test content are retained for repair.
+              {unresolvedXlsxRows.length} rows need titles and will stay in the mapping queue.
             </p>
           )}
         </div>
@@ -1403,13 +1383,13 @@ export function MigrationWizard({
           >
             <h3 style={{ margin: 0 }}>Map columns — {fileName}</h3>
           </div>
-          <p className="text-muted" style={{ fontSize: 13 }}>
+          <details><summary>Details</summary><p className="text-muted" style={{ fontSize: 13 }}>
             {csvPreview.rowCount} data row(s) found. Columns are matched automatically;
             change any mapping below to correct it. &quot;Title&quot; is
             required; leave any other field unmapped to skip it. Map
             &quot;External ID&quot; to a column with a stable per-row id to make
             this import re-runnable.
-          </p>
+          </p></details>
           <SmartColumnMapping projectId={projectId} csvText={rawContent} currentMapping={mapping} onApply={applyCsvMapping} />
           <div
             style={{
@@ -1522,80 +1502,22 @@ export function MigrationWizard({
           <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
             <button
               onClick={() => setStep("review")}
-              disabled={loading || Boolean(error) || !mapping.title || unresolvedCsvRows.length > 0}
+              disabled={loading || Boolean(error)}
             >
-              Review scope
+              Review
             </button>
           </div>
           {unresolvedCsvRows.length > 0 && (
             <p className="xlsx-sheet-note" role="status">
-              Complete {unresolvedCsvRows.length} required title field(s) to
-              continue. Rows with test content are retained for repair.
+              {unresolvedCsvRows.length} rows need titles and will stay in the mapping queue.
             </p>
           )}
         </div>
       )}
 
-      {step === "review" && source === "csv" && xlsxPreview && (
-        <div>
-          <h3 style={{ marginTop: 0 }}>Ready to import — {fileName}</h3>
-          {importMethod === "google-sheets" && <p className="text-muted">{selectedSheets.size} tabs · {selectedCaseCount} cases. Review your selection, then import.</p>}
-          <ScopeDetails>
-            {importMethod === "google-sheets" && <summary>Import details and safeguards</summary>}
-          <p className="text-muted" style={{ fontSize: 13 }}>
-            {selectedSheets.size} worksheet(s),{" "}
-            {xlsxPreview.sheets
-              .filter((sheet) => selectedSheets.has(sheet.name))
-              .reduce((sum, sheet) => sum + sheet.rowCount - remainingNonCaseRows(sheet.nonCaseRows, xlsxRowOverrides[sheet.name] ?? {}).length, 0)}{" "}
-            test cases. {xlsxPreview.sheets.filter(sheet => selectedSheets.has(sheet.name)).reduce((sum, sheet) => sum + remainingNonCaseRows(sheet.nonCaseRows, xlsxRowOverrides[sheet.name] ?? {}).length, 0)} context rows or placeholders are not standalone cases.
-            {importMethod === "google-sheets" && <>Re-imports match the same spreadsheet, tab and case ID. Human edits are preserved; conflicts are skipped and listed in the result. No source rows are deleted. </>}
-            Each worksheet becomes a suite; proposed sections and notes are preserved on its cases. Suggestions remain For review after import. Stable source IDs are
-            preserved for safe re-imports. Nothing is written until you confirm.
-          </p>
-          </ScopeDetails>
-          <div className="xlsx-review-list">
-            {xlsxPreview.sheets
-              .filter((sheet) => selectedSheets.has(sheet.name))
-              .map((sheet) => (
-                <span key={sheet.name}>
-                  <strong>{sheet.name}</strong>
-                  {sheet.rowCount - remainingNonCaseRows(sheet.nonCaseRows, xlsxRowOverrides[sheet.name] ?? {}).length} cases · {remainingNonCaseRows(sheet.nonCaseRows, xlsxRowOverrides[sheet.name] ?? {}).length} context / placeholder rows
-                </span>
-              ))}
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button className="btn-secondary" onClick={() => setStep("upload")}>
-              Back to mapping
-            </button>
-            <button
-              className={importMethod === "google-sheets" ? "btn-primary" : undefined}
-              onClick={commit}
-              disabled={committing || selectedSheets.size === 0 || missingGoogleIds || missingGoogleTitles}
-            >
-              {committing ? "Importing…" : "Import selected worksheets"}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {step === "review" && source === "csv" && !xlsxPreview && (
-        <div>
-          <h3 style={{ marginTop: 0 }}>Ready to import — {fileName}</h3>
-          <p className="text-muted" style={{ fontSize: 13 }}>
-            {(csvPreview?.rowCount ?? 0) - remainingNonCaseRows(csvPreview?.nonCaseRows, csvRowOverrides).length} test cases. {remainingNonCaseRows(csvPreview?.nonCaseRows, csvRowOverrides).length} context rows or placeholders are not standalone cases. Sections and notes are preserved on cases; suggestions remain For review after import. Any incomplete source rows were repaired
-            before this step. Nothing is written until you confirm.
-          </p>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button className="btn-secondary" onClick={() => setStep("upload")}>
-              Back to mapping
-            </button>
-            <button onClick={commit} disabled={committing}>
-              {committing
-                ? "Importing…"
-                : `Import ${(csvPreview?.rowCount ?? 0) - remainingNonCaseRows(csvPreview?.nonCaseRows, csvRowOverrides).length} cases`}
-            </button>
-          </div>
-        </div>
+      {step === "review" && source === "csv" && (
+        <ImportMappingReview projectId={projectId} sourceLabel={fileName} source={mappingSource()}
+          onBack={() => setStep("upload")} onCommitted={onCommitted} />
       )}
 
       {step === "review" && filePreview && source !== "csv" && (
@@ -1615,8 +1537,8 @@ export function MigrationWizard({
               `, ${filePreview.skipped.length} row(s) skipped`}
             . Nothing is written until you confirm.
           </p>
-          {(source === "qtest" || source === "zephyr") && <p className="text-muted" style={{fontSize:13}}>The full {filePreview.caseCount}-case source manifest is frozen for this review; the table below is a display sample only. Import rechecks the entire source and stops without writes if cases, steps, order or skipped rows changed. Refreshing preview requires a new review.</p>}
-          {source === "qtest" && <p role="note" className="text-muted" style={{fontSize:13}}>qTest scope: cases inside modules only. Root-level or unfiled test cases are not fetched or included in this count. Import those separately with a supported export.</p>}
+          {(source === "qtest" || source === "zephyr") && <details><summary>Details</summary><p className="text-muted" style={{fontSize:13}}>The full {filePreview.caseCount}-case source manifest is frozen for this review; the table below is a display sample only. Import rechecks the entire source and stops without writes if cases, steps, order or skipped rows changed. Refreshing preview requires a new review.</p></details>}
+          {source === "qtest" && <details><summary>Details</summary><p role="note" className="text-muted" style={{fontSize:13}}>qTest scope: cases inside modules only. Root-level or unfiled test cases are not fetched or included in this count. Import those separately with a supported export.</p></details>}
           <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: 320 }}>
             <table
               style={{
@@ -1671,11 +1593,15 @@ export function MigrationWizard({
           )}
           <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
             {(source === "qtest" || source === "zephyr") && <button type="button" className="btn-secondary" disabled={committing || loading} onClick={()=>void (source === "qtest" ? connectQTest() : connectZephyr())}>{loading ? "Refreshing preview…" : "Refresh preview"}</button>}
-            <button className="btn-secondary" onClick={() => setStep("upload")}>
+            <ActionButton className="btn-secondary" onClick={() => setStep("upload")} tooltip={<>
               {source === "qtest" || source === "zephyr"
                 ? "Change connection"
                 : "Choose a different file"}
-            </button>
+             </>}>
+              {source === "qtest" || source === "zephyr"
+                ? "Change connection"
+                : "Choose"}
+            </ActionButton>
             <button
               onClick={commit}
               disabled={committing || loading || filePreview.caseCount === 0 || ((source === "qtest" || source === "zephyr") && (manifestNeedsRefresh || !filePreview.sourceManifest))}

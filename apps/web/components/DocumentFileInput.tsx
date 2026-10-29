@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useRef, useState } from "react";
 import { readDocumentFile } from "../lib/document-file";
 
@@ -42,10 +44,10 @@ export function DocumentFileInput({ onUse }: { onUse: (text: string, name: strin
           <p>{candidate.name} · {candidate.text.length.toLocaleString()} characters</p>
           <details><summary>Preview local file text</summary><pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", maxHeight: 180, overflowY: "auto" }}>{candidate.text}</pre></details>
           <p>Using this file replaces the text in your unsaved draft only. Review it and remove secrets or personal data before uploading.</p>
-          <button type="button" className="btn-secondary" onClick={() => {
+          <ActionButton type="button" className="btn-secondary" onClick={() => {
             onUse(candidate.text, candidate.name);
             setCandidate(null);
-          }}>Use file contents in draft</button>
+          }} tooltip={<> Use file contents in draft </>}> Use </ActionButton>
         </div>
       )}
     </details>

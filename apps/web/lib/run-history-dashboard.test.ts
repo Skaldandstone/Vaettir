@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
@@ -39,7 +40,7 @@ const source = readFileSync(
         .replace(/\bexport\s+/, ""),
     )
     .join("\n"),
-  code = ts.transpileModule(
+  code = controllerTranspile(
     `${functions}\nthis.dashboard=RunHistoryDashboard;this.card=RunHistoryCard;`,
     {
       compilerOptions: {
@@ -61,7 +62,7 @@ const visualSource = readFileSync(
     true,
     ts.ScriptKind.TSX,
   ),
-  visualCode = ts.transpileModule(
+  visualCode = controllerTranspile(
     visualAst.statements
       .filter(ts.isFunctionDeclaration)
       .map((node) =>

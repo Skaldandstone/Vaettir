@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 // ACTUAL component function/controller with synthetic hook + RPC + Clerk boundaries.
 // No authenticated browser/native database evidence.
 import { readFileSync } from "node:fs";
@@ -38,7 +39,7 @@ const source = readFileSync(
     true,
     ts.ScriptKind.TSX,
   );
-const compiled = ts.transpileModule(
+const compiled = controllerTranspile(
   ast.statements
     .filter(
       (node) => ts.isVariableStatement(node) || ts.isFunctionDeclaration(node),
@@ -69,7 +70,7 @@ const sharedSource = readFileSync(
     true,
     ts.ScriptKind.TSX,
   );
-const sharedCompiled = ts.transpileModule(
+const sharedCompiled = controllerTranspile(
   sharedAst.statements
     .filter((node) => ts.isFunctionDeclaration(node))
     .map((node) =>

@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useState } from "react";
 import { trpcReact, type RouterInputs } from "@/lib/trpcReact";
 import { usePlanGovernance } from "@/lib/use-plan-governance";
@@ -134,12 +136,13 @@ export function AttachUnassignedPlan({
             An attachment request is awaiting acknowledgement. Its original
             plan, release and UUID remain fixed.
           </p>
-          <button
+          <ActionButton
             onClick={() => void commit()}
             disabled={save.isPending || !access.canEdit}
-          >
+           tooltip={<>
             Retry same attachment
-          </button>
+           </>}>
+             Retry </ActionButton>
         </>
       ) : (
         <>
@@ -170,9 +173,10 @@ export function AttachUnassignedPlan({
           {query.error && (
             <p role="alert">
               {query.error.message}{" "}
-              <button onClick={() => void query.refetch()}>
+              <ActionButton onClick={() => void query.refetch()} tooltip={<>
                 Retry reviewed plan
-              </button>
+               </>}>
+                 Retry </ActionButton>
             </p>
           )}
           {fresh?.editBlockedReason && (
@@ -206,7 +210,7 @@ export function AttachUnassignedPlan({
             />{" "}
             I reviewed this unassigned plan for the current release.
           </label>
-          <button
+          <ActionButton
             onClick={() => void commit()}
             disabled={
               preparing ||
@@ -217,9 +221,10 @@ export function AttachUnassignedPlan({
               !confirmed ||
               !reason.trim()
             }
-          >
+           tooltip={<>
             Attach reviewed plan
-          </button>
+           </>}>
+             Attach plan </ActionButton>
         </>
       )}
       {notice && <p role="status">{notice}</p>}

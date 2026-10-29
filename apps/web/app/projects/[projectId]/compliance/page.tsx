@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { roleLabel } from "@/lib/membership";
 
 import { useEffect, useState } from "react";
@@ -343,11 +345,11 @@ function ControlEvidenceDrawer({
       {!readOnly && (
         <>
           <h3 style={{ marginTop: 24, marginBottom: 6 }}>Request a sign-off</h3>
-          <p className="text-muted" style={{ fontSize: 12, marginTop: -4 }}>
+          <details><summary>Details</summary><p className="text-muted" style={{ fontSize: 12, marginTop: -4 }}>
             Ask another Compliance Auditor (or Admin/Owner) to sign off - they
             get a push notification on the mobile app, and it's automatically
             marked done the moment they actually sign off for this same period.
-          </p>
+          </p></details>
           <div
             style={{
               display: "flex",
@@ -514,21 +516,23 @@ function ControlRow({
               </button>
             </>
           ) : (
-            <button
+            <ActionButton
               className="btn-secondary"
               style={{ fontSize: 12 }}
               onClick={() => setPicking(true)}
-            >
+             tooltip={<>
               + Map a test case
-            </button>
+             </>}>
+               Map case </ActionButton>
           ))}
-        <button
+        <ActionButton
           className="btn-secondary"
           style={{ fontSize: 12 }}
           onClick={() => setDrawerOpen(true)}
-        >
+         tooltip={<>
           Evidence & sign-off
-        </button>
+         </>}>
+           Sign-off </ActionButton>
       </div>
       <Drawer open={drawerOpen} onClose={() => setDrawerOpen(false)}>
         <ControlEvidenceDrawer
@@ -812,12 +816,13 @@ export default function CompliancePage() {
           Include hidden frameworks
         </label>
         {!readOnly && (
-          <button
+          <ActionButton
             className="btn-primary"
             onClick={() => setFrameworkModalOpen(true)}
-          >
+           tooltip={<>
             + New framework
-          </button>
+           </>}>
+             New framework </ActionButton>
         )}
       </div>
       <p className="text-muted" style={{ marginBottom: 20 }}>
@@ -898,26 +903,33 @@ export default function CompliancePage() {
                   >
                     Import controls
                   </button>
-                  <button
+                  <ActionButton
                     className="btn-secondary"
                     style={{ fontSize: 13 }}
                     onClick={() => setControlModalOpen(true)}
-                  >
+                   tooltip={<>
                     + Add control
-                  </button>
+                   </>}>
+                     Add control </ActionButton>
                   {canAdmin && (
-                    <button
+                    <ActionButton
                       className="btn-secondary"
                       style={{ fontSize: 13, color: "var(--ember)" }}
                       onClick={() => void deleteSelectedFramework()}
                       disabled={deleteFrameworkMutation.isPending}
-                    >
+                     tooltip={<>
                       {deleteFrameworkMutation.isPending
                         ? "Saving…"
                         : includeHidden
                           ? "Restore in project"
                           : "Hide from project"}
-                    </button>
+                     </>}>
+                      {deleteFrameworkMutation.isPending
+                        ? "Saving…"
+                        : includeHidden
+                          ? "Restore"
+                          : "Hide"}
+                    </ActionButton>
                   )}
                 </>
               )}
@@ -980,15 +992,16 @@ export default function CompliancePage() {
             evidence. Nothing is marked compliant automatically.
           </p>
           {!readOnly && (
-            <button
+            <ActionButton
               className="btn-primary"
               onClick={() => {
                 setFrameworkMode("starter");
                 setFrameworkModalOpen(true);
               }}
-            >
+             tooltip={<>
               Browse framework starters
-            </button>
+             </>}>
+               Browse </ActionButton>
           )}
         </div>
       )}
@@ -1004,14 +1017,15 @@ export default function CompliancePage() {
             role="tablist"
             aria-label="Framework type"
           >
-            <button
+            <ActionButton
               className={
                 frameworkMode === "starter" ? "btn-primary" : "btn-secondary"
               }
               onClick={() => setFrameworkMode("starter")}
-            >
+             tooltip={<>
               Use a starter
-            </button>
+             </>}>
+               Use </ActionButton>
             <button
               className={
                 frameworkMode === "custom" ? "btn-primary" : "btn-secondary"
@@ -1074,13 +1088,15 @@ export default function CompliancePage() {
                 >
                   Cancel
                 </button>
-                <button
+                <ActionButton
                   className="btn-primary"
                   onClick={loadStarterFramework}
                   disabled={savingFramework}
-                >
+                 tooltip={<>
                   {savingFramework ? "Loading…" : "Load starter controls"}
-                </button>
+                 </>}>
+                  {savingFramework ? "Loading…" : "Load"}
+                </ActionButton>
               </div>
             </>
           ) : (
@@ -1140,14 +1156,14 @@ export default function CompliancePage() {
         title="Import controls from CSV"
       >
         <div style={{ display: "grid", gap: 10 }}>
-          <p className="text-muted" style={{ fontSize: 12, marginTop: 0 }}>
+          <details><summary>Details</summary><p className="text-muted" style={{ fontSize: 12, marginTop: 0 }}>
             Paste a control set exported as CSV - a header row with{" "}
             <code>code</code>, <code>title</code>, and optionally{" "}
             <code>description</code> columns, then one row per control (e.g. the
             AICPA Trust Services Criteria for SOC 2, or NIST CSF subcategories).
             Existing controls with the same code on this framework are left
             untouched, so re-running an updated import is safe.
-          </p>
+          </p></details>
           <textarea
             value={importCsvText}
             onChange={(e) => setImportCsvText(e.target.value)}

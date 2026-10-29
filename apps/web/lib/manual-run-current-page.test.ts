@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import ts from "typescript";
@@ -112,7 +113,7 @@ function load(
   selected: readonly string[],
   bindings: Record<string, unknown>,
 ) {
-  const js = ts.transpileModule(
+  const js = controllerTranspile(
     `${functionSource(path, selected)}\nreturn {${selected.join(",")}};`,
     {
       compilerOptions: {

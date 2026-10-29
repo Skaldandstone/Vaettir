@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { Modal } from "./Modal";
@@ -169,23 +171,23 @@ export function ReviewedRetestWizard({projectId,sourceRunId,testCaseId,open,onCl
  }
  return <Modal open={open&&active} onClose={onClose} title="Retest this execution" size="wide" dismissible={!view.busy}>
   {legacyBlocked?<section><p role="status">An earlier retest request remains held unchanged in this mounted owner. Its original native submission pin is not available to this reviewed protocol. Current access does not invent that historical provenance. No replacement UUID or request will be sent.</p><p>Legacy recovery requires a separately verified compatibility path; the stored body stays withheld. Reloading does not recover local intent.</p></section>
-  :!view.readable?<section><p role="status">{reader.loading?"Verifying current native retest access…":"Current original native actor, organization and session must be explicitly verified. Private evidence, links and actions are hidden; local requests stay retained."}</p>{reader.error&&<p role="alert">The complete current read could not be admitted. Nothing was clipped or substituted.</p>}<button type="button" className="btn-secondary" disabled={view.busy} onClick={refresh}>Recheck original retest access</button></section>
+  :!view.readable?<section><p role="status">{reader.loading?"Verifying current native retest access…":"Current original native actor, organization and session must be explicitly verified. Private evidence, links and actions are hidden; local requests stay retained."}</p>{reader.error&&<p role="alert">The complete current read could not be admitted. Nothing was clipped or substituted.</p>}<ActionButton type="button" className="btn-secondary" disabled={view.busy} onClick={refresh} tooltip={<> Recheck original retest access </>}> Refresh </ActionButton></section>
   :<section>
    {view.error&&<p role="alert" style={{color:"var(--ember)",overflowWrap:"anywhere"}}>{view.error}</p>}
    {view.known?<section><h3>Retest receipt retained</h3><p role="status">The identical request has a verified receipt. It will not be submitted again. Current links must independently contain its target before opening it.</p>
-    {confirmed?<><p>{confirmed.recovered?"Recovered the existing retest":"Created one separate retest"}. Earlier evidence stays separate.</p><button type="button" className="btn-primary" disabled={!view.canPublish} onClick={openConfirmed}>Open verified retest run</button><p>A later Pass is a separate execution, not proof that a defect was fixed.</p></>:<p>Current relationships have not verified the retained target. Its identifier and historical body remain withheld.</p>}
-    <button type="button" className="btn-secondary" disabled={view.busy} onClick={readConfirmedLinks}>Read current links for confirmed retest</button>
+    {confirmed?<><p>{confirmed.recovered?"Recovered the existing retest":"Created one separate retest"}. Earlier evidence stays separate.</p><ActionButton type="button" className="btn-primary" disabled={!view.canPublish} onClick={openConfirmed} tooltip={<> Open verified retest run </>}> Open </ActionButton><p>A later Pass is a separate execution, not proof that a defect was fixed.</p></>:<p>Current relationships have not verified the retained target. Its identifier and historical body remain withheld.</p>}
+    <ActionButton type="button" className="btn-secondary" disabled={view.busy} onClick={readConfirmedLinks} tooltip={<> Read current links for confirmed retest </>}> Read </ActionButton>
    </section>
    :<><h3>Review the original Failed or Blocked execution</h3><p>A supported current FULL-editor preview is required. ACCESS proves only project membership, not start or recovery authority. One separate run uses captured procedures and prerequisites. No AI credits or automatic execution.</p>
-    {!preview?<button type="button" className="btn-primary" disabled={view.busy||reader.loading} onClick={readEvidence}>Review original retest evidence</button>
+    {!preview?<ActionButton type="button" className="btn-primary" disabled={view.busy||reader.loading} onClick={readEvidence} tooltip={<> Review original retest evidence </>}> Review </ActionButton>
     :<><ManualRetestEvidence preview={preview} projectId={projectId} sourceRunId={sourceRunId} testCaseId={testCaseId} canNavigate={current}/>
      <label style={{display:"flex",alignItems:"flex-start",gap:8,margin:"16px 0"}}><input type="checkbox" checked={approval===snapshot?.data.readContext.requestId} disabled={view.busy||view.pending} onChange={e=>void approve(e.target.checked)}/>I approve one separate retest with this exact supported captured evidence. Earlier results stay separate.</label>
-     <button type="button" className="btn-primary" disabled={view.busy||(!view.canRetry&&(!view.canSubmit||approval!==snapshot?.data.readContext.requestId))} onClick={()=>void start()}>{view.busy?"Starting…":view.pending?"Retry identical retest request":"Create reviewed retest run"}</button>
+     <ActionButton type="button" className="btn-primary" disabled={view.busy||(!view.canRetry&&(!view.canSubmit||approval!==snapshot?.data.readContext.requestId))} onClick={()=>void start()} tooltip={<> {view.busy?"Starting…":view.pending?"Retry identical retest request":"Create reviewed retest run"} </>}>{view.busy?"Starting…":view.pending?"Retry":"Create retest"}</ActionButton>
     </>}
     {view.pending&&<p role="status">The response is UNKNOWN. This mounted owner retains the exact original body and UUID. A fresh supported FULL preview is required for retry; a changed preview never rewrites that request. Unsupported or deleted-source recovery is unavailable here. Closing preserves local intent; route-away or reload does not.</p>}
-    <button type="button" className="btn-secondary" disabled={view.busy} onClick={readEvidence}>Read current FULL original evidence</button>
+    <ActionButton type="button" className="btn-secondary" disabled={view.busy} onClick={readEvidence} tooltip={<> Read current FULL original evidence </>}> Read </ActionButton>
    </>}
-   <p className="text-muted">Legacy bounded preparation projection, not raw-native audit fidelity. Whole supported preview ≤2 MiB; links ≤10 per page. Captured media references are not files or availability proof. No classification, source fetching or provider processing.</p>
+   <details><summary>Details</summary><p className="text-muted">Legacy bounded preparation projection, not raw-native audit fidelity. Whole supported preview ≤2 MiB; links ≤10 per page. Captured media references are not files or availability proof. No classification, source fetching or provider processing.</p></details>
    <button type="button" className="btn-secondary" disabled={view.busy} onClick={()=>{if(current())onClose();}}>Close</button>
   </section>}
  </Modal>;
@@ -395,9 +397,9 @@ export function ManualRetestActions({projectId,sourceRunId,testCaseId,canRetest=
  function next(){if(current()&&page?.nextCursor&&reader.read("LINKS",page.nextCursor))setAnchors(old=>[...old,page.nextCursor!]);}
  function back(){if(!current()||anchors.length<2)return;const i=anchors.length-2;readLinks(anchors[i],i);}
  return <section style={{marginTop:12,minWidth:0,overflowWrap:"anywhere"}}>
-  {!snapshot?<section><p role="status">Current original native access must be verified. Cached links and private evidence are withheld; retained requests stay unchanged.</p><button type="button" className="btn-secondary" onClick={()=>reader.refresh()}>Recheck native retest access</button></section>
-  :<>{canRetest&&access.canWrite&&<button type="button" className="btn-secondary" onClick={()=>{if(current())setOpen(true);}}>Review separate retest</button>}
-   <button type="button" className="btn-secondary" disabled={reader.loading} onClick={()=>readLinks()}>Read current retest relationships</button>
+  {!snapshot?<section><p role="status">Current original native access must be verified. Cached links and private evidence are withheld; retained requests stay unchanged.</p><ActionButton type="button" className="btn-secondary" onClick={()=>reader.refresh()} tooltip={<> Recheck native retest access </>}> Refresh </ActionButton></section>
+  :<>{canRetest&&access.canWrite&&<ActionButton type="button" className="btn-secondary" onClick={()=>{if(current())setOpen(true);}} tooltip={<> Review separate retest </>}> Review </ActionButton>}
+   <ActionButton type="button" className="btn-secondary" disabled={reader.loading} onClick={()=>readLinks()} tooltip={<> Read current retest relationships </>}> Read </ActionButton>
    {page?<section><h4>Current retest relationships · page {anchors.length}</h4><p>Captured outcomes are separate from current run labels. This ≤10-row page is not a whole-history count.</p>
     {page.original&&<p>Retest of <a href={link(projectId,page.original.testRunId)} onClick={e=>{if(!current())e.preventDefault();}}>{page.original.testRunId}</a> · captured {page.original.capturedOutcome}</p>}
     {page.retests.length?<ul>{page.retests.map(run=><li key={run.testRunId}><a href={link(projectId,run.testRunId)} onClick={e=>{if(!current())e.preventDefault();}}>{run.testRunId}</a> · current {run.status} · started {new Date(run.startedAt).toLocaleString()}</li>)}</ul>:<p>No related retests were returned on this current page. No global zero is inferred.</p>}

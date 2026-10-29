@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { useSession } from "@clerk/nextjs";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
+import { ImportMappingQueue } from "@/components/ImportMappingQueue";
 import { MigrationWizard } from "@/components/MigrationWizard";
 import { HistoricalResultsImport } from "@/components/HistoricalResultsImport";
 import { useProjectPermissions } from "@/lib/use-project-permissions";
@@ -99,10 +100,10 @@ function BackfillSection({ projectId, defaultBranch }: { projectId: string; defa
   return (
     <div className="panel" style={{ marginBottom: 20 }}>
       <h2 style={{ marginTop: 0 }}>Import automated report history</h2>
-      <p className="text-muted" style={{ fontSize: 13 }}>
+      <details><summary>Details</summary><p className="text-muted" style={{ fontSize: 13 }}>
         Import past JUnit XML reports with their real original dates - not the date you import them - so pass-rate
         trends, flaky-test detection, and release-to-release charts have real history instead of starting empty.
-      </p>
+      </p></details>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
         <label style={{ fontSize: 13 }}>
@@ -211,21 +212,22 @@ export default function ImportPage() {
   const jobsQuery = trpcReact.importJobs.list.useQuery({ projectId });
   const jobs = jobsQuery.data ?? [];
   const projectQuery = trpcReact.project.byId.useQuery({ id: projectId });
+  const refreshImports = () => { void utils.importJobs.list.invalidate({ projectId }); void utils.importJobs.mappingQueues.invalidate(); };
   const defaultBranch = projectQuery.data?.defaultBranch ?? "main";
 
   return (
     <div style={{ maxWidth: 900 }}>
       <h1>Import test cases</h1>
       <p className="text-muted">
-        Pick where your data is coming from, preview exactly what will be created, then confirm. Nothing is written
-        until you commit.
+        Import ready cases once. Keep uncertain source rows in a separate mapping queue.
       </p>
 
       {!canEdit && (
         <p>{loaded ? "A full-seat Owner, Admin, or Editor can import cases and CI results." : "Checking project access…"}</p>
       )}
-      {canImport && <MigrationWizard key={`cases:${importScope}`} projectId={projectId} onCommitted={() => void utils.importJobs.list.invalidate({ projectId })} />}
-      {canImport && <HistoricalResultsImport projectId={projectId} actorScope={actorScope} />}
+      {canImport && <MigrationWizard key={`cases:${importScope}`} projectId={projectId} onCommitted={refreshImports} />}
+      {canImport && <ImportMappingQueue key={`queue:${importScope}`} projectId={projectId} onCommitted={refreshImports} />}
+      {canImport && <details><summary>Import history</summary><HistoricalResultsImport projectId={projectId} actorScope={actorScope} /></details>}
       {canImport && <details key={`junit:${importScope}`} className="panel"><summary>Automated JUnit XML reports</summary><BackfillSection projectId={projectId} defaultBranch={defaultBranch} /></details>}
 
       {jobs.length > 0 && (

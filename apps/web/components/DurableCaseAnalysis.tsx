@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import Link from "next/link";
@@ -551,15 +553,16 @@ function Analysis({ projectId, selectedIds, onCompleted, buttonLabel = "Analyze 
             Current original account and workspace access must be verified.
             Private saved scopes, balances and controls are hidden; local drafts
             and exact unknown requests remain retained.
-            <button
+            <ActionButton
               type="button"
               onClick={() => {
                 void project.refetch();
                 void organizations.refetch();
               }}
-            >
+             tooltip={<>
               Recheck original access
-            </button>
+             </>}>
+               Refresh </ActionButton>
           </p>
         ) : (
           <>
@@ -591,7 +594,7 @@ function Analysis({ projectId, selectedIds, onCompleted, buttonLabel = "Analyze 
                     queued.
                   </p>
                 )}
-                <button
+                <ActionButton
                   type="button"
                   className="btn-primary"
                   disabled={
@@ -601,11 +604,15 @@ function Analysis({ projectId, selectedIds, onCompleted, buttonLabel = "Analyze 
                       (!selectedIds.length || selectedIds.length > 1000))
                   }
                   onClick={() => void prepare()}
-                >
+                 tooltip={<>
                   {reviewRequest
                     ? "Retry saved scope"
                     : "Review selection and cost"}
-                </button>
+                 </>}>
+                  {reviewRequest
+                    ? "Retry"
+                    : "Review"}
+                </ActionButton>
               </>
             )}
             {jobId && (
@@ -625,13 +632,14 @@ function Analysis({ projectId, selectedIds, onCompleted, buttonLabel = "Analyze 
                       Could not load this saved analysis. No cached scope can
                       authorize spending.
                     </p>
-                    <button
+                    <ActionButton
                       type="button"
                       className="btn-secondary"
                       onClick={() => void state.refetch()}
-                    >
+                     tooltip={<>
                       Retry saved analysis
-                    </button>
+                     </>}>
+                       Retry </ActionButton>
                   </div>
                 )}
                 {saved && (
@@ -651,14 +659,15 @@ function Analysis({ projectId, selectedIds, onCompleted, buttonLabel = "Analyze 
                         test results.
                       </p>
                     )}
-                    <button
+                    <ActionButton
                       type="button"
                       className="btn-secondary"
                       disabled={busy}
                       onClick={() => void state.refetch()}
-                    >
+                     tooltip={<>
                       Refresh saved analysis
-                    </button>
+                     </>}>
+                       Refresh </ActionButton>
                     <dl
                       style={{
                         display: "grid",
@@ -697,17 +706,18 @@ function Analysis({ projectId, selectedIds, onCompleted, buttonLabel = "Analyze 
                         .join(" · ")}
                     </p>
                     {approvalRequest && canSpendNow && (
-                      <button
+                      <ActionButton
                         type="button"
                         className="btn-primary"
                         disabled={busy}
                         onClick={() => void authorize()}
-                      >
+                       tooltip={<>
                         Retry identical approval
-                      </button>
+                       </>}>
+                         Retry </ActionButton>
                     )}
                     {adminRequest && (
-                      <button
+                      <ActionButton
                         type="button"
                         disabled={
                           busy ||
@@ -716,12 +726,13 @@ function Analysis({ projectId, selectedIds, onCompleted, buttonLabel = "Analyze 
                           )
                         }
                         onClick={() => void requestHelp()}
-                      >
+                       tooltip={<>
                         Retry identical administrator request
-                      </button>
+                       </>}>
+                         Retry </ActionButton>
                     )}
                     {cancelRequest && (
-                      <button
+                      <ActionButton
                         type="button"
                         disabled={
                           busy ||
@@ -730,9 +741,10 @@ function Analysis({ projectId, selectedIds, onCompleted, buttonLabel = "Analyze 
                           )
                         }
                         onClick={() => void cancelWork()}
-                      >
+                       tooltip={<>
                         Retry identical cancellation
-                      </button>
+                       </>}>
+                         Retry </ActionButton>
                     )}
                     {saved.status === "REVIEW" && !approvalRequest && (
                       <>
@@ -764,14 +776,15 @@ function Analysis({ projectId, selectedIds, onCompleted, buttonLabel = "Analyze 
                                 help from your workspace administrator.
                               </p>
                             )}
-                            <button
+                            <ActionButton
                               type="button"
                               className="btn-primary"
                               disabled={busy || !canApprove}
                               onClick={() => void authorize()}
-                            >
+                             tooltip={<>
                               Approve and queue
-                            </button>
+                             </>}>
+                               Approve queue </ActionButton>
                           </>
                         ) : (
                           <p>
@@ -798,7 +811,7 @@ function Analysis({ projectId, selectedIds, onCompleted, buttonLabel = "Analyze 
                                 onChange={(e) => setReason(e.target.value)}
                               />
                             </label>
-                            <button
+                            <ActionButton
                               type="button"
                               className="btn-secondary"
                               disabled={
@@ -813,9 +826,10 @@ function Analysis({ projectId, selectedIds, onCompleted, buttonLabel = "Analyze 
                                 !saved.counts.QUEUED
                               }
                               onClick={() => void requestHelp()}
-                            >
+                             tooltip={<>
                               Make a request
-                            </button>
+                             </>}>
+                               Request </ActionButton>
                           </div>
                         )}
                       </>
@@ -887,7 +901,7 @@ function Analysis({ projectId, selectedIds, onCompleted, buttonLabel = "Analyze 
                           charged work may finish and is not refunded by
                           cancellation.
                         </p>
-                        <button
+                        <ActionButton
                           type="button"
                           className="btn-secondary"
                           disabled={
@@ -900,9 +914,10 @@ function Analysis({ projectId, selectedIds, onCompleted, buttonLabel = "Analyze 
                             )
                           }
                           onClick={() => void cancelWork()}
-                        >
+                         tooltip={<>
                           Cancel remaining work
-                        </button>
+                         </>}>
+                           Cancel </ActionButton>
                       </>
                     )}
                   </>
@@ -913,14 +928,15 @@ function Analysis({ projectId, selectedIds, onCompleted, buttonLabel = "Analyze 
                     access and the saved scope before retrying.
                   </p>
                 )}
-                <button
+                <ActionButton
                   type="button"
                   className="btn-secondary"
                   disabled={busy || retained}
                   onClick={backToSelections}
-                >
+                 tooltip={<>
                   Back to selections
-                </button>
+                 </>}>
+                   Back </ActionButton>
               </>
             )}
             <details>
@@ -928,13 +944,14 @@ function Analysis({ projectId, selectedIds, onCompleted, buttonLabel = "Analyze 
               {history.error && (
                 <div role="alert">
                   <p>Could not load saved queues.</p>
-                  <button
+                  <ActionButton
                     type="button"
                     className="btn-secondary"
                     onClick={() => void history.refetch()}
-                  >
+                   tooltip={<>
                     Retry queue history
-                  </button>
+                   </>}>
+                     Retry </ActionButton>
                 </div>
               )}
               {historyFresh &&

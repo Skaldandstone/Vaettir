@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { CompactSidebar } from "@/components/ui/CompactSidebar";
 
 import { useEffect, useMemo, useState } from "react";
@@ -44,6 +46,7 @@ import {
 import type { ReviewedRunStartEnvelope } from "@/lib/run-start-reviewed-write";
 import { Modal } from "@/components/Modal";
 import { PageHeading, Icon } from "@/components/ui/Workspace";
+import { CaseInlineActions } from "@/components/CaseInlineActions";
 import { IconButton } from "@/components/ui/IconButton";
 import { caseLabel, suiteChoices } from "@/lib/case-workbench";
 import {
@@ -402,8 +405,7 @@ export default function TestCasesPage() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
-  const [organizeOpen, setOrganizeOpen] = useState(false);
-  const [selectionMoreOpen, setSelectionMoreOpen] = useState(false);
+  const [organizeAction, setOrganizeAction] = useState<{ kind: "move" | "tag"; ids: string[] } | null>(null);
   const [reviewAction, setReviewAction] = useState<{
     kind: "archive" | "restore" | "delete";
     ids: string[];
@@ -642,26 +644,27 @@ export default function TestCasesPage() {
   }
 
   async function bulkMove() {
+    if (organizeAction?.kind !== "move") return;
     const outcome = await runBulkAction((ids) =>
       bulkMoveMutation.mutateAsync({
         projectId,
         ids,
         testPlanId: bulkMovePlanId || null,
-      }),
+      }), organizeAction.ids,
     );
-    if (outcome && !outcome.error) setBulkMovePlanId("");
+    if (outcome && !outcome.error) { setBulkMovePlanId(""); setOrganizeAction(null); }
   }
 
   async function bulkAddTag() {
-    if (!bulkTag.trim()) return;
+    if (!bulkTag.trim() || organizeAction?.kind !== "tag") return;
     const outcome = await runBulkAction((ids) =>
       bulkTagMutation.mutateAsync({
         projectId,
         ids,
         tags: [bulkTag.trim()],
-      }),
+      }), organizeAction.ids,
     );
-    if (outcome && !outcome.error) setBulkTag("");
+    if (outcome && !outcome.error) { setBulkTag(""); setOrganizeAction(null); }
   }
 
   const selectedExportCount = caseExportIds(
@@ -669,8 +672,8 @@ export default function TestCasesPage() {
     selected,
     "selected",
   ).length;
-  async function exportCsv(scope: "filtered" | "selected") {
-    const ids = caseExportIds(visibleCases, selected, scope);
+  async function exportCsv(scope: "filtered" | "selected", exactIds?: string[]) {
+    const ids = caseExportIds(visibleCases, exactIds ? new Set(exactIds) : selected, scope);
     if (exporting || ids.length === 0) return;
     setExporting(true);
     setError(null);
@@ -723,8 +726,8 @@ export default function TestCasesPage() {
     }
   }
 
-  async function exportProcedure(scope: "filtered" | "selected") {
-    const ids = caseExportIds(visibleCases, selected, scope);
+  async function exportProcedure(scope: "filtered" | "selected", exactIds?: string[]) {
+    const ids = caseExportIds(visibleCases, exactIds ? new Set(exactIds) : selected, scope);
     if (exporting || ids.length === 0) return;
     setExporting(true);
     setError(null);
@@ -809,7 +812,6 @@ export default function TestCasesPage() {
     setActiveViewId("");
   }
   function requestReview(kind: "archive" | "restore" | "delete") {
-    setSelectionMoreOpen(false);
     setReviewAction({
       kind,
       ids:
@@ -967,13 +969,14 @@ export default function TestCasesPage() {
             </button>
           ))}
           {showArchived && (
-            <button
+            <ActionButton
               className="btn-secondary"
               onClick={() => setShowArchived(false)}
               aria-label="Remove archived filter"
-            >
+             tooltip={<>
               Including archived ×
-            </button>
+             </>}>
+               Archived × </ActionButton>
           )}
           <button className="btn-secondary" onClick={resetFilters}>
             Reset filters
@@ -1015,9 +1018,10 @@ export default function TestCasesPage() {
           </p>
           {!readOnly && (
             <div className={styles.dialogActions}>
-              <button className="btn-primary" onClick={() => setAddOpen(true)}>
+              <ActionButton className="btn-primary" onClick={() => setAddOpen(true)} tooltip={<>
                 Add first case
-              </button>
+               </>}>
+                 Add </ActionButton>
               <Link
                 className="btn-secondary"
                 href={`/projects/${projectId}/import`}
@@ -1104,37 +1108,16 @@ export default function TestCasesPage() {
                     view; export and Run use eligible visible cases.
                   </span>
                 )}
-                {!readOnly && (
-                  <button
-                    className="btn-primary"
-                    disabled={startingRun || activeSelectedIds.length === 0}
-                    onClick={() => {
-                      setRunSelection(activeSelectedIds);
-                      setRunConfigurationOpen(true);
-                    }}
-                  >
-                    Run ({activeSelectedIds.length})
-                  </button>
-                )}
-                {!readOnly && (
-                  <>
-                    <button
-                      className="btn-secondary"
-                      disabled={bulkBusy}
-                      onClick={() => setOrganizeOpen(true)}
-                    >
-                      Organize
-                    </button>
-                    <button
-                      className="btn-secondary"
-                      disabled={bulkBusy}
-                      onClick={() => setSelectionMoreOpen(true)}
-                      aria-label="More selected case actions"
-                    >
-                      More
-                    </button>
-                  </>
-                )}
+                <CaseInlineActions name="selected cases" canEdit={!readOnly} busy={bulkBusy || startingRun} exporting={exporting || selectedExportCount === 0}
+                  canRun={activeSelectedIds.length > 0} canArchive={activeSelectedIds.length > 0} canRestore={archivedSelectedIds.length > 0}
+                  onRun={() => { setRunSelection(activeSelectedIds); setRunConfigurationOpen(true); }}
+                  onEdit={selected.size === 1 ? () => router.push(`/projects/${projectId}/test-cases/${[...selected][0]}/edit`) : undefined}
+                  onMove={() => setOrganizeAction({ kind: "move", ids: [...selected] })}
+                  onTag={() => setOrganizeAction({ kind: "tag", ids: [...selected] })}
+                  onCsv={() => void exportCsv("selected")} onJson={() => void exportProcedure("selected")}
+                  onReview={() => router.push(`/projects/${projectId}/test-cases/review`)}
+                  onArchive={() => requestReview("archive")} onRestore={() => requestReview("restore")} onDelete={() => requestReview("delete")} />
+                {bulkError && <p role="alert">{bulkError}</p>}
                 <button
                   className="btn-secondary"
                   disabled={bulkBusy}
@@ -1157,13 +1140,14 @@ export default function TestCasesPage() {
               </span>
               <div style={{display:"flex",alignItems:"center",gap:8}}>
               {!readOnly && sortBy !== "manual" && (
-                <button
+                <ActionButton
                   type="button"
                   className="btn-secondary"
                   onClick={() => setSortBy("manual")}
-                >
+                 tooltip={<>
                   View manual order
-                </button>
+                 </>}>
+                   Manual order </ActionButton>
               )}
               {!readOnly && <span className="case-ordering-help"><IconButton icon="help" label="Keyboard ordering help" tooltip="Activate a case's drag handle in its verified case suite, then use Up/Down. In All suites, source groups or Unassigned, select a persisted case suite first. Viewing an order does not move cases or create folders; source paths stay unchanged."/></span>}
               </div>
@@ -1336,6 +1320,18 @@ export default function TestCasesPage() {
                             />
                           </td>
                           <td className="test-case-title-cell">
+                            <CaseInlineActions name={`${tc.displayId}: ${tc.title}`} canEdit={!readOnly} busy={bulkBusy || startingRun} exporting={exporting}
+                              canRun={!tc.archived} canArchive={!tc.archived} canRestore={tc.archived}
+                              onRun={() => { setRunSelection([tc.id]); setRunConfigurationOpen(true); }}
+                              onEdit={() => router.push(`/projects/${projectId}/test-cases/${tc.id}/edit`)}
+                              onMove={() => setOrganizeAction({ kind: "move", ids: [tc.id] })}
+                              onTag={() => setOrganizeAction({ kind: "tag", ids: [tc.id] })}
+                              onCsv={() => void exportCsv("selected", [tc.id])} onJson={() => void exportProcedure("selected", [tc.id])}
+                              onReview={() => router.push(`/projects/${projectId}/test-cases/review`)}
+                              onArchive={() => setReviewAction({ kind: "archive", ids: [tc.id] })}
+                              onRestore={() => setReviewAction({ kind: "restore", ids: [tc.id] })}
+                              onDelete={() => setReviewAction({ kind: "delete", ids: [tc.id] })} />
+
                             <a
                               href={`/projects/${projectId}/test-cases/${tc.id}`}
                               onClick={(e) => {
@@ -1572,12 +1568,13 @@ export default function TestCasesPage() {
                   Reset filters
                 </button>
                 {selectedPath !== null && (
-                  <button
+                  <ActionButton
                     className="btn-secondary"
                     onClick={() => setSelectedPath(null)}
-                  >
+                   tooltip={<>
                     Show all suites
-                  </button>
+                   </>}>
+                     Show </ActionButton>
                 )}
               </div>
             )}
@@ -1709,9 +1706,9 @@ export default function TestCasesPage() {
           <button className="btn-secondary" onClick={resetFilters}>
             Reset filters
           </button>
-          <button className="btn-primary" onClick={() => setFiltersOpen(false)}>
+          <ActionButton className="btn-primary" onClick={() => setFiltersOpen(false)} tooltip={<>
             Show {visibleCases.length} cases
-          </button>
+           </>}>Show cases</ActionButton>
         </div>
       </Modal>
       <Modal
@@ -1755,20 +1752,20 @@ export default function TestCasesPage() {
               ? "Exporting…"
               : `Spreadsheet CSV (${visibleCases.length} shown)`}
           </button>
-          <button
+          <ActionButton
             className="btn-secondary"
             disabled={loading || exporting || visibleCases.length === 0}
             onClick={() => void exportProcedure("filtered")}
-          >
+           tooltip={<>
             Case procedures JSON ({visibleCases.length} shown)
-          </button>
-          <p className="text-muted">
+           </>}>JSON</ActionButton>
+          <details><summary>Details</summary><p className="text-muted">
             CSV is a spreadsheet summary, not a lossless reimport format. JSON
             preserves procedures, conditions, case IDs and reference labels. It
             excludes attachment files, datasets, paid drafts and history; it is
             not a full backup. Existing same-project procedures can be restored
             after explicit conflict review; unknown case IDs are not recreated.
-          </p>
+          </p></details>
           {!readOnly && <TestCaseProcedureReimport projectId={projectId} />}
           <details>
             <summary>Manage case authoring presets</summary>
@@ -1786,13 +1783,15 @@ export default function TestCasesPage() {
             </p>
             {currentView && (
               <div className={styles.dialogActions}>
-                <button
+                <ActionButton
                   className="btn-secondary"
                   onClick={() => void saveCurrentView()}
                   disabled={!viewHasChanges || updateView.isPending}
-                >
+                 tooltip={<>
                   Save changes to {currentView.name}
-                </button>
+                 </>}>
+                   Save {currentView.name}
+                </ActionButton>
                 <button
                   className="btn-secondary"
                   onClick={() => void deleteCurrentView()}
@@ -1812,7 +1811,7 @@ export default function TestCasesPage() {
                 style={{ width: "100%", display: "block", marginTop: 6 }}
               />
             </label>
-            <button
+            <ActionButton
               className="btn-secondary"
               style={{ marginTop: 8 }}
               onClick={() => void saveNewView()}
@@ -1821,9 +1820,10 @@ export default function TestCasesPage() {
                 createView.isPending ||
                 (viewsQuery.data?.length ?? 0) >= 50
               }
-            >
+             tooltip={<>
               Save current view
-            </button>
+             </>}>
+               Save view </ActionButton>
           </details>
         </div>
       </Modal>
@@ -1857,117 +1857,20 @@ export default function TestCasesPage() {
           </a>
         </Modal>
       )}
-      {!readOnly && (
-        <Modal
-          open={organizeOpen}
-          title={`Organize ${selected.size} selected cases`}
-          onClose={() => setOrganizeOpen(false)}
-          dismissible={!bulkBusy}
-        >
-          <p className="text-muted">
-            Selected cases only. Changes run sequentially in batches of up to
-            200; failures retain unconfirmed selections.
-          </p>
-          <label>
-            Test plan
-            <select
-              value={bulkMovePlanId}
-              onChange={(event) => setBulkMovePlanId(event.target.value)}
-              style={{ width: "100%", display: "block", marginTop: 6 }}
-            >
-              <option value="">Choose a plan</option>
-              {plans.map((plan) => (
-                <option key={plan.id} value={plan.id}>
-                  {plan.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            className="btn-secondary"
-            disabled={bulkBusy || !bulkMovePlanId}
-            onClick={() => void bulkMove()}
-          >
-            Move selected to plan
-          </button>
-          <label style={{ display: "block", marginTop: 14 }}>
-            Tag
-            <input
-              value={bulkTag}
-              onChange={(event) => setBulkTag(event.target.value)}
-              placeholder="regression"
-              style={{ width: "100%", display: "block", marginTop: 6 }}
-            />
-          </label>
-          <button
-            className="btn-secondary"
-            disabled={bulkBusy || !bulkTag.trim()}
-            onClick={() => void bulkAddTag()}
-          >
-            Add tag to selected
-          </button>
-          {bulkError && <p role="alert">{bulkError}</p>}
-        </Modal>
-      )}
-      {!readOnly && (
-        <Modal
-          open={selectionMoreOpen}
-          title={`${selected.size} selected cases`}
-          onClose={() => setSelectionMoreOpen(false)}
-          dismissible={!bulkBusy}
-        >
-          <div className={styles.menu}>
-            <a className="btn-secondary" href={`/projects/${projectId}/test-cases/review`}>
-              Review pending cases in the review queue
-            </a>
-            <p className="text-muted">
-              Review decisions require the complete supported snapshot for each
-              pending case. This slice does not bulk-approve or silently omit
-              selected cases.
-            </p>
-            <button
-              className="btn-secondary"
-              disabled={exporting || selectedExportCount === 0}
-              onClick={() => void exportCsv("selected")}
-            >
-              Selected spreadsheet CSV ({selectedExportCount})
-            </button>
-            <button
-              className="btn-secondary"
-              disabled={exporting || selectedExportCount === 0}
-              onClick={() => void exportProcedure("selected")}
-            >
-              Selected procedures JSON ({selectedExportCount})
-            </button>
-            {activeSelectedIds.length > 0 && (
-              <button
-                className="btn-secondary"
-                disabled={bulkBusy}
-                onClick={() => requestReview("archive")}
-              >
-                Review archive ({activeSelectedIds.length} active)
-              </button>
-            )}
-            {archivedSelectedIds.length > 0 && (
-              <button
-                className="btn-secondary"
-                disabled={bulkBusy}
-                onClick={() => requestReview("restore")}
-              >
-                Review restore ({archivedSelectedIds.length} archived)
-              </button>
-            )}
-            <button
-              className="btn-secondary"
-              disabled={bulkBusy}
-              onClick={() => requestReview("delete")}
-            >
-              Review permanent deletion
-            </button>
-          </div>
-          {bulkError && <p role="alert">{bulkError}</p>}
-        </Modal>
-      )}
+      {!readOnly && organizeAction && <Modal open title={organizeAction.kind === "move" ? "Move cases to a test plan" : "Tag cases"}
+        onClose={() => setOrganizeAction(null)} dismissible={!bulkBusy}>
+        <p className="text-muted">{organizeAction.ids.length} cases. Only this captured selection will change.</p>
+        {organizeAction.kind === "move" ? <>
+          <label>Test plan<select value={bulkMovePlanId} onChange={event => setBulkMovePlanId(event.target.value)} style={{ width: "100%", display: "block", marginTop: 6 }}>
+            <option value="">Choose a plan</option>{plans.map(plan => <option key={plan.id} value={plan.id}>{plan.name}</option>)}
+          </select></label>
+          <ActionButton className="btn-primary" disabled={bulkBusy || !bulkMovePlanId} onClick={() => void bulkMove()} tooltip={<> Move to plan </>}> Move </ActionButton>
+        </> : <>
+          <label>Tag<input value={bulkTag} onChange={event => setBulkTag(event.target.value)} placeholder="regression" style={{ width: "100%", display: "block", marginTop: 6 }} /></label>
+          <button className="btn-primary" disabled={bulkBusy || !bulkTag.trim()} onClick={() => void bulkAddTag()}>Add tag</button>
+        </>}
+        {bulkError && <p role="alert">{bulkError}</p>}
+      </Modal>}
       {!readOnly && (
         <Modal
           open={reviewAction !== null}

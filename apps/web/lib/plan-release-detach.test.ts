@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
@@ -63,7 +64,7 @@ function harness() {
   });
   const source = readFileSync(new URL("../components/PlanReleaseDetach.tsx", import.meta.url), "utf8"), ast = ts.createSourceFile("controller.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX), printer = ts.createPrinter();
   const body = ast.statements.filter(node => !ts.isImportDeclaration(node)).map(node => printer.printNode(ts.EmitHint.Unspecified, node, ast).replace(/^export\s+/gm, "")).join("\n");
-  vm.runInContext(ts.transpileModule(`${body}\nthis.actual=PlanReleaseDetach`, { compilerOptions: { target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } }).outputText, context);
+  vm.runInContext(controllerTranspile(`${body}\nthis.actual=PlanReleaseDetach`, { compilerOptions: { target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } }).outputText, context);
   function render() { let turns = 0; do { if (++turns > 30) throw Error("Unsettled synthetic render"); dirty = false; cursor = 0; tree = (context as unknown as { actual: (props: Props) => React.ReactElement }).actual(props); while (effects.length) effects.shift()!(); } while (dirty); return tree; }
   render();
   function button(label: string) { return required(nodes(tree).find(node => node.type === "button" && text(node) === label)); }
@@ -208,7 +209,7 @@ describe("retained release-detail plan detach actual controller", () => {
       },
     });
     const body = ast.statements.filter(node => !ts.isImportDeclaration(node)).map(node => printer.printNode(ts.EmitHint.Unspecified, node, ast).replace(/^export\s+(?:default\s+)?/gm, "")).join("\n");
-    vm.runInContext(ts.transpileModule(`${body}\nthis.actual=ReleaseReadinessPage`, { compilerOptions: { target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } }).outputText, context);
+    vm.runInContext(controllerTranspile(`${body}\nthis.actual=ReleaseReadinessPage`, { compilerOptions: { target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } }).outputText, context);
     function render() { return (context as unknown as { actual: () => React.ReactElement<{ children: React.ReactNode }> }).actual(); }
     for (const phase of ["loaded", "rows-removed", "loading", "error"]) {
       if (phase === "rows-removed") plans.data = [];

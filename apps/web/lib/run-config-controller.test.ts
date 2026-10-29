@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 // Execute the ACTUAL modal function with synthetic hook/Clerk/RPC adapters.
 // No browser authentication, network, database or production proof is implied.
 import { readFileSync } from "node:fs";
@@ -53,7 +54,7 @@ const constants = ast.statements.filter(
 const screens = ast.statements.find(
   (node) => ts.isFunctionDeclaration(node) && node.name?.text === "screensFor",
 )!;
-const compiled = ts.transpileModule(
+const compiled = controllerTranspile(
   `${[...constants, screens, component]
     .map((node) =>
       ts
@@ -80,7 +81,7 @@ const sdkSource = readFileSync(
     ts.ScriptTarget.Latest,
     true,
   );
-const sdkCode = ts.transpileModule(
+const sdkCode = controllerTranspile(
   ts
     .createPrinter()
     .printNode(

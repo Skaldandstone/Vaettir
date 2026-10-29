@@ -36,6 +36,8 @@ const HEADER_ALIASES: Record<TargetField, string[]> = {
     "test case name",
     "test name",
     "summary",
+    "test case summary",
+    "test summary",
   ],
   given: [
     "given",
@@ -295,7 +297,7 @@ export function suggestCsvMapping(
 }
 
 function normalizeHeader(header: string): string {
-  return header.normalize("NFKC").replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  return header.normalize("NFKC").replace(/\(s\)/gi, "s").replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 }
 
 export interface CsvHeaders {

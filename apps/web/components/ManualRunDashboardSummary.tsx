@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { trpcReact } from "@/lib/trpcReact";
@@ -48,10 +50,10 @@ export function ManualRunDashboardSummary({ active, scope, clerkActorId }: { act
     {!ready ? <p role="status">Restore the original signed-in session and freshly verified applied scope before viewing this private manual summary.</p> : <>
       {query.isFetching && <p role="status">Checking current manual case heads for the exact applied scope…</p>}
       {query.isPaused && <p role="status">Connection paused. Cached counts cannot authorize an export.</p>}
-      {(query.error || validationError) && <p role="alert">{query.error?.message ?? validationError} No partial manual aggregate was shown. <button type="button" disabled={query.isFetching || query.isPaused} onClick={() => void query.refetch({ cancelRefetch: false })}>Retry this exact manual summary</button></p>}
+      {(query.error || validationError) && <p role="alert">{query.error?.message ?? validationError} No partial manual aggregate was shown. <ActionButton type="button" disabled={query.isFetching || query.isPaused} onClick={() => void query.refetch({ cancelRefetch: false })} tooltip={<> Retry this exact manual summary </>}> Retry </ActionButton></p>}
       {!value && !query.isFetching && !query.isPaused && !query.error && !validationError && <p role="status">Awaiting a fresh response matching the original actor, organization and exact scope.</p>}
-      {value && <><ManualRunSummaryVisual value={value} /><button type="button" className="btn-secondary" onClick={reviewCsv}>Review manual summary CSV</button>
-        {sameManualSummaryExport(reviewed, snapshot) && <div role="status"><p>Reviewed summary only: {value.scope.start} through {value.scope.end} UTC, as of {value.asOf}; {value.totals.plannedInstances} trusted planned instances, {value.totals.remainingInstances} without whole-case verdicts, {value.totals.excludedRuns} excluded runs. Includes exact recorded configuration filters, all daily counts, exclusions and limits. No raw case bodies, notes, media or full history.</p><button type="button" className="btn-primary" onClick={exportCsv}>Download reviewed manual summary CSV</button></div>}
+      {value && <><ManualRunSummaryVisual value={value} /><ActionButton type="button" className="btn-secondary" onClick={reviewCsv} tooltip={<> Review manual summary CSV </>}> Review </ActionButton>
+        {sameManualSummaryExport(reviewed, snapshot) && <div role="status"><p>Reviewed summary only: {value.scope.start} through {value.scope.end} UTC, as of {value.asOf}; {value.totals.plannedInstances} trusted planned instances, {value.totals.remainingInstances} without whole-case verdicts, {value.totals.excludedRuns} excluded runs. Includes exact recorded configuration filters, all daily counts, exclusions and limits. No raw case bodies, notes, media or full history.</p><ActionButton type="button" className="btn-primary" onClick={exportCsv} tooltip={<> Download reviewed manual summary CSV </>}> Download </ActionButton></div>}
       </>}
       {message && <p role="alert">{message}</p>}
     </>}

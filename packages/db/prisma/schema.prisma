@@ -320,6 +320,7 @@ model Project {
   coverageReports             CoverageReport[]
   reverseEngineerJobs         ReverseEngineerJob[]
   importJobs                  ImportJob[]
+  importMappingBatches        ImportMappingBatch[]
   testSelectionRuns           TestSelectionRun[]
   auditLogs                   AuditLog[]
   customFrameworkHeuristics   CustomFrameworkHeuristic[]
@@ -2312,6 +2313,59 @@ enum JobStatus {
 // external ids aren't tracked per-row here (that's each TestCase's own
 // provenance, not the job's), but the mapping is kept so a future
 // `P11-11` re-run can reuse the same config for incremental sync.
+// Private source-mapping work. Project erasure removes payloads; actors are
+// original audit identifiers rather than authorization delegated by this row.
+model ImportMappingBatch {
+  id             String @id
+  projectId      String
+  project        Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  organizationId String
+  actorId        String
+  clerkActorId   String
+  requestHash    String
+  sourceLabel    String
+  state          String @default("DRAFT")
+  revokedAt      DateTime?
+  createdAt      DateTime @default(now())
+  confirmedAt    DateTime?
+  rows           ImportMappingRow[]
+  writes         ImportMappingWrite[]
+
+  @@index([projectId, actorId, createdAt])
+}
+
+model ImportMappingRow {
+  id                String @id @default(cuid())
+  batchId           String
+  batch             ImportMappingBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  ordinal           Int
+  sheet             String
+  sourceRowNumber   Int
+  originalRowNumber Int
+  state             String
+  candidate         Json
+  original          Json
+  reasons           String[]
+  hasHistory        Boolean
+  keyPrefix         String
+  externalIdPrefix  String
+  framework         String
+  caseId            String?
+  resolvedAt        DateTime?
+
+  @@unique([batchId, ordinal])
+  @@index([batchId, state])
+}
+
+model ImportMappingWrite {
+  id          String @id
+  batchId     String
+  batch       ImportMappingBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  requestHash String
+  receipt     Json
+  createdAt   DateTime @default(now())
+}
+
 model ImportJob {
   id        String  @id @default(cuid())
   projectId String

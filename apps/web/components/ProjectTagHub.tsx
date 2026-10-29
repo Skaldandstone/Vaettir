@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
@@ -41,8 +43,8 @@ function ProjectTagHubView({ projectId, tag }: { projectId: string; tag: string 
     <form onSubmit={event => { event.preventDefault(); router.push(projectTagHref(projectId, draftTag)); }}>
       <label htmlFor="project-tag-search">Exact tag text</label>
       <textarea id="project-tag-search" rows={2} value={draftTag} onChange={event => setDraftTag(event.target.value)} style={{ maxWidth: 640, width: "100%", display: "block" }} />
-      <button type="submit">Find saved tag associations</button>
-      <p className="text-muted">Whitespace and punctuation are literal. An empty tag is a retained native value, not “all tags.” Editing this search does not edit case tags.</p>
+      <ActionButton type="submit" tooltip={<> Find saved tag associations </>}> Find tags </ActionButton>
+      <details><summary>Details</summary><p className="text-muted">Whitespace and punctuation are literal. An empty tag is a retained native value, not “all tags.” Editing this search does not edit case tags.</p></details>
     </form>
     {tag === null ? <p>Select an exact tag to start. No repository-wide request has been made.</p> : <>
       <h2 style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{projectTagLabel(tag)}</h2>
@@ -50,15 +52,15 @@ function ProjectTagHubView({ projectId, tag }: { projectId: string; tag: string 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginBlock: 16 }}>
         <label>Case repository scope<select value={review} onChange={event => { setReview(event.target.value as typeof review); setPages([]); }}><option value="APPROVED">Approved repository</option><option value="PENDING_REVIEW">Pending review only</option><option value="REJECTED">Rejected only</option><option value="ALL">All review states (explicit scope)</option></select></label>
         <label>Archive scope<select value={archive} onChange={event => { setArchive(event.target.value as typeof archive); setPages([]); }}><option value="ACTIVE">Active cases</option><option value="ARCHIVED">Archived cases</option><option value="ALL">Active and archived</option></select></label>
-        <button type="button" disabled={!ready || query.isFetching} onClick={restart}>Refresh current scope</button>
+        <ActionButton type="button" disabled={!ready || query.isFetching} onClick={restart} tooltip={<> Refresh current scope </>}> Refresh </ActionButton>
       </div>
       <nav aria-label="Tag association sections" style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>{(Object.keys(sections) as TagSection[]).map(key => <button key={key} type="button" aria-pressed={section === key} onClick={() => { setSection(key); setPages([]); }}>{sections[key]}</button>)}</nav>
       {!ready && (bootstrapFailed ? <div role="alert">
         <p>Original project access could not be verified. Tag associations were not loaded, and the retained scope was not replaced.</p>
-        <button type="button" disabled={access.query.isFetching} onClick={() => void access.query.refetch()}>Retry original project access</button>
+        <ActionButton type="button" disabled={access.query.isFetching} onClick={() => void access.query.refetch()} tooltip={<> Retry original project access </>}> Retry </ActionButton>
       </div> : <p role="status">Waiting for current original project membership and the same native reader. Private tag results remain hidden.</p>)}
       {ready && !value && !query.error && <p role="status">{query.isPaused ? "The scoped read is paused. Reconnecting requires a new read before results return." : "Awaiting a new completed scoped read. Cached results are not shown as current."}</p>}
-      {ready && query.error && <p role="alert">Tag associations are unavailable: {query.error.message} No counts are being shown as zero. <button type="button" disabled={query.isFetching} onClick={restart}>Restart current view</button></p>}
+      {ready && query.error && <p role="alert">Tag associations are unavailable: {query.error.message} No counts are being shown as zero. <ActionButton type="button" disabled={query.isFetching} onClick={restart} tooltip={<> Restart current view </>}> Restart view </ActionButton></p>}
       {value && <>
         <section className="panel" style={{ marginBlock: 16 }}>
           <h2>{sections[section]}</h2>

@@ -201,13 +201,13 @@ export function RequirementCoverageExport({
           setOpen(true);
         }}
       >
-        Export requirement matrix
+        Export
       </button>
       {ready && message && <p role="status">{message}</p>}
       <Modal
         open={open}
         onClose={close}
-        title="Review complete requirement matrix report"
+        title="Export matrix"
         size="wide"
       >
         {!ready ? (
@@ -227,7 +227,7 @@ export function RequirementCoverageExport({
               className="btn-secondary"
               onClick={() => void query.refetch()}
             >
-              Retry complete matrix
+              Retry
             </button>
           </div>
         ) : query.isPaused ? (
@@ -250,18 +250,6 @@ export function RequirementCoverageExport({
               {active.population.distinctCases} distinct cases (
               {active.population.archivedCases} currently archived).
             </p>
-            <p>
-              Observed UTC {active.observedAt}. Run-start window{" "}
-              {active.window.start} through {active.window.end}. This is the
-              complete selected population, not the visible twenty-row browse
-              page.
-            </p>
-            <p>
-              {active.population.distinctCaseResultRecords} recorded result rows
-              across distinct linked cases. Case rows repeated across
-              requirements repeat those outcomes; do not sum matrix rows into a
-              unique result denominator.
-            </p>
             <label style={{ display: "grid", gap: 6, marginBlock: 12 }}>
               File format
               <select
@@ -283,13 +271,24 @@ export function RequirementCoverageExport({
             </label>
             {format === "HTML" && (
               <p>
-                Text-only offline report. Open the downloaded file and use
-                browser Print if needed. Vaettir does not generate a PDF,
-                approve a snapshot or deliver this file.
+                Offline HTML; print from the browser. No PDF or delivery is generated.
               </p>
             )}
             <details>
-              <summary>Applied selections and sharing boundaries</summary>
+              <summary>Details</summary>
+            <p>
+              Observed UTC {active.observedAt}. Run-start window{" "}
+              {active.window.start} through {active.window.end}. This is the
+              complete selected population, not the visible twenty-row browse
+              page.
+            </p>
+            <p>
+              {active.population.distinctCaseResultRecords} recorded result rows
+              across distinct linked cases. Case rows repeated across
+              requirements repeat those outcomes; do not sum matrix rows into a
+              unique result denominator.
+            </p>
+
               <p>
                 Requirement title search:{" "}
                 {active.searchPresence
@@ -316,7 +315,7 @@ export function RequirementCoverageExport({
               </ul>
             </details>
             <details>
-              <summary>Preview complete selected report rows</summary>
+              <summary>Preview</summary>
               <p>
                 Title excerpts and archived cases are labelled. Requirement
                 numbers are local to this report, not permanent requirement IDs.
@@ -401,7 +400,7 @@ export function RequirementCoverageExport({
               disabled={!canDownload}
               onClick={download}
             >
-              Prepare reviewed file
+              Download
             </button>
           </>
         )}

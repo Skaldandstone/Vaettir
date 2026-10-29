@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import Link from "next/link";
@@ -189,21 +191,23 @@ function Comparison({ projectId }: { projectId: string }) {
         flakiness classifier. Provider, branch and commit labels do not prove
         equivalent tests or configurations.
       </p>
-      {!ready ? <div role="alert"><p>Current original-organization membership and signed-in actor must be verified before run choices or evidence can be shown. Your baseline, candidate and page selections remain retained, not rebound to another account.</p><button type="button" onClick={() => void retryAccess()}>Recheck original comparison access</button></div> : catalog.error ? (
+      {!ready ? <div role="alert"><p>Current original-organization membership and signed-in actor must be verified before run choices or evidence can be shown. Your baseline, candidate and page selections remain retained, not rebound to another account.</p><ActionButton type="button" onClick={() => void retryAccess()} tooltip={<> Recheck original comparison access </>}> Refresh </ActionButton></div> : catalog.error ? (
         <p role="alert">
           Current run access could not be verified. Cached run choices and
           comparisons are withheld.{" "}
-          <button type="button" onClick={() => void retryAccess()}>
+          <ActionButton type="button" onClick={() => void retryAccess()} tooltip={<>
             Retry recorded runs
-          </button>
-          <button
+           </>}>
+             Retry </ActionButton>
+          <ActionButton
             type="button"
             onClick={() =>
               setCatalogInput({ projectId, requestId: crypto.randomUUID() })
             }
-          >
+           tooltip={<>
             Restart current run catalog
-          </button>
+           </>}>
+             Restart catalog </ActionButton>
         </p>
       ) : !runs ? (
         <p role="status">
@@ -262,15 +266,16 @@ function Comparison({ projectId }: { projectId: string }) {
               marginBlock: 16,
             }}
           >
-            <button
+            <ActionButton
               type="button"
               disabled={!baseline || !candidate || baseline === candidate}
               onClick={compare}
-            >
+             tooltip={<>
               Compare recorded results
-            </button>
+             </>}>
+               Compare </ActionButton>
             {runs.nextCursor && (
-              <button
+              <ActionButton
                 type="button"
                 className="btn-secondary"
                 onClick={() =>
@@ -280,28 +285,31 @@ function Comparison({ projectId }: { projectId: string }) {
                     cursor: runs.nextCursor!,
                   })
                 }
-              >
+               tooltip={<>
                 Older recorded runs
-              </button>
+               </>}>
+                 Older runs </ActionButton>
             )}
             {catalogInput.cursor && (
-              <button
+              <ActionButton
                 type="button"
                 className="btn-secondary"
                 onClick={() =>
                   setCatalogInput({ projectId, requestId: crypto.randomUUID() })
                 }
-              >
+               tooltip={<>
                 Newest recorded runs
-              </button>
+               </>}>
+                 Newest runs </ActionButton>
             )}
-            <button
+            <ActionButton
               type="button"
               className="btn-secondary"
               onClick={() => void retryAccess()}
-            >
+             tooltip={<>
               Refresh run access
-            </button>
+             </>}>
+               Refresh </ActionButton>
           </div>
           {!runs.items.length && (
             <p>
@@ -317,12 +325,14 @@ function Comparison({ projectId }: { projectId: string }) {
           <p role="alert">
             Comparison unavailable, denied or changed. No cached comparison was
             substituted.{" "}
-            <button type="button" disabled={!ready} onClick={() => void query.refetch()}>
+            <ActionButton type="button" disabled={!ready} onClick={() => void query.refetch()} tooltip={<>
               Retry same comparison page
-            </button>
-            <button type="button" onClick={compare} disabled={!runs}>
+             </>}>
+               Retry </ActionButton>
+            <ActionButton type="button" onClick={compare} disabled={!runs} tooltip={<>
               Restart selected comparison
-            </button>
+             </>}>
+               Restart comparison </ActionButton>
           </p>
         ) : !result ? (
           <p role="status">
@@ -467,7 +477,7 @@ function Comparison({ projectId }: { projectId: string }) {
                 marginBlock: 16,
               }}
             >
-              <button
+              <ActionButton
                 type="button"
                 disabled={!history.length}
                 onClick={() => {
@@ -480,10 +490,11 @@ function Comparison({ projectId }: { projectId: string }) {
                     requestId: crypto.randomUUID(),
                   });
                 }}
-              >
+               tooltip={<>
                 Previous case page
-              </button>
-              <button
+               </>}>
+                 Previous cases </ActionButton>
+              <ActionButton
                 type="button"
                 disabled={!result.nextCursor}
                 onClick={() => {
@@ -495,12 +506,14 @@ function Comparison({ projectId }: { projectId: string }) {
                     requestId: crypto.randomUUID(),
                   });
                 }}
-              >
+               tooltip={<>
                 Next case page
-              </button>
-              <button type="button" onClick={compare}>
+               </>}>
+                 Next cases </ActionButton>
+              <ActionButton type="button" onClick={compare} tooltip={<>
                 Restart selected comparison
-              </button>
+               </>}>
+                 Restart comparison </ActionButton>
             </div>
             <details>
               <summary>Evidence boundaries and missing context</summary>

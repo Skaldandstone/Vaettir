@@ -1,3 +1,5 @@
+// Controller fixture treats the presentation-only wrapper as its native button.
+// Real hover/focus/form/ref/touch behavior is covered by action-button-ui.test.mjs.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -68,14 +70,14 @@ test("actual GitLab five-part scope still requires group identity and reset", as
 });
 test("actual installed-account fieldset renders guidance and browses exact fresh descriptor", () => {
   const node = find(node => ts.isJsxElement(node) && node.openingElement.attributes.properties.some(attribute => attribute.getText(ast) === 'aria-label="GitHub installed account scope"'));
-  const calls = [], sandbox = { React, busy: false, frame: { eligible: true }, field: {}, inputStyle: {}, actions: {}, installationUrl: "https://github.com/apps/synthetic/installations/new", installationLinkReady: true, installationsReady: true, githubInstallationId: "41", installationPage: 3, search: "", canEditSelection: () => true, load: (...args) => calls.push(args), installations: { data: { installations: [{ id: "41", accountLabel: "Synthetic account", repositorySelection: "selected", page: 3 }], hasMore: false, limitReached: false }, refetch: () => calls.push("refresh") }, setGithubInstallationId: () => {}, setInstallationPage: () => {} };
+  const calls = [], sandbox = { React, ActionButton: "button", busy: false, frame: { eligible: true }, field: {}, inputStyle: {}, actions: {}, installationUrl: "https://github.com/apps/synthetic/installations/new", installationLinkReady: true, installationsReady: true, githubInstallationId: "41", installationPage: 3, search: "", canEditSelection: () => true, load: (...args) => calls.push(args), installations: { data: { installations: [{ id: "41", accountLabel: "Synthetic account", repositorySelection: "selected", page: 3 }], hasMore: false, limitReached: false }, refetch: () => calls.push("refresh") }, setGithubInstallationId: () => {}, setInstallationPage: () => {} };
   compile(`this.render = () => (${node.getText(ast)});`, sandbox);
   const element = sandbox.render(), html = renderToStaticMarkup(element);
   assert.match(html, /Synthetic account · Selected repositories/);
   assert.match(html, /Install or manage the GitHub App on GitHub/);
   assert.equal(calls.length, 0, "render never installs or browses");
   function descendants(element) { return React.isValidElement(element) ? [element, ...React.Children.toArray(element.props.children).flatMap(descendants)] : []; }
-  descendants(element).find(element => element.type === "button" && element.props.children === "Browse this installed account").props.onClick();
+  descendants(element).find(element => element.type === "button" && String(element.props.children).trim() === "Browse").props.onClick();
   assert.deepEqual(calls[0], [1, "", false, null, "41", 3]);
   sandbox.installationsReady = false;
   assert.doesNotMatch(renderToStaticMarkup(sandbox.render()), /Synthetic account/);

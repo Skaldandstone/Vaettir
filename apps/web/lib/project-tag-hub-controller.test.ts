@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
@@ -31,7 +32,7 @@ function harness(tag: string | null = " spaced ", bootstrapReady = true) {
     useRef: (initial: unknown) => { const index = cursor++; if (!Object.hasOwn(hooks, index)) hooks[index] = { current: initial }; return hooks[index]; },
     useEffect: (effect: () => void, deps: unknown[]) => { const index = cursor++, prior = hooks[index] as unknown[] | undefined; if (!prior || deps.some((value, n) => !Object.is(value, prior[n]))) { hooks[index] = deps; effects.push(effect); } },
   };
-  const compiled = ts.transpileModule(`${printed}\nthis.hub = ProjectTagHubView;`, { compilerOptions: { target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } }).outputText;
+  const compiled = controllerTranspile(`${printed}\nthis.hub = ProjectTagHubView;`, { compilerOptions: { target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } }).outputText;
   const context = vm.createContext(globals); vm.runInContext(compiled, context);
   const component = (context as unknown as { hub: (props: { projectId: string; tag: string | null }) => React.ReactNode }).hub;
   let tree: React.ReactNode;

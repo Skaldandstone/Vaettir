@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ArchitectureMap } from "./ArchitectureMap";
@@ -358,13 +360,14 @@ export function ArchitectureWorkbench({
               <span>{current.cases.length} existing tests</span>
             </div>
             {current.canSpend && (
-              <button
+              <ActionButton
                 type="button"
                 disabled={busy}
                 onClick={() => void saveSource()}
-              >
+               tooltip={<>
                 Save architecture version
-              </button>
+               </>}>
+                 Save </ActionButton>
             )}
           </div>
           {current.document.warnings.map((warning, index) => <p key={index} role="note">{warning}</p>)}
@@ -416,14 +419,15 @@ export function ArchitectureWorkbench({
                   : "Analyze architecture"}
               </button>
               {analyzing && (
-                <button
+                <ActionButton
                   type="button"
                   onClick={() => {
                     stop.current = true;
                   }}
-                >
+                 tooltip={<>
                   Stop after current batch
-                </button>
+                 </>}>
+                   Stop </ActionButton>
               )}
               <span role="status">
                 {completed} / {current.batchCount} batches completed
@@ -503,8 +507,8 @@ export function ArchitectureWorkbench({
                 {heldDecision ? <div role="status" aria-busy={decision.isPending}>
                   {decision.isPending ? <p>Saving test link…</p> : <>
                     <p>A link save needs confirmation. Retry the same request before making another change.</p>
-                    <button type="button" disabled={decision.isPending || busy || heldDecision.expectedScopeHash !== current.scopeHash}
-                      onClick={() => void decide(heldDecision.caseId, heldDecision.elementId, heldDecision.decision)}>Retry link save</button>
+                    <ActionButton type="button" disabled={decision.isPending || busy || heldDecision.expectedScopeHash !== current.scopeHash}
+                      onClick={() => void decide(heldDecision.caseId, heldDecision.elementId, heldDecision.decision)} tooltip={<> Retry link save </>}> Retry </ActionButton>
                   </>}
                 </div> : <form className="manual-architecture-mapping" onSubmit={event => { event.preventDefault(); if (manualCase && manualElement) void decide(manualCase, manualElement, "CONFIRMED"); }}>
                   <label>Find a test<input value={caseSearch} onChange={e => setCaseSearch(e.target.value)} placeholder="Search by ID or summary" /></label>
@@ -877,9 +881,10 @@ function DraftEditor({
     );
   if (!open)
     return (
-      <button type="button" disabled={disabled} onClick={() => setOpen(true)}>
+      <ActionButton type="button" disabled={disabled} onClick={() => setOpen(true)} tooltip={<>
         Review &amp; create test
-      </button>
+       </>}>
+         Create test </ActionButton>
     );
   const frozen = mutation.isPending || savePending || disabled;
   return (
@@ -959,7 +964,7 @@ function DraftEditor({
         />
       </fieldset>
       <div style={{ ...row, marginTop: 16 }}>
-        <button
+        <ActionButton
           type="submit"
           disabled={
             disabled ||
@@ -968,9 +973,11 @@ function DraftEditor({
             !type ||
             (!savePending && !fieldsDraft?.ready)
           }
-        >
+         tooltip={<>
           {savePending ? "Recover this save" : "Save test for review"}
-        </button>
+         </>}>
+          {savePending ? "Recover" : "Save"}
+        </ActionButton>
         {!savePending && (
           <button type="button" onClick={() => setOpen(false)}>
             Cancel

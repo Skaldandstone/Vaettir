@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useSearchParams } from "next/navigation";
@@ -104,7 +106,7 @@ export function AtlassianConnectWorkflow() {
         <div className="connection-private"><strong>Stays private in Vaettir</strong><p>Draft reports, test procedures, source code, attachments and architecture mappings.</p></div>
         <p className="connection-caption">No editing tests, running tests, importing data or spending AI credits. Stop sharing anytime in project settings.</p>
       </aside><div className="connection-footer"><p>{chosen ? <>Ready to connect <strong>{chosen.name}</strong></> : "Select a project to continue. Nothing is connected yet."}</p><button type="button" className="btn-primary" disabled={!chosen || loading || connect.isPending || retained} onClick={() => void confirm()}>{connect.isPending ? "Connecting project…" : "Connect project"}</button></div></div>}
-      {retained && pendingMatches && <button type="button" className="btn-primary" disabled={connect.isPending || loading || !current} onClick={() => void confirm()}>{connect.isPending ? "Connecting project…" : "Confirm connection status"}</button>}
+      {retained && pendingMatches && <ActionButton type="button" className="btn-primary" disabled={connect.isPending || loading || !current} onClick={() => void confirm()} tooltip={<> {connect.isPending ? "Connecting project…" : "Confirm connection status"} </>}>{connect.isPending ? "Connecting project…" : "Confirm"}</ActionButton>}
     </>}
   </section>;
 }

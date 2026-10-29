@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 import React from "react";
 import { readFileSync } from "node:fs";
 import ts from "typescript";
@@ -15,7 +16,7 @@ function elements(value: unknown, found: Element[] = []): Element[] {
 function label(value: unknown): string {
   return typeof value === "string" || typeof value === "number" ? String(value) : React.isValidElement(value) ? label((value as Element).props.children) : Array.isArray(value) ? value.map(label).join("") : "";
 }
-const compiled = ts.transpileModule(readFileSync(new URL("../app/admin/organizations/[id]/page.tsx", import.meta.url), "utf8"), {
+const compiled = controllerTranspile(readFileSync(new URL("../app/admin/organizations/[id]/page.tsx", import.meta.url), "utf8"), {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.React },
 }).outputText;
 function harness() {

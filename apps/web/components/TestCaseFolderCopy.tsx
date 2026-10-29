@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Modal } from "@/components/Modal";
@@ -377,12 +379,13 @@ export function TestCaseFolderCopy({
                 ? access.error.message
                 : "Checking current project access…"}
             </p>
-            <button
+            <ActionButton
               disabled={!scope.actorReady}
               onClick={() => void refreshAccess()}
-            >
+             tooltip={<>
               Retry current access
-            </button>
+             </>}>
+               Retry </ActionButton>
           </div>
         ) : !currentAccess.canEdit ? (
           <p role="alert">
@@ -497,7 +500,7 @@ export function TestCaseFolderCopy({
               </strong>
               .
             </p>
-            <button
+            <ActionButton
               className="btn-primary"
               disabled={!source || !name.trim()}
               onClick={() => {
@@ -516,9 +519,10 @@ export function TestCaseFolderCopy({
                 setApproved(false);
                 setReason("");
               }}
-            >
+             tooltip={<>
               Review complete copy
-            </button>
+             </>}>
+               Review </ActionButton>
           </div>
         ) : (
           <div
@@ -825,7 +829,7 @@ export function TestCaseFolderCopy({
               >
                 Back
               </button>
-              <button
+              <ActionButton
                 className="btn-primary"
                 disabled={
                   mutation.isPending ||
@@ -889,13 +893,19 @@ export function TestCaseFolderCopy({
                   setPending(input);
                   mutation.mutate(input);
                 }}
-              >
+               tooltip={<>
                 {mutation.isPending
                   ? "Copying…"
                   : pending
                     ? "Retry exact approved copy"
                     : "Approve folder copy"}
-              </button>
+               </>}>
+                {mutation.isPending
+                  ? "Copying…"
+                  : pending
+                    ? "Retry"
+                    : "Approve"}
+              </ActionButton>
             </div>
           </div>
         )}

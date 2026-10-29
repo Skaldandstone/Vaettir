@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
@@ -5,7 +6,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe,expect,it } from "vitest";
 const source=readFileSync(new URL("../components/CaseReviewDecision.tsx",import.meta.url),"utf8"),ast=ts.createSourceFile("review.tsx",source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX),declaration=ast.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text==="CaseReviewDecision")!;
-const code=ts.transpileModule(`${ts.createPrinter().printNode(ts.EmitHint.Unspecified,declaration,ast).replace(/\bexport\s+/,"")}\nthis.control=CaseReviewDecision;`,{compilerOptions:{target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.React,module:ts.ModuleKind.None}}).outputText;
+const code=controllerTranspile(`${ts.createPrinter().printNode(ts.EmitHint.Unspecified,declaration,ast).replace(/\bexport\s+/,"")}\nthis.control=CaseReviewDecision;`,{compilerOptions:{target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.React,module:ts.ModuleKind.None}}).outputText;
 type NodeProps = { children?: React.ReactNode; onClick?: () => void; onRelease?: () => void; active?: boolean; hidden?: boolean; disabled?: boolean; caseId?: string };
 type NodeElement = React.ReactElement<NodeProps> & { ref?: ((element: { inert: boolean }) => void) | null };
 function nodes(node:React.ReactNode):NodeElement[]{return !React.isValidElement<NodeProps>(node)?[]:[node,...React.Children.toArray(node.props.children).flatMap(nodes)];}

@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 // Actual route handlers + existing completion controller, with synthetic hooks,
 // native metadata/auth/RPC boundaries. Not React DOM, SDK lifecycle or SQL proof.
 import { readFileSync } from "node:fs";
@@ -45,7 +46,7 @@ const page = ast.statements.find(
   (node) =>
     ts.isFunctionDeclaration(node) && node.name?.text === "TestRunsPage",
 )!;
-const code = ts.transpileModule(
+const code = controllerTranspile(
   ts
     .createPrinter()
     .printNode(ts.EmitHint.Unspecified, page, ast)
@@ -416,7 +417,7 @@ function modalBulk(
       setBulkNotice: vi.fn(),
     });
   vm.runInContext(
-    ts.transpileModule(
+    controllerTranspile(
       ts.createPrinter().printNode(ts.EmitHint.Unspecified, apply, modalAst) +
         "\nthis.apply = applyBulk;",
       {

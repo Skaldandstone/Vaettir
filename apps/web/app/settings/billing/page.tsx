@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useEffect, useRef, useState } from "react";
 import { trpcReact } from "../../../lib/trpcReact";
 import { canAdministerOrganization } from "../../../lib/membership";
@@ -235,10 +237,10 @@ export default function BillingPage() {
             available · {credits.data?.includedPerMonth.toLocaleString() ?? "…"}{" "}
             included monthly
           </p>
-          <p className="text-muted">
+          <details><summary>Details</summary><p className="text-muted">
             A credit is a usage unit, not one test or one request. Each
             operation has its own cost, shown below. Pack pricing varies.
-          </p>
+          </p></details>
           <p>
             One-time purchase only. Credit packs do not change your plan or
             charge for seats. No automatic refill.
@@ -259,17 +261,18 @@ export default function BillingPage() {
                       ? "Stripe reported payment failure. No credits were added."
                       : "Previous purchase is not yet confirmed. Retry the same pack or check its status; do not pay twice."}
               </p>
-              <button
+              <ActionButton
                 className="btn-secondary"
                 disabled={purchaseStatus.isFetching}
                 onClick={() => void purchaseStatus.refetch()}
-              >
+               tooltip={<>
                 Check payment status
-              </button>
+               </>}>
+                 Check </ActionButton>
               {["DELIVERED", "EXPIRED", "FAILED"].includes(
                 purchaseStatus.data?.status ?? "",
               ) && (
-                <button
+                <ActionButton
                   className="btn-secondary"
                   onClick={() => {
                     sessionStorage.removeItem(
@@ -277,9 +280,10 @@ export default function BillingPage() {
                     );
                     setAttempt(null);
                   }}
-                >
+                 tooltip={<>
                   Review another purchase
-                </button>
+                 </>}>
+                   Review </ActionButton>
               )}
             </div>
           )}
@@ -323,11 +327,11 @@ export default function BillingPage() {
       {canAdmin && (
         <section className="panel" style={{ marginTop: 20 }}>
           <h2>AI use requests</h2>
-          <p className="text-muted">
+          <details><summary>Details</summary><p className="text-muted">
             Review requests from members who cannot run an analysis or need more
             credits. Acknowledging a request does not grant a seat, top up
             credits, or run AI.
-          </p>
+          </p></details>
           {creditRequests.error && (
             <p role="alert">{creditRequests.error.message}</p>
           )}
@@ -429,11 +433,11 @@ export default function BillingPage() {
                   ? `${money(data.currentPlan.monthlyPricePerSeatCents * seats.data.fullSeatsUsed)} / month`
                   : "Recurring cost not configured"}
               </h3>
-              <p className="text-muted">
+              <details><summary>Details</summary><p className="text-muted">
                 Seat-price estimate only. Excludes taxes, discounts, proration
                 and optional credit packs. Your billing provider’s invoice is
                 authoritative.
-              </p>
+              </p></details>
               <p>
                 {data?.hasActiveSubscription
                   ? "A subscription is linked to this workspace."

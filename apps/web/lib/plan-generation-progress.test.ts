@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 // Actual modal/controller with synthetic request scheduling. No AI/network or
 // authenticated browser acceptance is implied by these rendered checks.
 import {readFileSync} from "node:fs";
@@ -12,7 +13,7 @@ function text(value:unknown):string{return typeof value==="string"||typeof value
 function fixture(){
   const source=readFileSync(new URL("../app/projects/[projectId]/test-plans/page.tsx",import.meta.url),"utf8"),ast=ts.createSourceFile("plans.tsx",source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
   const component=ast.statements.filter(ts.isFunctionDeclaration).find(node=>node.name?.text==="GenerateStrategyModal");if(!component)throw Error("Actual strategy modal required");
-  const output=ts.transpileModule(component.getText(ast),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None,jsx:ts.JsxEmit.React}}).outputText;
+  const output=controllerTranspile(component.getText(ast),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None,jsx:ts.JsxEmit.React}}).outputText;
   const slots:unknown[]=[];let cursor=0;const useState=(initial:unknown)=>{const index=cursor++;if(!(index in slots))slots[index]=initial;return[slots[index],(value:unknown)=>{slots[index]=value;}];};
   let outcome:()=>Promise<unknown>=async()=>({testPlanTypeId:"functional",riskAreas:["Payments"],environments:["Desktop"],entryCriteria:["Build available"],exitCriteria:["Cases pass"]});
   const generate={isPending:false,mutateAsync:vi.fn(async()=>{generate.isPending=true;try{return await outcome();}finally{generate.isPending=false;}})},create={isPending:false,mutateAsync:vi.fn(async()=>undefined)};

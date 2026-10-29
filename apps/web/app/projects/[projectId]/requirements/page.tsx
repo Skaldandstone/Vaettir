@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useEffect, useMemo, useState } from "react";
 import type { ChangeEvent } from "react";
 import { useParams } from "next/navigation";
@@ -592,9 +594,11 @@ function ShareLinkControl({
   if (requirement.shareToken) {
     return (
       <div style={{ fontSize: 12, marginTop: 4 }}>
-        <button style={{ fontSize: 11 }} onClick={copyLink}>
+        <ActionButton style={{ fontSize: 11 }} onClick={copyLink} tooltip={<>
           {copied ? "Copied!" : "Copy share link"}
-        </button>{" "}
+         </>}>
+          {copied ? "Copied!" : "Copy"}
+        </ActionButton>{" "}
         <button
           className="btn-secondary"
           style={{ fontSize: 11 }}
@@ -609,13 +613,15 @@ function ShareLinkControl({
 
   return (
     <div style={{ marginTop: 4 }}>
-      <button
+      <ActionButton
         style={{ fontSize: 11 }}
         onClick={create}
         disabled={createMutation.isPending}
-      >
+       tooltip={<>
         {createMutation.isPending ? "Generating…" : "Share test status"}
-      </button>
+       </>}>
+        {createMutation.isPending ? "Generating…" : "Share status"}
+      </ActionButton>
       {error && (
         <span style={{ color: "var(--ember)", fontSize: 12 }}> {error}</span>
       )}
@@ -913,7 +919,7 @@ export default function RequirementsPage() {
     <div className="requirements-workbench">
       <h1>Requirements</h1>
       <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:12}}>
-        {canEdit&&<button type="button" className="btn-secondary" onClick={()=>setRepoModalOpen(true)}>Check repository requirements</button>}
+        {canEdit&&<ActionButton type="button" className="btn-secondary" onClick={()=>setRepoModalOpen(true)} tooltip={<> Check repository requirements </>}> Check </ActionButton>}
         <Link href={`/projects/${encodeURIComponent(projectId)}/requirement-coverage`}>Requirement coverage and gaps</Link>
       </div>
 
@@ -984,11 +990,11 @@ export default function RequirementsPage() {
                   selected={[creationSource]}
                   onToggle={setCreationSource}
                 />
-                <p className="text-muted">
+                <details><summary>Details</summary><p className="text-muted">
                   Write one requirement, upload or paste a specification, or
                   draft from repository documents. Extracted rows can be edited
                   before saving.
-                </p>
+                </p></details>
                 {creationSource === "Connected repository" && (
                   <ConnectedRepositoryPicker projectId={projectId} selectedId={selectedRepositoryId} onSelect={repo=>setSelectedRepositoryId(repo?.id??"")}/>
                 )}
@@ -1067,13 +1073,19 @@ export default function RequirementsPage() {
             placeholder="External ref, e.g. JIRA-123 (optional)"
           />
           <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={submit} disabled={saving || !title}>
+            <ActionButton onClick={submit} disabled={saving || !title} tooltip={<>
               {saving
                 ? "Saving…"
                 : editingId
                   ? "Save changes"
                   : "+ New requirement"}
-            </button>
+             </>}>
+              {saving
+                ? "Saving…"
+                : editingId
+                  ? "Save changes"
+                  : "New requirement"}
+            </ActionButton>
             {editingId && <button onClick={resetForm}>Cancel</button>}
           </div>
         </div>
@@ -1110,9 +1122,11 @@ export default function RequirementsPage() {
             <div style={{ fontSize: 12, color: "var(--muted-dim)" }}>
               {r.acceptanceCriteriaCount} linked acceptance criteria
             </div>
-            <button type="button" className="btn-secondary" aria-expanded={coverageId === r.id} aria-controls={`coverage-${r.id}`} onClick={() => setCoverageId(coverageId === r.id ? null : r.id)} style={{ marginTop: 8 }}>
+            <ActionButton type="button" className="btn-secondary" aria-expanded={coverageId === r.id} aria-controls={`coverage-${r.id}`} onClick={() => setCoverageId(coverageId === r.id ? null : r.id)} style={{ marginTop: 8 }} tooltip={<>
               {coverageId === r.id ? "Hide test coverage" : "View test coverage"}
-            </button>
+             </>}>
+              {coverageId === r.id ? "Hide" : "View coverage"}
+            </ActionButton>
             {coverageId === r.id && <div id={`coverage-${r.id}`}><CoveredTestCasesPanel projectId={projectId} target={{ provider: "requirement", providerOrigin: "vaettir", nativeId: r.id, kind: "requirement" }} canEdit={canEdit} /></div>}
             {canEdit && <details><summary>Source links</summary><LinearLinkControl requirement={r} onChanged={reload} />
             {canEdit && <JiraLinkControl requirement={r} onChanged={reload} />}
@@ -1122,9 +1136,10 @@ export default function RequirementsPage() {
               <div className="record-list-actions">
                 <IconButton icon="edit" label={`Edit ${r.title}`} onClick={() => startEdit(r)} />
                 <IconButton icon="delete" label={`Delete ${r.title}`} onClick={() => remove(r.id)} />
-                <button className="btn-secondary" onClick={() => setGeneratingForId(r.id)}>
+                <ActionButton className="btn-secondary" onClick={() => setGeneratingForId(r.id)} tooltip={<>
                   Generate test cases with AI
-                </button>
+                 </>}>
+                   Generate </ActionButton>
               </div>
             )}
           </li>

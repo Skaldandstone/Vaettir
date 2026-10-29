@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useState } from "react";
 import { useParams } from "next/navigation";
 import { ConnectedRepositoryPicker } from "@/components/ConnectedRepositoryPicker";
@@ -65,11 +67,11 @@ function AiEditFeedbackSection({ projectId }: { projectId: string }) {
   return (
     <div style={{ marginTop: 32 }}>
       <h2 style={{ marginBottom: 4 }}>AI edit feedback</h2>
-      <p className="text-muted" style={{ fontSize: 13, marginBottom: 12 }}>
+      <details><summary>Details</summary><p className="text-muted" style={{ fontSize: 13, marginBottom: 12 }}>
         When a human corrects an AI-reverse-engineered case, that correction
         lands here - useful signal for whether the system prompt needs
         tightening.
-      </p>
+      </p></details>
       {feedback.map((f) => (
         <div
           key={f.id}
@@ -521,7 +523,7 @@ export default function ReverseEngineerPage() {
               <h2 style={{ margin: 0 }}>Scan the repository</h2>
               <ConnectedRepositoryPicker projectId={projectId} selectedId={selectedRepositoryId} onSelect={repo=>setSelectedRepositoryId(repo?.id??"")} disabled={scanning}/>
               <p className="text-muted">Use an existing project repository, review the file scope and credit estimate, then approve reading and AI processing. Connected GitLab source reads reuse your verified grant; connecting alone never starts a scan.</p>
-              <button type="button" onClick={()=>setRepoReview(true)} disabled={scanning}>Choose repository and review processing</button>
+              <ActionButton type="button" onClick={()=>setRepoReview(true)} disabled={scanning} tooltip={<> Choose repository and review processing </>}> Choose </ActionButton>
               {scanResult && (
                 <p style={{ color: "var(--frost)" }}>
                   Found {scanResult.scannedFileCount} test file(s), queued{" "}
@@ -631,12 +633,14 @@ export default function ReverseEngineerPage() {
                   <button onClick={submit} disabled={loading || !content}>
                     {loading ? "Analyzing…" : "Reverse-engineer now"}
                   </button>
-                  <button
+                  <ActionButton
                     onClick={submitAsJob}
                     disabled={submittingJob || !content}
-                  >
+                   tooltip={<>
                     {submittingJob ? "Submitting…" : "Run as background job"}
-                  </button>
+                   </>}>
+                    {submittingJob ? "Submitting…" : "Run job"}
+                  </ActionButton>
                 </div>
               </div>
             </div>
@@ -828,7 +832,7 @@ export default function ReverseEngineerPage() {
                 ))}
                 <div style={{ display: "flex", gap: 8 }}>
                   {exampleFiles.length < 3 && (
-                    <button
+                    <ActionButton
                       className="btn-secondary"
                       onClick={() =>
                         setExampleFiles([
@@ -836,13 +840,16 @@ export default function ReverseEngineerPage() {
                           { filePath: "", content: "" },
                         ])
                       }
-                    >
+                     tooltip={<>
                       + Add a third example
-                    </button>
+                     </>}>
+                       Add example </ActionButton>
                   )}
-                  <button onClick={inferHeuristic} disabled={inferring}>
+                  <ActionButton onClick={inferHeuristic} disabled={inferring} tooltip={<>
                     {inferring ? "Inferring…" : "Infer the pattern"}
-                  </button>
+                   </>}>
+                    {inferring ? "Inferring…" : "Infer pattern"}
+                  </ActionButton>
                 </div>
                 {heuristicError && (
                   <p style={{ color: "var(--ember)" }}>{heuristicError}</p>
@@ -897,12 +904,14 @@ export default function ReverseEngineerPage() {
                       >
                         Discard
                       </button>
-                      <button
+                      <ActionButton
                         onClick={saveHeuristic}
                         disabled={savingHeuristic}
-                      >
+                       tooltip={<>
                         {savingHeuristic ? "Saving…" : "Save this pattern"}
-                      </button>
+                       </>}>
+                        {savingHeuristic ? "Saving…" : "Save pattern"}
+                      </ActionButton>
                     </div>
                   </div>
                 )}

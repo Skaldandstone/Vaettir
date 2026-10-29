@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useState } from "react";
 import { trpcReact } from "../lib/trpcReact";
 
@@ -136,16 +138,15 @@ function Suggestions({
                     }
                   />
                 </label>
-                <button
+                <ActionButton
                   className="btn-primary"
                   disabled={!(edits[row.key] ?? row.title).trim()}
                   onClick={() =>
                     void save(row.key, edits[row.key] ?? row.title)
-                  }
-                >
+                  } tooltip={<>
                   Approve{" "}
                   {row.status === "existing" ? "existing match" : "requirement"}
-                </button>
+                 </>}>Approve</ActionButton>
               </>
             ) : (
               <p>
@@ -162,14 +163,15 @@ function Suggestions({
       <p role="status">{message}</p>
       {pending && !mutation.isPending && (
         <>
-          <button
+          <ActionButton
             className="btn-primary"
             onClick={() => void save(pending.candidateKey, pending.title)}
-          >
+           tooltip={<>
             Retry exact approval
-          </button>
+           </>}>
+             Retry </ActionButton>
           {mutation.error?.data?.code === "CONFLICT" && (
-            <button
+            <ActionButton
               className="btn-secondary"
               onClick={() => {
                 setPending(null);
@@ -178,9 +180,10 @@ function Suggestions({
                   "Reloaded for review; your title edits are retained.",
                 );
               }}
-            >
+             tooltip={<>
               Review latest source
-            </button>
+             </>}>
+               Review </ActionButton>
           )}
         </>
       )}

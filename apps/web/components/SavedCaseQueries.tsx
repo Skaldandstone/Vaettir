@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { trpcReact } from "@/lib/trpcReact";
@@ -281,15 +283,16 @@ export function useSavedCaseQueries({
               }}
             />
           </label>
-          <button
+          <ActionButton
             type="button"
             className="btn-secondary"
             onClick={() =>
               applyCatalog({ ...catalogFilters, search: catalogSearch })
             }
-          >
+           tooltip={<>
             Search saved queries
-          </button>
+           </>}>
+             Search queries </ActionButton>
           <label style={label}>
             Collection
             <select
@@ -327,16 +330,17 @@ export function useSavedCaseQueries({
               <option value="UPDATED_DESC">Recently edited</option>
             </select>
           </label>
-          <button
+          <ActionButton
             type="button"
             className="btn-secondary"
             onClick={() => {
               setCatalogSearch("");
               applyCatalog({ search: "", collection: "ALL", sort: "NAME_ASC" });
             }}
-          >
+           tooltip={<>
             Clear catalog filters
-          </button>
+           </>}>
+             Clear </ActionButton>
           <p className="text-muted">
             Name search treats %, _ and backslashes as ordinary characters, not
             wildcards. Loaded criteria and your save draft are retained when
@@ -358,14 +362,15 @@ export function useSavedCaseQueries({
               will not be submitted as another actor.
             </p>
           )}
-          <button
+          <ActionButton
             type="button"
             className="btn-primary"
             disabled={busy || !freshWrite || !scopeReady}
             onClick={() => void submit(pendingRequest, true)}
-          >
+           tooltip={<>
             Retry exact saved-query change
-          </button>
+           </>}>
+             Retry </ActionButton>
         </div>
       )}
       {scopeChanged || (isLoaded && !actorReady) ? (
@@ -385,14 +390,15 @@ export function useSavedCaseQueries({
             Saved queries unavailable. Cached permission or definitions cannot
             authorize changes.
           </p>
-          <button
+          <ActionButton
             type="button"
             className="btn-secondary"
             onClick={() => void catalog.refetch()}
             disabled={!scopeReady || catalog.isFetching || catalog.isPaused}
-          >
+           tooltip={<>
             Retry saved queries
-          </button>
+           </>}>
+             Retry </ActionButton>
         </div>
       ) : !readyCatalog ? (
         <p role="status">
@@ -439,15 +445,16 @@ export function useSavedCaseQueries({
               marginBlock: 8,
             }}
           >
-            <button
+            <ActionButton
               type="button"
               className="btn-secondary"
               disabled={frozen || offset === 0}
               onClick={() => setOffset(Math.max(0, offset - 50))}
-            >
+             tooltip={<>
               Previous saved queries
-            </button>
-            <button
+             </>}>
+               Previous queries </ActionButton>
+            <ActionButton
               type="button"
               className="btn-secondary"
               disabled={
@@ -458,10 +465,11 @@ export function useSavedCaseQueries({
                 if (reachableSavedQueryPage(readyCatalog.nextOffset, offset))
                   setOffset(readyCatalog.nextOffset!);
               }}
-            >
+             tooltip={<>
               Next saved queries
-            </button>
-            <button
+             </>}>
+               Next queries </ActionButton>
+            <ActionButton
               type="button"
               className="btn-secondary"
               disabled={busy}
@@ -469,9 +477,10 @@ export function useSavedCaseQueries({
                 void catalog.refetch();
                 if (selected) void current.refetch();
               }}
-            >
+             tooltip={<>
               Refresh saved definitions
-            </button>
+             </>}>
+               Refresh </ActionButton>
           </div>
           <p role="status">
             Catalog page {Math.floor(offset / 50) + 1} of at most 4 ·{" "}
@@ -503,13 +512,14 @@ export function useSavedCaseQueries({
                   The selected query is unavailable. No cached definition has
                   been substituted.
                 </p>
-                <button
+                <ActionButton
                   type="button"
                   className="btn-secondary"
                   onClick={() => void current.refetch()}
-                >
+                 tooltip={<>
                   Retry selected definition
-                </button>
+                 </>}>
+                   Retry </ActionButton>
               </div>
             ) : !readyCurrent ? (
               <p role="status">
@@ -526,7 +536,7 @@ export function useSavedCaseQueries({
                     ? "Shared with current project members"
                     : "Personal"}
                 </p>
-                <button
+                <ActionButton
                   type="button"
                   className="btn-secondary"
                   disabled={frozen}
@@ -541,9 +551,10 @@ export function useSavedCaseQueries({
                       "Loaded current criteria and column order. Run the query to read current cases.",
                     );
                   }}
-                >
+                 tooltip={<>
                   Load query and columns
-                </button>
+                 </>}>
+                   Load </ActionButton>
                 {baseline &&
                   baseline.version !== readyCurrent.value.version && (
                     <p role="alert">
@@ -588,15 +599,16 @@ export function useSavedCaseQueries({
                 </p>
               )}
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                <button
+                <ActionButton
                   type="button"
                   className="btn-primary"
                   disabled={!name.trim()}
                   onClick={() => save("CREATE")}
-                >
+                 tooltip={<>
                   Save new query
-                </button>
-                <button
+                 </>}>
+                   Save </ActionButton>
+                <ActionButton
                   type="button"
                   className="btn-secondary"
                   disabled={
@@ -605,9 +617,10 @@ export function useSavedCaseQueries({
                     (visibility === "PRIVATE" && !readyCurrent?.canMakePrivate)
                   }
                   onClick={() => save("UPDATE")}
-                >
+                 tooltip={<>
                   Update loaded query
-                </button>
+                 </>}>
+                   Update query </ActionButton>
               </div>
               {reviewedCurrent && (
                 <details style={{ marginTop: 16 }}>
@@ -628,7 +641,7 @@ export function useSavedCaseQueries({
                     Confirm deletion of {baseline!.name}, version{" "}
                     {baseline!.version}
                   </label>
-                  <button
+                  <ActionButton
                     type="button"
                     className="btn-secondary"
                     disabled={!deleteConfirmed}
@@ -641,9 +654,10 @@ export function useSavedCaseQueries({
                         expectedVersion: baseline!.version,
                       })
                     }
-                  >
+                   tooltip={<>
                     Delete saved query
-                  </button>
+                   </>}>
+                     Delete query </ActionButton>
                 </details>
               )}
             </fieldset>

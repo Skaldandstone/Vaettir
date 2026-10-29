@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useCasePrerequisites } from "@/lib/use-case-prerequisites";
 import styles from "./CaseInspector.module.css";
 
@@ -21,11 +23,11 @@ export function TestCasePrerequisites({ projectId, caseId, canEdit, active = tru
     <p className={styles.muted}>Linked tests must pass before this case runs. They do not replace its steps.</p>
     {!control.readable ? <div role="status">
       <p>Checking current access to the original account and workspace. Retained drafts and requests remain private and were not transferred to another account or session.</p>
-      <button type="button" onClick={control.refresh}>Recheck prerequisite access</button>
+      <ActionButton type="button" onClick={control.refresh} tooltip={<> Recheck prerequisite access </>}> Refresh </ActionButton>
       {control.access.error && <p role="alert">{control.access.error.message}</p>}
     </div> : <>
       {!saved && <p role="status">{control.page.error ? "The complete prerequisite page could not be admitted. Saved links were not replaced with an empty list." : "Refreshing the complete saved links and current approved candidate page…"}</p>}
-      {control.page.error && <p role="alert">{control.page.error.message} <button type="button" onClick={control.refresh}>Refresh current page</button></p>}
+      {control.page.error && <p role="alert">{control.page.error.message} <ActionButton type="button" onClick={control.refresh} tooltip={<> Refresh current page </>}> Refresh </ActionButton></p>}
       {saved && !selected.length && <p className={styles.muted}>None set.</p>}
       {(saved || held) && selected.length > 0 && <ul className={styles.selection}>
         {selected.map(id => {
@@ -66,9 +68,9 @@ export function TestCasePrerequisites({ projectId, caseId, canEdit, active = tru
         {control.pending && <p role="status">Request <code>{control.pending.input.requestId}</code> retains its exact original native account, workspace and complete link set. An uncertain response is not proof that the write failed. Retry the same request to recover its receipt.</p>}
         {control.settled && <p role="status">The original request was confirmed after this view changed. It will not be sent again. Confirm and discard its retained draft to start a new edit.</p>}
         <div className={styles.row}>
-          <button type="button" className="btn-secondary" onClick={control.close}>Close and keep draft</button>
-          {held && <button type="button" className="btn-secondary" disabled={control.busy || !!control.pending || !editable} onClick={control.discard}>Discard retained draft</button>}
-          <button type="button" className="btn-primary" disabled={control.busy || !editable || !!control.settled || (!control.pending && (!dirty || !baselineCurrent))} onClick={() => void control.submit()}>{control.busy ? "Saving…" : control.pending ? "Retry same prerequisite request" : "Review and save prerequisites"}</button>
+          <ActionButton type="button" className="btn-secondary" onClick={control.close} tooltip={<> Close and keep draft </>}> Keep draft </ActionButton>
+          {held && <ActionButton type="button" className="btn-secondary" disabled={control.busy || !!control.pending || !editable} onClick={control.discard} tooltip={<> Discard retained draft </>}> Discard </ActionButton>}
+          <ActionButton type="button" className="btn-primary" disabled={control.busy || !editable || !!control.settled || (!control.pending && (!dirty || !baselineCurrent))} onClick={() => void control.submit()} tooltip={<> {control.busy ? "Saving…" : control.pending ? "Retry same prerequisite request" : "Review and save prerequisites"} </>}>{control.busy ? "Saving…" : control.pending ? "Retry" : "Review"}</ActionButton>
         </div>
       </div>
       {control.notice && <p role="status">{control.notice} Your draft remains retained unless its exact request was confirmed or you discarded it.</p>}
