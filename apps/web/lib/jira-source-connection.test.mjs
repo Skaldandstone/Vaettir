@@ -1,27 +1,33 @@
 import {readFileSync} from 'node:fs';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-const component=readFileSync(new URL('../components/JiraSourceConnection.tsx',import.meta.url),'utf8');
-const chips=readFileSync(new URL('../components/SourceConnectionChips.tsx',import.meta.url),'utf8');
-test('Jira chip opens native account verification in place, not URL registration or exported intake',()=>{
- assert.match(chips,/active==="jira"&&projectId\?<JiraSourceConnection/);
- assert.match(chips,/"Connect Jira"/);assert.match(component,/"access"\|"projects"\|"review"\|"done"\|"exports"/);
- assert.doesNotMatch(component,/window\.location\s*=|router\.push\(|project\.addRepository/);
+const source=name=>readFileSync(new URL('../components/'+name+'.tsx',import.meta.url),'utf8');
+const component=source('JiraSourceConnection'),oauth=source('AtlassianOAuthConnection'),chips=source('SourceConnectionChips');
+
+test('Jira starts browser authorization in place without asking for a token or registration URL',()=>{
+ assert.match(chips,/active\s*===\s*"jira"\s*&&\s*projectId\s*\?\s*<JiraSourceConnection/);
+ assert.match(component,/<AtlassianOAuthConnection[^>]*product="jira"/);
+ assert.doesNotMatch(component,/apiToken|type="password"|jiraConnections\.verify|project\.addRepository/);
+ assert.doesNotMatch(component,/window\.location\s*=|router\.push\(/);
 });
-test('Jira permission, metadata verification and reviewed selection precede scope approval',()=>{
- assert.match(component,/if\(!consent\)return/);assert.match(component,/approveMetadataAccess:true/);
- assert.match(component,/!consent\|\|!siteUrl\.trim\(\)\|\|!email\.trim\(\)\|\|!apiToken\.trim\(\)/);
- assert.match(component,/aria-pressed/);assert.match(component,/Filter this page/);assert.match(component,/Next page/);
- assert.match(component,/catalogReset\?\{\}/);assert.match(component,/version:listing\.version/);
- assert.match(component,/requestId:request,approved:true/);assert.match(component,/Approve and save source scope/);
+
+test('Browser authorization keeps account and resource approvals separate with durable retry inputs',()=>{
+ // Server scope, replay and membership races have real PostgreSQL tests;
+ // the actual checkbox/selection/retry UI has its own mounted browser suite.
+ assert.match(oauth,/metadataConsent/);assert.match(oauth,/scopeConsent/);
+ assert.match(oauth,/approveMetadataAccess:true/);assert.match(oauth,/atlassianConnections\.selectSite/);
+ assert.match(oauth,/version:listing\.version/);assert.match(oauth,/resourceIds:Object\.keys\(selected\)\.sort\(\)/);
+ assert.match(oauth,/approve\.mutateAsync\(\{id,\.\.\.attempt,approved:true\}\)/);
+ assert.match(oauth,/pending\.current\?\?/);assert.match(oauth,/startAttempt\.current\?\?/);
+ assert.doesNotMatch(oauth,/localStorage|sessionStorage|type="password"/);
 });
-test('Jira capabilities, token secrecy, resume and alternative intake remain explicit',()=>{
- assert.match(component,/Scoped tokens, browser OAuth and self-hosted Jira are not supported/);
- assert.match(component,/cannot prove a supplied token has no write permissions/);
- assert.match(component,/Issues have not been read or imported/);assert.match(component,/Cost: 0 AI credits/);
- assert.match(component,/type="password"/);assert.match(component,/setApiToken\(""\)/);
- assert.doesNotMatch(component,/localStorage|sessionStorage/);
- assert.match(component,/Previous connections/);assert.match(component,/Revoke the token in Atlassian/);
- assert.match(component,/Use an export instead/);assert.match(component,/<PopulationDocuments projectId=\{projectId\}/);
- assert.match(component,/Retry availability check/);assert.match(component,/A full editor seat is required/);
+
+test('Existing access is resumable without recollecting secrets or discarding a pending import',()=>{
+ assert.match(component,/Previous access/);assert.match(component,/Use browser sign-in to reconnect/);
+ assert.match(component,/working\|\|row\.status!=="VERIFIED"\|\|!row\.approvedProjects\.length/);
+ assert.match(component,/hidden=\{!active\} disabled=\{!active\}/);
+ assert.match(component,/projects=\{selected\.approvedProjects\}/);
+ assert.match(component,/onDefectWorkingChange=\{setIntakeWorking\}/);
+ assert.doesNotMatch(component,/localStorage|sessionStorage|setApiToken|apiToken/);
+ assert.match(oauth,/providerRevocation|Manage access|Remove the app in Atlassian/);
 });
