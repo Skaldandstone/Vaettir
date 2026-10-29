@@ -1,7 +1,7 @@
 # Docker Official Image via ECR Public avoids shared CodeBuild Docker Hub pull limits.
 # Trixie carries Debian fixes unavailable in Bookworm for the release-blocking
 # Perl CVEs. Keep the package floor below and rescan each final image digest.
-FROM public.ecr.aws/docker/library/node:22-trixie-slim@sha256:b26b04c123d9ff8ab646ceb18b9d75a1173acf64b9a401094b906d27b29338d4 AS vendor-build
+FROM public.ecr.aws/docker/library/node:26-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS vendor-build
 # Build signed maintained Debian Expat 2.9.0, including the XML_ParseBuffer
 # bounds fix. No unstable binary packages or compiler reach runtime.
 RUN apt-get update --error-on=any \
@@ -33,7 +33,7 @@ RUN node /build/scripts/fetch-runtime-vendor-sources.mjs /build/dash-sources das
 
 # Isolated C/C++ and signed Node proof. This image never receives customer data
 # or provider credentials. The final target contains only reviewed artifacts.
-FROM public.ecr.aws/docker/library/node:22-trixie-slim@sha256:b26b04c123d9ff8ab646ceb18b9d75a1173acf64b9a401094b906d27b29338d4 AS node-brotli-security
+FROM public.ecr.aws/docker/library/node:26-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS node-brotli-security
 RUN test "$(dpkg --print-architecture)" = amd64 \
     && apt-get update --error-on=any \
     && apt-get install -y --no-install-recommends openssl ca-certificates perl-base libpcre2-8-0 build-essential binutils cmake debhelper pkg-config gpg gpgv debian-keyring libbrotli1=1.1.0-2+b7 \
@@ -55,7 +55,7 @@ RUN --network=none sh /build/scripts/build-node-brotli-security.sh /build/inputs
 # Rebuild only the maintained shared LLVM package with its supported optional
 # Windows-manifest XML feature off. Keep all LLVM targets/Polly and Mesa, and
 # reject SONAME/export/data ABI changes instead of forcing apt dependencies.
-FROM public.ecr.aws/docker/library/node:22-trixie-slim@sha256:b26b04c123d9ff8ab646ceb18b9d75a1173acf64b9a401094b906d27b29338d4 AS llvm-build-inputs
+FROM public.ecr.aws/docker/library/node:26-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS llvm-build-inputs
 RUN apt-get update --error-on=any \
     && apt-get install -y --no-install-recommends openssl ca-certificates perl-base libpcre2-8-0 build-essential clang-19 binutils-gold patch xz-utils cmake ninja-build python3 libffi-dev libedit-dev libncurses-dev libz3-dev libpfm4-dev zlib1g-dev libzstd-dev libllvm19 gpgv debian-keyring \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' perl-base)" ge '5.40.1-6+deb13u1' \
@@ -109,7 +109,7 @@ RUN sh /build/scripts/build-llvm-runtime.sh --phase final --predecessor-sha256 "
 
 # Build the maintained native zlib package with the pinned upstream recovery
 # patch. Signed source, original ABI and fail-hard checks gate the artifact.
-FROM public.ecr.aws/docker/library/node:22-trixie-slim@sha256:b26b04c123d9ff8ab646ceb18b9d75a1173acf64b9a401094b906d27b29338d4 AS zlib-build
+FROM public.ecr.aws/docker/library/node:26-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS zlib-build
 RUN apt-get update --error-on=any \
     && apt-get install -y --no-install-recommends openssl ca-certificates perl-base libpcre2-8-0 build-essential binutils patch debhelper autoconf automake libtool gpgv debian-keyring \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' perl-base)" ge '5.40.1-6+deb13u1' \
@@ -123,7 +123,7 @@ RUN node /build/scripts/fetch-runtime-vendor-sources.mjs /build/zlib-sources zli
 # Signed maintained Git/curl source, narrowly configured HTTP(S) with OpenSSL.
 # Git's static transport avoids admitting GnuTLS/Kerberos/LDAP/RTMP to runtime.
 # Existing certificate verification and all native checks remain mandatory.
-FROM public.ecr.aws/docker/library/node:22-trixie-slim@sha256:b26b04c123d9ff8ab646ceb18b9d75a1173acf64b9a401094b906d27b29338d4 AS git-openssl-build
+FROM public.ecr.aws/docker/library/node:26-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS git-openssl-build
 RUN apt-get update --error-on=any \
     && apt-get install -y --no-install-recommends openssl ca-certificates perl-base libpcre2-8-0 build-essential pkg-config autoconf automake libtool binutils dpkg-dev gpgv debian-keyring libssl-dev libnghttp2-dev libexpat1-dev libpcre2-dev zlib1g-dev perl python3 liberror-perl \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' perl-base)" ge '5.40.1-6+deb13u1' \
@@ -135,7 +135,7 @@ RUN node /build/scripts/fetch-git-openssl-sources.mjs /build/git-curl-sources/gi
     && node /build/scripts/fetch-git-openssl-sources.mjs /build/git-curl-sources/curl curl \
     && sh /build/scripts/build-git-openssl-runtime.sh /build/git-curl-sources /build/git-openssl-build /build/scripts/check-git-openssl-runtime.mjs
 
-FROM public.ecr.aws/docker/library/node:22-trixie-slim@sha256:b26b04c123d9ff8ab646ceb18b9d75a1173acf64b9a401094b906d27b29338d4 AS runtime
+FROM public.ecr.aws/docker/library/node:26-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS runtime
 
 ARG VAETTIR_RELEASE_COMMIT
 RUN node -e "if(!/^[a-f0-9]{40}$/.test(process.argv[1]))process.exit(1)" "$VAETTIR_RELEASE_COMMIT"

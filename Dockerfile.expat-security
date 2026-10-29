@@ -1,7 +1,7 @@
 # Docker Official Image via ECR Public avoids shared CodeBuild Docker Hub pull limits.
 # Trixie carries Debian fixes unavailable in Bookworm for the release-blocking
 # Perl CVEs. Keep the package floor below and rescan each final image digest.
-FROM public.ecr.aws/docker/library/node:22-trixie-slim@sha256:b26b04c123d9ff8ab646ceb18b9d75a1173acf64b9a401094b906d27b29338d4 AS vendor-build
+FROM public.ecr.aws/docker/library/node:26-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS vendor-build
 # Build signed maintained Debian Expat 2.9.0, including the XML_ParseBuffer
 # bounds fix. No unstable binary packages or compiler reach runtime.
 RUN apt-get update --error-on=any \
