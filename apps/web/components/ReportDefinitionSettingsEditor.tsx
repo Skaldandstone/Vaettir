@@ -10,9 +10,13 @@ import {
 import type { ReportDefinition } from "@vaettir/api/src/services/reportDefinitionSchema";
 const fieldStyle = { width: "100%", boxSizing: "border-box" as const };
 
-/** Explicit controlled edits only. Never initializes/resets a human draft from refetch. */
+/** Explicit controlled edits only. Never initializes/resets a human draft from refetch.
+ * The parent owns current actor/workspace access and sets active=false while
+ * revalidating. Do not enable duplicate access queries from active: their own
+ * fetch would disable the parent, then re-enable/refetch them indefinitely. */
 export function ReportDefinitionSettingsEditor({
   projectId,
+  organizationId,
   value,
   onChange,
   screen,
@@ -20,32 +24,14 @@ export function ReportDefinitionSettingsEditor({
   active,
 }: {
   projectId: string;
+  organizationId: string;
   value: ReportDefinition;
   onChange: (value: ReportDefinition) => void;
   screen: number;
   onScreen: (screen: number) => void;
   active: boolean;
 }) {
-  const project = trpcReact.project.byId.useQuery(
-    { id: projectId },
-    { enabled: active, staleTime: 0 },
-  );
-  const organizations = trpcReact.organization.mine.useQuery(undefined, {
-    enabled: active,
-    staleTime: 0,
-  });
-  const accessReady =
-    active &&
-    project.data?.id === projectId &&
-    !project.error &&
-    !project.isFetching &&
-    !project.isPaused &&
-    !organizations.error &&
-    !organizations.isFetching &&
-    !organizations.isPaused &&
-    !!organizations.data?.some(
-      (row) => row.id === project.data?.organizationId,
-    );
+  const accessReady = active && !!organizationId;
   const scopeOptions = trpcReact.reportSnapshots.scopeOptions.useQuery(
     { projectId },
     { enabled: accessReady && screen === 2, staleTime: 0 },
@@ -55,7 +41,7 @@ export function ReportDefinitionSettingsEditor({
     accessReady &&
     screen === 2 &&
     scopeOptions.data?.projectId === projectId &&
-    scopeOptions.data.organizationId === project.data?.organizationId &&
+    scopeOptions.data.organizationId === organizationId &&
     !scopeOptions.error &&
     !scopeOptions.isFetching &&
     !scopeOptions.isPaused

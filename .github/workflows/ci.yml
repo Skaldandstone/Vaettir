@@ -180,6 +180,7 @@ jobs:
           node scripts/form-layout-ui.test.mjs
           node scripts/quality-visuals-ui.test.mjs
           node apps/web/e2e/report-builder/run.mjs
+          node --test scripts/report-access-refresh-ui.test.mjs
           node apps/web/e2e/smart-suggestions/run.mjs
           node scripts/forge-connection-ui.test.mjs
           node scripts/workspace-address-ui.test.mjs
