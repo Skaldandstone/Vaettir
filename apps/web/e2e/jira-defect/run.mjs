@@ -21,11 +21,12 @@ page.on("pageerror",error=>errors.push(error.message));
 const origin=`http://127.0.0.1:${server.address().port}`;
 await page.route("**/*",route=>route.request().url().startsWith(origin)?route.continue():route.abort());
 const visible=locator=>locator.waitFor({state:"visible"});
+async function advanced(){const node=page.getByText("Advanced",{exact:true});if(!(await node.evaluate(el=>el.closest("details").open)))await node.click();}
 try{
  await page.goto(origin);await page.getByRole("tab",{name:"Jira & Confluence",exact:true}).click();
- await page.getByRole("button",{name:"Connect Jira tracker",exact:true}).click();
+ await page.getByRole("button",{name:"Connect Jira tracker",exact:true}).click();await advanced();
  await visible(page.getByRole("heading",{name:"Connect Jira to the defect map",exact:true}));
- await page.getByRole("button",{name:"Preview or resume Jira issues",exact:true}).click();
+ await page.getByRole("button",{name:"Issues",exact:true}).click();
  await page.getByRole("button",{name:"SYN Synthetic tracker",exact:false}).click();
  await page.getByRole("checkbox",{name:"I approve reading issue summaries",exact:false}).check();
  await page.getByRole("button",{name:"Approve issue reads and start preview",exact:true}).click();
@@ -56,7 +57,7 @@ try{
  await visible(page.getByRole("button",{name:"Retry the same task import",exact:true}));
  await page.getByRole("button",{name:"Close",exact:true}).click();
  await page.getByRole("button",{name:"Switch theme",exact:true}).click();
- await page.getByRole("button",{name:"Connect Jira tracker",exact:true}).click();
+ await page.getByRole("button",{name:"Connect Jira tracker",exact:true}).click();await advanced();
  await visible(page.getByRole("button",{name:"Retry the same task import",exact:true}));
  await page.screenshot({path:path.join(output,"jira-retry-light.png"),fullPage:true});
  await page.setViewportSize({width:390,height:844});
@@ -80,8 +81,8 @@ try{
  await page.getByText("Synthetic transport evidence",{exact:true}).click();
  const evidence=JSON.parse(await page.getByTestId("evidence").innerText());
  assert.equal(evidence.readCount,1);assert.equal(evidence.requirements,0);assert.equal(evidence.sourceWrites,1);assert.equal(evidence.writes.length,3);assert.deepEqual(evidence.writes[0],evidence.writes[1]);assert.notEqual(evidence.writes[1].requestId,evidence.writes[2].requestId);
- await page.goto(origin+"/?screen=map");await page.getByRole("button",{name:"Connect Jira tracker",exact:true}).click();
- await visible(page.getByRole("button",{name:"Preview or resume Jira issues",exact:true}));
+ await page.goto(origin+"/?screen=map");await page.getByRole("button",{name:"Connect Jira tracker",exact:true}).click();await advanced();
+ await visible(page.getByRole("button",{name:"Issues",exact:true}));
  assert.deepEqual(errors,[]);
  const result={actualComponents:true,syntheticTransport:true,hostedProviderAccepted:false,checks:["settings and defect-map connection entry points","explicit scoped issue-read and separate task-save approval","per-task action review","unchanged requirement classification remains selectable for tasks","no requirement mutations","active write blocks close","unknown receipt survives failed refresh, close and reopen","exact retry and one durable write","selection change withholds old review","known rejection releases only through fresh review","dark, light and390px"],errors,evidence};
  await writeFile(path.join(output,"evidence.json"),JSON.stringify(result,null,2));console.log(JSON.stringify(result));

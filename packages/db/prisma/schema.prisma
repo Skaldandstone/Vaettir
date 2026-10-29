@@ -28,6 +28,7 @@ model WorkspaceDomain {
 }
 
 model Organization {
+  atlassianOAuthConnections AtlassianOAuthConnection[]
   workspaceDomain WorkspaceDomain?
   aiDisclosurePolicies AiDisclosurePolicy[]
   driveSourceConnections DriveSourceConnection[]
@@ -255,6 +256,7 @@ model WebhookDelivery {
 }
 
 model Project {
+  atlassianOAuthConnections AtlassianOAuthConnection[]
   aiDisclosurePolicy AiDisclosurePolicy?
   driveSourceConnections       DriveSourceConnection[]
   ticketSourceConnections      TicketSourceConnection[]
@@ -841,6 +843,42 @@ model ProjectReportSnapshot {
   @@index([projectId, createdAt])
 }
 
+// Actor/project-bound Atlassian authorization. Credentials and issued-token recovery
+// material stay encrypted; metadata selections remain after local access stops.
+model AtlassianOAuthConnection {
+  id String @id @default(cuid())
+  projectId String
+  organizationId String
+  actorId String
+  clerkActorId String
+  project Project @relation(fields:[projectId], references:[id], onDelete:Cascade)
+  organization Organization @relation(fields:[organizationId], references:[id], onDelete:Cascade)
+  actor User @relation(fields:[actorId], references:[id], onDelete:Cascade)
+  product String
+  requestKey String @unique
+  stateHash String @unique
+  encryptedApplication Json
+  encryptedState Json?
+  encryptedToken Json?
+  status String @default("PENDING")
+  operationId String?
+  version Int @default(0)
+  authorizationExpiresAt DateTime
+  tokenExpiresAt DateTime?
+  accountId String?
+  accountName String?
+  sites Json @default("[]")
+  selectedSite Json?
+  catalog Json?
+  approvedResources Json @default("[]")
+  approvalReceipts Json @default("[]")
+  verifiedAt DateTime?
+  createdAt DateTime @default(now())
+  ticketConnection TicketSourceConnection?
+
+  @@index([projectId,actorId,createdAt])
+}
+
 // Per-organization provider instances, including separately registered self-hosted OAuth apps.
 model RepositoryProviderConfiguration {
   id              String                 @id @default(cuid())
@@ -926,6 +964,8 @@ model DriveSourceConnection {
 
 // Metadata-only ticket access. Approved scope survives access loss and token removal.
 model TicketSourceConnection {
+  oauthConnectionId String? @unique
+  oauthConnection AtlassianOAuthConnection? @relation(fields:[oauthConnectionId],references:[id],onDelete:SetNull)
   issueRuns              JiraIssueImportRun[]
   id                     String       @id @default(cuid())
   projectId              String
@@ -1114,6 +1154,7 @@ model ProjectPopulationRequirement {
 // lazily on a new Clerk user's first authenticated request -- see
 // apps/api/src/trpc.ts.
 model User {
+  atlassianOAuthConnections AtlassianOAuthConnection[]
   updatedAiDisclosurePolicies AiDisclosurePolicy[] @relation("AiDisclosurePolicyUpdater")
   approvedAiDisclosureGrants AiDisclosureGrant[] @relation("AiDisclosureGrantApprover")
   driveSourceConnections DriveSourceConnection[]

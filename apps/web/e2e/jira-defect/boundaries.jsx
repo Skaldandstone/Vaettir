@@ -21,6 +21,11 @@ export const AtlassianQualitySettings=()=> <p>Outgoing quality-sharing panel is 
 function query(key,resolve){return{useQuery(input,options={}){return useQuery({queryKey:[key,input],queryFn:()=>resolve(input),retry:false,...options});}};}
 function mutation(key,resolve){return{useMutation(){return useMutation({mutationKey:[key],mutationFn:resolve});}};}
 export const trpcReact={
+ atlassianConnections:{
+  capabilities:query(["atlassianConnections","capabilities"],()=>({available:false,canConnect:true,organizationId:project.organizationId,clerkActorId:"synthetic-owner"})),
+  mine:query(["atlassianConnections","mine"],()=>[]),status:query(["atlassianConnections","status"],reject),
+  begin:mutation(["atlassianConnections","begin"],reject),selectSite:mutation(["atlassianConnections","selectSite"],reject),approve:mutation(["atlassianConnections","approve"],reject),refresh:mutation(["atlassianConnections","refresh"],reject),disconnect:mutation(["atlassianConnections","disconnect"],reject),
+ },
  useUtils(){const client=useQueryClient();return{jiraConnections:{list:{fetch:reject}},defectMap:{get:{invalidate:()=>client.invalidateQueries({queryKey:[["defectMap","get"]]})}}};},
  project:{byId:query(["project","byId"],()=>project)},
  jiraConnections:{
