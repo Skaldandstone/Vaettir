@@ -5,8 +5,8 @@ const component=readFileSync(new URL('../components/JiraIssueIntake.tsx',import.
 const connection=readFileSync(new URL('../components/JiraSourceConnection.tsx',import.meta.url),'utf8');
 
 test('Jira issue reads are separate literal permission within an in-page approved scope flow',()=>{
- assert.match(connection,/"issues"/);assert.match(connection,/<JiraIssueIntake connectionId=\{id\}/);
- assert.match(connection,/Preview or resume Jira issues/);assert.match(connection,/recent\.isSuccess/);
+ assert.match(connection,/Issues<\/button>/);assert.match(connection,/<JiraIssueIntake connectionId=\{selected\.id\}/);
+ assert.match(connection,/!row\.approvedProjects\.length/);assert.match(connection,/recent\.isSuccess/);
  assert.match(component,/if\(!permission\|\|!chosenProjects\.length\)return/);
  assert.match(component,/approveIssueRead:true/);assert.match(component,/chosenProjects\.length>=20/);
  assert.match(component,/aria-pressed/);assert.match(component,/Only issue identity, title, status, updated time and source link/);

@@ -8,7 +8,7 @@ Source review covers all 66 page routes and their statically imported local comp
 - Case actions appear directly for individual and selected cases. Move and Tag freeze the selected IDs for their task dialog. Destructive review, bounded batches, authorization and immutable retries remain in their existing handlers.
 - Supporting provenance and caveats are in closed Details. Current failures, explicit consent, uncertain-write recovery and necessary source-field instructions remain visible.
 - Record selectors, source names, selected filter values, measured counts and evidence identifiers remain intact. They are data labels, not generic action captions. Critical permission notices are not hidden merely to reduce word count.
-- Jira source connection remains owned by the separately coordinated Atlassian OAuth slice; this review does not approve its provider configuration.
+- Jira and Confluence browser connections include the separately reviewed Atlassian OAuth source. Provider configuration and live authorization remain separate operator gates.
 
 ## Route checklist
 
@@ -33,17 +33,17 @@ Each row records completed source coverage. Browser evidence is representative, 
 | `/projects/[projectId]/architecture` | 37 | 7 | Reviewed |
 | `/projects/[projectId]/audit-log` | 1 | 1 | Reviewed |
 | `/projects/[projectId]/compliance` | 28 | 3 | Reviewed |
-| `/projects/[projectId]/defect-map` | 256 | 55 | Reviewed; Jira OAuth handoff separate |
+| `/projects/[projectId]/defect-map` | 256 | 55 | Reviewed; coordinated OAuth source included |
 | `/projects/[projectId]/execution-trends` | 16 | 7 | Reviewed |
 | `/projects/[projectId]/exploratory/[sessionId]` | 3 | 0 | Reviewed |
 | `/projects/[projectId]/exploratory` | 1 | 1 | Reviewed |
 | `/projects/[projectId]/import` | 49 | 25 | Reviewed |
 | `/projects/[projectId]/live-app-generation` | 28 | 9 | Reviewed |
 | `/projects/[projectId]/manual-run-comparison` | 13 | 2 | Reviewed |
-| `/projects/[projectId]` | 279 | 57 | Reviewed; Jira OAuth handoff separate |
+| `/projects/[projectId]` | 279 | 57 | Reviewed; coordinated OAuth source included |
 | `/projects/[projectId]/populate/assessment` | 0 | 1 | Reviewed |
 | `/projects/[projectId]/populate/documents` | 9 | 5 | Reviewed |
-| `/projects/[projectId]/populate` | 238 | 52 | Reviewed; Jira OAuth handoff separate |
+| `/projects/[projectId]/populate` | 238 | 52 | Reviewed; coordinated OAuth source included |
 | `/projects/[projectId]/populate/requirements` | 4 | 0 | Reviewed |
 | `/projects/[projectId]/production-signals` | 6 | 2 | Reviewed |
 | `/projects/[projectId]/quality-risks` | 46 | 16 | Reviewed |
@@ -54,9 +54,9 @@ Each row records completed source coverage. Browser evidence is representative, 
 | `/projects/[projectId]/reports/snapshots/[snapshotId]` | 14 | 7 | Reviewed |
 | `/projects/[projectId]/requirement-baselines` | 24 | 8 | Reviewed |
 | `/projects/[projectId]/requirement-coverage` | 16 | 9 | Reviewed |
-| `/projects/[projectId]/requirements` | 274 | 52 | Reviewed; Jira OAuth handoff separate |
-| `/projects/[projectId]/reverse-engineer` | 242 | 51 | Reviewed; Jira OAuth handoff separate |
-| `/projects/[projectId]/settings/integrations` | 240 | 49 | Reviewed; Jira OAuth handoff separate |
+| `/projects/[projectId]/requirements` | 274 | 52 | Reviewed; coordinated OAuth source included |
+| `/projects/[projectId]/reverse-engineer` | 242 | 51 | Reviewed; coordinated OAuth source included |
+| `/projects/[projectId]/settings/integrations` | 240 | 49 | Reviewed; coordinated OAuth source included |
 | `/projects/[projectId]/settings` | 8 | 1 | Reviewed |
 | `/projects/[projectId]/shared-steps` | 23 | 3 | Reviewed |
 | `/projects/[projectId]/tags` | 8 | 2 | Reviewed |
@@ -75,13 +75,17 @@ Each row records completed source coverage. Browser evidence is representative, 
 | `/projects` | 22 | 2 | Reviewed |
 | `/settings/access-review` | 6 | 0 | Reviewed |
 | `/settings/billing` | 8 | 4 | Reviewed |
-| `/settings/integrations` | 232 | 48 | Reviewed; Jira OAuth handoff separate |
+| `/settings/integrations` | 232 | 48 | Reviewed; coordinated OAuth source included |
 | `/settings/integrations/repositories` | 13 | 2 | Reviewed |
 | `/settings/members` | 11 | 1 | Reviewed |
 | `/settings/organization` | 26 | 4 | Reviewed |
 | `/share/requirements/[token]` | 0 | 0 | Reviewed |
 | `/sign-in/[[...sign-in]]` | 0 | 0 | Reviewed |
 | `/sign-up/[[...sign-up]]` | 0 | 0 | Reviewed |
+
+## Coordinated connection addition
+
+The additional `/connections/atlassian/callback` route is included from the reviewed OAuth source. Its actual mounted browser suite covers separate metadata and resource consent, original-actor binding, uncertain retries and close/reopen recovery. Requirements intake keeps its visited Jira connection mounted and blocks dismissal during writes; Confluence connection stays separate from report-sharing approval and survives sharing-metadata errors. These checks use synthetic transports, not a live provider grant.
 
 ## Validation boundaries
 

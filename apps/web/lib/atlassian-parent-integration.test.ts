@@ -40,29 +40,29 @@ function parent(name: string, extras: Record<string, unknown>) {
 it("requirements source dialog retains Jira while working, including a captured close before rerender", () => {
   const render = parent("SourceConnectionChips", {
     trpcReact: { useUtils: () => ({}) }, isConnectionMutation: () => false,
-    Modal: "modal-boundary", JiraSourceConnection: "jira-boundary", repositoryProviders: [],
+    Modal: "modal-boundary", JiraSourceConnection: "jira-boundary", PopulationDocuments: "documents-boundary", repositoryProviders: [],
     cancelRepositoryAuthorization() {},
   });
   const props = { projectId: "synthetic-project", only: ["jira"] };
   const open = nodes(render(props)).find(n => n.type === "button" && text(n.props.children).includes("Jira"))!;
   (open.props.onClick as () => void)();
-  const current = nodes(render(props)), modal = current.find(n => n.type === "modal-boundary" && n.props.title === "Connect Jira")!;
+  const current = nodes(render(props)), modal = current.find(n => n.type === "modal-boundary" && n.props.title === "Connect Jira" && n.props.keepMounted === true)!;
   const jira = current.find(n => n.type === "jira-boundary")!;
   expect(jira.props.projectId).toBe(props.projectId);
   const close = modal.props.onClose as () => void;
   const working = jira.props.onDefectWorkingChange as (value: boolean) => void;
   working(true); close(); // The original callback must observe the live write fence.
   const held = nodes(render(props));
-  expect(held.find(n => n.type === "modal-boundary" && n.props.title === "Connect Jira")!.props).toMatchObject({ open: true, dismissible: false, keepMounted: true });
+  expect(held.find(n => n.type === "modal-boundary" && n.props.title === "Connect Jira" && n.props.keepMounted === true)!.props).toMatchObject({ open: true, dismissible: false, keepMounted: true });
   expect(held.find(n => n.type === "jira-boundary")).toBeDefined();
   expect(held.filter(n => n.type === "button").every(n => n.props.disabled === true)).toBe(true);
   working(false);
-  const released = nodes(render(props)).find(n => n.type === "modal-boundary" && n.props.title === "Connect Jira")!;
+  const released = nodes(render(props)).find(n => n.type === "modal-boundary" && n.props.title === "Connect Jira" && n.props.keepMounted === true)!;
   (released.props.onClose as () => void)();
-  expect(nodes(render(props)).find(n => n.type === "modal-boundary" && n.props.title === "Connect Jira")!.props.open).toBe(false);
+  expect(nodes(render(props)).find(n => n.type === "modal-boundary" && n.props.title === "Connect Jira" && n.props.keepMounted === true)!.props.open).toBe(false);
   expect(nodes(render(props)).find(n => n.type === "jira-boundary")).toBeDefined();
   (open.props.onClick as () => void)();
-  expect(nodes(render(props)).find(n => n.type === "modal-boundary" && n.props.title === "Connect Jira")!.props.open).toBe(true);
+  expect(nodes(render(props)).find(n => n.type === "modal-boundary" && n.props.title === "Connect Jira" && n.props.keepMounted === true)!.props.open).toBe(true);
 });
 
 it("Confluence browser access remains separate and mounted through a Forge metadata outage", () => {
