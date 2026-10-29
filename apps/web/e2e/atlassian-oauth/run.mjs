@@ -1,3 +1,4 @@
+/* global document, innerWidth */
 import {createRequire} from "node:module";
 import {readFile,mkdir,writeFile} from "node:fs/promises";
 import {createServer} from "node:http";

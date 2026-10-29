@@ -1,6 +1,7 @@
 import {randomUUID} from "node:crypto";
 import {beforeEach,afterEach,describe,it,expect,vi} from "vitest";
 import {prisma,type OrgRole,type SeatType} from "@vaettir/db";
+import {encryptToken} from "./services/tokenEncryption.js";
 import {jiraConnectionsRouter} from "./routers/jiraConnections.js";
 import {jiraIssueIntakeRouter} from "./routers/jiraIssueIntake.js";
 import {requirementsRouter} from "./routers/requirements.js";
@@ -50,8 +51,9 @@ describe.skipIf(!isolated)("Jira reviewed issue intake",()=>{
     projectId=(await prisma.project.create({data:{organizationId:orgId,name:"Synthetic",slug:"synthetic-"+suffix}})).id;
     const actorResult=await actor("OWNER");actorId=actorResult.user.id;owner=actorResult.caller;metadata=actorResult.metadata;defects=actorResult.defects;
     vi.mocked(listJiraProjects).mockResolvedValue({workspace:{id:site,name:site},account:{id:"account-synthetic",name:"Synthetic"},projects:[projectA],nextCursor:null,hasMore:false});
-    const verified=await metadata.verify({projectId,siteUrl:site,email:"fixture@example.invalid",apiToken:"synthetic-token-not-live",requestId:randomUUID(),approveMetadataAccess:true});
-    connectionId=verified.id;
+    // Existing encrypted access is retained fixture data; new token registration is retired.
+    const legacy=await prisma.ticketSourceConnection.create({data:{projectId,organizationId:orgId,actorId,provider:"jira",providerOrigin:site,requestKey:randomUUID(),requestHash:"legacy-fixture",status:"VERIFIED",encryptedToken:{...encryptToken(JSON.stringify({siteUrl:site,email:"fixture@example.invalid",apiToken:"synthetic-token-not-live"}))},authorizationExpiresAt:new Date(Date.now()+600000),tokenExpiresAt:new Date(Date.now()+28800000),verifiedAt:new Date(),catalog:{workspace:{id:site,name:site},account:{id:"account-synthetic",name:"Synthetic"},projects:[projectA],cursors:[]},catalogAt:new Date(),version:1}});
+    connectionId=legacy.id;
     const catalog=await metadata.list({id:connectionId});
     await metadata.approve({id:connectionId,version:catalog.version,projectIds:[projectA.id],requestId:randomUUID(),approved:true});
     vi.mocked(listJiraIssuePage).mockResolvedValue({issues:[issue()],nextPageToken:null});

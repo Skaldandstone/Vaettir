@@ -21,11 +21,12 @@ page.on("pageerror",error=>errors.push(error.message));
 const origin=`http://127.0.0.1:${server.address().port}`;
 await page.route("**/*",route=>route.request().url().startsWith(origin)?route.continue():route.abort());
 const visible=locator=>locator.waitFor({state:"visible"});
-async function advanced(){const node=page.getByText("Advanced",{exact:true});if(!(await node.evaluate(el=>el.closest("details").open)))await node.click();}
+async function advanced(){const node=page.getByText("Previous access",{exact:true});if(!(await node.evaluate(el=>el.closest("details").open)))await node.click();}
 try{
  await page.goto(origin);await page.getByRole("tab",{name:"Jira & Confluence",exact:true}).click();
  await page.getByRole("button",{name:"Connect Jira tracker",exact:true}).click();await advanced();
  await visible(page.getByRole("heading",{name:"Connect Jira to the defect map",exact:true}));
+ assert.equal(await page.getByLabel("API token",{exact:true}).count(),0,"No new Jira token entry is offered");
  await page.getByRole("button",{name:"Issues",exact:true}).click();
  await page.getByRole("button",{name:"SYN Synthetic tracker",exact:false}).click();
  await page.getByRole("checkbox",{name:"I approve reading issue summaries",exact:false}).check();
@@ -48,6 +49,7 @@ try{
  assert.equal(await page.getByRole("checkbox",{name:"Import SYN-1",exact:true}).isEnabled(),false);
  await page.getByRole("button",{name:"Lose synthetic acknowledgement",exact:true}).dispatchEvent("click");
  await visible(page.getByRole("button",{name:"Retry the same task import",exact:true}));
+ await page.getByRole("button",{name:"Fail connections",exact:true}).dispatchEvent("click");await visible(page.getByText("Connections could not be checked.",{exact:false}));assert.equal(await page.getByRole("button",{name:"Retry the same task import",exact:true}).count(),0,"Parent metadata failure withholds intake without dropping its receipt");await page.getByRole("button",{name:"Restore connections",exact:true}).dispatchEvent("click");await visible(page.getByRole("button",{name:"Retry the same task import",exact:true}));
  await page.getByRole("button",{name:"Fail saved status",exact:true}).dispatchEvent("click");
  await page.getByRole("button",{name:"Refresh saved status",exact:true}).click();
  await visible(page.getByRole("alert"));

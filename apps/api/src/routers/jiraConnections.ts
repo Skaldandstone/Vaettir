@@ -4,7 +4,7 @@ import {Prisma} from "@vaettir/db";
 import {router,protectedProcedure,requireProjectAccess,type Context} from "../trpc.js";
 import {encryptToken,decryptToken} from "../services/tokenEncryption.js";
 import {hashOAuthState} from "../services/gitlabRepositoryOAuth.js";
-import {jiraSiteOrigin,jiraCatalogSchema,jiraProjectSchema,listJiraProjects} from "../services/jiraSourceConnection.js";
+import {jiraCatalogSchema,jiraProjectSchema,listJiraProjects} from "../services/jiraSourceConnection.js";
 import {jiraOAuthCredentials,atlassianStorageReady,disconnectAtlassian} from "../services/atlassianOAuthConnection.js";
 import {atlassianApplication} from "../services/atlassianOAuth.js";
 
@@ -43,45 +43,17 @@ export const ticketCredentials=async(ctx:Context,row:Awaited<ReturnType<typeof o
 export const jiraConnectionsRouter=router({
   capabilities:protectedProcedure.input(projectInput).query(async({ctx,input})=>{
     const {membership}=await requireProjectAccess(ctx,input.projectId);
-    return {credentialStorageReady:storageReady(),tokenImplemented:true,oauthAvailable:!!atlassianApplication()&&atlassianStorageReady(),scopedTokensAvailable:false,selfHostedAvailable:false,issueImportAvailable:true,canConnect:membership.seatType==="FULL"&&["OWNER","ADMIN","EDITOR"].includes(membership.role)};
+    return {credentialStorageReady:storageReady(),tokenImplemented:false,legacyAccessAvailable:true,oauthAvailable:!!atlassianApplication()&&atlassianStorageReady(),scopedTokensAvailable:false,selfHostedAvailable:false,issueImportAvailable:true,canConnect:membership.seatType==="FULL"&&["OWNER","ADMIN","EDITOR"].includes(membership.role)};
   }),
   mine:protectedProcedure.input(projectInput).query(async({ctx,input})=>{
     await editor(ctx,input.projectId);
     const rows=await ctx.prisma.ticketSourceConnection.findMany({where:{projectId:input.projectId,actorId:ctx.user.id,provider:"jira"},orderBy:{createdAt:"desc"},take:20});
     return rows.map(row=>({id:row.id,oauthConnectionId:row.oauthConnectionId,status:row.status==="VERIFIED"&&(!row.tokenExpiresAt||row.tokenExpiresAt.getTime()<=Date.now()+30000)||row.status==="VERIFYING"&&row.authorizationExpiresAt.getTime()<=Date.now()?"EXPIRED":row.status,workspace:catalogSchema.safeParse(row.catalog).data?.workspace??null,approvedProjects:z.array(jiraProjectSchema).parse(row.approvedProjects),approvedAt:row.approvedAt,siteUrl:row.providerOrigin}));
   }),
-  verify:protectedProcedure.input(projectInput.merge(credentialSchema).extend({requestId:z.string().uuid(),approveMetadataAccess:z.literal(true)})).mutation(async({ctx,input})=>{
-    const {project}=await editor(ctx,input.projectId);
-    if(!storageReady())throw new TRPCError({code:"PRECONDITION_FAILED",message:"Secure credential storage is unavailable. Ask Vaettir support to enable Jira connections."});
-    let siteUrl:string;
-    try{siteUrl=jiraSiteOrigin(input.siteUrl);}catch{throw new TRPCError({code:"BAD_REQUEST",message:"Use your Jira Cloud HTTPS site, such as https://your-team.atlassian.net. Self-hosted Jira is not supported by this connector."});}
-    const credentials={siteUrl,email:input.email,apiToken:input.apiToken};
-    const requestKey=hashOAuthState(JSON.stringify(["jira",ctx.user.id,input.projectId,input.requestId]));
-    const requestHash=hashOAuthState(JSON.stringify(credentials));
-    const row=await ctx.prisma.$transaction(async tx=>{
-      await liveEditor(tx,project.organizationId,ctx.user.id);
-      await tx.ticketSourceConnection.updateMany({where:{projectId:input.projectId,actorId:ctx.user.id,provider:"jira",status:"VERIFYING",authorizationExpiresAt:{lte:new Date()}},data:{status:"EXPIRED",encryptedToken:Prisma.DbNull,tokenExpiresAt:null}});
-      const prior=await tx.ticketSourceConnection.findUnique({where:{requestKey}});
-      if(prior){if(prior.requestHash!==requestHash)throw new TRPCError({code:"CONFLICT",message:"This request changed. Start a new verification."});verified(prior);return prior;}
-      if(await tx.ticketSourceConnection.count({where:{actorId:ctx.user.id,createdAt:{gt:new Date(Date.now()-3600000)}}})>=20)throw new TRPCError({code:"TOO_MANY_REQUESTS"});
-      if(await tx.ticketSourceConnection.count({where:{projectId:input.projectId,actorId:ctx.user.id,provider:"jira",providerOrigin:siteUrl,OR:[{status:"VERIFYING",authorizationExpiresAt:{gt:new Date()}},{status:"VERIFIED",tokenExpiresAt:{gt:new Date()}}]}}))throw new TRPCError({code:"CONFLICT",message:"Resume or remove saved access to this Jira site before verifying another token."});
-      return tx.ticketSourceConnection.create({data:{projectId:input.projectId,organizationId:project.organizationId,actorId:ctx.user.id,provider:"jira",providerOrigin:siteUrl,requestKey,requestHash,authorizationExpiresAt:new Date(Date.now()+600000),tokenExpiresAt:new Date(Date.now()+28800000)}});
-    });
-    if(row.status==="VERIFIED")return{id:row.id};
-    try{
-      const result=await listJiraProjects(credentials);
-      if(result.workspace.id!==siteUrl)throw new Error("Site changed");
-      const catalog=catalogSchema.parse({...result,cursors:result.hasMore?[result.nextCursor]:[]});
-      await ctx.prisma.$transaction(async tx=>{
-        await liveEditor(tx,project.organizationId,ctx.user.id);
-        const saved=await tx.ticketSourceConnection.updateMany({where:{id:row.id,status:"VERIFYING",authorizationExpiresAt:{gt:new Date()}},data:{status:"VERIFIED",encryptedToken:{...encryptToken(JSON.stringify(credentials))},verifiedAt:new Date(),catalog,catalogAt:new Date(),version:1}});
-        if(saved.count!==1)throw new Error("Verification changed");
-      });
-      return{id:row.id};
-    }catch{
-      await ctx.prisma.ticketSourceConnection.updateMany({where:{id:row.id,status:"VERIFYING"},data:{status:"FAILED",encryptedToken:Prisma.DbNull,tokenExpiresAt:null}});
-      throw new TRPCError({code:"BAD_REQUEST",message:"Jira access could not be verified. Check the site, account email and standard API token. No project scope was saved."});
-    }
+  // Retained wire shape for stale clients. New API-token registrations are retired.
+  verify:protectedProcedure.input(projectInput.merge(credentialSchema).extend({requestId:z.string().uuid(),approveMetadataAccess:z.literal(true)})).mutation(async({ctx,input}):Promise<{id:string}>=>{
+    await editor(ctx,input.projectId);
+    throw new TRPCError({code:"PRECONDITION_FAILED",message:"Use browser sign-in to connect Jira. New API tokens are not accepted."});
   }),
   list:protectedProcedure.input(z.object({id:z.string(),after:cursor.nullable().default(null)})).query(async({ctx,input})=>{
     const row=await own(ctx,input.id);verified(row);

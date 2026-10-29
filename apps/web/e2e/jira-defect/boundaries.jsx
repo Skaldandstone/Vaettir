@@ -5,7 +5,7 @@ import { buildDefectMap, emptyDefectDocument, defectRecordKey } from "@vaettir/c
 const project={id:"synthetic-project",organizationId:"synthetic-org"};
 const source={id:"10001",key:"SYN",name:"Synthetic tracker",url:"https://synthetic.atlassian.net/browse/SYN"};
 const issues=[1,2].map(n=>({id:String(20000+n),projectId:source.id,key:`SYN-${n}`,title:`Synthetic defect ${n}`,status:n===1?"To do":"Done",updatedAt:"2026-10-20T00:00:00Z",url:`https://synthetic.atlassian.net/browse/SYN-${n}`,classification:n===1?"new":"unchanged",requirementId:n===1?null:"existing-requirement"}));
-let run=null,readCount=0,requirements=0,pending=null,loseFirst=true,getError=false,conflictNext=false,sourceWrites=0;
+let run=null,readCount=0,requirements=0,pending=null,loseFirst=true,getError=false,conflictNext=false,sourceWrites=0,connectionListError=false;
 const writes=[],receipts=new Map();
 const reject=()=>{requirements++;throw Error("Requirement writes and unrelated provider calls are forbidden in this fixture");};
 export const useAuth=()=>({userId:"synthetic-owner",sessionId:"synthetic-session",isLoaded:true,isSignedIn:true});
@@ -29,8 +29,8 @@ export const trpcReact={
  useUtils(){const client=useQueryClient();return{jiraConnections:{list:{fetch:reject}},defectMap:{get:{invalidate:()=>client.invalidateQueries({queryKey:[["defectMap","get"]]})}}};},
  project:{byId:query(["project","byId"],()=>project)},
  jiraConnections:{
-  capabilities:query(["jiraConnections","capabilities"],()=>({canConnect:true,credentialStorageReady:true,tokenImplemented:true,issueImportAvailable:true})),
-  mine:query(["jiraConnections","mine"],()=>[{id:"synthetic-connection",status:"VERIFIED",workspace:{name:"Synthetic Jira"},approvedProjects:[source]}]),
+  capabilities:query(["jiraConnections","capabilities"],()=>({canConnect:true,credentialStorageReady:true,tokenImplemented:false,issueImportAvailable:true})),
+  mine:query(["jiraConnections","mine"],()=>{if(connectionListError)throw Error("Synthetic connection metadata outage");return[{id:"synthetic-connection",status:"VERIFIED",workspace:{name:"Synthetic Jira"},approvedProjects:[source]}];}),
   verify:mutation(["jiraConnections","verify"],reject),approve:mutation(["jiraConnections","approve"],reject),forget:mutation(["jiraConnections","forget"],reject),
  },
  jiraIssueIntake:{
@@ -56,4 +56,4 @@ export const trpcReact={
  },
 };
 export function Evidence(){const[,refresh]=useState(0);return <details><summary onClick={()=>refresh(v=>v+1)}>Synthetic transport evidence</summary><pre data-testid="evidence" style={{whiteSpace:"pre-wrap",overflowWrap:"anywhere"}}>{JSON.stringify({readCount,requirements,sourceWrites,writes})}</pre></details>;}
-export function Controls(){return <div aria-label="Synthetic transport controls"><button onClick={()=>{pending?.reject();pending=null;}}>Lose synthetic acknowledgement</button><button onClick={()=>{getError=true;}}>Fail saved status</button><button onClick={()=>{getError=false;}}>Restore saved status</button><button onClick={()=>{conflictNext=true;}}>Reject next write</button></div>;}
+export function Controls(){const client=useQueryClient();return <div aria-label="Synthetic transport controls"><button onClick={()=>{connectionListError=true;void client.invalidateQueries({queryKey:[["jiraConnections","mine"]]});}}>Fail connections</button><button onClick={()=>{connectionListError=false;void client.invalidateQueries({queryKey:[["jiraConnections","mine"]]});}}>Restore connections</button><button onClick={()=>{pending?.reject();pending=null;}}>Lose synthetic acknowledgement</button><button onClick={()=>{getError=true;}}>Fail saved status</button><button onClick={()=>{getError=false;}}>Restore saved status</button><button onClick={()=>{conflictNext=true;}}>Reject next write</button></div>;}
