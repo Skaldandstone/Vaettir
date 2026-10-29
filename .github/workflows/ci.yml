@@ -141,7 +141,7 @@ jobs:
           (cd "$RUNNER_TEMP" && sha256sum vaettir-node-brotli-security-proof.tar.gz > vaettir-node-brotli-security-proof.sha256)
 
       - name: Retain isolated Node and Brotli security proof
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: node-brotli-security-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
@@ -255,7 +255,7 @@ jobs:
           NODE
         env:
           GH_TOKEN: ${{ github.token }}
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: maintained-native-proof-${{ github.sha }}-${{ github.run_id }}
           path: |
@@ -281,7 +281,7 @@ jobs:
         run: /bin/bash --noprofile --norc scripts/build-maintained-native-host-proof.sh
         env:
           GH_TOKEN: ${{ github.token }}
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         if: success()
         with:
           name: maintained-native-proof-${{ github.sha }}-${{ github.run_id }}
@@ -292,7 +292,7 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 1
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: maintained-native-host-custody-${{ github.sha }}-${{ github.run_id }}
