@@ -20,6 +20,8 @@ Both product scopes are declared together because later consent to the same Atla
 
 Use the existing deployment secret mechanism for `ATLASSIAN_OAUTH_CLIENT_ID` and `ATLASSIAN_OAUTH_CLIENT_SECRET`, and set `ATLASSIAN_OAUTH_PUBLIC_URL=https://app.vaettir.app`. Never put a secret in source, browser storage, a URL, review evidence or chat. The existing `PRODUCTION_SIGNAL_ENCRYPTION_KEY` protects stored application snapshots and tokens. Secure storage plus all three Atlassian settings are required before Connect is enabled. Do not change the existing global `WEB_APP_URL` to activate this callback.
 
+Repository sign-in has a separate `REPOSITORY_OAUTH_PUBLIC_URL` override for the GitLab/GitHub callbacks. Prepare the matching registered provider callbacks before setting it to `https://app.vaettir.app`. Existing deployments without the override retain their old callback configuration; no unrelated callback is silently rewritten. Pending exchanges and existing refresh grants must be reviewed before a callback cutover. Self-hosted GitLab needs an OAuth application registered on that exact instance.
+
 ## Authorization and recovery
 
 State expires after five minutes and is bound to the verified human Clerk subject, native actor, original organization and project. API keys cannot start or use the OAuth connection. Exchanges and refresh rotations claim a durable operation before provider I/O. Issued credentials are retained encrypted before account verification. Unknown responses, lost permissions, changed identities and disconnect races fail closed; codes and refresh tokens are not automatically replayed. A fresh connection is required after an uncertain operation.
