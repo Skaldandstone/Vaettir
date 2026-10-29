@@ -9,6 +9,7 @@ No OAuth client, credential or provider grant is created by the source change. B
 | Setting | Value |
 | --- | --- |
 | Callback | `https://app.vaettir.app/connections/atlassian/callback` |
+| Access type | Resource-level; tokens restricted to the site selected during Atlassian consent |
 | Audience | `api.atlassian.com` |
 | Read scopes | `read:me read:jira-work read:jira-user read:space:confluence offline_access` |
 | Grant | Confidential authorization code; rotating refresh tokens |
@@ -23,7 +24,7 @@ Use the existing deployment secret mechanism for `ATLASSIAN_OAUTH_CLIENT_ID` and
 
 State expires after five minutes and is bound to the verified human Clerk subject, native actor, original organization and project. API keys cannot start or use the OAuth connection. Exchanges and refresh rotations claim a durable operation before provider I/O. Issued credentials are retained encrypted before account verification. Unknown responses, lost permissions, changed identities and disconnect races fail closed; codes and refresh tokens are not automatically replayed. A fresh connection is required after an uncertain operation.
 
-Only an observed site can be selected. Catalog pages are reconstructed through fixed `api.atlassian.com/ex/...` paths with validated cloud IDs and cursors; provider-supplied URLs are not followed. Project approvals have bounded immutable request receipts. A linked Jira token-reader row references the original OAuth grant instead of copying a rotating bearer token; legacy approval endpoints cannot broaden its approved scope.
+Only an observed site can be selected. When Atlassian returns one eligible site, Vaettir uses it directly rather than asking the customer to select it again; several eligible sites require an explicit choice. Catalog pages are reconstructed through fixed `api.atlassian.com/ex/...` paths with validated cloud IDs and cursors; provider-supplied URLs are not followed. Project approvals have bounded immutable request receipts. A linked Jira token-reader row references the original OAuth grant instead of copying a rotating bearer token; legacy approval endpoints cannot broaden its approved scope.
 
 Disconnect immediately stops Vaettir access and retains approved resource metadata and evidence. It does not claim provider revocation. Remove Vaettir from [Atlassian's connected apps](https://id.atlassian.com/manage-profile/apps) to revoke the provider grant. In-flight or uncertain issued credentials remain encrypted for recovery and cannot be used by the reader.
 

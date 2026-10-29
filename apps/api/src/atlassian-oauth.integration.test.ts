@@ -52,7 +52,7 @@ describe("Atlassian OAuth durable authorization boundaries",()=>{
     await expect(caller.begin({...input(),expectedClerkActorId:"wrong"})).rejects.toThrow();expect(await prisma.atlassianOAuthConnection.count({where:{projectId}})).toBe(0);
   });
   it("exchanges a code at most once and never returns tokens in public status",async()=>{
-    const result=await verified();await expect(caller.finish({state:result.state,code:"synthetic-code"})).rejects.toThrow();expect(provider.exchangeAtlassianCode).toHaveBeenCalledTimes(1);const status=await caller.status({id:result.id});expect(status.status).toBe("VERIFIED");expect(JSON.stringify(status)).not.toMatch(/synthetic-access|synthetic-refresh|clientSecret|ciphertext/);
+    const result=await verified();await expect(caller.finish({state:result.state,code:"synthetic-code"})).rejects.toThrow();expect(provider.exchangeAtlassianCode).toHaveBeenCalledTimes(1);const status=await caller.status({id:result.id});expect(status.status).toBe("VERIFIED");expect(status.selectedSite).toEqual(site);expect(JSON.stringify(status)).not.toMatch(/synthetic-access|synthetic-refresh|clientSecret|ciphertext/);
   });
   it("serializes simultaneous code exchanges and refresh rotations",async()=>{
     const a=await begin();const exchanges=await Promise.allSettled([caller.finish({state:a.state,code:"code"}),caller.finish({state:a.state,code:"code"})]);expect(exchanges.filter(x=>x.status==="fulfilled")).toHaveLength(1);expect(provider.exchangeAtlassianCode).toHaveBeenCalledTimes(1);

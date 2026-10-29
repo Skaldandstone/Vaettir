@@ -98,12 +98,13 @@ async function issueAndVerify(ctx:Context,row:AtlassianOAuthConnection,operation
     if(saved.count!==1)throw stale();
     const issued=z.object({access_token:z.string().min(1).max(10000).regex(/^[!-~]+$/),refresh_token:z.string().min(1).max(10000).regex(/^[!-~]+$/),token_type:z.string().max(20),expires_in:z.number().int().positive().max(86400)}).parse(response);
     const token=await verifyAtlassianToken(issued,row.accountId??undefined),available=await listAtlassianSites(token.accessToken);
-    if(!available.some(site=>site.products.includes(row.product as AtlassianProduct)))throw stale();
+    const productSites=available.filter(site=>site.products.includes(row.product as AtlassianProduct));
+    if(!productSites.length)throw stale();
     if(row.selectedSite){const selected=atlassianSiteSchema.parse(row.selectedSite);if(!available.some(site=>site.id===selected.id&&site.url===selected.url&&site.products.includes(row.product as AtlassianProduct)))throw stale();}
     await ctx.prisma.$transaction(async tx=>{
       const current=await locked(tx,ctx,row);
       if(current.operationId!==operationId||!["EXCHANGING","REFRESHING"].includes(current.status))throw stale();
-      await tx.atlassianOAuthConnection.update({where:{id:row.id},data:{status:"VERIFIED",operationId:null,encryptedToken:encrypted(token),tokenExpiresAt:new Date(token.expiresAt),accountId:token.accountId,accountName:token.accountName,sites:available,verifiedAt:new Date(),catalog:Prisma.DbNull,version:{increment:1}}});
+      await tx.atlassianOAuthConnection.update({where:{id:row.id},data:{status:"VERIFIED",operationId:null,encryptedToken:encrypted(token),tokenExpiresAt:new Date(token.expiresAt),accountId:token.accountId,accountName:token.accountName,sites:available,selectedSite:current.selectedSite??(productSites.length===1?productSites[0]:Prisma.DbNull),verifiedAt:new Date(),catalog:Prisma.DbNull,version:{increment:1}}});
       await tx.ticketSourceConnection.updateMany({where:{oauthConnectionId:row.id,status:"VERIFIED"},data:{tokenExpiresAt:new Date(token.expiresAt)}});
     });
     return {connected:true};
