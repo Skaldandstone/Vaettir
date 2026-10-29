@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { Prisma, type PrismaClient } from "@vaettir/db";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { lockManualRetestAccess } from "./manualRetestScope.js";
 import { qualityProfileHash, runCaseDefinitionSchema } from "./qualityExperienceProfile.js";
 import { aggregateStepStatus, savedStepEvidenceSchema, safeEvidenceFileName } from "./manualStepExecution.js";

@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 
 const outcomes = z
   .array(z.object({ key: z.string(), count: z.number().int().nonnegative() }))

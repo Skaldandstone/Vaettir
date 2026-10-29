@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { Prisma } from "@vaettir/db";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import type { Context } from "../trpc.js";
 import { AI_READ_POLICY_VERSION } from "./aiDisclosureGateway.js";
 import { aiDisclosureDeployment } from "./aiDisclosureDeployment.js";

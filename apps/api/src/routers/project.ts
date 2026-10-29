@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { TRPCError } from "@trpc/server";
 import { Prisma } from "@vaettir/db";
 import {
@@ -47,8 +47,19 @@ const qualityProfileSchema = z
 
 // Old clients may update only familiar fields. They cannot mutate the approved
 // experience through this route or erase future fields by round-tripping JSON.
-const qualityProfileUpdateSchema = qualityProfileSchema
-  .omit({ experience: true })
+// Zod 4 applies defaults even inside partial objects. PATCH fields must have no
+// defaults so omission cannot erase a customer's existing context.
+const qualityProfileUpdateSchema = z.object({
+  objective: qualityProfileSchema.shape.objective.removeDefault(),
+  systemScope: qualityProfileSchema.shape.systemScope.removeDefault(),
+  softwareTypes: qualityProfileSchema.shape.softwareTypes.removeDefault(),
+  hardwareTypes: qualityProfileSchema.shape.hardwareTypes.removeDefault(),
+  testEnvironments: qualityProfileSchema.shape.testEnvironments.removeDefault(),
+  qualityObjectives: qualityProfileSchema.shape.qualityObjectives.removeDefault(),
+  complianceNeeds: qualityProfileSchema.shape.complianceNeeds.removeDefault(),
+  regulatoryNeeds: qualityProfileSchema.shape.regulatoryNeeds.removeDefault(),
+  executionSources: qualityProfileSchema.shape.executionSources.removeDefault(),
+})
   .partial()
   .strict();
 const caseKeySchema = projectCaseKeySchema;
@@ -244,7 +255,7 @@ export const projectRouter = router({
         caseKey: caseKeySchema.optional(),
         repoUrl: z.string().optional(),
         defaultBranch: z.string().default("main"),
-        qualityProfile: qualityProfileSchema.default({}),
+        qualityProfile: qualityProfileSchema.prefault({}),
       }),
     )
     .output(z.object({ id: z.string(), name: z.string(), slug: z.string() }))

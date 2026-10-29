@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "./validation.js";
 
 export const MAX_PROCEDURE_EXPORT_BYTES = 8 * 1024 * 1024;
 export const MAX_PROCEDURE_EXPORT_CASES = 2000;

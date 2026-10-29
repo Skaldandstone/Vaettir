@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { TRPCError } from "@trpc/server";
 import type Stripe from "stripe";
 import { Prisma, type PrismaClient } from "@vaettir/db";

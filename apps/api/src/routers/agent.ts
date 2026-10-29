@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { createHash } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import {Prisma} from "@vaettir/db";

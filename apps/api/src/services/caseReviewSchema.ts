@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { caseFieldReadScopeSchema, pairedCaseFieldReadPins } from "./caseFieldReadScope.js";
 import { caseFieldPresentationJsonBytes } from "./caseFieldPresentationSchema.js";
 

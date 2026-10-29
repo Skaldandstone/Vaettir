@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { smartCaseSchema } from "@vaettir/ai-agent";
 import { router, protectedProcedure } from "../trpc.js";
 import { suggestionScopeSchema, suggestionSelectionSchema, smartMapping, smartRecommendations, applySmartRecommendations, smartSuggestionConfiguration } from "../services/smartCaseSuggestions.js";

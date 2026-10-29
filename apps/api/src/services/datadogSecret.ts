@@ -1,4 +1,4 @@
-import {z} from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import {decryptToken} from "./tokenEncryption.js";
 
 /** Legacy settings remain readable. New secrets are never stored plaintext. */

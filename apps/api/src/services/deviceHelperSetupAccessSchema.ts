@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { deviceCaptureAccessScope } from "./deviceCaptureAccessSchema.js";
 
 // Browser-pure primitive metadata only. First establishment is CURRENT and

@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { isLikelyTestFile } from "@vaettir/core";
 import { safeSourcePath, sourcePathInScope } from "./repositorySourceSafety.js";
 

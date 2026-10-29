@@ -1,6 +1,6 @@
 import { Prisma } from "@vaettir/db";
 import { TRPCError } from "@trpc/server";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { supportedManualExecutionIdentity } from "./manualExecutionReadScopeSchema.js";
 import { testPlanExecutionTemplateSchema } from "./qualityExperienceProfile.js";
 import type { ManualRunStartLegacyInput } from "./manualRunStartLegacySchema.js";

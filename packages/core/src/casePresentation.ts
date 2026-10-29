@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "./validation.js";
 import type { ExperienceProfile } from "./qualityExperience.js";
 
 // These are presentation preferences, never authorization or compliance proof.

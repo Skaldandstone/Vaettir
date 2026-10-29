@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { domainSelectionEnabled, requireDomainSelectionEnabled, validatedWorkspaceName, workspaceDomainAvailable, confirmExistingWorkspaceDomain } from "../services/workspaceDomains.js";
 import { legacyWorkspaceLinkInput, resolveLegacyWorkspaceLink } from "../services/workspaceLegacyLinks.js";
 import { TRPCError } from "@trpc/server";

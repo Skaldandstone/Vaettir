@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { createHash } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
@@ -23,7 +23,7 @@ import { importTypeAnalysis } from "../services/importTypeAnalysis.js";
 import { googleSheetsImportConfig, googleSheetSourceSchema, prepareGoogleSheetsImport } from "../services/googleSheetsImport.js";
 
 const fieldMappingSchema = z
-  .record(z.enum(TARGET_FIELDS), z.string())
+  .partialRecord(z.enum(TARGET_FIELDS), z.string())
   .refine((m) => Boolean(m.title), {
     message: 'The "title" field must be mapped to a CSV column',
   });

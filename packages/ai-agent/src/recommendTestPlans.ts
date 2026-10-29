@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import Anthropic from "@anthropic-ai/sdk";
 import { traceAnthropicCall } from "./tracing.js";
 

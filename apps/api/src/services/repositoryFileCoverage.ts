@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { safeSourcePath } from "./repositorySourceSafety.js";
 
 export const repositoryFileCoverageScope=z.object({repositoryId:z.string().min(1).max(100),ref:z.string().trim().min(1).max(200).refine(value=>!value.startsWith("-")&&!/\s/.test(value)&&!Array.from(value).some(char=>char.charCodeAt(0)<32||char.charCodeAt(0)===127)),
