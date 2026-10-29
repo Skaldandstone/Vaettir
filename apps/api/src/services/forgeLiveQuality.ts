@@ -1,7 +1,10 @@
 import { z } from "zod";
 import { type Prisma } from "@vaettir/db";
 import { buildQualityVisualReport } from "@vaettir/core";
-import { authorizeForgeSharing } from "./atlassianQualitySharing.js";
+import {
+  authorizeForgeSharing,
+  forgeWorkspaceOrigin,
+} from "./atlassianQualitySharing.js";
 import type { ForgeIdentity } from "./forgeInvocation.js";
 
 const count = z.number().int().nonnegative();
@@ -50,6 +53,7 @@ export async function readForgeLiveQuality(
       'automation',COALESCE((SELECT jsonb_agg(jsonb_build_object('key',key,'count',total) ORDER BY key) FROM (SELECT "automationStatus"::text key,count(*) total FROM cases GROUP BY "automationStatus") b),'[]'::jsonb)
     ) payload FROM "Project" p WHERE p.id=${projectId} AND p."organizationId"=${orgId}`;
   const data = liveSchema.parse(rows[0]?.payload);
+  const origin = await forgeWorkspaceOrigin(tx, orgId);
   const execution = {
     runs: data.runs,
     results: data.results,
@@ -82,7 +86,7 @@ export async function readForgeLiveQuality(
       },
       execution,
     }),
-    reportUrl: `https://vaettir.skaldandstone.com/projects/${encodeURIComponent(projectId)}/reports`,
+    reportUrl: `${origin}/projects/${encodeURIComponent(projectId)}/reports`,
     notice:
       "Live aggregates refreshed on request. Every refresh checks current Confluence access and Vaettir sharing. No case content, identities, notes or attachments are exposed.",
   };
