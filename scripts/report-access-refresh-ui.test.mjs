@@ -3,6 +3,8 @@
 // Only Clerk/Next shell and HTTP responses are synthetic; no customer/provider data.
 import assert from "node:assert/strict";
 import { test } from "node:test";
+// Register Office exports in this existing CI browser invocation.
+import "./report-export-ui.test.mjs";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { readFileSync, mkdirSync } from "node:fs";
