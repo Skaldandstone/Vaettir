@@ -30,6 +30,27 @@ const selected=async()=>{const result=await verified(),row=await caller.status({
 // the test client restricts its candidate scan to this test's fresh project.
 const privacyDb=()=>prisma.$extends({query:{atlassianOAuthConnection:{findMany({args,query}){return query(args.where&&"OR" in args.where?{...args,where:{AND:[args.where,{projectId}]}}:args);}}}}) as unknown as PrismaClient;
 const duePrivacy=async(id:string)=>prisma.atlassianOAuthConnection.update({where:{id},data:{privacyDueAt:new Date(0),privacyCheckedAt:new Date(Date.now()-7*86400000-60000)}});
+function observedTransactions(){
+  const failures:Array<{name:string;code:string|null}>=[];
+  const db=new Proxy(prisma,{get(target,key){
+    const value=Reflect.get(target,key,target);
+    if(key!=="$transaction")return value;
+    return (...args:unknown[])=>Reflect.apply(value,target,args).catch((error:unknown)=>{
+      failures.push({name:error instanceof Error?error.name:"UnknownError",code:error&&typeof error==="object"&&"code" in error?String(error.code):null});throw error;
+    });
+  }});
+  return {db,failures};
+}
+function gate(){let resolve!:()=>void;const promise=new Promise<void>(done=>{resolve=done;});return {promise,resolve};}
+async function blockedTransactions(count:number){
+  const deadline=Date.now()+3000;
+  while(Date.now()<deadline){
+    const [row]=await prisma.$queryRaw<Array<{count:number}>>`SELECT count(*)::int AS count FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND backend_type='client backend'`;
+    if(row.count>=count)return;
+    await new Promise(done=>setTimeout(done,10));
+  }
+  throw Error("Expected owned database lock contention was not observed");
+}
 function ownedDatabase(){
   try{return assertOwnedTestDatabase(process.env.DATABASE_URL);}catch{
     // This suite additionally owns one separately initialized native PG17 fixture.
@@ -64,9 +85,36 @@ describe("Atlassian OAuth durable authorization boundaries",()=>{
     const result=await verified();await expect(caller.finish({state:result.state,code:"synthetic-code"})).rejects.toThrow();expect(provider.exchangeAtlassianCode).toHaveBeenCalledTimes(1);const status=await caller.status({id:result.id});expect(status.status).toBe("VERIFIED");expect(status.selectedSite).toEqual(site);expect(JSON.stringify(status)).not.toMatch(/synthetic-access|synthetic-refresh|clientSecret|ciphertext/);
   });
   it("serializes simultaneous code exchanges and refresh rotations",async()=>{
-    const a=await begin();const exchanges=await Promise.allSettled([caller.finish({state:a.state,code:"code"}),caller.finish({state:a.state,code:"code"})]);expect(exchanges.filter(x=>x.status==="fulfilled")).toHaveLength(1);expect(provider.exchangeAtlassianCode).toHaveBeenCalledTimes(1);
-    const refreshes=await Promise.allSettled([caller.refresh({id:a.id}),caller.refresh({id:a.id})]);expect(refreshes.filter(x=>x.status==="fulfilled")).toHaveLength(1);expect(provider.refreshAtlassianToken).toHaveBeenCalledTimes(1);
+    const {db,failures}=observedTransactions(),concurrent=atlassianConnectionsRouter.createCaller({...ctx,prisma:db});
+    const a=await begin();const exchanges=await Promise.allSettled([concurrent.finish({state:a.state,code:"code"}),concurrent.finish({state:a.state,code:"code"})]);expect(exchanges.filter(x=>x.status==="fulfilled"),JSON.stringify({failures,exchangeCalls:vi.mocked(provider.exchangeAtlassianCode).mock.calls.length,verifyCalls:vi.mocked(provider.verifyAtlassianToken).mock.calls.length,privacyCalls:vi.mocked(provider.reportAtlassianPrivacy).mock.calls.length})).toHaveLength(1);expect(provider.exchangeAtlassianCode).toHaveBeenCalledTimes(1);
+    const refreshes=await Promise.allSettled([concurrent.refresh({id:a.id}),concurrent.refresh({id:a.id})]);expect(refreshes.filter(x=>x.status==="fulfilled"),JSON.stringify({failures})).toHaveLength(1);expect(provider.refreshAtlassianToken).toHaveBeenCalledTimes(1);
   });
+  it("keeps callback privacy writes in parent-before-connection lock order",async()=>{
+    const {db,failures}=observedTransactions(),concurrent=atlassianConnectionsRouter.createCaller({...ctx,prisma:db});
+    const issue=gate(),issuedStarted=gate(),actorHeld=gate(),releaseActor=gate();
+    vi.mocked(provider.exchangeAtlassianCode).mockImplementationOnce(async()=>{issuedStarted.resolve();await issue.promise;return issued;});
+    const a=await begin(),winner=concurrent.finish({state:a.state,code:"code"});
+    let holder:Promise<unknown>|undefined,contender:Promise<unknown>|undefined;
+    try{
+      await issuedStarted.promise;
+      holder=prisma.$transaction(async tx=>{
+        await tx.$queryRaw`SELECT id FROM "User" WHERE id=${ctx.user.id} FOR UPDATE`;
+        actorHeld.resolve();await releaseActor.promise;
+      },{timeout:10000});
+      await actorHeld.promise;
+      contender=concurrent.finish({state:a.state,code:"code"});
+      // The duplicate callback holds its project lock while waiting for actor
+      // admission. Release provider I/O only after that real lock is observed.
+      await blockedTransactions(1);issue.resolve();await blockedTransactions(2);
+      releaseActor.resolve();await holder;
+      const outcomes=await Promise.allSettled([winner,contender]);
+      expect(failures.filter(row=>row.name.startsWith("Prisma")),JSON.stringify(failures)).toEqual([]);
+      expect(outcomes.filter(row=>row.status==="fulfilled")).toHaveLength(1);
+      expect(provider.exchangeAtlassianCode).toHaveBeenCalledTimes(1);
+    }finally{
+      issue.resolve();releaseActor.resolve();await Promise.allSettled([winner,...(holder?[holder]:[]),...(contender?[contender]:[])]);
+    }
+  },15000);
   it("refuses expired, cancelled and unknown states without exchange",async()=>{
     const a=await begin();await prisma.atlassianOAuthConnection.update({where:{id:a.id},data:{authorizationExpiresAt:new Date(0)}});await expect(caller.finish({state:a.state,code:"code"})).rejects.toThrow();
     const b=await begin();await caller.finish({state:b.state,denied:true});await expect(caller.finish({state:b.state,code:"code"})).rejects.toThrow();await expect(caller.finish({state:"x".repeat(43),code:"code"})).rejects.toThrow();expect(provider.exchangeAtlassianCode).not.toHaveBeenCalled();
