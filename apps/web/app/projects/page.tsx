@@ -17,7 +17,7 @@ import {
 import { RecoveryMessage } from "../../components/RecoveryMessage";
 import { CreationWizard, WizardChoices } from "../../components/CreationWizard";
 import { CompliancePicker } from "@/components/CompliancePicker";
-import { COMPLIANCE_CATALOG, complianceProfileValue } from "@/lib/compliance-catalog";
+import { complianceProfileValue } from "@/lib/compliance-catalog";
 
 const SOFTWARE_TYPES = [
   "Web",
@@ -57,10 +57,6 @@ const QUALITY_OBJECTIVES = [
   "Manufacturing quality",
   "Security",
   "Traceability",
-];
-const complianceOptions = [
-  ...COMPLIANCE_CATALOG.map((option) => ({ ...option, id: complianceProfileValue(option) })),
-  { id: "Other / not sure", name: "Other / not sure", category: "Other", summary: "Keep an unresolved applicability question for later review." },
 ];
 const REGULATORY_AREAS = [
   "Health and medical",
@@ -103,9 +99,41 @@ export default function ProjectsPage() {
     { organizationId: orgId! },
     { enabled: !!orgId },
   );
+  const complianceCatalog = trpcReact.compliance.catalog.useQuery(undefined, {
+    retry: false,
+  });
+  const workspaceFrameworks = trpcReact.compliance.listFrameworks.useQuery(
+    { organizationId: orgId! },
+    { enabled: !!orgId, retry: false },
+  );
+  const complianceOptions = [
+    ...(complianceCatalog.data ?? []).map((o) => ({
+      ...o,
+      id: complianceProfileValue(o),
+    })),
+    ...(workspaceFrameworks.data ?? [])
+      .filter((f) => f.workspaceOwned)
+      .map((f) => ({
+        id: `saved:${f.id}`,
+        name: f.name,
+        version: f.version,
+        category: "Workspace definitions",
+        summary: `${f.controlCount} controls · exact saved version ${f.revision}`,
+      })),
+    {
+      id: "Other / not sure",
+      name: "Other / not sure",
+      category: "Other",
+      summary: "Keep an unresolved applicability question for later review.",
+    },
+  ];
   const projects = projectsQuery.data ?? [];
   const [projectSearch, setProjectSearch] = useState("");
-  const visibleProjects = projects.filter(project => project.name.toLocaleLowerCase().includes(projectSearch.toLocaleLowerCase()));
+  const visibleProjects = projects.filter((project) =>
+    project.name
+      .toLocaleLowerCase()
+      .includes(projectSearch.toLocaleLowerCase()),
+  );
 
   const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState("");
@@ -153,7 +181,11 @@ export default function ProjectsPage() {
       setExecutionSources([]);
       setCreateOpen(false);
       void utils.project.list.invalidate();
-      router.push(`/projects/${project.id}?setup=1`);
+      router.push(
+        complianceNeeds.length
+          ? `/projects/${project.id}/compliance?setup=1`
+          : `/projects/${project.id}?setup=1`,
+      );
     },
     onError: (e) => setCreateError(e.message),
   });
@@ -165,7 +197,6 @@ export default function ProjectsPage() {
     },
     onError: (e) => setEditError(e.message),
   });
-
 
   function submit() {
     if (!orgId || !canEdit) return;
@@ -211,7 +242,6 @@ export default function ProjectsPage() {
     });
   }
 
-
   const loading = orgsQuery.isLoading || (!!orgId && projectsQuery.isLoading);
   const pageError =
     orgsQuery.error?.message ?? projectsQuery.error?.message ?? null;
@@ -255,7 +285,15 @@ export default function ProjectsPage() {
         }
       />
 
-      <label className="project-search"><Icon name="search" size={16} /><input aria-label="Find a project" placeholder="Find a project…" value={projectSearch} onChange={event => setProjectSearch(event.target.value)} /></label>
+      <label className="project-search">
+        <Icon name="search" size={16} />
+        <input
+          aria-label="Find a project"
+          placeholder="Find a project…"
+          value={projectSearch}
+          onChange={(event) => setProjectSearch(event.target.value)}
+        />
+      </label>
       <ul className="project-grid compact-project-grid">
         {visibleProjects.map((p) => (
           <li key={p.id} className="project-card">
@@ -263,28 +301,45 @@ export default function ProjectsPage() {
               <span className="project-symbol">
                 <Icon name="folder" size={21} />
               </span>
-              <h2><Link href={`/projects/${p.id}`}>{p.name}</Link></h2>
-              <Link className="project-open-link" href={`/projects/${p.id}`} aria-label={`Open ${p.name}`} title={`Open ${p.name}`}><Icon name="arrow" size={16} /></Link>
+              <h2>
+                <Link href={`/projects/${p.id}`}>{p.name}</Link>
+              </h2>
+              <Link
+                className="project-open-link"
+                href={`/projects/${p.id}`}
+                aria-label={`Open ${p.name}`}
+                title={`Open ${p.name}`}
+              >
+                <Icon name="arrow" size={16} />
+              </Link>
             </div>
             <nav
               className="project-card-links"
               aria-label={`${p.name} sections`}
             >
-              <Link href={`/projects/${p.id}/test-cases`}><Icon name="cases" size={14} /> Cases</Link>
-              <Link href={`/projects/${p.id}/test-plans`}><Icon name="check" size={14} /> Plans</Link>
-              <Link href={`/projects/${p.id}/requirements`}><Icon name="book" size={14} /> Requirements</Link>
+              <Link href={`/projects/${p.id}/test-cases`}>
+                <Icon name="cases" size={14} /> Cases
+              </Link>
+              <Link href={`/projects/${p.id}/test-plans`}>
+                <Icon name="check" size={14} /> Plans
+              </Link>
+              <Link href={`/projects/${p.id}/requirements`}>
+                <Icon name="book" size={14} /> Requirements
+              </Link>
             </nav>
             {(canEdit || canDelete) && (
               <div className="project-card-admin">
                 {canEdit && (
                   <IconButton
-                    icon="edit" label={`Edit ${p.name}`}
+                    icon="edit"
+                    label={`Edit ${p.name}`}
                     onClick={() => void startEdit(p)}
                   />
                 )}
                 {canDelete && (
                   <IconButton
-                    icon="delete" label={`Delete ${p.name}`}
+                    icon="delete"
+                    label={`Delete ${p.name}`}
                     onClick={() => setDeleteTarget({ id: p.id, name: p.name })}
                   />
                 )}
@@ -293,7 +348,9 @@ export default function ProjectsPage() {
           </li>
         ))}
       </ul>
-      {projects.length > 0 && visibleProjects.length === 0 && <p className="muted">No projects match “{projectSearch}”.</p>}
+      {projects.length > 0 && visibleProjects.length === 0 && (
+        <p className="muted">No projects match “{projectSearch}”.</p>
+      )}
       {projects.length === 0 && (
         <section className="workspace-panel">
           <EmptyState
@@ -409,20 +466,23 @@ export default function ProjectsPage() {
                   placeholder="For example: prove a medical-device controller and its mobile app are safe and ready for pilot production."
                 />
               </label>
-              <details><summary>Details</summary><p id="new-project-objective-help" className="text-muted">
-                Add what you know, or leave this blank. You can revisit your
-                objective in Update project understanding later.
-              </p></details>
+              <details>
+                <summary>Details</summary>
+                <p id="new-project-objective-help" className="text-muted">
+                  Add what you know, or leave this blank. You can revisit your
+                  objective in Update project understanding later.
+                </p>
+              </details>
               {!objective.trim() && (
                 <ActionButton
                   type="button"
                   className="btn-secondary"
                   disabled={createMutation.isPending || !name.trim()}
                   onClick={() => setCreateStep(1)}
-                 tooltip={<>
-                  Not sure yet · continue without an objective
-                 </>}>
-                   Skip objective </ActionButton>
+                  tooltip={<>Not sure yet · continue without an objective</>}
+                >
+                  Skip objective{" "}
+                </ActionButton>
               )}
               <WizardChoices
                 title="Project scope"
@@ -487,11 +547,14 @@ export default function ProjectsPage() {
                   setTestEnvironments((values) => toggleValue(values, item))
                 }
               />
-              <details><summary>Details</summary><p className="text-muted">
-                After creating the project, Add sources opens with provider
-                options. Only configured providers can verify access; references
-                remain unverified.
-              </p></details>
+              <details>
+                <summary>Details</summary>
+                <p className="text-muted">
+                  After creating the project, Add sources opens with provider
+                  options. Only configured providers can verify access;
+                  references remain unverified.
+                </p>
+              </details>
             </>
           )}
           {createStep === 2 && (
@@ -527,6 +590,12 @@ export default function ProjectsPage() {
               <CompliancePicker
                 label="Standards and rights to review"
                 options={complianceOptions}
+                disabled={
+                  complianceCatalog.isFetching ||
+                  !!complianceCatalog.error ||
+                  workspaceFrameworks.isFetching ||
+                  !!workspaceFrameworks.error
+                }
                 selected={complianceNeeds}
                 multiple
                 onSelect={(item) =>
@@ -534,8 +603,9 @@ export default function ProjectsPage() {
                 }
               />
               <p className="text-muted" style={{ fontSize: 12 }}>
-                Browse all supported starters and references. Selection saves planning context;
-                it does not load controls, map tests or decide legal applicability.
+                Browse all supported starters and references. Selection saves
+                planning context; it does not load controls, map tests or decide
+                legal applicability.
               </p>
             </>
           )}
@@ -619,9 +689,15 @@ export default function ProjectsPage() {
       </Modal>
 
       {canDelete && deleteTarget && (
-        <ProjectDeletionWizard key={deleteTarget.id} projectId={deleteTarget.id}
+        <ProjectDeletionWizard
+          key={deleteTarget.id}
+          projectId={deleteTarget.id}
           onClose={() => setDeleteTarget(null)}
-          onDeleted={() => { setDeleteTarget(null); void utils.project.list.invalidate(); }} />
+          onDeleted={() => {
+            setDeleteTarget(null);
+            void utils.project.list.invalidate();
+          }}
+        />
       )}
     </div>
   );

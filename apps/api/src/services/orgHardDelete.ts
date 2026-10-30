@@ -746,6 +746,12 @@ export async function previewOrgHardDelete(
     prisma.webhookEndpoint.count({ where: { organizationId } }),
   ]);
 
+  const [complianceFramework,complianceControl,complianceReviewDraft] = await Promise.all([
+    prisma.complianceFramework.count({where:{organizationId}}),
+    prisma.complianceControl.count({where:{framework:{organizationId}}}),
+    prisma.complianceReviewDraft.count({where:{organizationId}}),
+  ]);
+
   return {
     organizationId,
     organizationName: org.name,
@@ -798,6 +804,9 @@ export async function previewOrgHardDelete(
       Invitation: invitation,
       Membership: membership,
       AiEditFeedback: aiEditFeedback,
+      ComplianceFramework: complianceFramework,
+      ComplianceControl: complianceControl,
+      ComplianceReviewDraft: complianceReviewDraft,
       ComplianceEvidence: complianceEvidence,
       ComplianceSignOff: complianceSignOff,
       CustomFrameworkHeuristic: customFrameworkHeuristic,
@@ -1160,10 +1169,18 @@ export async function hardDeleteOrganization(
     );
     if (counts.WebhookEndpoint !== scope.webhookEndpointIds.length) throw new TRPCError({ code: "CONFLICT", message: "Native webhook erasure count changed; transaction must roll back." });
 
+    // Original-organization review receipts are explicitly counted in this
+    // existing reviewed organization erasure. Guided project deletion refuses
+    // these records; it cannot silently cascade through private review history.
+    await del("ComplianceReviewDraft",()=>tx.complianceReviewDraft.deleteMany({where:{organizationId}}));
     counts.Project = (
       await tx.project.deleteMany({ where: { organizationId } })
     ).count;
     if (counts.Project !== scope.projectIds.length) throw new TRPCError({ code: "CONFLICT", message: "Native project erasure count changed; transaction must roll back." });
+    // Foreign-project mappings or evidence refuse through existing foreign keys;
+    // the entire erasure rolls back rather than deleting another tenant's data.
+    await del("ComplianceControl",()=>tx.complianceControl.deleteMany({where:{framework:{organizationId}}}));
+    await del("ComplianceFramework",()=>tx.complianceFramework.deleteMany({where:{organizationId}}));
     await tx.organization.delete({ where: { id: organizationId } });
 
     // The permanent receipt is part of the destructive transaction. Its actor

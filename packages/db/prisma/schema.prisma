@@ -1654,6 +1654,7 @@ enum ValidationDomain {
 // human or reverse-engineered from code by the AI agent, it lives here in
 // the same BDD-normalized shape.
 model TestCase {
+  complianceRevision Int @default(1)
   id             String        @id @default(cuid())
   // Database-assigned, never accepted from content edits or import IDs.
   // Internal IDs remain the foreign keys; displayId is the user's reference.
@@ -2453,6 +2454,9 @@ enum ImportSource {
 // ---------------------------------------------------------------------------
 
 model ComplianceFramework {
+  organizationId String?
+  catalogKey String?
+  revision Int @default(1)
   id          String  @id @default(cuid())
   key         String  @unique // "soc2", "hipaa", "pci-dss", "gdpr", "iso27001", "fda-21-cfr-part-11", custom keys allowed
   name        String
@@ -2461,9 +2465,12 @@ model ComplianceFramework {
   isBuiltIn   Boolean @default(false)
 
   controls ComplianceControl[]
+  @@index([organizationId])
+  @@unique([organizationId, catalogKey], map: "ComplianceFramework_organization_catalog_key")
 }
 
 model ComplianceControl {
+  revision Int @default(1)
   id          String              @id @default(cuid())
   frameworkId String
   framework   ComplianceFramework @relation(fields: [frameworkId], references: [id])
@@ -3454,4 +3461,26 @@ model AiDisclosureCommand {
   requestHash String
   receipt Json
   createdAt DateTime @default(now())
+}
+
+// Private immutable analysis snapshot and reviewer selection; receipt reconciles lost responses.
+model ComplianceReviewDraft {
+  id String @id
+  projectId String
+  organizationId String
+  actorId String
+  clerkActorId String
+  authorityGeneration Int @default(0)
+  revokedAt DateTime?
+  requestHash String
+  sourceDigest String
+  snapshot Json
+  selection Json
+  digest String
+  state String @default("DRAFT")
+  receipt Json?
+  applyRequestId String?
+  applyHash String?
+  createdAt DateTime @default(now())
+  @@index([projectId, actorId, createdAt])
 }
