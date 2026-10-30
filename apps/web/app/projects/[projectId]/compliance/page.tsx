@@ -855,16 +855,19 @@ export default function CompliancePage() {
   );
   const gapCount = controls.filter((c) => c.mappedTestCaseCount === 0).length;
 
-  if (!referenceAccess.readable)
-    return (
-      <p>
-        Verifying original workspace access before showing compliance
-        definitions and evidence.
-      </p>
-    );
   return (
     <div style={{ maxWidth: 800 }}>
+      {/* Keep the workflow's original access pins and private draft state mounted.
+          Its own access guard hides content during revalidation. Unmounting it
+          here restarts its shared stale query and repeatedly invalidates ours. */}
       <ComplianceReviewWorkflow projectId={projectId} />
+      {!referenceAccess.readable ? (
+        <p>
+          Verifying original workspace access before showing compliance
+          definitions and evidence.
+        </p>
+      ) : (
+      <>
       <div
         style={{
           display: "flex",
@@ -1361,6 +1364,8 @@ export default function CompliancePage() {
           </div>
         </div>
       </Modal>
+      </>
+      )}
     </div>
   );
 }
