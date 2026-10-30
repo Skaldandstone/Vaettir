@@ -86,7 +86,7 @@ test("full import page confirms ready rows once, retains mappings, and hides sta
     });
     await page.goto(origin);
     await page.getByRole("button", { name: actionName(/^Upload export:/, false) }).click();
-    await page.getByRole("button", { name: actionName(/Smart file import/, false) }).click();
+    await page.getByRole("button", { name: actionName(/Smart import/, false) }).click();
     await page.locator('input[type="file"]').first().setInputFiles({ name: "synthetic.csv", mimeType: "text/csv", buffer: Buffer.from(sourceCsv) });
     await page.getByRole("button", { name: actionName("Review"), exact: true }).click();
     const review = page.getByRole("region", { name: "Import summary" });
