@@ -94,3 +94,7 @@ Real Chromium checks exercise the complete Import and Reports pages through the 
 Controller fixtures expose the full action description at the native-button boundary so their original guard assertions and raw multiline values remain exact. They do not substitute for browser rendering. PostgreSQL fixtures verify queue atomicity, original actor/workspace bindings, revocation, source coordinates, saved-row repair and legacy/new project-key aliases.
 
 Hosted acceptance of this change, real provider authorization, native Office acceptance and the remaining reporting parity gaps are separate operator gates. No provider, deployment, purchase or AI execution is performed by this source slice.
+
+## Operator validation follow-up
+
+The import-method cards also use the shared hover/focus controls: Connect API and Upload export retain their original handlers, with source instructions in tooltips. Browser fixtures use the real shared controls and full accessible action descriptions. The local workflow checks cover all 19 CI workflow commands, including the actual Sheets route with ready-row imports and retained mapping conflicts. The tooltip edge check verifies the same tooltip stays open while the pointer enters it. These synthetic checks do not establish hosted provider authorization or production acceptance.

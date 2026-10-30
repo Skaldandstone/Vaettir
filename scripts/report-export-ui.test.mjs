@@ -1,3 +1,4 @@
+import { actionName } from "../apps/web/e2e/action-name.mjs";
 /* global innerWidth */
 /* global document, window */
 import assert from "node:assert/strict";
@@ -22,7 +23,7 @@ const report = fixture.slice(
 const sourceReport = Function(
   report.replace(" as FrozenReportPayload", "") + ";return report;",
 )();
-const output = root + ".local/report-presentation-20261029";
+const output = (process.env.VAETTIR_E2E_OUTPUT_DIR ?? (root + ".local/report-presentation-20261029"));
 mkdirSync(output, { recursive: true });
 const Zip = createRequire(new URL("../apps/api/package.json", import.meta.url))(
   "adm-zip",
@@ -139,7 +140,7 @@ test("browser Office exports work, recover from errors and discard output after 
     await page.addScriptTag({ content: bundle.outputFiles[0].text });
     await page.getByRole("checkbox").check();
     await page
-      .getByRole("button", { name: "Download editable PowerPoint" })
+      .getByRole("button", { name: actionName("Download editable PowerPoint", false) })
       .click();
     await page.waitForFunction(
       () => typeof window.releaseExport === "function",
@@ -160,7 +161,7 @@ test("browser Office exports work, recover from errors and discard output after 
       window.releaseExport = null;
     });
     await page
-      .getByRole("button", { name: "Download editable PowerPoint" })
+      .getByRole("button", { name: actionName("Download editable PowerPoint", false) })
       .click();
     await page.waitForFunction(
       () => typeof window.releaseExport === "function",
@@ -177,7 +178,7 @@ test("browser Office exports work, recover from errors and discard output after 
     assert.equal(await page.getByRole("checkbox").isChecked(), false);
     await page.getByRole("checkbox").check();
     await page
-      .getByRole("button", { name: "Download editable PowerPoint" })
+      .getByRole("button", { name: actionName("Download editable PowerPoint", false) })
       .click();
     await page.waitForFunction(
       () => typeof window.releaseExport === "function",
@@ -198,7 +199,7 @@ test("browser Office exports work, recover from errors and discard output after 
       await page.evaluate(() => {
         window.releaseExport = null;
       });
-      await page.getByRole("button", { name: `Download ${label}` }).click();
+      await page.getByRole("button", { name: actionName(`Download ${label}`, false) }).click();
       await page.waitForFunction(
         () => typeof window.releaseExport === "function",
       );
@@ -222,7 +223,7 @@ test("browser Office exports work, recover from errors and discard output after 
         window.releaseExport = null;
         window.failExport = true;
       });
-        await page.getByRole("button", { name: `Download ${label}` }).click();
+        await page.getByRole("button", { name: actionName(`Download ${label}`, false) }).click();
       await page.waitForFunction(
         () => typeof window.releaseExport === "function",
       );
@@ -237,7 +238,7 @@ test("browser Office exports work, recover from errors and discard output after 
         window.failExport = false;
         window.releaseExport = null;
       });
-      await page.getByRole("button", { name: `Download ${label}` }).click();
+      await page.getByRole("button", { name: actionName(`Download ${label}`, false) }).click();
       await page.waitForFunction(
         () => typeof window.releaseExport === "function",
       );
@@ -269,11 +270,11 @@ test("browser Office exports work, recover from errors and discard output after 
       await review.check();
       const button = page.getByRole("button", {
         name:
-          extension === "pptx"
+          actionName(extension === "pptx"
             ? "Download editable PowerPoint"
             : extension === "docx"
               ? "Download Word document"
-              : "Download Excel workbook",
+              : "Download Excel workbook", false),
       });
       if (!(await button.isVisible()))
           await page.evaluate(() => {
@@ -416,7 +417,7 @@ test("browser Office exports work, recover from errors and discard output after 
     );
     const presetDownload = page.waitForEvent("download");
     await page
-      .getByRole("button", { name: "Save presentation preset" })
+      .getByRole("button", { name: actionName("Save presentation preset", false) })
       .click();
     const preset = await presetDownload;
     await preset.saveAs(`${output}/presentation.json`);

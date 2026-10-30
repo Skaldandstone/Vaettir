@@ -1,4 +1,5 @@
-import { reactBrowserScripts } from "./test-support/react-browser-runtime.mjs";
+import { actionName } from "../apps/web/e2e/action-name.mjs";
+import { reactBrowserScripts, actionButtonBrowserSource } from "./test-support/react-browser-runtime.mjs";
 // Render the actual sidebar, account menu and preference store. RPC/auth are
 // synthetic boundaries; no customer session or external network is available.
 /* global window */
@@ -34,7 +35,7 @@ function component(path) {
     })
     .outputText.replace(/^export /gm, "");
 }
-const compiled = [
+const compiled = actionButtonBrowserSource() + "\n" + [
   "apps/web/lib/example-workspace-preference.ts",
   "apps/web/components/ui/useLayoutPreference.ts",
   "apps/web/components/ui/FloatingTooltip.tsx",
@@ -97,7 +98,7 @@ test("X removes the complete sidebar entry, survives reload, and can be restored
   const context = await browser.newContext();
   const page = await open(context);
   try {
-    await page.getByRole("button", { name: "Hide example workspace" }).click();
+    await page.getByRole("button", { name: actionName("Hide example workspace", false) }).click();
     assert.equal(
       await page
         .locator("aside")
@@ -115,10 +116,10 @@ test("X removes the complete sidebar entry, survives reload, and can be restored
       0,
     );
     await page
-      .getByRole("button", { name: "Open account and workspace menu" })
+      .getByRole("button", { name: actionName("Open account and workspace menu", false) })
       .click();
     await page
-      .getByRole("button", { name: "Show example workspace", exact: true })
+      .getByRole("button", { name: actionName("Show example workspace"), exact: true })
       .click();
     await page
       .getByRole("link", { name: "Example workspace", exact: true })
@@ -136,7 +137,7 @@ test("existing hidden preferences and other tabs update without a leftover sideb
   const first = await open(context),
     second = await open(context);
   try {
-    await first.getByRole("button", { name: "Hide example workspace" }).click();
+    await first.getByRole("button", { name: actionName("Hide example workspace", false) }).click();
     await second
       .getByRole("link", { name: "Example workspace", exact: true })
       .waitFor({ state: "hidden" });
@@ -156,10 +157,10 @@ test("existing hidden preferences and other tabs update without a leftover sideb
       0,
     );
     await second
-      .getByRole("button", { name: "Open account and workspace menu" })
+      .getByRole("button", { name: actionName("Open account and workspace menu", false) })
       .click();
     await second
-      .getByRole("button", { name: "Show example workspace", exact: true })
+      .getByRole("button", { name: actionName("Show example workspace"), exact: true })
       .click();
     await first
       .getByRole("link", { name: "Example workspace", exact: true })
@@ -179,7 +180,7 @@ test("dismiss and restore still work for the session when browser storage is una
   );
   const page = await open(context);
   try {
-    await page.getByRole("button", { name: "Hide example workspace" }).click();
+    await page.getByRole("button", { name: actionName("Hide example workspace", false) }).click();
     assert.equal(
       await page
         .locator("aside")
@@ -188,10 +189,10 @@ test("dismiss and restore still work for the session when browser storage is una
       0,
     );
     await page
-      .getByRole("button", { name: "Open account and workspace menu" })
+      .getByRole("button", { name: actionName("Open account and workspace menu", false) })
       .click();
     await page
-      .getByRole("button", { name: "Show example workspace", exact: true })
+      .getByRole("button", { name: actionName("Show example workspace"), exact: true })
       .click();
     await page
       .getByRole("link", { name: "Example workspace", exact: true })

@@ -4,7 +4,7 @@ import { MigrationWizard } from "../../components/MigrationWizard";
 import { GoogleSheetsPrivacyNotice } from "../../components/GoogleSheetsPrivacyNotice";
 import { HistoricalResultsImport } from "../../components/HistoricalResultsImport";
 import ImportPage from "../../app/projects/[projectId]/import/page";
-window.sheetFixture = { commits: [], ai: 0, tokens: 0, previews: [] };
+window.sheetFixture = { commits: [], prepares: [], ai: 0, tokens: 0, previews: [] };
 window.google = {
   accounts: { oauth2: { initTokenClient: config => ({ requestAccessToken() {
     window.sheetFixture.tokens++;

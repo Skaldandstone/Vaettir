@@ -967,7 +967,7 @@ export function MigrationWizard({
                 ],
                 [
                   "api",
-                  "Connect an API",
+                  "Connect API",
                   "Pull cases directly from the source system and preview them before import.",
                 ],
                 [
@@ -977,15 +977,16 @@ export function MigrationWizard({
                 ],
                 [
                   "file",
-                  "Upload an export",
+                  "Upload export",
                   "Drop in CSV, Excel, XML, or JSON. Vaettir detects the vendor and fields.",
                 ],
               ] as const
             ).map(([value, label, detail]) => (
-              <button
+              <ActionButton
                 key={value}
                 type="button"
                 className={`import-method-card${importMethod === value ? " selected" : ""}`}
+                tooltip={detail}
                 onClick={() => {
                   setImportMethod(value);
                   setSource(value === "google-sheets" ? "csv" : null);
@@ -997,9 +998,8 @@ export function MigrationWizard({
                 </span>
                 <span>
                   <strong>{label}</strong>
-                  <small>{detail}</small>
                 </span>
-              </button>
+              </ActionButton>
             ))}
           </div>
           {importMethod === "webhook" && (

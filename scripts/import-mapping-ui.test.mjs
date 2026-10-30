@@ -1,3 +1,4 @@
+import { actionName } from "../apps/web/e2e/action-name.mjs";
 /* global innerWidth, requestAnimationFrame */
 /* global document, window */
 // Real Import page, wizard, queue, tRPC hooks and auth QueryClient. Synthetic
@@ -84,16 +85,16 @@ test("full import page confirms ready rows once, retains mappings, and hides sta
       await route.fulfill({ contentType: "application/json", body: JSON.stringify(result) });
     });
     await page.goto(origin);
-    await page.getByRole("button", { name: /Upload an export/ }).click();
-    await page.getByRole("button", { name: /Smart file import/ }).click();
+    await page.getByRole("button", { name: actionName(/Upload an export/, false) }).click();
+    await page.getByRole("button", { name: actionName(/Smart file import/, false) }).click();
     await page.locator('input[type="file"]').first().setInputFiles({ name: "synthetic.csv", mimeType: "text/csv", buffer: Buffer.from(sourceCsv) });
-    await page.getByRole("button", { name: "Review", exact: true }).click();
+    await page.getByRole("button", { name: actionName("Review"), exact: true }).click();
     const review = page.getByRole("region", { name: "Import summary" });
     await review.getByText("1 ready · 1 need mapping · 0 context rows", { exact: true }).waitFor();
     assert.equal(requests.filter(r => r.path === "importJobs.confirmMapping").length, 0);
-    await review.getByRole("button", { name: "Import", exact: true }).click();
-    await review.getByRole("button", { name: "Retry", exact: true }).waitFor();
-    await review.getByRole("button", { name: "Retry", exact: true }).click();
+    await review.getByRole("button", { name: actionName("Import"), exact: true }).click();
+    await review.getByRole("button", { name: actionName("Retry"), exact: true }).waitFor();
+    await review.getByRole("button", { name: actionName("Retry"), exact: true }).click();
     await review.getByRole("status").filter({ hasText: "1 created" }).waitFor();
     const confirmations = requests.filter(r => r.path === "importJobs.confirmMapping");
     assert.equal(confirmations.length, 2); assert.deepEqual(confirmations[0].input, confirmations[1].input);
@@ -107,7 +108,7 @@ test("full import page confirms ready rows once, retains mappings, and hides sta
     await queue.getByLabel("Title", { exact: true }).fill("Repaired settings");
     await queue.getByLabel("Include row").check();
     assert.equal(requests.filter(r => r.path === "importJobs.resolveMapping").length, 0);
-    const out = root + ".local/import-mapping-queue-20261029"; mkdirSync(out, { recursive: true });
+    const out = (process.env.VAETTIR_E2E_OUTPUT_DIR ?? (root + ".local/import-mapping-queue-20261029")); mkdirSync(out, { recursive: true });
     for (const [theme, width] of [["light",1100],["dark",1100],["dark",390]]) {
       await page.setViewportSize({ width, height: 900 });
       await page.evaluate(async t => {
@@ -131,7 +132,7 @@ test("full import page confirms ready rows once, retains mappings, and hides sta
     organizationId = "synthetic-org"; await page.evaluate(() => window.revalidateAccess());
     await queue.getByText("Source · Row 3 · Repaired settings", { exact: true }).click();
     await queue.getByLabel("Title", { exact: true }).waitFor();
-    holdResolve = true; await queue.getByRole("button", { name: "Import", exact: true }).click();
+    holdResolve = true; await queue.getByRole("button", { name: actionName("Import"), exact: true }).click();
     await page.waitForFunction(() => [...document.querySelectorAll('button')].some(b => b.textContent === 'Saving…'));
     await Promise.race([resolveStarted, new Promise((_, reject) => setTimeout(() => reject(Error("Resolve was not dispatched")), 5000))]);
     await page.evaluate(() => window.setSyntheticAuth({ userId: "foreign-actor", sessionId: "session-b" }));

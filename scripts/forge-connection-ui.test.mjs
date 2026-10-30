@@ -1,7 +1,8 @@
-import { reactBrowserScripts } from "./test-support/react-browser-runtime.mjs";
+import { actionName } from "../apps/web/e2e/action-name.mjs";
+import { reactBrowserScripts, actionButtonBrowserSource } from "./test-support/react-browser-runtime.mjs";
 // Actual ReactDOM interaction test with synthetic Clerk/RPC boundaries.
 // No external network, browser profile, real sign-in or customer write is used.
-/* global calls, document, mode:writable, auth:writable, catalog:writable, redraw, finish */
+/* global calls, document, innerWidth, window, auth:writable, catalog:writable, redraw, finish */
 import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
 import {readFileSync,mkdirSync} from 'node:fs';
@@ -12,6 +13,7 @@ const ts=require('typescript'),{chromium}=require('@playwright/test');
 const source=readFileSync(new URL('../apps/web/components/AtlassianConnectWorkflow.tsx',import.meta.url),'utf8');
 let compiled=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext,jsx:ts.JsxEmit.React}}).outputText;
 compiled=compiled.replace(/^import .* from "react";$/m,'const {useEffect,useRef,useState}=React;')
+ .replace(/^import .* from "@\/components\/ui\/ActionButton";$/m,actionButtonBrowserSource())
  .replace(/^import .* from "@clerk\/nextjs";$/m,'const useAuth=()=>window.auth;')
  .replace(/^import .* from "next\/navigation";$/m,'const useSearchParams=()=>new URLSearchParams("request="+window.token);')
  .replace(/^import .* from "@\/lib\/trpcReact";$/m,'const trpcReact=window.trpc;');
@@ -53,11 +55,11 @@ const projectChoice=(p,id='project-one')=>p.locator(`input[type="radio"][value="
 async function page(){const p=await browser.newPage();p.setDefaultTimeout(5000);p.on('pageerror',error=>console.error('Synthetic browser error: '+error.message));await p.route('**/*',route=>new URL(route.request().url()).origin===origin?route.continue():route.abort());await p.goto(origin);try{await projectChoice(p).waitFor()}catch(error){console.error(await p.locator('body').innerText());await p.close();throw error}return p}
 test('requires a specific choice, displays consent and connects only that project',async()=>{
  const p=await page();try{
- assert.equal(await p.getByRole('button',{name:'Connect project',exact:true}).isEnabled(),false);
+ assert.equal(await p.getByRole('button',{name:actionName('Connect project'),exact:true}).isEnabled(),false);
  assert.equal(await p.evaluate(()=>calls.filter(c=>c[0]==='connect').length),0);
  await projectChoice(p,'project-two').check();
  await p.getByRole('heading',{name:'Read-only access for Synthetic two'}).waitFor();
- await p.getByRole('button',{name:'Connect project',exact:true}).click();
+ await p.getByRole('button',{name:actionName('Connect project'),exact:true}).click();
  await p.getByRole('heading',{name:'Project connected',exact:true}).waitFor();
  assert.equal(await p.evaluate(()=>calls.find(c=>c[0]==='connect')[1].projectId),'project-two');
  assert.match(await p.getByRole('link',{name:'Manage this project’s connection'}).getAttribute('href'),/\/projects\/project-two\/settings\/integrations/);
@@ -75,19 +77,19 @@ test('filtering retains focus and never turns a stale selection into a different
 });
 test('a lost response locks the project and retries the exact request, without reviving revoked sharing',async()=>{
  const p=await page();try{
- await projectChoice(p).check();await p.evaluate(()=>mode='lost');
- await p.getByRole('button',{name:'Connect project',exact:true}).click();
- await p.getByRole('button',{name:'Confirm connection status',exact:true}).waitFor();
+ await projectChoice(p).check();await p.evaluate(()=>window.mode='lost');
+ await p.getByRole('button',{name:actionName('Connect project'),exact:true}).click();
+ await p.getByRole('button',{name:actionName('Confirm connection status'),exact:true}).waitFor();
  assert.equal(await projectChoice(p).isEnabled(),false);
- await p.evaluate(()=>mode='revoked');await p.getByRole('button',{name:'Confirm connection status',exact:true}).click();
+ await p.evaluate(()=>window.mode='revoked');await p.getByRole('button',{name:actionName('Confirm connection status'),exact:true}).click();
  await p.getByRole('heading',{name:'Connection is stopped',exact:true}).waitFor();
  const inputs=await p.evaluate(()=>calls.filter(c=>c[0]==='connect').map(c=>c[1]));assert.equal(inputs.length,2);assert.deepEqual(inputs[0],inputs[1]);
  }finally{await p.close()}
 });
 test('an account switch hides a late acknowledgement and cannot adopt the retained save',async()=>{
  const p=await page();try{
- await projectChoice(p).check();await p.evaluate(()=>mode='deferred');
- await p.getByRole('button',{name:'Connect project',exact:true}).click();await p.waitForFunction(()=>typeof finish==='function');
+ await projectChoice(p).check();await p.evaluate(()=>window.mode='deferred');
+ await p.getByRole('button',{name:actionName('Connect project'),exact:true}).click();await p.waitForFunction(()=>typeof finish==='function');
  await p.evaluate(()=>{auth={...auth,userId:'human-b',sessionId:'session-b'};catalog={...catalog,actorClerkUserId:'human-b'};redraw();finish()});
  await p.waitForTimeout(400);assert.equal(await p.getByRole('heading',{name:'Project connected',exact:true}).count(),0);
  assert.equal(await p.evaluate(()=>calls.filter(c=>c[0]==='connect').length),1);
@@ -105,8 +107,8 @@ test('project cards and consent fit narrow and desktop layouts without truncatin
   assert.equal(await projectChoice(p).evaluate(el=>el.getBoundingClientRect().width<40),true,'radio stays compact');
   const name=p.locator('.connection-project strong').first();
   assert.equal(await name.evaluate(el=>el.scrollWidth<=el.clientWidth),true);
-  await projectChoice(p).check();await p.getByRole('button',{name:'Connect project',exact:true}).scrollIntoViewIfNeeded();
-  assert.equal(await p.getByRole('button',{name:'Connect project',exact:true}).isEnabled(),true);
+  await projectChoice(p).check();await p.getByRole('button',{name:actionName('Connect project'),exact:true}).scrollIntoViewIfNeeded();
+  assert.equal(await p.getByRole('button',{name:actionName('Connect project'),exact:true}).isEnabled(),true);
   if(process.env.VAETTIR_UI_SCREENSHOTS){mkdirSync('.local/ui-overhaul',{recursive:true});await p.screenshot({path:`.local/ui-overhaul/connection-${theme}-${width}.png`,fullPage:true,animations:'disabled'});}
  }
  assert.equal(await p.evaluate(()=>calls.filter(c=>c[0]==='connect').length),0);

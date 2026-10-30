@@ -1,5 +1,6 @@
+import { actionName } from "../apps/web/e2e/action-name.mjs";
 /* global HTMLButtonElement */
-/* global document, window */
+/* global window */
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
@@ -54,7 +55,7 @@ test("short actions preserve native form/ref/keyboard/touch behavior and dismiss
     });
     await page.goto(`http://127.0.0.1:${server.address().port}`);
     const retry = page.getByRole("button", {
-      name: "Retry: Recover the original request receipt",
+      name: actionName("Retry: Recover the original request receipt"),
       exact: true,
     });
     assert.equal(await retry.innerText(), "Retry");
@@ -77,7 +78,7 @@ test("short actions preserve native form/ref/keyboard/touch behavior and dismiss
       "submit",
     ]);
     const exported = page.getByRole("button", {
-      name: "Export this report",
+      name: actionName("Export this report"),
       exact: true,
     });
     await exported.tap();
@@ -93,7 +94,7 @@ test("short actions preserve native form/ref/keyboard/touch behavior and dismiss
     assert.equal(await tip.count(), 1);
     await page.keyboard.press("Escape");
     assert.equal(await tip.count(), 0);
-    await page.getByRole("button", { name: /View the saved report/ }).focus();
+    await page.getByRole("button", { name: actionName(/View the saved report/, false) }).focus();
     await tip.waitFor();
     const bounds = await tip.boundingBox();
     assert.ok(
@@ -104,7 +105,7 @@ test("short actions preserve native form/ref/keyboard/touch behavior and dismiss
     );
     assert.equal(
       await page
-        .getByRole("button", { name: "Delete the reviewed selection" })
+        .getByRole("button", { name: actionName("Delete the reviewed selection", false) })
         .isDisabled(),
       true,
     );

@@ -5,7 +5,7 @@ import {createServer} from "node:http";
 import {fileURLToPath} from "node:url";
 import path from "node:path";
 import assert from "node:assert/strict";
-const web=path.resolve(fileURLToPath(new URL("../../",import.meta.url))),output=path.join(web,"../../.local/jira-defect-20261021");
+const web=path.resolve(fileURLToPath(new URL("../../",import.meta.url))),output=(process.env.VAETTIR_E2E_OUTPUT_DIR ?? (path.join(web,"../../.local/jira-defect-20261021")));
 await mkdir(output,{recursive:true});
 const require=createRequire(path.join(web,"package.json")),{build}=createRequire(createRequire(require.resolve("vitest")).resolve("vite"))("esbuild"),{chromium}=require("@playwright/test");
 const boundary=path.join(web,"e2e/jira-defect/boundaries.jsx");

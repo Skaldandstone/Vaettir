@@ -1,3 +1,4 @@
+import { actionName } from "../apps/web/e2e/action-name.mjs";
 /* global window, document */
 // Full Reports page, real tRPC hooks, auth QueryClient and React providers.
 // Only Clerk/Next shell and HTTP responses are synthetic; no customer/provider data.
@@ -91,7 +92,7 @@ test("full reporting access settles and withholds bodies during genuine access c
     await page.addScriptTag({ content: js });
     await page.getByText("Dashboards and scheduled reports", { exact: true }).click();
     await stable();
-    assert.equal(await page.getByRole("button", { name: "Create report", exact: true }).isEnabled(), true);
+    assert.equal(await page.getByRole("button", { name: actionName("Create report"), exact: true }).isEnabled(), true);
     assert.deepEqual(errors, []);
     const workspace = page.locator("details").filter({ has: page.locator(":scope > summary", { hasText: "Dashboards and scheduled reports" }) });
     await workspace.getByLabel("Name", { exact: true }).fill("Retained private draft");
@@ -107,7 +108,7 @@ test("full reporting access settles and withholds bodies during genuine access c
     // Refreshing metrics hides stale charts, without triggering parent access reads.
     holdPreview = true;
     const accessCount = requests.filter(row => ["project.byId", "organization.mine"].includes(row.path)).length;
-    await workspace.getByRole("button", { name: "Refresh", exact: true }).click();
+    await workspace.getByRole("button", { name: actionName("Refresh"), exact: true }).click();
     await workspace.getByText("Refreshing current metrics…").waitFor();
     assert.equal(await page.locator(".quality-visual-report").count(), 0);
     holdPreview = false; release(); await stable();
@@ -119,7 +120,7 @@ test("full reporting access settles and withholds bodies during genuine access c
     membership = true; await page.evaluate(() => window.revalidateAccess()); await stable();
     failAccess = true; await page.evaluate(() => window.revalidateAccess());
     assert.equal(await workspace.isVisible(), false);
-    failAccess = false; await page.getByRole("button", { name: "Retry report access", exact: true }).click(); await stable();
+    failAccess = false; await page.getByRole("button", { name: actionName("Retry report access"), exact: true }).click(); await stable();
     await page.evaluate(() => { window.setOnline(false); void window.revalidateAccess(); });
     await page.getByText(/Verifying current report access/).waitFor();
     assert.equal(await workspace.isVisible(), false);
@@ -130,7 +131,7 @@ test("full reporting access settles and withholds bodies during genuine access c
     organizationId = pin.organizationId; await page.evaluate(() => window.revalidateAccess()); await stable();
     // Session changes use the production generation cache; actor B cannot see A's draft.
     holdPreview = true;
-    await workspace.getByRole("button", { name: "Refresh", exact: true }).click();
+    await workspace.getByRole("button", { name: actionName("Refresh"), exact: true }).click();
     await workspace.getByText("Refreshing current metrics…").waitFor();
     await page.evaluate(() => window.setSyntheticAuth({ userId: "synthetic-other-actor", sessionId: "synthetic-session-B" }));
     await page.getByText(/Report query drafts remain retained but hidden/).waitFor();
@@ -144,30 +145,30 @@ test("full reporting access settles and withholds bodies during genuine access c
     assert.equal(await workspace.getByLabel("Name", { exact: true }).inputValue(), "Retained private draft");
     // Actual scope editor remains functional and rejects foreign workspace options.
     await workspace.getByText("More report settings", { exact: true }).click();
-    await workspace.getByRole("button", { name: "Next settings screen", exact: true }).focus();
+    await workspace.getByRole("button", { name: actionName("Next settings screen"), exact: true }).focus();
     await page.keyboard.press("Enter");
-    await workspace.getByRole("button", { name: "Next settings screen", exact: true }).click();
+    await workspace.getByRole("button", { name: actionName("Next settings screen"), exact: true }).click();
     const plan = workspace.getByRole("combobox", { name: /^Plan \(optional\)/ });
     await plan.locator('option[value="synthetic-plan"]').waitFor({ state: "attached" });
     assert.equal(await plan.isEnabled(), true);
     await stable();
     scopeOrganizationId = "synthetic-foreign-org";
-    await workspace.getByRole("button", { name: "Previous settings screen", exact: true }).click();
-    await workspace.getByRole("button", { name: "Next settings screen", exact: true }).click();
+    await workspace.getByRole("button", { name: actionName("Previous settings screen"), exact: true }).click();
+    await workspace.getByRole("button", { name: actionName("Next settings screen"), exact: true }).click();
     await page.waitForTimeout(100);
     assert.equal(await plan.isDisabled(), true);
     assert.equal(await plan.locator('option[value="synthetic-plan"]').count(), 0);
     scopeOrganizationId = pin.organizationId;
-    await workspace.getByRole("button", { name: "Previous settings screen", exact: true }).click();
-    await workspace.getByRole("button", { name: "Next settings screen", exact: true }).click();
+    await workspace.getByRole("button", { name: actionName("Previous settings screen"), exact: true }).click();
+    await workspace.getByRole("button", { name: actionName("Next settings screen"), exact: true }).click();
     await plan.locator('option[value="synthetic-plan"]').waitFor({ state: "attached" });
     // The second real editor caller also settles when the settings editor mounts.
     await page.getByText("Manage saved report settings", { exact: true }).click();
-    await page.getByRole("button", { name: "Manage / history", exact: true }).click();
+    await page.getByRole("button", { name: actionName("Manage / history"), exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Review reusable report definition" });
     await dialog.getByRole("combobox", { name: /^Change/ }).selectOption("settings");
-    await dialog.getByRole("button", { name: "Next settings screen", exact: true }).click();
-    await dialog.getByRole("button", { name: "Next settings screen", exact: true }).click();
+    await dialog.getByRole("button", { name: actionName("Next settings screen"), exact: true }).click();
+    await dialog.getByRole("button", { name: actionName("Next settings screen"), exact: true }).click();
     await dialog.getByRole("combobox", { name: /^Plan \(optional\)/ }).locator('option[value="synthetic-plan"]').waitFor({ state: "attached" });
     await stable();
     holdAccess = true;
@@ -176,7 +177,7 @@ test("full reporting access settles and withholds bodies during genuine access c
     assert.equal(await dialog.isVisible(), false);
     holdAccess = false; release();
     await dialog.getByRole("combobox", { name: /^Change/ }).waitFor();
-    await dialog.getByRole("button", { name: "Close", exact: true }).click();
+    await dialog.getByRole("button", { name: actionName("Close"), exact: true }).click();
     await stable();
     await workspace.locator(":scope > summary").click();
     const closedCount = requests.length;
@@ -194,7 +195,7 @@ test("full reporting access settles and withholds bodies during genuine access c
       assert.equal(row.input.expectedClerkActorId, pin.clerkActorId);
     }
     assert.deepEqual(errors, []);
-    const evidence = root + ".local/reporting-refresh-20261029";
+    const evidence = (process.env.VAETTIR_E2E_OUTPUT_DIR ?? (root + ".local/reporting-refresh-20261029"));
     mkdirSync(evidence, { recursive: true });
     await workspace.getByText("More report settings", { exact: true }).click();
     await page.getByText("Manage saved report settings", { exact: true }).click();

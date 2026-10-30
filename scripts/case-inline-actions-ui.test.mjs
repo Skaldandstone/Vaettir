@@ -1,3 +1,4 @@
+import { actionName } from "../apps/web/e2e/action-name.mjs";
 /* global requestAnimationFrame, getComputedStyle */
 /* global document, window */
 import assert from "node:assert/strict";
@@ -24,23 +25,23 @@ test("direct case tools support keyboard, scope, busy and archived states withou
     const page = await browser.newPage({ viewport: { width: 390, height: 700 } });
     await page.goto(`http://127.0.0.1:${server.address().port}`);
     const tools = page.getByRole("group", { name: "Actions for SYN-01" });
-    await tools.getByRole("button", { name: "Run SYN-01", exact: true }).focus();
+    await tools.getByRole("button", { name: actionName("Run SYN-01"), exact: true }).focus();
     await page.keyboard.press("Enter");
-    await tools.getByRole("button", { name: "Move SYN-01 to a test plan" }).focus();
+    await tools.getByRole("button", { name: actionName("Move SYN-01 to a test plan", false) }).focus();
     await page.getByRole("tooltip").filter({ hasText: "Move SYN-01" }).waitFor();
     await page.keyboard.press("Escape");
     assert.equal(await page.getByRole("tooltip").count(), 0);
     await page.keyboard.press("Space");
-    await tools.getByRole("button", { name: "Export SYN-01 as CSV", exact: true }).click();
+    await tools.getByRole("button", { name: actionName("Export SYN-01 as CSV"), exact: true }).click();
     assert.deepEqual(await page.evaluate(() => window.actions), ["run", "move", "csv"]);
     assert.equal(await page.getByRole("dialog").count(), 0);
     await page.evaluate(() => window.state(s => ({ ...s, busy: true })));
     await page.waitForFunction(() => document.querySelector('[aria-label="Delete SYN-01"]').disabled);
     await page.evaluate(() => window.state(s => ({ ...s, busy: false, canRun: false, canArchive: false, canRestore: true })));
-    await tools.getByRole("button", { name: "Restore SYN-01" }).click();
-    assert.equal(await tools.getByRole("button", { name: "Archive SYN-01", exact: true }).count(), 0);
-    assert.equal(await tools.getByRole("button", { name: "Run SYN-01", exact: true }).isDisabled(), true);
-    const dir = root + ".local/import-mapping-queue-20261029"; mkdirSync(dir, { recursive: true });
+    await tools.getByRole("button", { name: actionName("Restore SYN-01", false) }).click();
+    assert.equal(await tools.getByRole("button", { name: actionName("Archive SYN-01"), exact: true }).count(), 0);
+    assert.equal(await tools.getByRole("button", { name: actionName("Run SYN-01"), exact: true }).isDisabled(), true);
+    const dir = (process.env.VAETTIR_E2E_OUTPUT_DIR ?? (root + ".local/import-mapping-queue-20261029")); mkdirSync(dir, { recursive: true });
     for (const theme of ["light", "dark"]) {
       await page.evaluate(async t => {
         document.documentElement.dataset.theme = t;
