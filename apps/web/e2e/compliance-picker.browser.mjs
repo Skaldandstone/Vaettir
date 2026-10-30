@@ -12,7 +12,7 @@ const require = createRequire(new URL("../package.json", import.meta.url));
 const { chromium, expect } = require("@playwright/test");
 const { build } = createRequire(createRequire(require.resolve("vitest")).resolve("vite"))("esbuild");
 const webRoot = fileURLToPath(new URL("../", import.meta.url));
-const proofRoot = fileURLToPath(new URL("../../../.local/compliance-coverage-20261030/", import.meta.url));
+const proofRoot = fileURLToPath(new URL("../../../.local/compliance-coverage-20261030/ui-followup-20261030/", import.meta.url));
 // Font URLs contain semicolons; strip the whole import line, not part of its URL.
 const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8").replace(/^@import[^\r\n]*\r?\n/gm, "");
 const bundle = await build({

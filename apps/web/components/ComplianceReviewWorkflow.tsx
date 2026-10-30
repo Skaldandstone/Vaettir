@@ -10,6 +10,7 @@ import {
 } from "@/lib/trpcReact";
 import { useCaseFieldAccess } from "@/lib/use-case-field-access";
 import { CompliancePicker } from "./CompliancePicker";
+import { IconButton } from "./ui/IconButton";
 import { complianceProfileValue } from "@/lib/compliance-catalog";
 
 type Review = RouterOutputs["compliance"]["preview"];
@@ -28,10 +29,21 @@ function CaseProcedure({
   if (!value) return null;
   return (
     <details>
-      <summary>Review {value.title}</summary>
-      <p>
-        Case approval: {value.reviewStatus.replaceAll("_", " ").toLowerCase()}
-      </p>
+      <summary>
+        {value.title} · {value.reviewStatus.replaceAll("_", " ").toLowerCase()}
+      </summary>
+      {value.background && (
+        <p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+          <strong>Background</strong>
+          <br />
+          {value.background}
+        </p>
+      )}
+      {value.tags.length > 0 && (
+        <p style={{ overflowWrap: "anywhere" }}>
+          <strong>Tags:</strong> {value.tags.join(", ")}
+        </p>
+      )}
       {(
         [
           ["Given", value.given],
@@ -357,12 +369,15 @@ export function ComplianceReviewWorkflow({ projectId }: { projectId: string }) {
         marginBlock: 16,
       }}
     >
-      <h2>Review coverage</h2>
-      <p>
-        Select references, review suggested relationships, then save and apply
-        the selected changes. Applicability and rights evidence need a
-        responsible reviewer. New cases remain pending ordinary approval.
-      </p>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <h2>Review coverage</h2>
+        <IconButton
+          label="Review help"
+          icon="help"
+          tooltip="Choose references, review suggestions, then save and apply your selection. Nothing is selected automatically. Applicability and rights evidence need a responsible reviewer; suggestions do not establish legal clearance, a test pass or compliance sign-off."
+        />
+      </div>
+      <p>New cases need ordinary approval.</p>
       {error && <p role="alert">{error}</p>}
       {!ready && (
         <p role="status">
@@ -394,16 +409,29 @@ export function ComplianceReviewWorkflow({ projectId }: { projectId: string }) {
             {busy ? "Preparing…" : "Prepare review"}
           </button>
           {(drafts.data ?? []).map((d) => (
-            <button
-              type="button"
-              className="btn-secondary"
+            <div
               key={d.id}
-              disabled={busy}
-              onClick={() => void resume(d.id)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                flexWrap: "wrap",
+                gap: 8,
+                marginBlock: 8,
+              }}
             >
-              Open {d.state.toLowerCase()} review ·{" "}
-              {new Date(d.createdAt).toLocaleString()}
-            </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                disabled={busy}
+                onClick={() => void resume(d.id)}
+              >
+                Open
+              </button>
+              <span>
+                {d.state.toLowerCase()} ·{" "}
+                {new Date(d.createdAt).toLocaleString()}
+              </span>
+            </div>
           ))}
         </>
       )}
@@ -421,20 +449,43 @@ export function ComplianceReviewWorkflow({ projectId }: { projectId: string }) {
                 setError(null);
               }}
             >
-              Start a fresh review
+              New review
             </button>
           )}
-          <p>
-            Scanned {review.scope.scanned} of {review.scope.total} active cases.
-            Omitted {review.scope.omitted}; archived {review.scope.archived}.{" "}
-            {review.scope.fields}
-          </p>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              flexWrap: "wrap",
+              gap: 8,
+            }}
+          >
+            <p>
+              Scanned {review.scope.scanned} of {review.scope.total} active
+              cases.
+            </p>
+            <IconButton
+              label="Scan details"
+              icon="help"
+              tooltip={
+                <>
+                  {review.scope.fields}. Archived cases excluded:{" "}
+                  {review.scope.archived}. Scan limit: {review.scope.limit}.
+                </>
+              }
+            />
+          </div>
+          {review.scope.omitted > 0 && (
+            <p role="status">
+              Incomplete scan: {review.scope.omitted} cases omitted. New-case
+              proposals are unavailable.
+            </p>
+          )}
           {review.state === "APPLIED" ? (
             <p role="status">
               Saved {review.receipt?.mappedCount ?? 0} mappings and{" "}
               {review.receipt?.createdIds.length ?? 0} proposed cases. New cases
-              still need ordinary approval. No test pass or compliance sign-off
-              was recorded.
+              still need ordinary approval.
             </p>
           ) : (
             <>
@@ -454,8 +505,7 @@ export function ComplianceReviewWorkflow({ projectId }: { projectId: string }) {
                     <p>{p.description}</p>
                     <p>
                       {p.kind.replaceAll("_", " ").toLowerCase()} ·{" "}
-                      {p.existing.length} existing mappings in scanned cases. No
-                      selection is automatic.
+                      {p.existing.length} existing mappings
                     </p>
                     {p.existing.map((id) => (
                       <CaseProcedure
@@ -465,26 +515,43 @@ export function ComplianceReviewWorkflow({ projectId }: { projectId: string }) {
                     ))}
                     {p.matches.map((m) => (
                       <div key={m.caseId}>
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={row.caseIds.includes(m.caseId)}
-                            onChange={() =>
-                              edit(p.controlId, {
-                                caseIds: row.caseIds.includes(m.caseId)
-                                  ? row.caseIds.filter((id) => id !== m.caseId)
-                                  : [...row.caseIds, m.caseId],
-                              })
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 8,
+                          }}
+                        >
+                          <label
+                            style={{ minWidth: 0, overflowWrap: "anywhere" }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={row.caseIds.includes(m.caseId)}
+                              onChange={() =>
+                                edit(p.controlId, {
+                                  caseIds: row.caseIds.includes(m.caseId)
+                                    ? row.caseIds.filter(
+                                        (id) => id !== m.caseId,
+                                      )
+                                    : [...row.caseIds, m.caseId],
+                                })
+                              }
+                            />{" "}
+                            {m.title}
+                          </label>
+                          <IconButton
+                            label={`Match help for ${m.title}`}
+                            icon="help"
+                            tooltip={
+                              <>
+                                {m.explanation} Title terms:{" "}
+                                {m.titleTerms.join(", ") || "none"}. Procedure
+                                terms: {m.procedureTerms.join(", ") || "none"}.
+                              </>
                             }
-                          />{" "}
-                          {m.title}
-                        </label>
-                        <p>
-                          Title terms: {m.titleTerms.join(", ") || "none"}.
-                          Procedure terms:{" "}
-                          {m.procedureTerms.join(", ") || "none"}.{" "}
-                          {m.explanation}
-                        </p>
+                          />
+                        </div>
                         <CaseProcedure
                           value={review.cases.find((c) => c.id === m.caseId)}
                         />
@@ -523,17 +590,29 @@ export function ComplianceReviewWorkflow({ projectId }: { projectId: string }) {
                         />
                       ))}
                     {row.caseIds.map((id) => (
-                      <button
-                        type="button"
+                      <div
                         key={id}
-                        onClick={() =>
-                          edit(p.controlId, {
-                            caseIds: row.caseIds.filter((x) => x !== id),
-                          })
-                        }
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                          overflowWrap: "anywhere",
+                        }}
                       >
-                        Remove {review.cases.find((c) => c.id === id)?.title}
-                      </button>
+                        <span>
+                          {review.cases.find((c) => c.id === id)?.title}
+                        </span>
+                        <IconButton
+                          label={`Remove ${review.cases.find((c) => c.id === id)?.title}`}
+                          icon="close"
+                          tooltip="Remove this case from the proposed mappings. The case itself is kept."
+                          onClick={() =>
+                            edit(p.controlId, {
+                              caseIds: row.caseIds.filter((x) => x !== id),
+                            })
+                          }
+                        />
+                      </div>
                     ))}
                     <label>
                       <input
@@ -546,7 +625,7 @@ export function ComplianceReviewWorkflow({ projectId }: { projectId: string }) {
                           })
                         }
                       />{" "}
-                      Propose a new case for ordinary review
+                      Propose case
                     </label>
                     {row.newCase && (
                       <CaseFieldValueControls
@@ -595,36 +674,36 @@ export function ComplianceReviewWorkflow({ projectId }: { projectId: string }) {
                   </fieldset>
                 );
               })}
-              <button
-                type="button"
-                className="btn-secondary"
-                disabled={
-                  !dirty || busy || !!pending || !ready || fieldsInvalid
-                }
-                onClick={() => void saveSelection()}
-              >
-                Save selection
-              </button>
-              <button
-                type="button"
-                className="btn-primary"
-                disabled={
-                  dirty ||
-                  fieldsInvalid ||
-                  busy ||
-                  !ready ||
-                  !selection.some((r) => r.caseIds.length || r.newCase)
-                }
-                onClick={() => void applySelected()}
-              >
-                {pending
-                  ? "Check outcome and retry same request"
-                  : "Apply reviewed selection"}
-              </button>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  disabled={
+                    !dirty || busy || !!pending || !ready || fieldsInvalid
+                  }
+                  onClick={() => void saveSelection()}
+                >
+                  Save
+                </button>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  disabled={
+                    dirty ||
+                    fieldsInvalid ||
+                    busy ||
+                    !ready ||
+                    !selection.some((r) => r.caseIds.length || r.newCase)
+                  }
+                  onClick={() => void applySelected()}
+                >
+                  {pending ? "Check result" : "Apply"}
+                </button>
+              </div>
               {pending && (
                 <p>
-                  Request retained. Check its recorded outcome before any
-                  further changes.
+                  Outcome unknown. Changes are locked. Check result reads the
+                  recorded outcome before retrying the same retained request.
                 </p>
               )}
             </>

@@ -177,6 +177,8 @@ jobs:
       - name: Verify workflow layouts and project connection interactions
         run: |
           pnpm --filter @vaettir/web exec playwright install --with-deps chromium
+          node apps/web/e2e/compliance-picker.browser.mjs
+          node apps/web/e2e/compliance-review.browser.mjs
           node scripts/form-layout-ui.test.mjs
           node scripts/quality-visuals-ui.test.mjs
           node apps/web/e2e/report-builder/run.mjs

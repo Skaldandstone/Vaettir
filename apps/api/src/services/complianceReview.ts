@@ -442,7 +442,7 @@ const receiptSchema = z.object({
   ordinaryCaseApproval: z.literal("PENDING_REVIEW"),
   legalClearance: z.literal(false),
 });
-const view = (draft: {
+export const viewComplianceDraft = (draft: {
   id: string;
   digest: string;
   state: string;
@@ -463,6 +463,8 @@ const view = (draft: {
     cases: s.cases.map((c) => ({
       id: c.id,
       title: c.title,
+      background: c.background,
+      tags: c.tags,
       given: c.given,
       when: c.when,
       then: c.then,
@@ -514,7 +516,7 @@ export async function previewCompliance(
       const d = await ownedDraft(tx, actor, { ...input, draftId: prior.id });
       if (d.requestHash !== requestHash)
         throw fail("Request ID belongs to a different analysis.");
-      return view(d);
+      return viewComplianceDraft(d);
     }
     const snapshot = await sourceSnapshot(tx, input, input.frameworkIds),
       sourceDigest = complianceHash(snapshot);
@@ -547,7 +549,7 @@ export async function previewCompliance(
       "Prepared compliance mapping review; no cases changed",
       { sourceDigest, scope: snapshot.scope },
     );
-    return view(d);
+    return viewComplianceDraft(d);
   }, options);
 }
 export async function readComplianceDraft(
@@ -556,7 +558,7 @@ export async function readComplianceDraft(
   input: z.infer<typeof complianceDraftInput>,
 ) {
   return db.$transaction(
-    async (tx) => view(await ownedDraft(tx, actor, input)),
+    async (tx) => viewComplianceDraft(await ownedDraft(tx, actor, input)),
     options,
   );
 }
@@ -616,7 +618,7 @@ export async function saveComplianceSelection(
       selection: input.selection,
       authorityGeneration: d.authorityGeneration,
     });
-    if (d.digest === digest) return view(d); // exact lost-response reconciliation
+    if (d.digest === digest) return viewComplianceDraft(d); // exact lost-response reconciliation
     if (d.digest !== input.expectedDigest)
       throw fail("Review changed. Reload its saved selection.");
     validateSelection(d.snapshot as unknown as Snapshot, input.selection);
@@ -632,7 +634,7 @@ export async function saveComplianceSelection(
       "Saved compliance selection for review",
       { digest },
     );
-    return view(saved);
+    return viewComplianceDraft(saved);
   }, options);
 }
 export async function applyComplianceReview(
@@ -648,7 +650,7 @@ export async function applyComplianceReview(
         throw fail(
           "Already applied. Read the recorded outcome; do not submit a new request.",
         );
-      return view(d);
+      return viewComplianceDraft(d);
     }
     if (d.digest !== input.expectedDigest)
       throw fail("Review changed. Reload before applying.");
@@ -760,6 +762,6 @@ export async function applyComplianceReview(
       "Applied reviewed compliance mappings and pending-review case proposals",
       receipt,
     );
-    return view(saved);
+    return viewComplianceDraft(saved);
   }, options);
 }
