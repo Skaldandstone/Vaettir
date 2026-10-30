@@ -1,3 +1,4 @@
+import { fixtureProjectKey } from "./testProjectKey.js";
 // Authored native regressions. Execute ONLY on a fully migrated owned disposable
 // database; source/type/unit checks are not native acceptance or deployment.
 import { randomUUID } from "node:crypto";
@@ -36,7 +37,7 @@ describe("case collaboration native current authorization and durable receipts",
   });
   async function fixture(orgId = orgs[0]!) {
     const key = randomUUID().replaceAll("-", "").slice(0, 12);
-    const project = await prisma.project.create({ data: { organizationId: orgId, name: `${tag}-${key}`, slug: `${tag}-${key}`, caseKey: `c${key}` } });
+    const project = await prisma.project.create({ data: { organizationId: orgId, name: `${tag}-${key}`, slug: `${tag}-${key}`, caseKey: fixtureProjectKey() } });
     const tc = await prisma.testCase.create({ data: { projectId: project.id, title: "Synthetic case", given: ["Setup"], when: ["Click button"], then: ["Result"], tags: ["synthetic"], testType: "FUNCTIONAL", steps: { create: { order: 0, action: "Click button", expectedActionOrData: "onClick calls GET /synthetic", expectedResult: "Details appear", expectedResponse: "200 synthetic JSON" } } } });
     return { project, tc };
   }

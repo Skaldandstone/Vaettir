@@ -39,7 +39,7 @@ describe("Atlassian OAuth durable authorization boundaries",()=>{
     const tag=`oauth-${randomUUID()}`,tier=await prisma.planTier.findUniqueOrThrow({where:{key:"free"}});
     const org=await prisma.organization.create({data:{name:tag,slug:tag,planTierId:tier.id}});organizationId=org.id;clerkActorId=tag;
     const user=await prisma.user.create({data:{clerkUserId:clerkActorId,email:tag+"@example.com",memberships:{create:{organizationId,role:"OWNER",seatType:"FULL"}}},include:{memberships:true}});
-    const project=await prisma.project.create({data:{organizationId,name:tag,slug:tag,caseKey:"qa"+tag.replaceAll("-","").slice(-8)}});projectId=project.id;
+    const project=await prisma.project.create({data:{organizationId,name:tag,slug:tag}});projectId=project.id;
     ctx={prisma,user,authenticatedClerkSubject:clerkActorId,authenticatedApiKeyId:null,workspaceOrganizationId:organizationId} as Context;caller=atlassianConnectionsRouter.createCaller(ctx);
   });
   afterAll(async()=>{vi.unstubAllEnvs();await prisma.$disconnect();});

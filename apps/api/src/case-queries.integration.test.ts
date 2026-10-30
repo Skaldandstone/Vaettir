@@ -1,3 +1,4 @@
+import { fixtureProjectKey } from "./testProjectKey.js";
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "@vaettir/db";
@@ -60,7 +61,8 @@ describe("case query explorer (disposable synthetic PostgreSQL)", () => {
       });
       users.push(user.id);
       const project = await prisma.project.create({
-        data: { name: key, slug: key, organizationId: org.id },
+        data: {
+          caseKey: fixtureProjectKey(), name: key, slug: key, organizationId: org.id },
       });
       if (foreign) {
         outsider = router.createCaller({ prisma, user });

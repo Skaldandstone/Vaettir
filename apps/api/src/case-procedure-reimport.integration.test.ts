@@ -47,7 +47,7 @@ describe("reviewed same-project procedure restoration", () => {
       const project = await caller.project.create({
         organizationId: org.id,
         name: `Synthetic ${n}`,
-        caseKey: `rest${n}`,
+        caseKey: "rest",
       });
       if (n === 0) {
         owner = caller;
@@ -164,8 +164,8 @@ describe("reviewed same-project procedure restoration", () => {
     ).toBe(before);
   });
   it("old and new renamed-key exports restore exact procedures and prerequisite labels without changing stored identity or old receipts", async () => {
-    const suffix = randomUUID().replaceAll("-", "").slice(0, 8);
-    const target = await owner.project.create({ organizationId: orgIds[0]!, name: "Owned renamed procedure fixture", caseKey: `old-${suffix}` });
+
+    const target = await owner.project.create({ organizationId: orgIds[0]!, name: "Owned renamed procedure fixture", caseKey: `old` });
     const c = await newCase(" Original\ncase λ ", target.id), prerequisite = await newCase(" Prerequisite\nraw ", target.id);
     await prisma.testCasePrerequisite.create({ data: { projectId: target.id, dependentId: c.id, prerequisiteId: prerequisite.id, createdById: actorId } });
     const media = await prisma.testCaseAttachment.create({ data: { testCaseId: c.id, fileName: "owned.png", contentType: "image/png", sizeBytes: 4, storageUrl: "synthetic://never-fetched", uploadCompletedAt: new Date() } });
@@ -173,11 +173,11 @@ describe("reviewed same-project procedure restoration", () => {
     const stored = await prisma.testCase.findUniqueOrThrow({ where: { id: c.id }, include: { steps: true, prerequisites: true } });
     const old = await exportCase(c.id, target.id), originalSerialized = JSON.stringify(old);
     const identity = await owner.project.caseIdentity({ projectId: target.id, expectedClerkActorId: ownerClerkSubject });
-    await owner.project.saveCaseKey({ projectId: target.id, originalOrganizationId: orgIds[0]!, expectedClerkActorId: ownerClerkSubject, expectedNativeActorId: actorId, expectedCaseKey: identity.caseKey, expectedRevision: identity.revision, caseKey: `new-${suffix}`, requestId: randomUUID() });
+    await owner.project.saveCaseKey({ projectId: target.id, originalOrganizationId: orgIds[0]!, expectedClerkActorId: ownerClerkSubject, expectedNativeActorId: actorId, expectedCaseKey: identity.caseKey, expectedRevision: identity.revision, caseKey: `new`, requestId: randomUUID() });
     const newer = await exportCase(c.id, target.id);
     expect(newer.cases[0]!.id).toBe(c.id); expect(newer.cases[0]!.caseNumber).toBe(c.caseNumber);
-    expect(newer.cases[0]!.displayId).toBe(`new-${suffix}-${String(c.caseNumber).padStart(2, "0")}`);
-    expect(newer.cases[0]!.prerequisites[0]!.displayId).toBe(`new-${suffix}-${String(prerequisite.caseNumber).padStart(2, "0")}`);
+    expect(newer.cases[0]!.displayId).toBe(`new-${String(c.caseNumber).padStart(2, "0")}`);
+    expect(newer.cases[0]!.prerequisites[0]!.displayId).toBe(`new-${String(prerequisite.caseNumber).padStart(2, "0")}`);
     expect(JSON.stringify(old)).toBe(originalSerialized);
     for (const bundle of [old, newer]) {
       bundle.cases[0]!.title = bundle === old ? " Old snapshot\ncorrected λ " : " New snapshot\ncorrected λ ";
@@ -197,15 +197,15 @@ describe("reviewed same-project procedure restoration", () => {
       if (bundle === newer) {
         const before = await prisma.auditLog.findFirstOrThrow({ where: { projectId: target.id, entityType: "TestCaseProcedureReimport", entityId: approval.requestId } });
         const now = await owner.project.caseIdentity({ projectId: target.id, expectedClerkActorId: ownerClerkSubject });
-        await owner.project.saveCaseKey({ projectId: target.id, originalOrganizationId: orgIds[0]!, expectedClerkActorId: ownerClerkSubject, expectedNativeActorId: actorId, expectedCaseKey: now.caseKey, expectedRevision: now.revision, caseKey: `next-${suffix}`, requestId: randomUUID() });
+        await owner.project.saveCaseKey({ projectId: target.id, originalOrganizationId: orgIds[0]!, expectedClerkActorId: ownerClerkSubject, expectedNativeActorId: actorId, expectedCaseKey: now.caseKey, expectedRevision: now.revision, caseKey: `next`, requestId: randomUUID() });
         expect(await owner.caseProcedureReimport.approve(approval)).toEqual({ ...receipt, replayed: true });
         expect(await prisma.auditLog.findUnique({ where: { id: before.id } })).toEqual(before);
       }
     }
   });
   it("registered labels with another case number or immutable ID and foreign prefix/prerequisite aliases remain refused", async () => {
-    const suffix = randomUUID().replaceAll("-", "").slice(0, 8);
-    const target = await owner.project.create({ organizationId: orgIds[0]!, name: "Owned alias refusal fixture", caseKey: `scope-${suffix}` });
+
+    const target = await owner.project.create({ organizationId: orgIds[0]!, name: "Owned alias refusal fixture", caseKey: `scope` });
     const c = await newCase("Original", target.id), prerequisite = await newCase("Prerequisite", target.id);
     await prisma.testCasePrerequisite.create({ data: { projectId: target.id, dependentId: c.id, prerequisiteId: prerequisite.id, createdById: actorId } });
     const original = await exportCase(c.id, target.id), count = await prisma.testCase.count({ where: { projectId: target.id } });

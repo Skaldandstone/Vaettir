@@ -279,13 +279,13 @@ describe.skipIf(process.platform !== "linux" || (process.env.CI !== "true" && pr
       }
       const oldRead = await oldClient.testCase.findUniqueOrThrow({ where: { id: tc.id }, include: { steps: true, source: true, versions: true } });
       assert.equal(oldRead.displayId, "upgrade-old-01"); assert.equal(oldRead.source?.externalTestId, "SOURCE-97");
-      const request = { projectId: project.id, originalOrganizationId: org.id, expectedNativeActorId: actor.id, expectedClerkActorId: token, requestId: randomUUID(), expectedCaseKey: "upgrade-old", expectedRevision: 0, caseKey: "upgrade-new" };
+      const request = { projectId: project.id, originalOrganizationId: org.id, expectedNativeActorId: actor.id, expectedClerkActorId: token, requestId: randomUUID(), expectedCaseKey: "upgrade-old", expectedRevision: 0, caseKey: "unew" };
       await saveProjectCaseKey(current, actor.id, request, { clerkActorId: token });
       assert.deepEqual(await oldClient.testCase.findUniqueOrThrow({ where: { id: tc.id }, include: { steps: true, source: true, versions: true } }), oldRead);
       await expect(oldClient.project.update({ where: { id: project.id }, data: { caseKey: "bare-old-write" } })).rejects.toThrow();
       const issued = await oldClient.testCase.create({ data: { projectId: project.id, title: "Old client after upgrade", testType: "FUNCTIONAL" } });
-      assert.equal(issued.caseNumber, 2); assert.equal(issued.displayId, "upgrade-new-02");
-      for (const prefix of ["upgrade-old", "upgrade-new"]) assert.equal((await resolveProjectCaseReference(current, actor.id, project.id, prefix + "-01", { clerkActorId: token }))?.id, tc.id);
+      assert.equal(issued.caseNumber, 2); assert.equal(issued.displayId, "unew-02");
+      for (const prefix of ["upgrade-old", "unew"]) assert.equal((await resolveProjectCaseReference(current, actor.id, project.id, prefix + "-01", { clerkActorId: token }))?.id, tc.id);
       assert.equal((await saveProjectCaseKey(current, actor.id, request, { clerkActorId: token })).replayed, true);
       const full98 = await inventory(current), schema98 = await schemaEvidence(current);
       const dump98 = run(tools[1]!, [...pgArgs(databases[0]!), "--format=custom", "--no-owner", "--no-privileges"], pgEnv, true) as Buffer;

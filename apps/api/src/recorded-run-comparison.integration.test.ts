@@ -1,3 +1,4 @@
+import { fixtureProjectKey } from "./testProjectKey.js";
 // Synthetic integration coverage; requires an owned migrated loopback test DB.
 import { randomUUID } from "node:crypto";
 import { describe, beforeAll, afterAll, it, expect } from "vitest";
@@ -101,7 +102,7 @@ describe("bounded neutral recorded-run comparison", () => {
         organizationId: orgs[foreign ? 1 : 0]!,
         name: slug,
         slug,
-        caseKey: `r${randomUUID().replaceAll("-", "").slice(0, 15)}`,
+        caseKey: fixtureProjectKey(),
       },
     });
   }

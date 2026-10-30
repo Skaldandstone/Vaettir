@@ -1,3 +1,4 @@
+import { fixtureProjectKey } from "./testProjectKey.js";
 // Native execution is recorded by root on a fresh owned migrated database.
 // Accepted native-actor receipts are not retrospectively Clerk-stamped. Their
 // original organization still binds replay; old unaccepted review tokens do not.
@@ -55,7 +56,7 @@ describe("legacy accepted intent recovery retains native actor and original tena
   ] };
   async function fixture(required: boolean) {
     const p = await a.project.create({ organizationId: orgA, name: `${tag}-${randomUUID()}`,
-      caseKey: `l${randomUUID().replaceAll("-", "").slice(0, 15)}` });
+      caseKey: fixtureProjectKey() });
     if (required) {
       const review = await a.caseFields.reviewSchema({ projectId: p.id, schema });
       await a.caseFields.configure({ projectId: p.id, schema, actorId: review.actorId,

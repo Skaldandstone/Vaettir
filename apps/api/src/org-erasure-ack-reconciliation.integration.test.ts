@@ -1,3 +1,4 @@
+import { fixtureProjectKey } from "./testProjectKey.js";
 // Native synthetic scenarios; root reviews and executes on a fresh owned DB.
 // The controlled post-COMMIT P2028 models caller acknowledgement loss, not an
 // assertion that Prisma always commits after a timeout. No transaction options
@@ -34,7 +35,7 @@ describe("exact native erasure receipt reconciles only its own committed acknowl
     const org = await prisma.organization.create({ data: { name: suffix, slug: suffix, planTierId: tier.id } });
     owned.set(org.id, { actorId: actor.id, slug: org.slug });
     const membership = await prisma.membership.create({ data: { organizationId: org.id, userId: actor.id, role: "OWNER", seatType: "FULL" } });
-    const project = await prisma.project.create({ data: { organizationId: org.id, slug: suffix, name: "Synthetic native acknowledgement project", caseKey: `a${randomUUID().replaceAll("-", "").slice(0, 14)}` } });
+    const project = await prisma.project.create({ data: { organizationId: org.id, slug: suffix, name: "Synthetic native acknowledgement project", caseKey: fixtureProjectKey() } });
     const testCase = await prisma.testCase.create({ data: {
       projectId: project.id, title: "Original | case", testType: "FUNCTIONAL",
       background: "Independent setup | literal\nsecond condition", given: ["Given | literal\nsecond line"],

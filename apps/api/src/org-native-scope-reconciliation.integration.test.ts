@@ -1,3 +1,4 @@
+import { fixtureProjectKey } from "./testProjectKey.js";
 // Real PostgreSQL TEMP/native-scope regressions. Never run on a customer DB.
 import { randomUUID } from "node:crypto";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -77,7 +78,7 @@ describe("fixed-family native erasure staging and exact set reconciliation", () 
         memberships: { create: { userId: actor.id, role: "OWNER", seatType: "FULL" } },
       } });
       owned.set(org.id, actor.id);
-      const project = await prisma.project.create({ data: { organizationId: org.id, name: slug, slug, caseKey: `s${randomUUID().replaceAll("-", "").slice(0, 14)}` } });
+      const project = await prisma.project.create({ data: { organizationId: org.id, name: slug, slug, caseKey: fixtureProjectKey() } });
       const cases = [];
       for (let index = 0; index < 2; index++) {
         const tc = await prisma.testCase.create({ data: { projectId: project.id, title: `Synthetic retained case ${index}`, testType: "FUNCTIONAL", given: ["Synthetic given"], when: ["Synthetic when"], then: ["Synthetic then"], tags: [], createdById: actor.id } });

@@ -1,3 +1,4 @@
+import { fixtureProjectKey } from "./testProjectKey.js";
 // Execute only after migration on a uniquely owned disposable database.
 // Native statements, independent connections and real row locks; no mocked read
 // results, disabled triggers or changed product transaction deadlines.
@@ -64,7 +65,7 @@ describe("case-field current native actor and original-organization read scope",
   async function fixture(orgId = organizationId) {
     const project = await owner.project.create({
       organizationId: orgId, name: `${tag}-${randomUUID()}`,
-      caseKey: `r${randomUUID().replaceAll("-", "").slice(0, 15)}`,
+      caseKey: fixtureProjectKey(),
     });
     const impact = await owner.caseFields.reviewSchema({ projectId: project.id, schema });
     await owner.caseFields.configure({

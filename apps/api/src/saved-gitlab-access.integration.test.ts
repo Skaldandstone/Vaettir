@@ -33,7 +33,7 @@ describe.skipIf(!isolated&&process.env.GITHUB_ACTIONS!=="true")("saved GitLab me
     subject=key;const user=await prisma.user.create({data:{clerkUserId:subject,email:key+"@example.com",memberships:{create:{organizationId:orgId,role:"OWNER",seatType:"FULL"}}},include:{memberships:true}});actorId=user.id;
     cleanup.set(orgId,{slug:key,actorId});
     ctx={prisma,user,authenticatedClerkSubject:subject,staff:null,securityLogger:undefined,staffAttempt:{tokenConfigured:false,tokenPresented:false,actorHeaderPresented:false}};
-    projectId=(await prisma.project.create({data:{organizationId:orgId,name:key,slug:key,caseKey:"continuity"}})).id;
+    projectId=(await prisma.project.create({data:{organizationId:orgId,name:key,slug:key,caseKey:"cont"}})).id;
     configId=(await prisma.repositoryProviderConfiguration.create({data:{organizationId:orgId,provider:"gitlab",origin,clientId:"synthetic-client",encryptedSecret:{...encryptToken("synthetic-secret")},createdById:actorId}})).id;
     connectionId=(await prisma.repositoryConnection.create({data:{organizationId:orgId,projectId,actorId,configurationId:configId,provider:"gitlab",origin,stateHash:randomUUID(),status:"VERIFIED",verifiedAt:new Date(),authorizationExpiresAt:new Date(0),tokenExpiresAt:new Date(0),
       encryptedToken:{...encryptToken("old-synthetic-access")},encryptedVerifier:{...encryptToken(JSON.stringify({version:"gitlab-refresh/v1",refreshToken:"old-synthetic-refresh",accountId:"17",redirectUri}))}}})).id;

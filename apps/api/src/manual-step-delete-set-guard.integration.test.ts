@@ -1,3 +1,4 @@
+import { fixtureProjectKey } from "./testProjectKey.js";
 // Native database boundary, not a claim that the API permits mixed execution modes.
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -37,7 +38,7 @@ describe("set-based manual-step native result DELETE protection", () => {
     const organization = await prisma.organization.create({ data: { name: tag, slug: tag, planTierId: tier.id } });
     organizationId = organization.id;
     const project = await prisma.project.create({ data: {
-      organizationId, name: tag, slug: tag, caseKey: `e${randomUUID().replaceAll("-", "").slice(0, 15)}`,
+      organizationId, name: tag, slug: tag, caseKey: fixtureProjectKey(),
     } });
     projectId = project.id;
   });
