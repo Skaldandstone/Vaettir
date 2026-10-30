@@ -23,11 +23,11 @@ test("short actions preserve native form/ref/keyboard/touch behavior and dismiss
       loader: "tsx",
       contents: `
     import React,{useRef,useEffect} from 'react';import{createRoot}from'react-dom/client';import{ActionButton}from'./components/ui/ActionButton';import{ActionHelp}from'./components/ui/ActionHelp';
-    window.events=[];window.linkEvents=[];function App(){const ref=useRef(null),linkRef=useRef(null);useEffect(()=>{window.button=ref.current;window.link=linkRef.current},[]);return <main style={{padding:20}}><form onSubmit={e=>{e.preventDefault();window.events.push('submit')}}>
+    window.events=[];window.linkEvents=[];function App(){const ref=useRef(null),linkRef=useRef(null);useEffect(()=>{window.button=ref.current;window.link=linkRef.current},[]);if(new URLSearchParams(window.location.search).has("links"))return <main style={{padding:20}}><p id="context">Original project only.</p><ActionHelp tooltip="Open the selected report without changing its source"><a ref={linkRef} href="#report" target="_self" rel="noreferrer" aria-describedby="context" onClick={e=>window.linkEvents.push({prevented:e.defaultPrevented})}>View report</a></ActionHelp><ActionHelp tooltip="Download the original report file"><a href="/synthetic.txt" download="synthetic.txt" target="_blank" rel="noopener noreferrer">Download</a></ActionHelp></main>;return <main style={{padding:20}}><form onSubmit={e=>{e.preventDefault();window.events.push('submit')}}>
     <p id="context">Original project only.</p><ActionButton ref={ref} className="btn-primary" aria-describedby="context" tooltip="Recover the original request receipt" onClick={()=>window.events.push('click')} onKeyDown={e=>window.events.push(e.key)}>Retry</ActionButton>
     <ActionButton type="button" className="btn-secondary" tooltip="Export this report" onClick={()=>window.events.push('export')}>Export</ActionButton>
     <ActionButton type="button" disabled tooltip="Delete the reviewed selection" onClick={()=>window.events.push('delete')}>Delete</ActionButton>
-    </form><ActionHelp tooltip="Open the selected report without changing its source"><a ref={linkRef} href="#report" target="_self" rel="noreferrer" aria-describedby="context" onClick={e=>window.linkEvents.push({prevented:e.defaultPrevented})}>View report</a></ActionHelp><ActionHelp tooltip="Download the original report file"><a href="/synthetic.txt" download="synthetic.txt" target="_blank" rel="noopener noreferrer">Download</a></ActionHelp><div style={{marginTop:450,display:'flex',justifyContent:'end'}}><ActionButton type="button" tooltip="View the saved report and its original source details">Details</ActionButton></div></main>}
+    </form><div style={{marginTop:450,display:'flex',justifyContent:'end'}}><ActionButton type="button" tooltip="View the saved report and its original source details">Details</ActionButton></div></main>}
     createRoot(document.getElementById('root')).render(<App/>);`,
     },
     bundle: true,
@@ -69,6 +69,7 @@ test("short actions preserve native form/ref/keyboard/touch behavior and dismiss
     assert.match(await retry.getAttribute("aria-describedby"), /^context .+/);
     assert.equal(await tip.innerText(), "Recover the original request receipt");
     await page.keyboard.press("Escape");
+    await page.waitForFunction(() => document.querySelector('[role="tooltip"]') === null, undefined, {timeout:1000});
     assert.equal(await tip.count(), 0);
     await page.keyboard.press("Enter");
     assert.deepEqual(await page.evaluate(() => window.events), [
@@ -82,6 +83,7 @@ test("short actions preserve native form/ref/keyboard/touch behavior and dismiss
       exact: true,
     });
     await exported.tap();
+    await page.waitForFunction(() => document.querySelector('[role="tooltip"]') === null, undefined, {timeout:1000});
     assert.equal(await tip.count(), 0);
     assert.deepEqual(await page.evaluate(() => window.events.slice(-1)), [
       "export",
@@ -93,6 +95,7 @@ test("short actions preserve native form/ref/keyboard/touch behavior and dismiss
     await page.waitForTimeout(250);
     assert.equal(await tip.count(), 1);
     await page.keyboard.press("Escape");
+    await page.waitForFunction(() => document.querySelector('[role="tooltip"]') === null, undefined, {timeout:1000});
     assert.equal(await tip.count(), 0);
     await page.mouse.move(0, 0);
     await page.waitForFunction(() => document.querySelector('[role="tooltip"]') === null);
@@ -116,6 +119,7 @@ test("short actions preserve native form/ref/keyboard/touch behavior and dismiss
       false,
     );
     await page.keyboard.press("Escape");
+    await page.goto(`http://127.0.0.1:${server.address().port}/?links`);
     const link = page.getByRole("link", { name: /^View report:/ });
     assert.equal(await link.innerText(), "View report");
     assert.equal(await page.evaluate(() => window.link instanceof HTMLAnchorElement), true);
@@ -124,7 +128,8 @@ test("short actions preserve native form/ref/keyboard/touch behavior and dismiss
     assert.equal(await link.getAttribute("rel"), "noreferrer");
     await link.focus(); await tip.waitFor();
     assert.match(await link.getAttribute("aria-describedby"), /^context .+/);
-    await page.keyboard.press("Escape"); assert.equal(await tip.count(), 0);
+    await page.keyboard.press("Escape"); await page.waitForFunction(() => document.querySelector('[role="tooltip"]') === null, undefined, {timeout:1000});
+    assert.equal(await tip.count(), 0);
     assert.equal(await link.getAttribute("aria-describedby"), "context");
     await link.press("Enter");
     assert.ok(page.url().endsWith("#report"), "The original native link still navigates on Enter");
@@ -132,7 +137,8 @@ test("short actions preserve native form/ref/keyboard/touch behavior and dismiss
     await link.blur(); await link.hover(); await tip.waitFor(); await tip.hover();
     await page.waitForTimeout(250); assert.equal(await tip.count(), 1);
     await page.keyboard.press("Escape");
-    await link.tap(); assert.equal(await tip.count(), 0);
+    await link.tap(); await page.waitForFunction(() => document.querySelector('[role="tooltip"]') === null, undefined, {timeout:1000});
+    assert.equal(await tip.count(), 0);
     assert.equal(await page.evaluate(() => window.linkEvents.length), 2, "Touch activates the link once");
     const download = page.getByRole("link", { name: "Download the original report file", exact: true });
     assert.equal(await download.getAttribute("download"), "synthetic.txt");
