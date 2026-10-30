@@ -19,7 +19,7 @@ describe("Atlassian OAuth protocol",()=>{
  it.each(["http://app.vaettir.example","https://user:secret@app.vaettir.example","https://app.vaettir.example/wrong","https://app.vaettir.example?redirect=evil"])("refuses unsafe callback origin %s",origin=>expect(atlassianApplication({ATLASSIAN_OAUTH_PUBLIC_URL:origin,ATLASSIAN_OAUTH_CLIENT_ID:app.clientId,ATLASSIAN_OAUTH_CLIENT_SECRET:app.clientSecret})).toBeNull());
  it("issues unpredictable state and fixed read-only scope union without secret leakage",()=>{
   const a=createAtlassianAuthorization(app),b=createAtlassianAuthorization(app),url=new URL(a.url);
-  expect(a.state).not.toBe(b.state);expect(a.state).toMatch(/^[A-Za-z0-9_-]{43}$/);expect(url.origin).toBe("https://auth.atlassian.com");expect(url.searchParams.get("scope")).toBe(ATLASSIAN_READ_SCOPES.join(" "));expect(a.url).not.toContain(app.clientSecret);expect(ATLASSIAN_READ_SCOPES.some(x=>/write|manage/.test(x))).toBe(false);
+  expect(a.state).not.toBe(b.state);expect(a.state).toMatch(/^[A-Za-z0-9_-]{43}$/);expect(url.origin).toBe("https://auth.atlassian.com");expect(url.searchParams.get("scope")).toBe(ATLASSIAN_READ_SCOPES.join(" "));expect(url.searchParams.get("scope")?.split(" ")).toContain("report:personal-data");expect(a.url).not.toContain(app.clientSecret);expect(ATLASSIAN_READ_SCOPES.some(x=>/write|manage/.test(x))).toBe(false);
  });
  it("exchanges only the configured confidential client and callback",async()=>{
   vi.mocked(atlassianProviderToken).mockResolvedValue(issued);await exchangeAtlassianCode(app,"synthetic-code");expect(atlassianProviderToken).toHaveBeenCalledWith({grant_type:"authorization_code",client_id:app.clientId,client_secret:app.clientSecret,redirect_uri:app.redirectUri,code:"synthetic-code"});

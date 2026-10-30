@@ -5,8 +5,10 @@ import { jiraSiteOrigin } from "./jiraSourceConnection.js";
 
 export const atlassianProduct = z.enum(["jira", "confluence"]);
 export type AtlassianProduct = z.infer<typeof atlassianProduct>;
-// A fixed union prevents later Jira/Confluence consent from silently removing the other scope.
-export const ATLASSIAN_READ_SCOPES = ["read:me", "read:jira-work", "read:jira-user", "read:space:confluence", "offline_access"] as const;
+// Jira/Confluence content stays read-only. Privacy reporting is required for the
+// account identity retained by this app; it does not authorize content writes.
+// A fixed union prevents later product consent from removing another scope.
+export const ATLASSIAN_READ_SCOPES = ["read:me", "read:jira-work", "read:jira-user", "read:space:confluence", "report:personal-data", "offline_access"] as const;
 const printable = z.string().min(1).max(10000).regex(/^[\x21-\x7e]+$/);
 const label = z.string().min(1).max(300).refine(s => !Array.from(s).some(char=>char.charCodeAt(0)<32||char.charCodeAt(0)===127));
 export const atlassianApplicationSchema = z.object({ clientId: printable.max(300), clientSecret: printable.max(2000), redirectUri: z.string().url().max(1000).refine(value => { try { const url=new URL(value);return url.protocol==="https:"&&!url.username&&!url.password&&!url.search&&!url.hash&&(!url.port||url.port==="443")&&url.pathname==="/connections/atlassian/callback"; } catch{return false;} }) }).strict();
