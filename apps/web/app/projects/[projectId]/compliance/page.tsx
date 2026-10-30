@@ -12,6 +12,9 @@ import { Drawer } from "@/components/Drawer";
 import { downloadCsv } from "@/lib/csv";
 
 import { COMPLIANCE_STARTERS } from "@/lib/compliance-starters";
+import { CompliancePicker } from "@/components/CompliancePicker";
+import { COMPLIANCE_CATALOG, savedComplianceOptions } from "@/lib/compliance-catalog";
+import { rankComplianceCandidates } from "@/lib/compliance-proposals";
 import {
   ComplianceMappingGuidance,
   ComplianceFrameworkGuidance,
@@ -422,6 +425,7 @@ function ControlRow({
     { enabled: picking },
   );
   const candidates = candidatesQuery.data ?? [];
+  const rankedCandidates = rankComplianceCandidates(control, candidates);
   const [selected, setSelected] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
 
@@ -487,15 +491,29 @@ function ControlRow({
         {!readOnly &&
           (picking ? (
             <>
+              <div style={{ flexBasis: "100%", fontSize: 12 }}>
+                {candidatesQuery.isPending ? <p role="status">Loading candidate cases…</p> : candidatesQuery.error ? (
+                  <p role="alert">Could not load cases. Close and reopen the picker to retry.</p>
+                ) : <>
+                  <p>Title matches first. This preview checks {candidates.length} loaded case titles, not their steps or expected results. Review the case before mapping.</p>
+                  {candidates.length >= 200 && <p role="status">More cases may exist. This list is limited to 200 candidates and cannot establish complete project coverage.</p>}
+                  {candidates.length === 0 && <p>No unmapped cases were returned. Review the control’s suggested check outline before authoring a new case.</p>}
+                </>}
+                {selected && <p>{(() => {
+                  const terms = rankedCandidates.find((item) => item.candidate.id === selected)?.matchedTerms ?? [];
+                  return terms.length ? `Shared title terms: ${terms.join(", ")}. This is a suggestion, not verified coverage.` : "No shared title terms. A reviewer must assess the case’s relevance.";
+                })()}</p>}
+              </div>
               <select
+                aria-label={`Test case for ${control.code}`}
                 value={selected}
                 onChange={(e) => setSelected(e.target.value)}
                 style={{ fontSize: 12 }}
               >
                 <option value="">Pick a test case…</option>
-                {candidates.map((tc) => (
+                {rankedCandidates.map(({ candidate: tc, matchedTerms }) => (
                   <option key={tc.id} value={tc.id}>
-                    {tc.title}
+                    {tc.title}{matchedTerms.length > 0 ? " · title match" : ""}
                   </option>
                 ))}
               </select>
@@ -503,7 +521,7 @@ function ControlRow({
                 className="btn-secondary"
                 style={{ fontSize: 12 }}
                 onClick={map}
-                disabled={busy || !selected}
+                disabled={busy || !selected || candidatesQuery.isFetching || !!candidatesQuery.error || !candidates.some((candidate) => candidate.id === selected)}
               >
                 Map
               </button>
@@ -588,7 +606,7 @@ export default function CompliancePage() {
   const [error, setError] = useState<string | null>(null);
 
   const [frameworkModalOpen, setFrameworkModalOpen] = useState(false);
-  const [starterKey, setStarterKey] = useState(COMPLIANCE_STARTERS[0]!.key);
+  const [starterKey, setStarterKey] = useState("nist-csf-2");
   const [frameworkMode, setFrameworkMode] = useState<"starter" | "custom">(
     "starter",
   );
@@ -844,30 +862,12 @@ export default function CompliancePage() {
       {loading && <p>Loading…</p>}
 
       {!loading && frameworks.length > 0 && (
-        <div
-          style={{
-            display: "flex",
-            gap: 8,
-            marginBottom: 16,
-            flexWrap: "wrap",
-          }}
-        >
-          {frameworks.map((f) => (
-            <button
-              key={f.id}
-              className={
-                f.id === selectedFrameworkId ? "btn-primary" : "btn-secondary"
-              }
-              style={{ fontSize: 13 }}
-              onClick={() => setSelectedFrameworkId(f.id)}
-            >
-              {f.name}
-              {f.version && ` (${f.version})`} — {f.controlCount} control
-              {f.controlCount === 1 ? "" : "s"}
-              {!f.isBuiltIn && " · custom"}
-            </button>
-          ))}
-        </div>
+        <CompliancePicker
+          label="Saved frameworks"
+          options={savedComplianceOptions(frameworks)}
+          selected={selectedFrameworkId ? [selectedFrameworkId] : []}
+          onSelect={setSelectedFrameworkId}
+        />
       )}
 
       {selectedFramework && (
@@ -1037,19 +1037,16 @@ export default function CompliancePage() {
           </div>
           {frameworkMode === "starter" ? (
             <>
-              <label>
-                Framework
-                <select
-                  value={starterKey}
-                  onChange={(event) => setStarterKey(event.target.value)}
-                >
-                  {COMPLIANCE_STARTERS.map((starter) => (
-                    <option key={starter.key} value={starter.key}>
-                      {starter.name} · {starter.version}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <CompliancePicker
+                label="Standards and rights to review"
+                options={COMPLIANCE_CATALOG}
+                selected={[starterKey]}
+                onSelect={setStarterKey}
+                disabled={savingFramework}
+              />
+              {!COMPLIANCE_STARTERS.some((starter) => starter.key === starterKey) && (
+                <p role="status">This reference has no bundled controls. Use an existing saved framework or obtain the applicable control list from its authoritative source.</p>
+              )}
               {COMPLIANCE_STARTERS.filter(
                 (starter) => starter.key === starterKey,
               ).map((starter) => (
@@ -1091,7 +1088,7 @@ export default function CompliancePage() {
                 <ActionButton
                   className="btn-primary"
                   onClick={loadStarterFramework}
-                  disabled={savingFramework}
+                  disabled={savingFramework || !COMPLIANCE_STARTERS.some((starter) => starter.key === starterKey)}
                  tooltip={<>
                   {savingFramework ? "Loading…" : "Load starter controls"}
                  </>}>

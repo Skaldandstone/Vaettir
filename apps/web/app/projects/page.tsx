@@ -16,6 +16,8 @@ import {
 } from "../../lib/membership";
 import { RecoveryMessage } from "../../components/RecoveryMessage";
 import { CreationWizard, WizardChoices } from "../../components/CreationWizard";
+import { CompliancePicker } from "@/components/CompliancePicker";
+import { COMPLIANCE_CATALOG, complianceProfileValue } from "@/lib/compliance-catalog";
 
 const SOFTWARE_TYPES = [
   "Web",
@@ -56,13 +58,9 @@ const QUALITY_OBJECTIVES = [
   "Security",
   "Traceability",
 ];
-const COMPLIANCE_OPTIONS = [
-  "NIST CSF",
-  "NIST manufacturing",
-  "CISA Secure by Design",
-  "PCI DSS",
-  "ISO 27001",
-  "Other / not sure",
+const complianceOptions = [
+  ...COMPLIANCE_CATALOG.map((option) => ({ ...option, id: complianceProfileValue(option) })),
+  { id: "Other / not sure", name: "Other / not sure", category: "Other", summary: "Keep an unresolved applicability question for later review." },
 ];
 const REGULATORY_AREAS = [
   "Health and medical",
@@ -70,6 +68,7 @@ const REGULATORY_AREAS = [
   "Privacy and personal data",
   "Financial services",
   "Industrial and product safety",
+  "Music and content rights",
   "Other / applicability unknown",
 ];
 const EXECUTION_SOURCES = [
@@ -525,14 +524,19 @@ export default function ProjectsPage() {
                   setRegulatoryNeeds((values) => toggleValue(values, item))
                 }
               />
-              <WizardChoices
-                title="Standards and control frameworks to review"
-                options={COMPLIANCE_OPTIONS}
+              <CompliancePicker
+                label="Standards and rights to review"
+                options={complianceOptions}
                 selected={complianceNeeds}
-                onToggle={(item) =>
+                multiple
+                onSelect={(item) =>
                   setComplianceNeeds((values) => toggleValue(values, item))
                 }
               />
+              <p className="text-muted" style={{ fontSize: 12 }}>
+                Browse all supported starters and references. Selection saves planning context;
+                it does not load controls, map tests or decide legal applicability.
+              </p>
             </>
           )}
           {createStep === 4 && (

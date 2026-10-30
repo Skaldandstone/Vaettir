@@ -6,13 +6,32 @@ export type ComplianceStarter = {
     | "Security & privacy"
     | "Aviation & drones"
     | "Manufacturing"
-    | "Life sciences";
+    | "Life sciences"
+    | "Content & rights";
   summary: string;
   sourceUrl: string;
   controls: { code: string; title: string; description: string }[];
 };
 
 export const COMPLIANCE_STARTERS: ComplianceStarter[] = [
+  {
+    key: "music-rights-us",
+    name: "Music and performance rights",
+    version: "US review prompts · 2026-10-30",
+    category: "Content & rights",
+    summary: "Review prompts for music in games, trailers, advertising, streams and events. Confirm the jurisdiction and intended use with a rights reviewer; this is not a license or a complete legal checklist.",
+    sourceUrl: "https://www.copyright.gov/engage/musicians/",
+    controls: [
+      { code: "MUS-INVENTORY", title: "Track and use inventory", description: "Identify the exact audio version, source, intended media, audience, territories and release dates before assessing permissions." },
+      { code: "MUS-OWNERSHIP", title: "Composition and recording permissions", description: "Review the composition and lyrics separately from the sound recording. Retain the permission, ownership evidence or reviewed legal basis for each." },
+      { code: "MUS-SYNC", title: "Audiovisual and master-use scope", description: "Review permission for pairing music with visuals and using the selected recording in each game, trailer or advertisement." },
+      { code: "MUS-PERFORMANCE", title: "Public performance and transmission", description: "Review public-performance permissions for the actual event or transmission. Evaluate composition and applicable recording rights separately; do not assume one covers the other." },
+      { code: "MUS-DISTRIBUTION", title: "Reproduction and distribution", description: "Review copying, downloads, soundtrack distribution, samples, covers and edits against the applicable permissions or reviewed legal basis." },
+      { code: "MUS-TERMS", title: "License conditions and expiry", description: "Compare the intended release with documented territory, platform, term, usage and renewal conditions. Missing or expired permission needs review." },
+      { code: "MUS-CREDITS", title: "Attribution and reporting obligations", description: "Check the applicable agreement for credits, notices, usage reporting and payment obligations. Record completion only when supported by evidence." },
+      { code: "MUS-RELEASE", title: "Release manifest and change review", description: "Match shipped audio to the reviewed inventory. Reassess replacements and new uses; a fingerprint match or absence of a platform claim does not establish permission." },
+    ],
+  },
   {
     key: "nist-csf-2",
     name: "NIST Cybersecurity Framework",
