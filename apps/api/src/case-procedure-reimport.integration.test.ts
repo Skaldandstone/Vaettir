@@ -47,7 +47,7 @@ describe("reviewed same-project procedure restoration", () => {
       const project = await caller.project.create({
         organizationId: org.id,
         name: `Synthetic ${n}`,
-        caseKey: "rest",
+        caseKey: n === 0 ? "resta" : "restb",
       });
       if (n === 0) {
         owner = caller;
