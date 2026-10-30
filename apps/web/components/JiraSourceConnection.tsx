@@ -1,5 +1,5 @@
 "use client";
-import {useEffect,useState} from "react";
+import {useLayoutEffect,useState} from "react";
 import {useAuth} from "@clerk/nextjs";
 import {trpcReact,type RouterOutputs} from "@/lib/trpcReact";
 import {AtlassianOAuthConnection} from "./AtlassianOAuthConnection";
@@ -18,8 +18,8 @@ function JiraSession({projectId,purpose="requirements",onDefectsSaved,onDefectWo
   const recent=trpcReact.jiraConnections.mine.useQuery({projectId},{enabled:capabilities.isSuccess&&capabilities.data.canConnect,retry:false,staleTime:0});
   const forget=trpcReact.jiraConnections.forget.useMutation({retry:false});
   const working=oauthWorking||intakeWorking||forget.isPending;
-  useEffect(()=>{onDefectWorkingChange?.(working);},[working,onDefectWorkingChange]);
-  useEffect(()=>()=>onDefectWorkingChange?.(false),[onDefectWorkingChange]);
+  useLayoutEffect(()=>{onDefectWorkingChange?.(working);},[working,onDefectWorkingChange]);
+  useLayoutEffect(()=>()=>onDefectWorkingChange?.(false),[onDefectWorkingChange]);
   const readable=auth.isLoaded&&auth.isSignedIn&&capabilities.isSuccess&&!capabilities.isFetching&&!capabilities.isPaused&&capabilities.data.canConnect&&recent.isSuccess&&!recent.isFetching&&!recent.isPaused;
   const rows=readable?recent.data??[]:[],active=!!selected&&rows.some(row=>row.id===selected.id&&row.status==="VERIFIED");
   function choices(list:Saved[]){return list.map(row=><div key={row.id} style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>

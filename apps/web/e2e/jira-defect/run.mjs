@@ -47,6 +47,7 @@ try{
  await page.getByRole("button",{name:actionName("Save reviewed Jira tasks"),exact:true}).click();
  await visible(page.getByRole("button",{name:actionName("Saving tasks…"),exact:true}));
  assert.equal(await page.getByRole("button",{name:actionName("Close"),exact:true}).isEnabled(),false,"An active write cannot be dismissed");
+ await page.keyboard.press("Escape");assert.equal(await page.getByRole("dialog",{name:"Connect Jira to the defect map",exact:true}).isVisible(),true,"Escape cannot dismiss an active write");
  assert.equal(await page.getByRole("checkbox",{name:"Import SYN-1",exact:true}).isEnabled(),false);
  await page.getByRole("button",{name:actionName("Lose synthetic acknowledgement"),exact:true}).dispatchEvent("click");
  await visible(page.getByRole("button",{name:actionName("Retry the same task import"),exact:true}));
