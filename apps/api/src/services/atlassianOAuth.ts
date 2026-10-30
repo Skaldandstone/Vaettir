@@ -1,18 +1,27 @@
 import { createHash, randomBytes } from "node:crypto";
 import { z } from "@vaettir/core/dist/validation.js";
-import { atlassianProviderToken, repositoryProviderJson, repositoryProviderOrigin } from "./repositoryProviderHttp.js";
+import { atlassianProviderToken, atlassianProviderPrivacy, repositoryProviderJson, repositoryProviderOrigin } from "./repositoryProviderHttp.js";
 import { jiraSiteOrigin } from "./jiraSourceConnection.js";
 
 export const atlassianProduct = z.enum(["jira", "confluence"]);
 export type AtlassianProduct = z.infer<typeof atlassianProduct>;
-// A fixed union prevents later Jira/Confluence consent from silently removing the other scope.
-export const ATLASSIAN_READ_SCOPES = ["read:me", "read:jira-work", "read:jira-user", "read:space:confluence", "offline_access"] as const;
+// Jira/Confluence content stays read-only. Privacy reporting is required for the
+// account identity retained by this app; it does not authorize content writes.
+// A fixed union prevents later product consent from removing another scope.
+export const ATLASSIAN_READ_SCOPES = ["read:me", "read:jira-work", "read:jira-user", "read:space:confluence", "report:personal-data", "offline_access"] as const;
 const printable = z.string().min(1).max(10000).regex(/^[\x21-\x7e]+$/);
 const label = z.string().min(1).max(300).refine(s => !Array.from(s).some(char=>char.charCodeAt(0)<32||char.charCodeAt(0)===127));
 export const atlassianApplicationSchema = z.object({ clientId: printable.max(300), clientSecret: printable.max(2000), redirectUri: z.string().url().max(1000).refine(value => { try { const url=new URL(value);return url.protocol==="https:"&&!url.username&&!url.password&&!url.search&&!url.hash&&(!url.port||url.port==="443")&&url.pathname==="/connections/atlassian/callback"; } catch{return false;} }) }).strict();
 export type AtlassianApplication = z.infer<typeof atlassianApplicationSchema>;
 export const atlassianTokenSchema = z.object({ accessToken: printable, refreshToken: printable, expiresAt: z.number().int().positive(), accountId: printable.max(128), accountName: label }).strict();
 export type AtlassianToken = z.infer<typeof atlassianTokenSchema>;
+export const ATLASSIAN_PRIVACY_DAY_MS=86400000;
+export async function reportAtlassianPrivacy(token:string,accountId:string,updatedAt:Date){
+  const envelope=z.object({body:z.unknown(),cycleDays:z.number().positive().max(365)}).strict().parse(await atlassianProviderPrivacy(token,accountId,updatedAt));
+  const result=z.object({accounts:z.array(z.object({accountId:z.string(),status:z.enum(["closed","updated"])}).strict()).max(1)}).strict().parse(envelope.body);
+  if(result.accounts.some(account=>account.accountId!==accountId))throw new Error("Atlassian privacy identity changed");
+  return {decision:result.accounts[0]?.status??"clear" as const,cycleDays:envelope.cycleDays};
+}
 // Atlassian cloud IDs are opaque hyphenated hex identifiers; do not impose UUID version/variant bits.
 const cloudId = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
 export const atlassianSiteSchema = z.object({ id: cloudId, name: label, url: z.string().refine(s => { try { return jiraSiteOrigin(s) === s; } catch { return false; } }), products: z.array(atlassianProduct).min(1).max(2) }).strict();
@@ -37,9 +46,13 @@ export function createAtlassianAuthorization(application: AtlassianApplication) 
 /** Parse only account identity/name; discard profile email, avatar, location and all other fields. */
 export async function verifyAtlassianToken(response: unknown, expectedAccountId?: string): Promise<AtlassianToken> {
   const issued = z.object({ access_token: printable, refresh_token: printable, token_type: z.string().refine(s => s.toLowerCase() === "bearer"), expires_in: z.number().int().min(60).max(86400) }).parse(response);
-  const account = z.object({ account_id: printable.max(128), name: label, account_type: z.literal("atlassian"), account_status: z.literal("active") }).parse(await repositoryProviderJson("https://api.atlassian.com", "/me", { token: issued.access_token }));
-  if (expectedAccountId && account.account_id !== expectedAccountId) throw new Error("Atlassian identity changed");
+  const account=await readAtlassianAccount(issued.access_token,expectedAccountId);
   return { accessToken: issued.access_token, refreshToken: issued.refresh_token, expiresAt: Date.now() + issued.expires_in * 1000, accountId: account.account_id, accountName: account.name };
+}
+export async function readAtlassianAccount(accessToken:string,expectedAccountId?:string){
+  const account = z.object({ account_id: printable.max(128), name: label, account_type: z.literal("atlassian"), account_status: z.literal("active") }).parse(await repositoryProviderJson("https://api.atlassian.com", "/me", { token: printable.parse(accessToken) }));
+  if (expectedAccountId && account.account_id !== expectedAccountId) throw new Error("Atlassian identity changed");
+  return account;
 }
 export async function exchangeAtlassianCode(application: AtlassianApplication, code: string) {
   const app = atlassianApplicationSchema.parse(application);

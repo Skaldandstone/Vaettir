@@ -1,21 +1,24 @@
 import {randomUUID} from "node:crypto";
 import {beforeAll,beforeEach,afterAll,describe,it,expect,vi} from "vitest";
-import {prisma} from "@vaettir/db";
+import {prisma,type PrismaClient} from "@vaettir/db";
 import type {Context} from "./trpc.js";
 import {assertOwnedTestDatabase} from "./testOnlyDatabaseSafety.js";
 import {atlassianConnectionsRouter} from "./routers/atlassianConnections.js";
 import {jiraConnectionsRouter} from "./routers/jiraConnections.js";
-import {decryptToken} from "./services/tokenEncryption.js";
+import {decryptToken,encryptToken} from "./services/tokenEncryption.js";
 import {jiraOAuthCredentials} from "./services/atlassianOAuthConnection.js";
 import * as provider from "./services/atlassianOAuth.js";
+import {runDueAtlassianPrivacy} from "./jobs/atlassianPrivacyWorker.js";
+import {ProviderStatusError} from "./services/repositoryProviderHttp.js";
 
 vi.mock("./services/atlassianOAuth.js",async original=>{
   const real=await original<typeof import("./services/atlassianOAuth.js")>();
-  return {...real,exchangeAtlassianCode:vi.fn(),refreshAtlassianToken:vi.fn(),verifyAtlassianToken:vi.fn(),listAtlassianSites:vi.fn(),listAtlassianResources:vi.fn()};
+  return {...real,exchangeAtlassianCode:vi.fn(),refreshAtlassianToken:vi.fn(),verifyAtlassianToken:vi.fn(),listAtlassianSites:vi.fn(),listAtlassianResources:vi.fn(),reportAtlassianPrivacy:vi.fn(),readAtlassianAccount:vi.fn()};
 });
 const site={id:"01234567-89ab-cdef-0123-456789abcdef",name:"Synthetic site",url:"https://synthetic.atlassian.net",products:["jira","confluence"] as ("jira"|"confluence")[]};
 const resource={id:"123",key:"QA",name:"Synthetic QA",url:site.url+"/browse/QA"};
-const token=()=>({accessToken:"synthetic-access",refreshToken:"synthetic-refresh",expiresAt:Date.now()+3600000,accountId:"synthetic-account",accountName:"Synthetic tester"});
+let providerAccountId="synthetic-account";
+const token=()=>({accessToken:"synthetic-access",refreshToken:"synthetic-refresh",expiresAt:Date.now()+3600000,accountId:providerAccountId,accountName:"Synthetic tester"});
 const issued={access_token:"synthetic-access",refresh_token:"synthetic-refresh",token_type:"Bearer",expires_in:3600};
 type Caller=ReturnType<typeof atlassianConnectionsRouter.createCaller>;
 let ctx:Context,caller:Caller,projectId:string,organizationId:string,clerkActorId:string;
@@ -23,6 +26,10 @@ const input=()=>({projectId,originalOrganizationId:organizationId,expectedClerkA
 const begin=async()=>{const result=await caller.begin(input());return {...result,state:new URL(result.url).searchParams.get("state")!};};
 const verified=async()=>{const result=await begin();await caller.finish({state:result.state,code:"synthetic-code"});return result;};
 const selected=async()=>{const result=await verified(),row=await caller.status({id:result.id});await caller.selectSite({id:result.id,siteId:site.id,version:row.version});return result;};
+// Maintenance runs against the actual owned database and real transactions;
+// the test client restricts its candidate scan to this test's fresh project.
+const privacyDb=()=>prisma.$extends({query:{atlassianOAuthConnection:{findMany({args,query}){return query(args.where&&"OR" in args.where?{...args,where:{AND:[args.where,{projectId}]}}:args);}}}}) as unknown as PrismaClient;
+const duePrivacy=async(id:string)=>prisma.atlassianOAuthConnection.update({where:{id},data:{privacyDueAt:new Date(0),privacyCheckedAt:new Date(Date.now()-7*86400000-60000)}});
 function ownedDatabase(){
   try{return assertOwnedTestDatabase(process.env.DATABASE_URL);}catch{
     // This suite additionally owns one separately initialized native PG17 fixture.
@@ -34,7 +41,9 @@ function ownedDatabase(){
 describe("Atlassian OAuth durable authorization boundaries",()=>{
   beforeAll(()=>{ownedDatabase();vi.stubEnv("PRODUCTION_SIGNAL_ENCRYPTION_KEY",Buffer.alloc(32,7).toString("base64"));vi.stubEnv("ATLASSIAN_OAUTH_PUBLIC_URL","https://app.vaettir.app");vi.stubEnv("ATLASSIAN_OAUTH_CLIENT_ID","synthetic-client");vi.stubEnv("ATLASSIAN_OAUTH_CLIENT_SECRET","synthetic-secret");});
   beforeEach(async()=>{
-    vi.clearAllMocks();
+    vi.clearAllMocks();providerAccountId="synthetic-"+randomUUID();
+    vi.mocked(provider.reportAtlassianPrivacy).mockResolvedValue({decision:"clear",cycleDays:7});
+    vi.mocked(provider.readAtlassianAccount).mockResolvedValue({account_id:providerAccountId,name:"Updated synthetic user",account_type:"atlassian",account_status:"active"});
     vi.mocked(provider.exchangeAtlassianCode).mockResolvedValue(issued);vi.mocked(provider.refreshAtlassianToken).mockResolvedValue({...issued,refresh_token:"synthetic-rotated"});vi.mocked(provider.verifyAtlassianToken).mockImplementation(async()=>token());vi.mocked(provider.listAtlassianSites).mockResolvedValue([site]);vi.mocked(provider.listAtlassianResources).mockResolvedValue({resources:[resource],next:null});
     const tag=`oauth-${randomUUID()}`,tier=await prisma.planTier.findUniqueOrThrow({where:{key:"free"}});
     const org=await prisma.organization.create({data:{name:tag,slug:tag,planTierId:tier.id}});organizationId=org.id;clerkActorId=tag;
@@ -79,7 +88,7 @@ describe("Atlassian OAuth durable authorization boundaries",()=>{
     const a=await selected();vi.mocked(provider.refreshAtlassianToken).mockRejectedValue(Error("unknown refresh"));await expect(caller.refresh({id:a.id})).rejects.toThrow();await expect(caller.refresh({id:a.id})).rejects.toThrow();expect(provider.refreshAtlassianToken).toHaveBeenCalledTimes(1);const row=await prisma.atlassianOAuthConnection.findUniqueOrThrow({where:{id:a.id}});expect(row.status).toBe("RECOVERY_REQUIRED");expect(row.selectedSite).toMatchObject({id:site.id});expect(row.encryptedToken).toBeTruthy();
   });
   it("checks the same account when rotating, and retains encrypted rotated credentials",async()=>{
-    const a=await verified();vi.mocked(provider.verifyAtlassianToken).mockRejectedValue(Error("identity changed"));await expect(caller.refresh({id:a.id})).rejects.toThrow();expect(provider.verifyAtlassianToken).toHaveBeenLastCalledWith({...issued,refresh_token:"synthetic-rotated"},"synthetic-account");const row=await prisma.atlassianOAuthConnection.findUniqueOrThrow({where:{id:a.id}});expect(row.status).toBe("RECOVERY_REQUIRED");expect(decryptToken(row.encryptedToken as {iv:string;ciphertext:string;authTag:string})).toContain("synthetic-rotated");
+    const a=await verified();vi.mocked(provider.verifyAtlassianToken).mockRejectedValue(Error("identity changed"));await expect(caller.refresh({id:a.id})).rejects.toThrow();expect(provider.verifyAtlassianToken).toHaveBeenLastCalledWith({...issued,refresh_token:"synthetic-rotated"},providerAccountId);const row=await prisma.atlassianOAuthConnection.findUniqueOrThrow({where:{id:a.id}});expect(row.status).toBe("RECOVERY_REQUIRED");expect(decryptToken(row.encryptedToken as {iv:string;ciphertext:string;authTag:string})).toContain("synthetic-rotated");
   });
   it("requires an observed site and rejects a catalog response after revocation",async()=>{
     const a=await verified(),status=await caller.status({id:a.id});await expect(caller.selectSite({id:a.id,siteId:"foreign-site",version:status.version})).rejects.toThrow();await caller.selectSite({id:a.id,siteId:site.id,version:status.version});vi.mocked(provider.listAtlassianResources).mockImplementation(async()=>{await caller.disconnect({id:a.id,confirmed:true});return {resources:[resource],next:null};});await expect(caller.catalog({id:a.id,after:null})).rejects.toThrow();expect((await prisma.atlassianOAuthConnection.findUniqueOrThrow({where:{id:a.id}})).catalog).toBeNull();
@@ -104,5 +113,79 @@ describe("Atlassian OAuth durable authorization boundaries",()=>{
   it("project transfer, suspension and downgraded seats stop reads",async()=>{
     const a=await selected();await prisma.organization.update({where:{id:organizationId},data:{suspendedAt:new Date()}});await expect(caller.status({id:a.id})).rejects.toThrow();await prisma.organization.update({where:{id:organizationId},data:{suspendedAt:null}});await prisma.membership.update({where:{organizationId_userId:{organizationId,userId:ctx.user!.id}},data:{seatType:"READ_ONLY"}});await expect(caller.catalog({id:a.id,after:null})).rejects.toThrow();expect(provider.listAtlassianResources).not.toHaveBeenCalled();
     await prisma.membership.update({where:{organizationId_userId:{organizationId,userId:ctx.user!.id}},data:{seatType:"FULL"}});const original=await prisma.organization.findUniqueOrThrow({where:{id:organizationId}}),other=await prisma.organization.create({data:{name:"Synthetic transfer",slug:randomUUID(),planTierId:original.planTierId}});await prisma.project.update({where:{id:projectId},data:{organizationId:other.id}});await expect(caller.status({id:a.id})).rejects.toThrow();expect(provider.listAtlassianResources).not.toHaveBeenCalled();
+  });
+  it("requires initial provider privacy acknowledgement before a grant is usable",async()=>{
+    const a=await verified(),row=await prisma.atlassianOAuthConnection.findUniqueOrThrow({where:{id:a.id}});
+    expect(row.privacyCheckedAt).not.toBeNull();expect(row.privacyDueAt!.getTime()).toBeGreaterThan(Date.now());
+    await duePrivacy(a.id);vi.mocked(provider.reportAtlassianPrivacy).mockResolvedValue({decision:"closed",cycleDays:7});
+    const closed=await begin();await expect(caller.finish({state:closed.state,code:"synthetic-closed"})).rejects.toThrow();
+    const erased=await prisma.atlassianOAuthConnection.findUniqueOrThrow({where:{id:closed.id}});
+    expect(erased.status).toBe("DISCONNECTED");expect(erased.encryptedToken).toBeNull();expect(erased.accountId).toBeNull();
+  });
+  it("reports a due account once across simultaneous maintenance workers",async()=>{
+    const a=await verified(),before=await duePrivacy(a.id);vi.mocked(provider.reportAtlassianPrivacy).mockClear();
+    await Promise.all([runDueAtlassianPrivacy(privacyDb()),runDueAtlassianPrivacy(privacyDb())]);
+    const row=await prisma.atlassianOAuthConnection.findUniqueOrThrow({where:{id:a.id}});
+    expect(provider.reportAtlassianPrivacy).toHaveBeenCalledTimes(1);expect(row.status).toBe("VERIFIED");expect(row.operationId).toBeNull();expect(row.version).toBeGreaterThan(before.version);expect(row.privacyDueAt!.getTime()).toBeGreaterThan(Date.now());
+  });
+  it("refreshes changed profile data and invalidates the linked cached account",async()=>{
+    const a=await selected(),page=await caller.catalog({id:a.id,after:null});await caller.approve({id:a.id,version:page.version,resourceIds:[resource.id],requestId:randomUUID(),approved:true});
+    await duePrivacy(a.id);vi.mocked(provider.reportAtlassianPrivacy).mockResolvedValueOnce({decision:"updated",cycleDays:7}).mockResolvedValue({decision:"clear",cycleDays:7});
+    await runDueAtlassianPrivacy(privacyDb());
+    const row=await prisma.atlassianOAuthConnection.findUniqueOrThrow({where:{id:a.id}}),linked=await prisma.ticketSourceConnection.findUniqueOrThrow({where:{oauthConnectionId:a.id}});
+    expect(row.accountName).toBe("Updated synthetic user");expect(linked.catalog).toBeNull();expect(row.status).toBe("VERIFIED");expect(row.approvedResources).toEqual([resource]);
+  });
+  it("erases closed-account identity, credentials and linked profile copies",async()=>{
+    const a=await selected(),page=await caller.catalog({id:a.id,after:null});await caller.approve({id:a.id,version:page.version,resourceIds:[resource.id],requestId:randomUUID(),approved:true});
+    await duePrivacy(a.id);vi.mocked(provider.reportAtlassianPrivacy).mockResolvedValue({decision:"closed",cycleDays:7});await runDueAtlassianPrivacy(privacyDb());
+    const row=await prisma.atlassianOAuthConnection.findUniqueOrThrow({where:{id:a.id}}),linked=await prisma.ticketSourceConnection.findUniqueOrThrow({where:{oauthConnectionId:a.id}});
+    expect(row).toMatchObject({status:"DISCONNECTED",accountId:null,accountName:null,encryptedToken:null,encryptedApplication:{},encryptedState:null,catalog:null,privacyDueAt:null});expect(linked).toMatchObject({status:"DISCONNECTED",catalog:null,encryptedToken:null});
+  });
+  it("never restores a connection disconnected during a privacy request",async()=>{
+    const a=await verified();await duePrivacy(a.id);let release!:(value:Awaited<ReturnType<typeof provider.reportAtlassianPrivacy>>)=>void,entered!:()=>void;const started=new Promise<void>(resolve=>{entered=resolve;});
+    vi.mocked(provider.reportAtlassianPrivacy).mockImplementationOnce(()=>{entered();return new Promise(resolve=>{release=resolve;});});
+    const maintenance=runDueAtlassianPrivacy(privacyDb());await started;await caller.disconnect({id:a.id,confirmed:true});release({decision:"clear",cycleDays:7});await maintenance;
+    const row=await prisma.atlassianOAuthConnection.findUniqueOrThrow({where:{id:a.id}});expect(row).toMatchObject({status:"DISCONNECTED",accountId:null,accountName:null,encryptedToken:null,operationId:null});
+  });
+  it("honors rate-limit delay while a recent successful check remains valid",async()=>{
+    const a=await verified(),before=await duePrivacy(a.id);vi.mocked(provider.reportAtlassianPrivacy).mockRejectedValue(new ProviderStatusError(429,7200));await runDueAtlassianPrivacy(privacyDb());
+    const row=await prisma.atlassianOAuthConnection.findUniqueOrThrow({where:{id:a.id}});expect(row.status).toBe("VERIFIED");expect(row.privacyCheckedAt).toEqual(before.privacyCheckedAt);expect(row.privacyDueAt!.getTime()).toBeGreaterThan(Date.now()+7100000);expect(row.encryptedToken).not.toBeNull();
+  });
+  it("blocks and erases when successful checks are too old and the provider is unavailable",async()=>{
+    const a=await verified();await prisma.atlassianOAuthConnection.update({where:{id:a.id},data:{privacyCheckedAt:new Date(Date.now()-8*86400000),privacyDueAt:new Date(0)}});
+    await expect(caller.catalog({id:a.id,after:null})).rejects.toThrow();vi.mocked(provider.reportAtlassianPrivacy).mockRejectedValue(new ProviderStatusError(503));await runDueAtlassianPrivacy(privacyDb());
+    expect(await prisma.atlassianOAuthConnection.findUniqueOrThrow({where:{id:a.id}})).toMatchObject({status:"DISCONNECTED",encryptedToken:null,accountId:null});
+  });
+  it("does not replay an uncertain rotating refresh during maintenance",async()=>{
+    const a=await verified();await prisma.atlassianOAuthConnection.update({where:{id:a.id},data:{privacyDueAt:new Date(0),tokenExpiresAt:new Date(0),encryptedToken:{...encryptToken(JSON.stringify({...token(),expiresAt:1}))}}});
+    vi.mocked(provider.refreshAtlassianToken).mockRejectedValue(new Error("Unknown token exchange result"));await runDueAtlassianPrivacy(privacyDb());await runDueAtlassianPrivacy(privacyDb());
+    expect(provider.refreshAtlassianToken).toHaveBeenCalledTimes(1);expect(await prisma.atlassianOAuthConnection.findUniqueOrThrow({where:{id:a.id}})).toMatchObject({status:"DISCONNECTED",encryptedToken:null,accountId:null});
+  });
+  it("erases an expired maintenance claim without repeating its provider calls",async()=>{
+    const a=await verified();await prisma.atlassianOAuthConnection.update({where:{id:a.id},data:{status:"PRIVACY_CHECKING",operationId:randomUUID(),privacyDueAt:new Date(0)}});vi.mocked(provider.reportAtlassianPrivacy).mockClear();
+    await runDueAtlassianPrivacy(privacyDb());expect(provider.reportAtlassianPrivacy).not.toHaveBeenCalled();expect(await prisma.atlassianOAuthConnection.findUniqueOrThrow({where:{id:a.id}})).toMatchObject({status:"DISCONNECTED",accountId:null,encryptedToken:null});
+  });
+  it("erases instead of using credentials after the owner loses permission",async()=>{
+    const a=await verified();await duePrivacy(a.id);await prisma.membership.update({where:{organizationId_userId:{organizationId,userId:ctx.user!.id}},data:{role:"VIEWER"}});vi.mocked(provider.reportAtlassianPrivacy).mockClear();
+    await runDueAtlassianPrivacy(privacyDb());expect(provider.reportAtlassianPrivacy).not.toHaveBeenCalled();expect(await prisma.atlassianOAuthConnection.findUniqueOrThrow({where:{id:a.id}})).toMatchObject({status:"DISCONNECTED",accountName:null,accountId:null,encryptedToken:null});
+  });
+  it("shares the reporting cycle across new connections and sign-in renewals",async()=>{
+    vi.mocked(provider.reportAtlassianPrivacy).mockResolvedValue({decision:"clear",cycleDays:3.5});
+    const a=await verified(),b=await verified();await caller.refresh({id:a.id});
+    expect(provider.reportAtlassianPrivacy).toHaveBeenCalledTimes(1);
+    const rows=await prisma.atlassianOAuthConnection.findMany({where:{id:{in:[a.id,b.id]}}});
+    expect(rows[0].privacyAccountKey).toBe(rows[1].privacyAccountKey);
+    for(const row of rows){expect(row.privacyCycleDays).toBe(3.5);expect(row.privacyDueAt!.getTime()-row.privacyCheckedAt!.getTime()).toBe(3.5*86400000);}
+  });
+  it("erases every project copy for a closed account while retaining a different app's grant",async()=>{
+    const a=await verified(),other=await prisma.project.create({data:{organizationId,name:"Synthetic second project",slug:randomUUID()}});
+    const b=await caller.begin({...input(),projectId:other.id});await caller.finish({state:new URL(b.url).searchParams.get("state")!,code:"synthetic-second-project"});
+    let independent:string;
+    vi.stubEnv("ATLASSIAN_OAUTH_CLIENT_ID","synthetic-other-client");
+    try{independent=(await verified()).id;}finally{vi.stubEnv("ATLASSIAN_OAUTH_CLIENT_ID","synthetic-client");}
+    await duePrivacy(a.id);await duePrivacy(b.id);vi.mocked(provider.reportAtlassianPrivacy).mockClear();vi.mocked(provider.reportAtlassianPrivacy).mockResolvedValue({decision:"closed",cycleDays:7});
+    await runDueAtlassianPrivacy(privacyDb());
+    for(const id of [a.id,b.id])expect(await prisma.atlassianOAuthConnection.findUniqueOrThrow({where:{id}})).toMatchObject({status:"DISCONNECTED",accountId:null,accountName:null,encryptedToken:null,privacyAccountKey:null});
+    expect(await prisma.atlassianOAuthConnection.findUniqueOrThrow({where:{id:independent}})).toMatchObject({status:"VERIFIED",accountId:providerAccountId});expect(provider.reportAtlassianPrivacy).toHaveBeenCalledTimes(1);
   });
 });

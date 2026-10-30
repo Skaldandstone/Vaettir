@@ -1,12 +1,17 @@
 import {beforeEach,describe,expect,it,vi} from "vitest";
-vi.mock("./repositoryProviderHttp.js",()=>({repositoryProviderJson:vi.fn(),atlassianProviderToken:vi.fn(),repositoryProviderOrigin:(raw:string)=>{const u=new URL(raw);if(u.protocol!=="https:"||u.username||u.password||u.pathname!=="/"||u.search||u.hash||u.port)throw Error("origin");return u.origin;}}));
-import {atlassianProviderToken,repositoryProviderJson} from "./repositoryProviderHttp.js";
-import {ATLASSIAN_READ_SCOPES,atlassianApplication,createAtlassianAuthorization,exchangeAtlassianCode,listAtlassianResources,listAtlassianSites,refreshAtlassianToken,verifyAtlassianToken} from "./atlassianOAuth.js";
+vi.mock("./repositoryProviderHttp.js",()=>({repositoryProviderJson:vi.fn(),atlassianProviderToken:vi.fn(),atlassianProviderPrivacy:vi.fn(),repositoryProviderOrigin:(raw:string)=>{const u=new URL(raw);if(u.protocol!=="https:"||u.username||u.password||u.pathname!=="/"||u.search||u.hash||u.port)throw Error("origin");return u.origin;}}));
+import {atlassianProviderToken,atlassianProviderPrivacy,repositoryProviderJson} from "./repositoryProviderHttp.js";
+import {ATLASSIAN_READ_SCOPES,atlassianApplication,createAtlassianAuthorization,exchangeAtlassianCode,listAtlassianResources,listAtlassianSites,refreshAtlassianToken,verifyAtlassianToken,reportAtlassianPrivacy} from "./atlassianOAuth.js";
 const app={clientId:"synthetic-client",clientSecret:"synthetic-secret",redirectUri:"https://app.vaettir.example/connections/atlassian/callback"};
 const site={id:"8594f221-9797-5f78-1fa4-485e198d7cd0",name:"Synthetic site",url:"https://synthetic.atlassian.net",products:["jira","confluence"] as ("jira"|"confluence")[]};
 const issued={access_token:"synthetic-access",refresh_token:"synthetic-refresh",expires_in:3600,token_type:"Bearer"};
 beforeEach(()=>vi.resetAllMocks());
 describe("Atlassian OAuth protocol",()=>{
+ it("accepts only privacy decisions for the exact reported account",async()=>{
+  const at=new Date();vi.mocked(atlassianProviderPrivacy).mockResolvedValue({body:{accounts:[]},cycleDays:7});await expect(reportAtlassianPrivacy("synthetic-access","synthetic-account",at)).resolves.toEqual({decision:"clear",cycleDays:7});
+  for(const status of ["closed","updated"] as const){vi.mocked(atlassianProviderPrivacy).mockResolvedValue({body:{accounts:[{accountId:"synthetic-account",status}]},cycleDays:7});await expect(reportAtlassianPrivacy("synthetic-access","synthetic-account",at)).resolves.toEqual({decision:status,cycleDays:7});}
+  for(const accounts of [[{accountId:"foreign",status:"closed"}],[{accountId:"synthetic-account",status:"unknown"}],[{accountId:"synthetic-account",status:"closed"},{accountId:"synthetic-account",status:"updated"}]]){vi.mocked(atlassianProviderPrivacy).mockResolvedValue({body:{accounts},cycleDays:7});await expect(reportAtlassianPrivacy("synthetic-access","synthetic-account",at)).rejects.toThrow();}
+ });
  it("requires dedicated configured callback and never reuses legacy domain configuration",()=>{
   expect(atlassianApplication({WEB_APP_URL:"https://legacy.example",ATLASSIAN_OAUTH_CLIENT_ID:app.clientId,ATLASSIAN_OAUTH_CLIENT_SECRET:app.clientSecret})).toBeNull();
   expect(atlassianApplication({ATLASSIAN_OAUTH_PUBLIC_URL:"https://app.vaettir.example",ATLASSIAN_OAUTH_CLIENT_ID:app.clientId,ATLASSIAN_OAUTH_CLIENT_SECRET:app.clientSecret})).toEqual(app);
@@ -14,7 +19,7 @@ describe("Atlassian OAuth protocol",()=>{
  it.each(["http://app.vaettir.example","https://user:secret@app.vaettir.example","https://app.vaettir.example/wrong","https://app.vaettir.example?redirect=evil"])("refuses unsafe callback origin %s",origin=>expect(atlassianApplication({ATLASSIAN_OAUTH_PUBLIC_URL:origin,ATLASSIAN_OAUTH_CLIENT_ID:app.clientId,ATLASSIAN_OAUTH_CLIENT_SECRET:app.clientSecret})).toBeNull());
  it("issues unpredictable state and fixed read-only scope union without secret leakage",()=>{
   const a=createAtlassianAuthorization(app),b=createAtlassianAuthorization(app),url=new URL(a.url);
-  expect(a.state).not.toBe(b.state);expect(a.state).toMatch(/^[A-Za-z0-9_-]{43}$/);expect(url.origin).toBe("https://auth.atlassian.com");expect(url.searchParams.get("scope")).toBe(ATLASSIAN_READ_SCOPES.join(" "));expect(a.url).not.toContain(app.clientSecret);expect(ATLASSIAN_READ_SCOPES.some(x=>/write|manage/.test(x))).toBe(false);
+  expect(a.state).not.toBe(b.state);expect(a.state).toMatch(/^[A-Za-z0-9_-]{43}$/);expect(url.origin).toBe("https://auth.atlassian.com");expect(url.searchParams.get("scope")).toBe(ATLASSIAN_READ_SCOPES.join(" "));expect(url.searchParams.get("scope")?.split(" ")).toContain("report:personal-data");expect(a.url).not.toContain(app.clientSecret);expect(ATLASSIAN_READ_SCOPES.some(x=>/write|manage/.test(x))).toBe(false);
  });
  it("exchanges only the configured confidential client and callback",async()=>{
   vi.mocked(atlassianProviderToken).mockResolvedValue(issued);await exchangeAtlassianCode(app,"synthetic-code");expect(atlassianProviderToken).toHaveBeenCalledWith({grant_type:"authorization_code",client_id:app.clientId,client_secret:app.clientSecret,redirect_uri:app.redirectUri,code:"synthetic-code"});

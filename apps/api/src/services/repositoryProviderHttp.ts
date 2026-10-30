@@ -20,14 +20,15 @@ export function isPublicProviderIPv4(ip: string): boolean {
 
 type GithubAppToken = { clientId: string; clientSecret: string; accessToken: string };
 type AtlassianTokenBody = { grant_type: "authorization_code" | "refresh_token"; client_id: string; client_secret: string; code?: string; redirect_uri?: string; refresh_token?: string };
-type ProviderRequestOptions = { token?: string; basic?: {username:string;password:string}; form?: URLSearchParams; revoke?: GithubAppToken; check?: GithubAppToken; gitlabRevoke?: boolean; linearGraphql?: {apiKey:string;query:string;variables:Record<string,unknown>}; atlassianToken?: AtlassianTokenBody };
-class ProviderStatusError extends Error {
-  constructor(readonly status: number) { super(`Provider request failed (${status}). Reconnect or check access.`); }
+type ProviderRequestOptions = { token?: string; basic?: {username:string;password:string}; form?: URLSearchParams; revoke?: GithubAppToken; check?: GithubAppToken; gitlabRevoke?: boolean; linearGraphql?: {apiKey:string;query:string;variables:Record<string,unknown>}; atlassianToken?: AtlassianTokenBody; atlassianPrivacy?: {accounts: Array<{accountId:string;updatedAt:string}>} };
+export class ProviderStatusError extends Error {
+  constructor(readonly status: number, readonly retryAfterSeconds?: number) { super(`Provider request failed (${status}). Reconnect or check access.`); }
 }
 
 /** Pin public DNS to the actual TLS socket; never follow redirects with credentials. */
 async function repositoryProviderRequest(origin: string, path: string, options: ProviderRequestOptions): Promise<unknown> {
   const base = repositoryProviderOrigin(origin);
+  if (options.atlassianPrivacy && (base !== "https://api.atlassian.com" || path !== "/app/report-accounts/" || !options.token || options.basic || options.form || options.revoke || options.check || options.gitlabRevoke || options.linearGraphql || options.atlassianToken)) throw new Error("Invalid Atlassian privacy endpoint");
   if (options.atlassianToken && (base !== "https://auth.atlassian.com" || path !== "/oauth/token" || options.token || options.basic || options.form || options.revoke || options.check || options.gitlabRevoke || options.linearGraphql)) throw new Error("Invalid Atlassian token endpoint");
   if(options.linearGraphql && (base!=="https://api.linear.app" || path!=="/graphql" || options.token || options.basic || options.form || options.revoke || options.check || /[^\x21-\x7e]/.test(options.linearGraphql.apiKey) || !options.linearGraphql.apiKey || options.linearGraphql.apiKey.length>10000))throw new Error("Invalid Linear GraphQL request");
   if (options.token && options.basic) throw new Error("Choose one provider authentication method");
@@ -51,7 +52,7 @@ async function repositoryProviderRequest(origin: string, path: string, options: 
   if (!addresses.length || addresses.some(x=>!isPublicProviderIPv4(x.address))) throw new Error("This instance needs a public HTTPS endpoint. Private-network connectors are not available yet.");
   const address = addresses[0]!.address;
   const appToken = options.revoke ?? options.check;
-  const body = options.atlassianToken ? JSON.stringify(options.atlassianToken) : options.linearGraphql ? JSON.stringify({query:options.linearGraphql.query,variables:options.linearGraphql.variables}) : appToken ? JSON.stringify({ access_token: appToken.accessToken }) : options.form?.toString();
+  const body = options.atlassianPrivacy ? JSON.stringify(options.atlassianPrivacy) : options.atlassianToken ? JSON.stringify(options.atlassianToken) : options.linearGraphql ? JSON.stringify({query:options.linearGraphql.query,variables:options.linearGraphql.variables}) : appToken ? JSON.stringify({ access_token: appToken.accessToken }) : options.form?.toString();
   return new Promise((resolve,reject)=>{
     const req=request(url, {
       method: options.revoke ? "DELETE" : body ? "POST" : "GET",
@@ -64,10 +65,14 @@ async function repositoryProviderRequest(origin: string, path: string, options: 
         ...(options.basic?{Authorization:`Basic ${Buffer.from(`${options.basic.username}:${options.basic.password}`).toString("base64")}`}:{ }),
         ...(appToken?{Authorization:`Basic ${Buffer.from(`${appToken.clientId}:${appToken.clientSecret}`).toString("base64")}`,
           "X-GitHub-Api-Version":"2022-11-28"}:{ }),
-        ...(body?{"Content-Type":appToken||options.linearGraphql||options.atlassianToken?"application/json":"application/x-www-form-urlencoded","Content-Length":Buffer.byteLength(body)}:{})},
+        ...(body?{"Content-Type":appToken||options.linearGraphql||options.atlassianToken||options.atlassianPrivacy?"application/json":"application/x-www-form-urlencoded","Content-Length":Buffer.byteLength(body)}:{})},
     },res=>{
       if (options.check && (res.statusCode===200 || res.statusCode===404)) {res.destroy();resolve(res.statusCode===200);return;}
-      if (!res.statusCode || (options.revoke ? res.statusCode!==204 : options.gitlabRevoke ? res.statusCode!==200 : res.statusCode<200 || res.statusCode>=300)) {res.destroy();reject(new ProviderStatusError(res.statusCode ?? 0));return;}
+      if (!res.statusCode || (options.revoke ? res.statusCode!==204 : options.gitlabRevoke ? res.statusCode!==200 : options.atlassianPrivacy ? ![200,204].includes(res.statusCode) : res.statusCode<200 || res.statusCode>=300)) {const retry=Number(res.headers?.["retry-after"]);res.destroy();reject(new ProviderStatusError(res.statusCode ?? 0,Number.isFinite(retry)&&retry>0?Math.min(86400,Math.ceil(retry)):undefined));return;}
+      const cycleHeader=res.headers?.["cycle-period"];
+      const cycleDays=cycleHeader===undefined?7:Number(cycleHeader);
+      if(options.atlassianPrivacy&&(!Number.isFinite(cycleDays)||cycleDays<=0||cycleDays>365)){res.destroy();reject(new Error("Invalid Atlassian privacy cycle"));return;}
+      if(options.atlassianPrivacy && res.statusCode===204){res.destroy();resolve({body:{accounts:[]},cycleDays});return;}
       let size=0; const chunks:Buffer[]=[];
       res.on("data",chunk=>{size+=chunk.length;if(size>1024*1024){res.destroy();reject(new Error("Provider response exceeded the safe size limit"));}else chunks.push(Buffer.from(chunk));});
       res.on("error",()=>reject(new Error("Provider response interrupted")));
@@ -79,7 +84,7 @@ async function repositoryProviderRequest(origin: string, path: string, options: 
             if(!parsed || typeof parsed!=="object" || Array.isArray(parsed) || Object.keys(parsed).length!==0)throw new Error("GitLab did not confirm token revocation");
             resolve(undefined);return;
           }
-          resolve(parsed);
+          resolve(options.atlassianPrivacy?{body:parsed,cycleDays}:parsed);
         }catch{reject(new Error("Provider returned an invalid response"));}
       });
     });
@@ -104,6 +109,14 @@ export function atlassianProviderToken(body: AtlassianTokenBody): Promise<unknow
   const keys = body.grant_type === "authorization_code" ? ["grant_type", "client_id", "client_secret", "code", "redirect_uri"] : ["grant_type", "client_id", "client_secret", "refresh_token"];
   if (!["authorization_code", "refresh_token"].includes(body.grant_type) || Object.keys(body).length !== keys.length || keys.some(key => typeof body[key as keyof AtlassianTokenBody] !== "string" || !body[key as keyof AtlassianTokenBody] || body[key as keyof AtlassianTokenBody]!.length > 10000 || !/^[!-~]+$/.test(body[key as keyof AtlassianTokenBody]!))) throw new Error("Invalid Atlassian token request");
   return repositoryProviderRequest("https://auth.atlassian.com", "/oauth/token", { atlassianToken: body });
+}
+
+/** One account per request: no cross-customer batch or caller-controlled URL.
+ * Atlassian's 3LO personal-data reporting endpoint returns 204 for no action.
+ * https://developer.atlassian.com/cloud/jira/platform/user-privacy-developer-guide/ */
+export function atlassianProviderPrivacy(token:string,accountId:string,updatedAt:Date):Promise<unknown>{
+  if(!/^[!-~]{1,10000}$/.test(token)||accountId==="unknown"||!/^[A-Za-z0-9:-]{1,128}$/.test(accountId)||!Number.isFinite(updatedAt.getTime()))throw new Error("Invalid Atlassian privacy request");
+  return repositoryProviderRequest("https://api.atlassian.com","/app/report-accounts/",{token,atlassianPrivacy:{accounts:[{accountId,updatedAt:updatedAt.toISOString()}]}});
 }
 
 /** Internal static-query intake using the existing DNS/TLS/size/deadline boundary.
