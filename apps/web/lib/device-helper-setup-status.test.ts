@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
@@ -8,7 +9,7 @@ import type { DeviceHelperSetupWorkflow, HelperSetupView } from "./use-device-he
 const source = readFileSync(new URL("../components/DeviceHelperSetupStatus.tsx", import.meta.url), "utf8");
 const ast = ts.createSourceFile("status.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 const functions = ast.statements.filter(ts.isFunctionDeclaration).map(node => ts.createPrinter().printNode(ts.EmitHint.Unspecified, node, ast).replace(/\bexport\s+/, "")).join("\n");
-const executable = ts.transpileModule(functions + "\nthis.component=DeviceHelperSetupStatus;", { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
+const executable = controllerTranspile(functions + "\nthis.component=DeviceHelperSetupStatus;", { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
 function fixture(patch: Partial<HelperSetupView> = {}, metadata = false, onReportedBlocked?: () => void) {
   const workflow: DeviceHelperSetupWorkflow = { view: { status: "REVIEW_REQUIRED", busy: false, canReview: true, canCheck: false, paired: false, currentScope: null, description: "Public setup metadata only", deviceOperationPerformed: false, processingPermissionGranted: false, spendingApprovalGranted: false, ...patch }, review: vi.fn(async () => undefined), checkPaired: vi.fn(async () => undefined), reportBlocked: vi.fn(), healthAvailable: false };
   const context = vm.createContext({ React, useDeviceHelperSetup: () => workflow, DeviceHelperBlockedLaunchGuidance: () => React.createElement("p", null, "Reported refusal public guidance") });

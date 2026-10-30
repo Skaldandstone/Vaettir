@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import Link from "next/link";
@@ -149,19 +151,19 @@ function Register({ projectId }: { projectId: string }) {
   return <section>
     <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}>
       <h1 style={{ marginRight: "auto" }}>Quality risk register</h1>
-      <button type="button" className="btn-primary" disabled={mutation.isPending || (!pending && !writeReady)} onClick={() => {
+      <ActionButton type="button" className="btn-primary" disabled={mutation.isPending || (!pending && !writeReady)} onClick={() => {
         if (pending) { setOpen(true); return; }
         setSelected(""); setMode("CREATE"); setDefinition(blank()); setBaseline(null); setMessage(""); setLabels({}); setStarter(null);
         setReview(emptyReview()); setAcknowledged(false); setDropUnavailable(false);
         setSearch(""); setChoice(""); setLookupKind("CASE"); setScreen(0); setOpen(true);
-      }}>{pending ? "Recover unconfirmed change" : "Add risk or failure mode"}</button>
+      }} tooltip={<> {pending ? "Recover unconfirmed change" : "Add risk or failure mode"} </>}>{pending ? "Recover" : "Add risk"}</ActionButton>
       <button type="button" className="btn-secondary" onClick={() => void refresh()}>Refresh register</button>
     </div>
     <p>Record failure modes, intended mitigations and human residual decisions. This is separate from release flags and AI case risk scores.</p>
-    <p className="text-muted">A case link or passing result alone does not establish risk reduction, clinical/food/device qualification or a formal sign-off.</p>
+    <details><summary>Details</summary><p className="text-muted">A case link or passing result alone does not establish risk reduction, clinical/food/device qualification or a formal sign-off.</p></details>
     <QualityRiskOverview projectId={projectId} />
     {denied ? <div role="alert"><p>Current actor, project membership or original register ownership could not be verified. Retained definitions, native links and drafts are hidden, not discarded.</p>
-      <button type="button" className="btn-secondary" onClick={() => void refresh()}>Recheck register access</button></div>
+      <ActionButton type="button" className="btn-secondary" onClick={() => void refresh()} tooltip={<> Recheck register access </>}> Refresh </ActionButton></div>
       : list.error ? <div role="alert"><p>Risk register unavailable; no cached scope or empty result has been substituted.</p>
       <button type="button" className="btn-secondary" onClick={() => void refresh()}>Retry register</button></div>
       : !page ? <p role="status">{paused ? "Waiting for a connection to verify access…" : "Checking register and current access…"}</p>
@@ -189,15 +191,15 @@ function Register({ projectId }: { projectId: string }) {
     <Modal open={open} onClose={close} size="wide" title={!formVisible ? "Verify quality risk access" : mode === "CREATE" ? "Record a quality risk" : baseline ? `${baseline.displayId} · ${mode === "REVIEW" ? "Residual decision" : "Edit risk"}` : "Quality risk"}>
       {formVisible && message && <p role="status">{message}</p>}
       {!formVisible && <div role="alert"><p>Current access, actor and original organization must be verified before displaying retained definition or draft fields. Your fields and any exact unconfirmed request are retained without rebasing.</p>
-        <button type="button" className="btn-secondary" onClick={() => void refresh()}>Recheck current risk access</button></div>}
+        <ActionButton type="button" className="btn-secondary" onClick={() => void refresh()} tooltip={<> Recheck current risk access </>}> Refresh </ActionButton></div>}
       {pending && <div role="alert"><p>Unconfirmed {pending.operation.toLowerCase()} request. Its baseline and fields are fixed, including after this module closes.</p>
-        <button type="button" className="btn-primary" disabled={mutation.isPending || !writeReady}
-          onClick={() => void send(pending, true)}>Retry exact risk change</button></div>}
+        <ActionButton type="button" className="btn-primary" disabled={mutation.isPending || !writeReady}
+          onClick={() => void send(pending, true)} tooltip={<> Retry exact risk change </>}> Retry </ActionButton></div>}
       {displayReady && !!selected && (detail.error ? <div role="alert"><p>The current risk is unavailable. Cached details cannot authorize a change.</p>
-        <button type="button" className="btn-secondary" onClick={() => void refresh()}>Retry current risk</button></div>
+        <ActionButton type="button" className="btn-secondary" onClick={() => void refresh()} tooltip={<> Retry current risk </>}> Retry </ActionButton></div>
         : !current ? <p role="status">{detail.isPaused ? "Waiting to verify current risk…" : "Checking current risk baseline…"}</p> : null)}
       {displayReady && mode !== "VIEW" && selected && !reviewed && !frozen && <div role="alert"><p>The edit baseline no longer matches fresh current access and entry version. No cached approval is accepted; your draft is still retained.</p>
-        <button type="button" className="btn-secondary" onClick={() => void refresh()}>Recheck current baseline without replacing draft</button></div>}
+        <ActionButton type="button" className="btn-secondary" onClick={() => void refresh()} tooltip={<> Recheck current baseline without replacing draft </>}> Refresh </ActionButton></div>}
       {mode === "VIEW" && current && <>
         <h2>{current.entry.displayId} · {current.entry.definition.title}</h2>
         <p>Version {current.entry.version}. Human review records are not a formal regulatory approval. Matching entry version does not automatically reverify later result, procedure or requirement changes.</p>
@@ -213,8 +215,8 @@ function Register({ projectId }: { projectId: string }) {
         {!current.entry.links.cases.length && <p>No currently available case links. Execution verification has not been established.</p>}
         {!!current.entry.missingLinks && <p role="alert">{current.entry.missingLinks} original references are unavailable. Their native IDs are withheld, not replaced.</p>}
         {current.canWrite && <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBlock: 16 }}>
-          <button type="button" className="btn-secondary" disabled={frozen} onClick={() => edit("UPDATE")}>Edit risk and mitigation</button>
-          <button type="button" className="btn-primary" disabled={frozen} onClick={() => edit("REVIEW")}>Record residual decision</button>
+          <ActionButton type="button" className="btn-secondary" disabled={frozen} onClick={() => edit("UPDATE")} tooltip={<> Edit risk and mitigation </>}> Edit </ActionButton>
+          <ActionButton type="button" className="btn-primary" disabled={frozen} onClick={() => edit("REVIEW")} tooltip={<> Record residual decision </>}> Record decision </ActionButton>
         </div>}
         <h3>Recorded human decisions</h3>
         {!current.decisions.length && <p>No decision on this history page. A linked test does not substitute for human review.</p>}
@@ -278,7 +280,7 @@ function Register({ projectId }: { projectId: string }) {
         {screen === (mode === "REVIEW" ? 1 : 2) && <><h3>{mode === "REVIEW" ? "Link recorded execution results" : "Link mitigation requirements and cases"}</h3>
           {mode !== "REVIEW" && <label style={labelStyle}>Record type<select style={fieldStyle} value={lookupKind} onChange={e => { setLookupKind(e.target.value as "CASE" | "REQUIREMENT"); setChoice(""); }}><option value="CASE">Test case</option><option value="REQUIREMENT">Requirement</option></select></label>}
           <label style={labelStyle}>Find project record<input style={fieldStyle} value={search} maxLength={80} onChange={e => { setSearch(e.target.value); setChoice(""); }} /></label>
-          {lookup.error ? <div role="alert"><p>Project records unavailable. No cached choices have been substituted.</p><button type="button" className="btn-secondary" onClick={() => void refresh()}>Retry linked records</button></div>
+          {lookup.error ? <div role="alert"><p>Project records unavailable. No cached choices have been substituted.</p><ActionButton type="button" className="btn-secondary" onClick={() => void refresh()} tooltip={<> Retry linked records </>}> Retry </ActionButton></div>
             : !choices ? <p role="status">{lookup.isPaused ? "Waiting for linked records…" : "Checking project records…"}</p> : <>
               <label style={labelStyle}>Project record<select style={fieldStyle} value={choice} onChange={e => setChoice(e.target.value)}><option value="">Choose one of up to 20 results…</option>{choices.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}</select></label>
               <button type="button" className="btn-secondary" disabled={!choice || !choices.some(c => c.id === choice) || (lookupKind === "RESULT" ? review.resultIds : lookupKind === "CASE" ? definition.caseIds : definition.requirementIds).length >= 20}
@@ -301,14 +303,14 @@ function Register({ projectId }: { projectId: string }) {
           }}>Remove reference</button></div>)}
         </>}
         {mode === "REVIEW" && screen === 2 && <label style={{ display: "flex", gap: 8, marginBlock: 16 }}><input type="checkbox" checked={acknowledged} onChange={e => setAcknowledged(e.target.checked)} />I understand this records an ordinary human review, not qualified regulatory acceptance, an e-signature or proven mitigation.</label>}
-        <p className="text-muted">Qualitative categories are uncalibrated. No numerical score, standard-specific threshold or safety certification is calculated.</p>
+        <details><summary>Details</summary><p className="text-muted">Qualitative categories are uncalibrated. No numerical score, standard-specific threshold or safety certification is calculated.</p></details>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
           <button type="button" className="btn-secondary" disabled={screen === 0} onClick={() => setScreen(screen - 1)}>Previous step</button>
           {screen < (mode === "REVIEW" ? 2 : 3) ? <button type="button" className="btn-primary" onClick={() => setScreen(screen + 1)}>Continue</button>
-            : <button type="button" className="btn-primary" disabled={!reviewed || (mode === "REVIEW" && !acknowledged)} onClick={submit}>{mode === "REVIEW" ? "Record human decision" : mode === "CREATE" ? "Create risk record" : "Save reviewed risk edit"}</button>}
+            : <ActionButton type="button" className="btn-primary" disabled={!reviewed || (mode === "REVIEW" && !acknowledged)} onClick={submit} tooltip={<> {mode === "REVIEW" ? "Record human decision" : mode === "CREATE" ? "Create risk record" : "Save reviewed risk edit"} </>}>{mode === "REVIEW" ? "Record decision" : mode === "CREATE" ? "Create risk" : "Save"}</ActionButton>}
         </div>
       </fieldset>}
-      {displayReady && mode !== "VIEW" && selected && <button type="button" className="btn-secondary" disabled={frozen} onClick={() => { setMode("VIEW"); setBaseline(null); }}>Back to current risk</button>}
+      {displayReady && mode !== "VIEW" && selected && <ActionButton type="button" className="btn-secondary" disabled={frozen} onClick={() => { setMode("VIEW"); setBaseline(null); }} tooltip={<> Back to current risk </>}> Back </ActionButton>}
     </Modal>
   </section>;
 }

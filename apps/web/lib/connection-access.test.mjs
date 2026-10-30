@@ -22,13 +22,24 @@ test("cached positive permissions and access do not survive a failed refresh as 
 });
 
 test("all credential and OAuth modules gate every screen and retry permissions before saved access", () => {
-  for (const file of ["TokenRepositoryConnection", "LinearSourceConnection", "JiraSourceConnection", "GitlabRepositoryConnection"]) {
+  for (const file of ["TokenRepositoryConnection", "LinearSourceConnection", "GitlabRepositoryConnection"]) {
     const source = readFileSync(new URL(`../components/${file}.tsx`, import.meta.url), "utf8");
     assert.match(source, /connectionAccessState\(/);
     assert.match(source, /if\s*\(accessState\s*!==\s*"ready"\)\s*return <ConnectionAccessGate/);
     assert.match(source, /enabled:\s*(?:capabilities|configurations)\.isSuccess\s*&&\s*(?:capabilities|configurations)\.data\.canConnect/);
     assert.match(source, /if\s*\(refreshed\.isSuccess\s*&&\s*refreshed\.data\.canConnect\)\s*await recent\.refetch\(\)/);
   }
+});
+
+test("Jira retains its mounted import while fresh permission and saved-access queries control exposure",()=>{
+  const source=readFileSync(new URL("../components/JiraSourceConnection.tsx",import.meta.url),"utf8");
+  // A return-only access gate would discard the exact pending import receipt.
+  // The actual refresh-failure/restore interaction is exercised by jira-defect/run.mjs.
+  assert.match(source,/capabilities\.isSuccess\s*&&\s*!capabilities\.isFetching\s*&&\s*!capabilities\.isPaused/);
+  assert.match(source,/recent\.isSuccess\s*&&\s*!recent\.isFetching\s*&&\s*!recent\.isPaused/);
+  assert.match(source,/rows=readable\?recent\.data\?\?\[\]:\[\]/);
+  assert.match(source,/selected&&<fieldset hidden=\{!active\} disabled=\{!active\}/);
+  assert.match(source,/auth\.userId/);assert.match(source,/auth\.sessionId/);
 });
 
 test("Drive snapshot recovery requires successful fresh permission and snapshot reads, while exports remain independent", () => {
@@ -43,7 +54,7 @@ test("Drive snapshot recovery requires successful fresh permission and snapshot 
 
 test("OAuth status and administrator revocation chips do not trust failed cached reads", () => {
   const source = readFileSync(new URL("../components/GitlabRepositoryConnection.tsx", import.meta.url), "utf8");
-  assert.match(source, /status\.isSuccess && status\.data\.status === "VERIFIED" && <button/);
+  assert.match(source, /status\.isSuccess && status\.data\.status === "VERIFIED" && <(?:button|ActionButton)/);
   const administration = readFileSync(new URL("../components/RepositoryOAuthApplicationSetup.tsx", import.meta.url), "utf8");
   assert.match(administration, /revocations\.isSuccess && Boolean\(revocations\.data\?\.length\)/);
   assert.match(administration, /Retry authorization list/);

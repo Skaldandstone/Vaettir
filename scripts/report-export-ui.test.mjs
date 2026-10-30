@@ -1,3 +1,5 @@
+import { actionName } from "../apps/web/e2e/action-name.mjs";
+/* global innerWidth */
 /* global document, window */
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
@@ -21,7 +23,7 @@ const report = fixture.slice(
 const sourceReport = Function(
   report.replace(" as FrozenReportPayload", "") + ";return report;",
 )();
-const output = root + ".local/report-presentation-20261029";
+const output = (process.env.VAETTIR_E2E_OUTPUT_DIR ?? (root + ".local/report-presentation-20261029"));
 mkdirSync(output, { recursive: true });
 const Zip = createRequire(new URL("../apps/api/package.json", import.meta.url))(
   "adm-zip",
@@ -138,14 +140,14 @@ test("browser Office exports work, recover from errors and discard output after 
     await page.addScriptTag({ content: bundle.outputFiles[0].text });
     await page.getByRole("checkbox").check();
     await page
-      .getByRole("button", { name: "Download editable PowerPoint" })
+      .getByRole("button", { name: actionName("Download editable PowerPoint", false) })
       .click();
     await page.waitForFunction(
       () => typeof window.releaseExport === "function",
     );
     membership = false;
     await page.evaluate(() => window.refreshExportAccess());
-    var finished = await page.evaluate(() => window.exportFinished);
+    let finished = await page.evaluate(() => window.exportFinished);
     await page.evaluate(() => window.releaseExport());
     await page.waitForFunction((n) => window.exportFinished > n, finished);
     await page.waitForFunction(
@@ -159,14 +161,14 @@ test("browser Office exports work, recover from errors and discard output after 
       window.releaseExport = null;
     });
     await page
-      .getByRole("button", { name: "Download editable PowerPoint" })
+      .getByRole("button", { name: actionName("Download editable PowerPoint", false) })
       .click();
     await page.waitForFunction(
       () => typeof window.releaseExport === "function",
     );
     payload = { ...sourceReport, title: "Another report" };
     await page.evaluate(() => window.refreshExportAccess());
-    var finished = await page.evaluate(() => window.exportFinished);
+    finished = await page.evaluate(() => window.exportFinished);
     await page.evaluate(() => window.releaseExport());
     await page.waitForFunction((n) => window.exportFinished > n, finished);
     await page.waitForFunction(
@@ -176,13 +178,13 @@ test("browser Office exports work, recover from errors and discard output after 
     assert.equal(await page.getByRole("checkbox").isChecked(), false);
     await page.getByRole("checkbox").check();
     await page
-      .getByRole("button", { name: "Download editable PowerPoint" })
+      .getByRole("button", { name: actionName("Download editable PowerPoint", false) })
       .click();
     await page.waitForFunction(
       () => typeof window.releaseExport === "function",
     );
     const download = page.waitForEvent("download");
-    var finished = await page.evaluate(() => window.exportFinished);
+    finished = await page.evaluate(() => window.exportFinished);
     await page.evaluate(() => window.releaseExport());
     await page.waitForFunction((n) => window.exportFinished > n, finished);
     const result = await download;
@@ -190,7 +192,6 @@ test("browser Office exports work, recover from errors and discard output after 
     const created = await page.evaluate(() => window.createdDownloads);
     assert.equal(created.length, 1);
     assert.ok(created[0].size > 10000);
-    await page.getByText("Other editable formats", { exact: true }).click();
     for (const [label, extension] of [
       ["Word document", "docx"],
       ["Excel workbook", "xlsx"],
@@ -198,14 +199,14 @@ test("browser Office exports work, recover from errors and discard output after 
       await page.evaluate(() => {
         window.releaseExport = null;
       });
-      await page.getByRole("button", { name: `Download ${label}` }).click();
+      await page.getByRole("button", { name: actionName(`Download ${label}`, false) }).click();
       await page.waitForFunction(
         () => typeof window.releaseExport === "function",
       );
       membership = false;
       await page.evaluate(() => window.refreshExportAccess());
       await page.getByRole("checkbox").waitFor({ state: "detached" });
-      var finished = await page.evaluate(() => window.exportFinished);
+      finished = await page.evaluate(() => window.exportFinished);
       await page.evaluate(() => window.releaseExport());
       await page.waitForFunction((n) => window.exportFinished > n, finished);
       await page.waitForFunction(
@@ -222,12 +223,11 @@ test("browser Office exports work, recover from errors and discard output after 
         window.releaseExport = null;
         window.failExport = true;
       });
-      await page.getByText("Other editable formats", { exact: true }).click();
-      await page.getByRole("button", { name: `Download ${label}` }).click();
+        await page.getByRole("button", { name: actionName(`Download ${label}`, false) }).click();
       await page.waitForFunction(
         () => typeof window.releaseExport === "function",
       );
-      var finished = await page.evaluate(() => window.exportFinished);
+      finished = await page.evaluate(() => window.exportFinished);
       await page.evaluate(() => window.releaseExport());
       await page.waitForFunction((n) => window.exportFinished > n, finished);
       await page
@@ -238,12 +238,12 @@ test("browser Office exports work, recover from errors and discard output after 
         window.failExport = false;
         window.releaseExport = null;
       });
-      await page.getByRole("button", { name: `Download ${label}` }).click();
+      await page.getByRole("button", { name: actionName(`Download ${label}`, false) }).click();
       await page.waitForFunction(
         () => typeof window.releaseExport === "function",
       );
       const officeDownload = page.waitForEvent("download");
-      var finished = await page.evaluate(() => window.exportFinished);
+      finished = await page.evaluate(() => window.exportFinished);
       await page.evaluate(() => window.releaseExport());
       await page.waitForFunction((n) => window.exportFinished > n, finished);
       assert.ok(
@@ -270,15 +270,14 @@ test("browser Office exports work, recover from errors and discard output after 
       await review.check();
       const button = page.getByRole("button", {
         name:
-          extension === "pptx"
+          actionName(extension === "pptx"
             ? "Download editable PowerPoint"
             : extension === "docx"
               ? "Download Word document"
-              : "Download Excel workbook",
+              : "Download Excel workbook", false),
       });
       if (!(await button.isVisible()))
-        await page.getByText("Other editable formats", { exact: true }).click();
-      await page.evaluate(() => {
+          await page.evaluate(() => {
         window.releaseExport = null;
       });
       await button.click();
@@ -418,7 +417,7 @@ test("browser Office exports work, recover from errors and discard output after 
     );
     const presetDownload = page.waitForEvent("download");
     await page
-      .getByRole("button", { name: "Save presentation preset" })
+      .getByRole("button", { name: actionName("Save presentation preset", false) })
       .click();
     const preset = await presetDownload;
     await preset.saveAs(`${output}/presentation.json`);

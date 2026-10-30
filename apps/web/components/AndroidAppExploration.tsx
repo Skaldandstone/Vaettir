@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useEffect, useState } from "react";
 import {
   androidExplorerState,
@@ -621,36 +623,39 @@ export function AndroidAppExploration(props: Props) {
             retained here.
           </p>
           {key && (!ownership.owner || ownership.owner === key) && (
-            <button
+            <ActionButton
               className="btn-secondary"
               type="button"
               disabled={busy}
               onClick={() => void recheckAccess()}
-            >
+             tooltip={<>
               Recheck original project access
-            </button>
+             </>}>
+               Refresh </ActionButton>
           )}
         </div>
       ) : (
         <>
           {!devices.length && !shown && (
             <div>
-              <button
+              <ActionButton
                 type="button"
                 className="btn-secondary"
                 disabled={busy || !props.pairingCode}
                 onClick={download}
-              >
+               tooltip={<>
                 Download Android connector
-              </button>{" "}
-              <button
+               </>}>
+                 Android connector </ActionButton>{" "}
+              <ActionButton
                 className="btn-secondary"
                 type="button"
                 disabled={busy || !props.pairingCode}
                 onClick={() => void connect()}
-              >
+               tooltip={<>
                 Connect Android app
-              </button>
+               </>}>
+                 Connect </ActionButton>
               <p className="text-muted">
                 Open the downloaded launcher once if device policy permits, then
                 connect. Requires Node 22 and ADB. Downloading alone does not
@@ -686,14 +691,16 @@ export function AndroidAppExploration(props: Props) {
                 Open the test app on that device. Only its current package
                 identity is checked here.
               </p>
-              <button
+              <ActionButton
                 className="btn-secondary"
                 type="button"
                 disabled={busy || !serial}
                 onClick={() => void inspect()}
-              >
+               tooltip={<>
                 {target ? "Check open app again" : "Use the open test app"}
-              </button>
+               </>}>
+                {target ? "Check" : "Use"}
+              </ActionButton>
             </>
           )}
           {target && !shown && (
@@ -748,14 +755,15 @@ export function AndroidAppExploration(props: Props) {
                 open. An app or screen can change while a command runs; use a
                 test account.
               </p>
-              <button
+              <ActionButton
                 className="btn-secondary"
                 type="button"
                 disabled={busy || !consent}
                 onClick={() => void start()}
-              >
+               tooltip={<>
                 Explore normal navigation
-              </button>
+               </>}>
+                 Explore </ActionButton>
             </>
           )}
           {exploring && !shown && ownership.pendingId && (
@@ -883,7 +891,7 @@ export function AndroidAppExploration(props: Props) {
                       journey review. Add any selected proposed tests first. An
                       uncertain add must be recovered before continuing.
                     </p>
-                    <button
+                    <ActionButton
                       className="btn-secondary"
                       type="button"
                       disabled={
@@ -893,9 +901,10 @@ export function AndroidAppExploration(props: Props) {
                         (!!ownership.commitIntent && !receipt)
                       }
                       onClick={() => void prepareReviewedNavigation()}
-                    >
+                     tooltip={<>
                       Use selected navigation in a new exploration
-                    </button>
+                     </>}>
+                       Use </ActionButton>
                   </details>
                 )}
               <h3>Review proposed tests</h3>
@@ -997,7 +1006,7 @@ export function AndroidAppExploration(props: Props) {
                     to this Vaettir project and adding the proposed cases as
                     pending review.
                   </label>
-                  <button
+                  <ActionButton
                     className="btn-secondary"
                     type="button"
                     disabled={
@@ -1008,11 +1017,15 @@ export function AndroidAppExploration(props: Props) {
                       selected.length > 12
                     }
                     onClick={() => void addSelected()}
-                  >
+                   tooltip={<>
                     {ownership.commitIntent && !receipt
                       ? "Recover add result"
                       : "Add selected proposed tests"}
-                  </button>
+                   </>}>
+                    {ownership.commitIntent && !receipt
+                      ? "Recover"
+                      : "Add"}
+                  </ActionButton>
                 </>
               )}
               {receipt && (
@@ -1024,13 +1037,14 @@ export function AndroidAppExploration(props: Props) {
             </>
           )}
           {ownership.pendingId && !busy && (
-            <button
+            <ActionButton
               type="button"
               className="btn-secondary"
               onClick={() => void readRetained()}
-            >
+             tooltip={<>
               Read retained session without navigation
-            </button>
+             </>}>
+               Read </ActionButton>
           )}
           {error && <p role="alert">{error}</p>}
           {notice && <p role="status">{notice}</p>}

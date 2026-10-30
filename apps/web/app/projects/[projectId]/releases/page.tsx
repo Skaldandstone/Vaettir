@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useLayoutEffect, useMemo, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useParams } from "next/navigation";
@@ -276,9 +278,10 @@ export default function ReleasesPage() {
       >
         <h1 style={{ margin: 0 }}>Release readiness</h1>
         {canEdit && (
-          <button className="btn-primary" onClick={() => setCreateOpen(true)}>
+          <ActionButton className="btn-primary" onClick={() => setCreateOpen(true)} tooltip={<>
             + New release
-          </button>
+           </>}>
+             New release </ActionButton>
         )}
       </div>
       <p className="text-muted" style={{ marginBottom: 20 }}>
@@ -502,13 +505,14 @@ export default function ReleasesPage() {
             <p role="status">
               Verify the original signed-in account, workspace and full editor
               seat before creating or retrying. Drafts are retained. The active browser session must match the original account; cached access alone cannot send a request.{" "}
-              <button
+              <ActionButton
                 type="button"
                 className="btn-secondary"
                 onClick={() => void access.refresh()}
-              >
+               tooltip={<>
                 Recheck original access
-              </button>
+               </>}>
+                 Refresh </ActionButton>
             </p>
           )}
           {createRequest && (
@@ -606,16 +610,17 @@ export default function ReleasesPage() {
                     Add goal
                   </button>
                   {goalDraft.length > 0 && (
-                    <button
+                    <ActionButton
                       type="button"
                       className="btn-secondary"
                       onClick={() => {
                         setGoalDraft("");
                         setGoalError(null);
                       }}
-                    >
+                     tooltip={<>
                       Clear goal draft
-                    </button>
+                     </>}>
+                       Clear </ActionButton>
                   )}
                 </div>
                 {goalError && <p role="alert">{goalError}</p>}
@@ -660,10 +665,10 @@ export default function ReleasesPage() {
                   />{" "}
                   Show specialized regulatory, hardware and field goals
                 </label>
-                <p className="text-muted">
+                <details><summary>Details</summary><p className="text-muted">
                   Goals are optional. Choose only what applies; a normal release
                   does not require a launch or regulatory milestone.
-                </p>
+                </p></details>
               </>
             )}
             {releaseStep === 1 && (
@@ -719,11 +724,11 @@ export default function ReleasesPage() {
                 </fieldset>
                 <fieldset>
                   <legend>Add a quality plan</legend>
-                  <p className="text-muted">
+                  <details><summary>Details</summary><p className="text-muted">
                     The plan and release are saved together. New criteria remain
                     pending until evidence or review satisfies them. Edits here
                     change this unsaved release draft, not an existing plan.
-                  </p>
+                  </p></details>
                   <label>
                     Plan name
                     <input
@@ -744,7 +749,7 @@ export default function ReleasesPage() {
                       maxLength={2000}
                     />
                   </label>
-                  <button
+                  <ActionButton
                     type="button"
                     className="btn-secondary"
                     disabled={
@@ -752,11 +757,15 @@ export default function ReleasesPage() {
                       (editingCriterion === null && newCriteria.length >= 50)
                     }
                     onClick={saveCriterionDraft}
-                  >
+                   tooltip={<>
                     {editingCriterion === null
                       ? "Add criterion"
                       : "Save draft edit"}
-                  </button>
+                   </>}>
+                    {editingCriterion === null
+                      ? "Add criterion"
+                      : "Save"}
+                  </ActionButton>
                   {(criterionDraft.length > 0 || editingCriterion !== null) && (
                     <button
                       type="button"
@@ -848,9 +857,9 @@ export default function ReleasesPage() {
                 />
                 <section aria-label="Selected existing quality plans" style={{ marginTop: 16 }}>
                   <h4>Selected quality plans (current names)</h4>
-                  <p className="text-muted">
+                  <details><summary>Details</summary><p className="text-muted">
                     Open a plan in a new tab to review its current criteria without leaving this draft. Creating this release links these plans without editing them.
-                  </p>
+                  </p></details>
                   {reviewedPlanIds.length ? (
                     <ul>
                       {reviewedPlanIds.map((id) => {

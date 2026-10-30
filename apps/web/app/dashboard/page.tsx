@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionHelp } from "@/components/ui/ActionHelp";
 import { useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -95,9 +96,7 @@ export default function OrgDashboardPage() {
           <EmptyState
             title="No projects yet"
             action={
-              <Link className="btn-primary" href="/projects">
-                Create a project
-              </Link>
+              <ActionHelp tooltip={<>Create a project</>}><Link className="btn-primary" href="/projects">New project</Link></ActionHelp>
             }
           >
             Add a project to start connecting cases, execution evidence, and
@@ -224,12 +223,12 @@ export default function OrgDashboardPage() {
                         Readiness is invisible until this project has a release
                         target.
                       </p>
-                      <Link
+                      <ActionHelp tooltip="Set up release"><Link
                         className="btn-primary"
                         href={`/projects/${project.projectId}/releases`}
                       >
-                        Set up release <Icon name="arrow" size={14} />
-                      </Link>
+                        New release <Icon name="arrow" size={14} />
+                      </Link></ActionHelp>
                     </div>
                   )}
                 </article>

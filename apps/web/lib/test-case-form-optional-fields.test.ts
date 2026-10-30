@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 // Actual case-form callbacks + installed React SSR + actual presentation/save
 // helpers. Metadata/RPC and tag/shared-preview/design-guide/custom-field child
 // boundaries are synthetic; this is not full mounted-tag or child auth proof.
@@ -29,7 +30,7 @@ for (const [file, name] of [
   ["../components/ui/IconButton.tsx", "IconButton"],
   ["../components/ui/ProcedureStep.tsx", "ProcedureStep"],
 ] as const) {
-  vm.runInContext(ts.transpileModule(actualUiDeclaration(file, name), {
+  vm.runInContext(controllerTranspile(actualUiDeclaration(file, name), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React },
   }).outputText, iconScope);
 }
@@ -37,7 +38,7 @@ const IconButton = (iconScope as unknown as { IconButton: React.ComponentType<Re
 const ProcedureStep = (iconScope as unknown as { ProcedureStep: React.ComponentType<Record<string, unknown>> }).ProcedureStep;
 
 const source = readFileSync(new URL("../components/TestCaseForm.tsx", import.meta.url), "utf8");
-const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } }).outputText;
+const compiled = controllerTranspile(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } }).outputText;
 type Element = React.ReactElement<Record<string, unknown>>;
 function elements(value: unknown, all: Element[] = []): Element[] { if (React.isValidElement(value)) { const e = value as Element; all.push(e); elements(e.props.children, all); elements(e.props.tools, all); } else if (Array.isArray(value)) value.forEach(v => elements(v, all)); return all; }
 function text(value: unknown): string { return typeof value === "string" || typeof value === "number" ? String(value) : React.isValidElement(value) ? text((value as Element).props.children) : Array.isArray(value) ? value.map(text).join("") : ""; }

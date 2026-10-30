@@ -20,6 +20,11 @@ function respond(body: unknown = page()) { vi.mocked(repositoryProviderJson).moc
 beforeEach(() => vi.resetAllMocks());
 
 describe("bounded Jira Cloud issue-summary intake", () => {
+  it("retains reviewed project JQL and site links while reading through the OAuth gateway",async()=>{
+    respond();const cloudId="01234567-89ab-cdef-0123-456789abcdef";
+    await expect(listJiraIssuePage({kind:"oauth",siteUrl:credentials.siteUrl,cloudId,accessToken:"synthetic-oauth",accountId:"synthetic-account",accountName:"Synthetic"},["10001"])).resolves.toEqual({issues:[expectedIssue()],nextPageToken:null});
+    const [origin,path,options]=vi.mocked(repositoryProviderJson).mock.calls[0]!;expect(origin).toBe("https://api.atlassian.com");expect(new URL(path,origin).pathname).toBe(`/ex/jira/${cloudId}/rest/api/3/search/jql`);expect(options).toEqual({token:"synthetic-oauth"});expect(new URL(path,origin).searchParams.get("jql")).toBe("project in (10001) ORDER BY id ASC");
+  });
   it("uses one fixed enhanced-search GET with constructed numeric JQL and four fields", async () => {
     respond();
     await expect(listJiraIssuePage(credentials, ["10001", "10002"])).resolves.toEqual({

@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import {
@@ -442,13 +444,14 @@ function ProcedureWorkflow({ projectId }: { projectId: string }) {
   }
   return (
     <>
-      <button
+      <ActionButton
         type="button"
         className="btn-secondary"
         onClick={() => setOpen(true)}
-      >
+       tooltip={<>
         Restore procedures from JSON
-      </button>
+       </>}>
+         Restore JSON </ActionButton>
       <Modal
         open={open}
         onClose={() => setOpen(false)}
@@ -475,13 +478,14 @@ function ProcedureWorkflow({ projectId }: { projectId: string }) {
                 reveal or restore this reviewed procedure comparison.
               </p>
             )}
-            <button
+            <ActionButton
               type="button"
               className="btn-secondary"
               onClick={() => void recheckAccess()}
-            >
+             tooltip={<>
               Recheck restoration access
-            </button>
+             </>}>
+               Refresh </ActionButton>
           </div>
         ) : (
           <>
@@ -504,13 +508,14 @@ function ProcedureWorkflow({ projectId }: { projectId: string }) {
                   ))}
                 </ul>
                 <p>{result.freshnessNotice}</p>
-                <button
+                <ActionButton
                   type="button"
                   className="btn-secondary"
                   onClick={restart}
-                >
+                 tooltip={<>
                   Review another snapshot
-                </button>
+                 </>}>
+                   Review </ActionButton>
               </div>
             ) : (
               <>
@@ -527,21 +532,25 @@ function ProcedureWorkflow({ projectId }: { projectId: string }) {
                         }
                       />
                     </label>
-                    <p className="text-muted">
+                    <details><summary>Details</summary><p className="text-muted">
                       Up to 50 cases, 2 MiB, 500 steps/BDD lines per case and
                       500 media/prerequisite references. No attachment files are
                       fetched.
-                    </p>
-                    <button
+                    </p></details>
+                    <ActionButton
                       type="button"
                       className="btn-primary"
                       disabled={!editorReady || busy || !serialized}
                       onClick={() => void review()}
-                    >
+                     tooltip={<>
                       {previewMutation.isPending
                         ? "Comparing…"
                         : "Compare with current cases"}
-                    </button>
+                     </>}>
+                      {previewMutation.isPending
+                        ? "Comparing…"
+                        : "Compare"}
+                    </ActionButton>
                   </>
                 )}
                 {previewReady && preview && (
@@ -764,15 +773,16 @@ function ProcedureWorkflow({ projectId }: { projectId: string }) {
                       >
                         Refresh comparison
                       </button>
-                      <button
+                      <ActionButton
                         type="button"
                         className="btn-secondary"
                         disabled={busy || Boolean(pending)}
                         onClick={restart}
-                      >
+                       tooltip={<>
                         Back to file
-                      </button>
-                      <button
+                       </>}>
+                         Back </ActionButton>
+                      <ActionButton
                         type="button"
                         className="btn-primary"
                         disabled={
@@ -785,13 +795,19 @@ function ProcedureWorkflow({ projectId }: { projectId: string }) {
                               selected.some((id) => !reasons[id]?.trim())))
                         }
                         onClick={() => void approve()}
-                      >
+                       tooltip={<>
                         {approveMutation.isPending
                           ? "Confirming…"
                           : pending
                             ? "Retry exact approval"
                             : `Restore ${selected.length} reviewed cases`}
-                      </button>
+                       </>}>
+                        {approveMutation.isPending
+                          ? "Confirming…"
+                          : pending
+                            ? "Retry"
+                            : `Restore (${selected.length})`}
+                      </ActionButton>
                     </div>
                   </>
                 )}
@@ -803,14 +819,15 @@ function ProcedureWorkflow({ projectId }: { projectId: string }) {
                   An unconfirmed approval is retained with its original actor,
                   organization, reviewed content and UUID.
                 </p>
-                <button
+                <ActionButton
                   type="button"
                   className="btn-primary"
                   disabled={!editorReady || busy}
                   onClick={() => void approve()}
-                >
+                 tooltip={<>
                   Retry exact approval
-                </button>
+                 </>}>
+                   Retry </ActionButton>
               </div>
             )}
           </>

@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { DialogFrame } from "./ui/DialogFrame";
@@ -331,18 +333,18 @@ function Explorer({ projectId }: { projectId: string }) {
             ✕
           </button>
         </div>
-        <p className="text-muted">
+        <details><summary>Details</summary><p className="text-muted">
           Querying does not change cases. Save personal or shared criteria and
           column layouts below; existing table views and selections stay
           unchanged.
-        </p>
+        </p></details>
         {!accessReady && (
           <div role={project.error || organizations.error ? "alert" : "status"}>
             <p>
               Current project access must be refreshed. Retained criteria are
               not current case evidence.
             </p>
-            <button
+            <ActionButton
               type="button"
               className="btn-secondary"
               onClick={() =>
@@ -353,9 +355,10 @@ function Explorer({ projectId }: { projectId: string }) {
                   query.refetch(),
                 ])
               }
-            >
+             tooltip={<>
               Refresh project access
-            </button>
+             </>}>
+               Refresh </ActionButton>
           </div>
         )}
         {savedQueries}
@@ -365,12 +368,13 @@ function Explorer({ projectId }: { projectId: string }) {
               <p role="alert">
                 Project fields could not be refreshed. Existing custom
                 conditions are retained for repair.{" "}
-                <button
+                <ActionButton
                   type="button"
                   onClick={() => void definitions.refetch()}
-                >
+                 tooltip={<>
                   Retry field definitions
-                </button>
+                 </>}>
+                   Retry </ActionButton>
               </p>
             )}
             {!freshDefinitions && !definitions.error && (
@@ -604,7 +608,7 @@ function Explorer({ projectId }: { projectId: string }) {
                     </button>
                   </div>
                 ))}
-                <button
+                <ActionButton
                   type="button"
                   className="btn-secondary"
                   disabled={group.rules.length >= 8 || totalRules >= 12}
@@ -618,12 +622,14 @@ function Explorer({ projectId }: { projectId: string }) {
                       ),
                     })
                   }
-                >
+                 tooltip={<>
                   Add condition to group {gi + 1}
-                </button>
+                 </>}>
+                   Add condition
+                </ActionButton>
               </fieldset>
             ))}
-            <button
+            <ActionButton
               type="button"
               className="btn-secondary"
               disabled={draft.groups.length >= 3 || totalRules >= 12}
@@ -636,9 +642,10 @@ function Explorer({ projectId }: { projectId: string }) {
                   ],
                 })
               }
-            >
+             tooltip={<>
               Add condition group
-            </button>
+             </>}>
+               Add group </ActionButton>
             <details style={{ marginBlock: 16 }}>
               <summary>Archive scope and sorting</summary>
               <div
@@ -731,20 +738,22 @@ function Explorer({ projectId }: { projectId: string }) {
             >
               Edit criteria
             </button>
-            <button type="button" className="btn-secondary" onClick={run}>
+            <ActionButton type="button" className="btn-secondary" onClick={run} tooltip={<>
               Run current criteria with selected columns
-            </button>
+             </>}>
+               Run query </ActionButton>
             {message && <p role="alert">{message}</p>}
             {definitions.error && (
               <p role="alert">
                 Current custom-field access could not be verified. Cached custom
                 values are withheld.{" "}
-                <button
+                <ActionButton
                   type="button"
                   onClick={() => void definitions.refetch()}
-                >
+                 tooltip={<>
                   Retry current field access
-                </button>
+                 </>}>
+                   Retry </ActionButton>
               </p>
             )}
             <details style={{ marginBlock: 12 }}>
@@ -859,20 +868,22 @@ function Explorer({ projectId }: { projectId: string }) {
                   Query unavailable or stale. No previous page has been
                   substituted.
                 </p>
-                <button
+                <ActionButton
                   type="button"
                   className="btn-secondary"
                   onClick={() => void query.refetch()}
-                >
+                 tooltip={<>
                   Retry same query page
-                </button>
-                <button
+                 </>}>
+                   Retry </ActionButton>
+                <ActionButton
                   type="button"
                   className="btn-secondary"
                   onClick={refresh}
-                >
+                 tooltip={<>
                   Restart query with current cases
-                </button>
+                 </>}>
+                   Restart query </ActionButton>
               </div>
             ) : !result ? (
               <p role="status">
@@ -942,13 +953,14 @@ function Explorer({ projectId }: { projectId: string }) {
                   >
                     Next
                   </button>
-                  <button
+                  <ActionButton
                     type="button"
                     className="btn-secondary"
                     onClick={refresh}
-                  >
+                   tooltip={<>
                     Restart query with current cases
-                  </button>
+                   </>}>
+                     Restart query </ActionButton>
                   {applied && organizationId && (
                     <CaseQueryExport
                       projectId={projectId}

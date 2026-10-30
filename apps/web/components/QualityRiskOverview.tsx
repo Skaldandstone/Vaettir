@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import Link from "next/link";
@@ -85,14 +87,14 @@ function Overview({ projectId }: { projectId: string }) {
   return <section aria-labelledby="quality-risk-overview" className="panel" style={{ marginBottom: 24 }}>
     <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
       <h2 id="quality-risk-overview" style={{ margin: 0 }}>Human quality-risk overview</h2>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}><button type="button" className="btn-secondary" disabled={!current} onClick={() => { setDraft(filter); setFilterError(""); setFiltersOpen(true); }}>Filter and explore risks</button>
-        <button type="button" className="btn-secondary" onClick={refresh}>Refresh current register</button>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}><ActionButton type="button" className="btn-secondary" disabled={!current} onClick={() => { setDraft(filter); setFilterError(""); setFiltersOpen(true); }} tooltip={<> Filter and explore risks </>}> Filter risks </ActionButton>
+        <ActionButton type="button" className="btn-secondary" onClick={refresh} tooltip={<> Refresh current register </>}> Refresh </ActionButton>
         <QualityRiskAggregateExport current={current} filters={filter} available={!!current && ready && !denied && !paused} revision={summary.dataUpdatedAt} /></div>
     </div>
     <p>Manual qualitative categories and ordinary recorded decisions. Version matching and available references do not establish verified mitigation, safety or regulatory acceptance.</p>
-    {denied ? <div role="alert"><p>Current project access or original register ownership could not be verified. Retained counts and native links are hidden.</p><button type="button" className="btn-secondary" onClick={refresh}>Recheck current access</button></div>
+    {denied ? <div role="alert"><p>Current project access or original register ownership could not be verified. Retained counts and native links are hidden.</p><ActionButton type="button" className="btn-secondary" onClick={refresh} tooltip={<> Recheck current access </>}> Refresh </ActionButton></div>
       : paused ? <p role="status">Waiting for a connection to verify current access. Retained counts and native chips are hidden.</p>
-      : summary.error ? <div role="alert"><p>The full risk overview could not be verified. No empty population or partial counts were substituted. {summary.error.message}</p><button type="button" className="btn-secondary" onClick={refresh}>Retry risk overview</button></div>
+      : summary.error ? <div role="alert"><p>The full risk overview could not be verified. No empty population or partial counts were substituted. {summary.error.message}</p><ActionButton type="button" className="btn-secondary" onClick={refresh} tooltip={<> Retry risk overview </>}> Retry </ActionButton></div>
       : !current ? <p role="status">Verifying the full current register and recorded reference availability…</p>
       : <>
         <p>{current.population.entries} entries in the full project population; {current.filtered.entries} in this filtered cohort. Observed {new Date(current.observedAt).toLocaleString()}. These are live counts, not frozen historical reconstruction.</p>
@@ -104,10 +106,10 @@ function Overview({ projectId }: { projectId: string }) {
             </section>
             <section className="panel"><h3 style={{ marginTop: 0 }}>Captured evidence references</h3>
               <p>{current.population.evidenceReferences.total} latest-review references · {current.population.evidenceReferences.available} available identities · {current.population.evidenceReferences.unavailable} unavailable identities.</p>
-              <div style={{ display: "grid", gap: 8 }}><button type="button" className="btn-secondary" onClick={() => setQuick({ evidence: "NONE_RECORDED" })}>Reviewed with no evidence · {current.population.evidence.NONE_RECORDED}</button>
-                <button type="button" className="btn-secondary" onClick={() => setQuick({ evidence: "SOME_REFERENCES_UNAVAILABLE" })}>Some unavailable references · {current.population.evidence.SOME_REFERENCES_UNAVAILABLE}</button>
-                <button type="button" className="btn-secondary" onClick={() => setQuick({ evidence: "ALL_REFERENCES_UNAVAILABLE" })}>All references unavailable · {current.population.evidence.ALL_REFERENCES_UNAVAILABLE}</button></div>
-              <p className="text-muted">No review and reviewed without evidence are distinct. References may repeat across risk entries; their statuses are historical.</p>
+              <div style={{ display: "grid", gap: 8 }}><ActionButton type="button" className="btn-secondary" onClick={() => setQuick({ evidence: "NONE_RECORDED" })} tooltip={<> Reviewed with no evidence · {current.population.evidence.NONE_RECORDED} </>}> No evidence · {current.population.evidence.NONE_RECORDED}</ActionButton>
+                <ActionButton type="button" className="btn-secondary" onClick={() => setQuick({ evidence: "SOME_REFERENCES_UNAVAILABLE" })} tooltip={<> Some unavailable references · {current.population.evidence.SOME_REFERENCES_UNAVAILABLE} </>}> Unavailable references · {current.population.evidence.SOME_REFERENCES_UNAVAILABLE}</ActionButton>
+                <ActionButton type="button" className="btn-secondary" onClick={() => setQuick({ evidence: "ALL_REFERENCES_UNAVAILABLE" })} tooltip={<> All references unavailable · {current.population.evidence.ALL_REFERENCES_UNAVAILABLE} </>}> Unavailable references · {current.population.evidence.ALL_REFERENCES_UNAVAILABLE}</ActionButton></div>
+              <details><summary>Details</summary><p className="text-muted">No review and reviewed without evidence are distinct. References may repeat across risk entries; their statuses are historical.</p></details>
             </section>
           </div>
           <details style={{ marginBlock: 12 }}><summary>Full population qualitative categories and recorded dispositions</summary>
@@ -134,7 +136,7 @@ function Overview({ projectId }: { projectId: string }) {
         <details><summary>Population and evidence limitations</summary><ul>{current.limits.map(limit => <li key={limit}>{limit}</li>)}</ul></details>
       </>}
     <Modal open={filtersOpen} onClose={() => setFiltersOpen(false)} title="Explore human risk records">
-      {!current ? <div role="alert"><p>Current actor, original organization and overview must be verified before displaying retained filter text. Your filter draft remains retained.</p><button type="button" className="btn-secondary" onClick={refresh}>Recheck filter access</button></div> : <>
+      {!current ? <div role="alert"><p>Current actor, original organization and overview must be verified before displaying retained filter text. Your filter draft remains retained.</p><ActionButton type="button" className="btn-secondary" onClick={refresh} tooltip={<> Recheck filter access </>}> Refresh </ActionButton></div> : <>
       <p>Filter the complete supported current population. Full project counts stay separate from your filtered cohort.</p>
       <label style={label}>Find ID, title or component<input style={control} value={draft.search} maxLength={80} onChange={event => setDraft(value => ({ ...value, search: event.target.value }))} /></label>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(min(200px,100%),1fr))", gap: 12 }}>
@@ -153,7 +155,7 @@ function Overview({ projectId }: { projectId: string }) {
     <Modal open={!!selectedId} onClose={closeDetail} title="Read-only risk evidence overview" size="wide">
       {denied ? <div role="alert"><p>Current access or original register ownership could not be verified. Retained evidence is hidden.</p><button type="button" className="btn-secondary" onClick={refresh}>Recheck access</button></div>
         : paused ? <p role="status">Waiting for a connection to verify this risk. Retained evidence is hidden.</p>
-        : detail.error ? <div role="alert"><p>This risk's recorded metadata could not be verified. No substitute empty evidence is shown. {detail.error.message}</p><button type="button" className="btn-secondary" onClick={refresh}>Retry risk evidence</button></div>
+        : detail.error ? <div role="alert"><p>This risk's recorded metadata could not be verified. No substitute empty evidence is shown. {detail.error.message}</p><ActionButton type="button" className="btn-secondary" onClick={refresh} tooltip={<> Retry risk evidence </>}> Retry </ActionButton></div>
         : !record ? <p role="status">Verifying the current risk entry and exact recorded evidence identities…</p>
         : <>
           <h3>{record.entry.displayId} · {record.entry.title}</h3><p>Component: {record.entry.component}. Current entry version {record.entry.version}.</p>
@@ -183,7 +185,7 @@ function Overview({ projectId }: { projectId: string }) {
               {ref.requirementId && ref.available ? <Link style={chip} href={`${prefix}/requirements#requirement-${encodeURIComponent(ref.requirementId)}`}>{ref.label}</Link> : <span style={chip}>{ref.label}</span>}{ref.titleIsExcerpt && " · Title excerpt"}
             </div>)}</div>}
           </details>
-          <p className="text-muted">Use the register below for the full native definition and ordinary human edit/review workflow. This overview has no write or regulatory approval action.</p>
+          <details><summary>Details</summary><p className="text-muted">Use the register below for the full native definition and ordinary human edit/review workflow. This overview has no write or regulatory approval action.</p></details>
           <details><summary>Full overview limitations</summary><ul>{record.limits.map(limit => <li key={limit}>{limit}</li>)}</ul></details>
         </>}
     </Modal>

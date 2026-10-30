@@ -1,10 +1,11 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
 import React from "react";
 import { expect,it } from "vitest";
 const source=readFileSync(new URL("../app/projects/[projectId]/test-cases/review/page.tsx",import.meta.url),"utf8"),ast=ts.createSourceFile("page.tsx",source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX),declarations=ast.statements.filter(node=>ts.isFunctionDeclaration(node)).map(node=>ts.createPrinter().printNode(ts.EmitHint.Unspecified,node,ast).replace(/export\s+default\s+|export\s+/g,""));
-const code=ts.transpileModule(`${declarations.join("\n")}\nthis.page=ReviewQueueSession;`,{compilerOptions:{target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.React,module:ts.ModuleKind.None}}).outputText;
+const code=controllerTranspile(`${declarations.join("\n")}\nthis.page=ReviewQueueSession;`,{compilerOptions:{target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.React,module:ts.ModuleKind.None}}).outputText;
 type NodeProps = { children?: React.ReactNode; onClick?: () => void; onRelease?: () => void; active?: boolean; hidden?: boolean; disabled?: boolean; caseId?: string };
 type NodeElement = React.ReactElement<NodeProps> & { ref?: ((element: { inert: boolean }) => void) | null };
 function nodes(node:React.ReactNode):NodeElement[]{return !React.isValidElement<NodeProps>(node)?[]:[node,...React.Children.toArray(node.props.children).flatMap(nodes)];}

@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { trpcReact, type RouterInputs, type RouterOutputs } from "@/lib/trpcReact";
@@ -11,7 +13,8 @@ type Identity = RouterOutputs["project"]["caseIdentity"];
 type Input = RouterInputs["project"]["saveCaseKey"];
 type Draft = { identity: Identity; key: string };
 type Pending = { input: Readonly<Input>; actorId: string; requestHash: string; uncertain: boolean };
-const keyPattern = /^[a-z][a-z0-9-]{0,23}$/;
+const existingKeyPattern = /^[a-z][a-z0-9-]{0,23}$/;
+const keyPattern = /^[a-z]{3,5}$/;
 
 async function requestHash(input: Input, actorId: string) {
   // Exact native property order; neither refreshed actor nor cached label is
@@ -47,7 +50,7 @@ export function ProjectCaseKey({ projectId, canEdit }: { projectId: string; canE
     { enabled: authReady, retry: false, staleTime: 0, refetchOnWindowFocus: false });
   const save = trpcReact.project.saveCaseKey.useMutation();
   const [open, setOpen] = useState(false), [draft, setDraft] = useState<Draft | null>(null);
-  const [confirmed, setConfirmed] = useState(false), [reviewRequired, setReviewRequired] = useState(false);
+  const [reviewRequired, setReviewRequired] = useState(false);
   const [pending, setPending] = useState<Pending | null>(null), [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState(""), [refreshFailed, setRefreshFailed] = useState(false);
   const [generation, publishGeneration] = useState(0);
@@ -55,7 +58,7 @@ export function ProjectCaseKey({ projectId, canEdit }: { projectId: string; canE
   const data = identity.data;
   const current = authReady && identity.isFetchedAfterMount && !identity.error && !identity.isFetching && !identity.isPaused &&
     data?.projectId === projectId && !!data.organizationId && !!data.actorId && data.actorClerkUserId === auth.userId &&
-    keyPattern.test(data.caseKey) && Number.isSafeInteger(data.revision) && data.revision >= 0 && data.revision <= 2147483646 &&
+    existingKeyPattern.test(data.caseKey) && Number.isSafeInteger(data.revision) && data.revision >= 0 && data.revision <= 2147483646 &&
     Number.isSafeInteger(data.allocatedCount) && data.allocatedCount >= 0 && data.keyLocked === false && typeof data.canEdit === "boolean" ? data : null;
   const frame = useMemo(() => ({ projectId, current, canEdit, authReady, userId: auth.userId ?? "", sessionId: auth.sessionId ?? "" }),
     [projectId, current, canEdit, authReady, auth.userId, auth.sessionId]);
@@ -86,7 +89,7 @@ export function ProjectCaseKey({ projectId, canEdit }: { projectId: string; canE
     if (!draft || !owns(draft.identity)) return;
     const original = draft.identity;
     const normalized = draft.key.trim().toLowerCase();
-    if (!attempt && (!canChange() || !confirmed || !keyPattern.test(normalized))) return;
+    if (!attempt && (!canChange() || !keyPattern.test(normalized))) return;
     inFlight.current = true; setBusy(true); setNotice("");
     try {
       if (!attempt) {
@@ -104,13 +107,13 @@ export function ProjectCaseKey({ projectId, canEdit }: { projectId: string; canE
       } catch (cause) {
         held.current = manualStartDefinitivelyRejected(cause, attempt.uncertain) ? null : { ...attempt, uncertain: true };
         setPending(held.current);
-        if (!held.current) { setConfirmed(false); setReviewRequired(true); advance(); }
+        if (!held.current) { setReviewRequired(true); advance(); }
         if (owns(original)) setNotice(held.current
           ? "The key change was not acknowledged. Retry the same original key, revision and request ID; do not start a replacement."
           : "The key change was refused. The key may be reserved, or project identity may have changed. Load current identity and review again; your draft is retained.");
         return;
       }
-      held.current = null; setPending(null); setOpen(false); setDraft(null); setConfirmed(false); setReviewRequired(false); advance();
+      held.current = null; setPending(null); setOpen(false); setDraft(null); setReviewRequired(false); advance();
       setNotice("Project key renamed. Live labels now use the new key; old aliases and immutable case IDs are preserved.");
       try {
         await utils.project.caseIdentity.invalidate({ projectId: original.projectId });
@@ -133,7 +136,7 @@ export function ProjectCaseKey({ projectId, canEdit }: { projectId: string; canE
   }
   const original = draft?.identity;
   const visible = sdkCurrent() && !!current && (!original || sameOriginal(original, current));
-  if (!visible) return <p role="status">{identity.error ? "Current case identifiers could not be verified." : identity.isFetching || !identity.isFetchedAfterMount ? "Checking current case identifiers…" : "Restore the original signed-in account and project access."} Any key draft or uncertain request stays retained and withheld. <button type="button" disabled={!authReady || identity.isFetching} onClick={retryRead}>Retry identity read</button></p>;
+  if (!visible) return <p role="status">{identity.error ? "Current case identifiers could not be verified." : identity.isFetching || !identity.isFetchedAfterMount ? "Checking current case identifiers…" : "Restore the original signed-in account and project access."} Any key draft or uncertain request stays retained and withheld. <ActionButton type="button" disabled={!authReady || identity.isFetching} onClick={retryRead} tooltip={<> Retry identity read </>}> Retry </ActionButton></p>;
   const editable = canEdit && current.canEdit && !busy && !save.isPending;
   const contextChanged = !!draft && (current.revision !== draft.identity.revision || current.caseKey !== draft.identity.caseKey);
   function close() {
@@ -142,20 +145,19 @@ export function ProjectCaseKey({ projectId, canEdit }: { projectId: string; canE
   }
   return <>
     <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, margin: "12px 0" }}>
-      <span>Case key: <code>{current.caseKey}</code></span><span className="text-muted">Example: {current.caseKey}-01</span>
-      {editable && <button type="button" className="btn-secondary" aria-haspopup="dialog" onClick={show} disabled={Boolean(pending)}>Change case key</button>}
+      <span>Project key: <code>{current.caseKey}</code></span><span className="text-muted">Example: {current.caseKey}-01</span>
+      {editable && <ActionButton type="button" className="btn-secondary" aria-haspopup="dialog" onClick={show} disabled={Boolean(pending)} tooltip={<> Change project key </>}> Change key </ActionButton>}
     </div>
     {notice && !open && <p role="status">{notice}</p>}
-    {refreshFailed && !open && <button type="button" className="btn-secondary" disabled={identity.isFetching} onClick={retryRead}>Refresh case labels</button>}
-    <Modal open={open} onClose={close} dismissible={!busy && !pending} title="Rename the project case key">
+    {refreshFailed && !open && <ActionButton type="button" className="btn-secondary" disabled={identity.isFetching} onClick={retryRead} tooltip={<> Refresh case labels </>}> Refresh </ActionButton>}
+    <Modal open={open} onClose={close} dismissible={!busy && !pending} title="Project key">
       <form onSubmit={event => { event.preventDefault(); return submit(); }} style={{ display: "grid", gap: 12 }}>
-        <p>{draft?.identity.allocatedCount} cases have allocated numbers. A rename changes their live display labels, not their immutable IDs or numbers. Old references remain aliases; frozen run procedures and evidence are not rewritten.</p>
+        <details><summary>Existing references</summary><p>{draft?.identity.allocatedCount} cases keep their IDs and numbers. Old keys remain aliases; saved evidence is unchanged.</p></details>
         <fieldset disabled={!editable || Boolean(pending) || reviewRequired || contextChanged} style={{ border: 0, padding: 0, minWidth: 0 }}>
-          <label style={{ display: "grid", gap: 6 }}>Project key<input autoFocus value={draft?.key ?? ""} maxLength={24} pattern="[A-Za-z][A-Za-z0-9-]{0,23}" required aria-describedby={helpId}
-            onChange={event => { if (!canChange()) return; setDraft({ ...draft!, key: event.target.value }); setConfirmed(false); advance(); }} /></label>
-          <p id={helpId} className="text-muted">Use 1–24 letters, numbers or hyphens, starting with a letter. Keys are lowercase. Existing cases can use a renamed key without losing their old references.</p>
-          <p aria-live="polite">Case preview: <code>{draft?.key.trim().toLowerCase() || "project"}-01</code></p>
-          <label><input type="checkbox" checked={confirmed} onChange={event => { if (canChange()) { setConfirmed(event.target.checked); advance(); } }} /> I reviewed the new live labels and preservation of old aliases and frozen evidence.</label>
+          <label style={{ display: "grid", gap: 6 }}>Project key<input autoFocus value={draft?.key ?? ""} maxLength={5} minLength={3} pattern="[A-Za-z]{3,5}" required aria-describedby={helpId}
+            onChange={event => { if (!canChange()) return; setDraft({ ...draft!, key: event.target.value }); advance(); }} /></label>
+          <p id={helpId} className="text-muted">3–5 letters only</p>
+          <p aria-live="polite">Case preview: <code>{draft?.key.trim().toLowerCase() || "ate"}-01</code></p>
         </fieldset>
         {notice && <p role="status">{notice}</p>}
         {pending && <p role="status">Original request {pending.input.requestId} is retained with key {pending.input.caseKey} and revision {pending.input.expectedRevision}. Restore original edit access and retry identical content.</p>}
@@ -163,10 +165,10 @@ export function ProjectCaseKey({ projectId, canEdit }: { projectId: string; canE
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
           {!pending && <button type="button" className="btn-secondary" disabled={!editable} onClick={() => {
             if (generation !== eventGeneration.current || inFlight.current || held.current || !draft || !owns(draft.identity)) return;
-            setDraft({ identity: Object.freeze({ ...current }), key: current.caseKey }); setConfirmed(false); setReviewRequired(false); setNotice(""); advance();
-          }}>Load current identity for review</button>}
-          <button type="button" className="btn-secondary" disabled={busy || Boolean(pending)} onClick={close}>Close retained draft</button>
-          <button type="submit" className="btn-primary" disabled={!editable || (!pending && (!confirmed || reviewRequired || contextChanged || !keyPattern.test(draft?.key.trim().toLowerCase() ?? "")))}>{busy ? "Saving…" : pending ? "Retry same key change" : "Save reviewed key"}</button>
+            setDraft({ identity: Object.freeze({ ...current }), key: current.caseKey }); setReviewRequired(false); setNotice(""); advance();
+          }}>Refresh</button>}
+          <button type="button" className="btn-secondary" disabled={busy || Boolean(pending)} onClick={close}>Cancel</button>
+          <ActionButton type="submit" className="btn-primary" disabled={!editable || (!pending && (reviewRequired || contextChanged || !keyPattern.test(draft?.key.trim().toLowerCase() ?? "")))} tooltip={<> {busy ? "Saving…" : pending ? "Retry same key change" : "Save"} </>}>{busy ? "Saving…" : pending ? "Retry" : "Save"}</ActionButton>
         </div>
       </form>
     </Modal>

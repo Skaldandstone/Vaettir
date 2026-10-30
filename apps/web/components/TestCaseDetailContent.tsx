@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useId, useState } from "react";
 import type { CSSProperties, ChangeEvent } from "react";
 import { trpcReact } from "@/lib/trpcReact";
@@ -250,11 +252,11 @@ function AutomationDraftSection({
           request is blocked.
         </p>
       )}
-      <p className="text-muted" style={{ fontSize: 13, margin: "5px 0 12px" }}>
+      <details><summary>Details</summary><p className="text-muted" style={{ fontSize: 13, margin: "5px 0 12px" }}>
         Turn this reviewed case into framework-specific source. Vaettir returns
         a draft for human review and never writes to your repository or claims
         that the source was executed.
-      </p>
+      </p></details>
       {!readOnly && !saved.data && !saved.isLoading && !saved.error && (
         <details>
           <summary>Prepare an automation draft</summary>
@@ -303,14 +305,18 @@ function AutomationDraftSection({
               />
             </label>
             <div>
-              <button
+              <ActionButton
                 onClick={generate}
                 disabled={generateMutation.isPending || !framework}
-              >
+               tooltip={<>
                 {generateMutation.isPending
                   ? "Generating…"
                   : "Generate review draft"}
-              </button>
+               </>}>
+                {generateMutation.isPending
+                  ? "Generating…"
+                  : "Generate"}
+              </ActionButton>
               <span
                 className="text-muted"
                 style={{ fontSize: 12, marginLeft: 8 }}
@@ -732,13 +738,15 @@ function DatasetSection({
       <div style={{ display: "flex", justifyContent: "space-between" }}>
         <strong>Data set</strong>
         {!readOnly && !editing && (
-          <button
+          <ActionButton
             className="btn-secondary"
             style={{ fontSize: 12 }}
             onClick={() => setEditing(true)}
-          >
+           tooltip={<>
             {parameterNames.length > 0 ? "Edit" : "Add data set"}
-          </button>
+           </>}>
+            {parameterNames.length > 0 ? "Edit" : "Add"}
+          </ActionButton>
         )}
       </div>
       {error && <p style={{ color: "var(--ember)", fontSize: 12 }}>{error}</p>}
@@ -750,14 +758,15 @@ function DatasetSection({
         testCaseId={testCaseId}
       />
       {!readOnly && !editing && savedRows.length > 0 && (
-        <button
+        <ActionButton
           type="button"
           className="btn-secondary"
           style={{ marginTop: 8 }}
           onClick={() => setExecutionOpen(true)}
-        >
+         tooltip={<>
           Run dataset rows…
-        </button>
+         </>}>
+           Run rows… </ActionButton>
       )}
 
       {!editing && preview.length > 0 && (
@@ -779,13 +788,14 @@ function DatasetSection({
             </details>
           ))}
           {!readOnly && (
-            <button
+            <ActionButton
               className="btn-secondary"
               style={{ fontSize: 11, marginTop: 6 }}
               onClick={removeDataset}
-            >
+             tooltip={<>
               Remove data set
-            </button>
+             </>}>
+               Remove </ActionButton>
           )}
         </div>
       )}
@@ -798,7 +808,7 @@ function DatasetSection({
 
       {editing && (
         <fieldset disabled={saving || Boolean(readOnly)} style={{ marginTop: 8, border: 0, padding: 0, minWidth: 0 }}>
-          <p className="text-muted">Add parameters as columns, then enter one set of values per row. For example, use &lt;username&gt; in an action and supply different usernames below. This edits data only; it does not start a run.</p>
+          <details><summary>Details</summary><p className="text-muted">Add parameters as columns, then enter one set of values per row. For example, use &lt;username&gt; in an action and supply different usernames below. This edits data only; it does not start a run.</p></details>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "end", marginBottom: 12 }}>
             <label style={{ display: "grid", gap: 4 }}>Parameter name<input value={parameterDraft} onChange={event => setParameterDraft(event.target.value)} placeholder="e.g. username" maxLength={120}/></label>
             <button type="button" className="btn-secondary" disabled={!parameterDraft.trim()} onClick={addParameter}>Add parameter</button>
@@ -861,15 +871,17 @@ function DatasetSection({
             <button className="btn-secondary" onClick={() => setEditing(false)}>
               Cancel
             </button>
-            <button
+            <ActionButton
               className="btn-primary"
               onClick={save}
               disabled={
                 saving || parameterNames.length === 0 || rows.length === 0
               }
-            >
+             tooltip={<>
               {saving ? "Saving…" : "Save data set"}
-            </button>
+             </>}>
+              {saving ? "Saving…" : "Save"}
+            </ActionButton>
           </div>
         </fieldset>
       )}
@@ -991,7 +1003,7 @@ function AttachmentsSection({
                 </span>
               )}
               {!readOnly && !a.uploadCompletedAt && (
-                <button
+                <ActionButton
                   className="btn-secondary"
                   disabled={confirmMutation.isPending}
                   onClick={async () => {
@@ -1007,9 +1019,10 @@ function AttachmentsSection({
                       );
                     }
                   }}
-                >
+                 tooltip={<>
                   Verify uploaded file
-                </button>
+                 </>}>
+                   Verify file </ActionButton>
               )}
               {!readOnly && (
                 <button
@@ -1234,16 +1247,18 @@ function TestCaseInspector({
             {tc.title}
           </h1>
           {tc.title.length > 110 && (
-            <button
+            <ActionButton
               type="button"
               className={styles.titleToggle}
               aria-expanded={expandedTitleFor === tc.id}
               onClick={() =>
                 setExpandedTitleFor(expandedTitleFor === tc.id ? null : tc.id)
               }
-            >
+             tooltip={<>
               {expandedTitleFor === tc.id ? "Compact title" : "Show full title"}
-            </button>
+             </>}>
+              {expandedTitleFor === tc.id ? "Compact title" : "Show"}
+            </ActionButton>
           )}
         </div>
         {!readOnly && (
@@ -1326,15 +1341,19 @@ function TestCaseInspector({
             </button>
           )}
           {savedAutomation.data && (
-            <button
+            <ActionButton
               type="button"
               className="btn-secondary"
               onClick={() => setSection("Intelligence")}
-            >
+             tooltip={<>
               {savedAutomation.data.status === "GENERATING"
                 ? "Automation draft generating"
                 : "Open saved automation draft"}
-            </button>
+             </>}>
+              {savedAutomation.data.status === "GENERATING"
+                ? "Generating…"
+                : "Open"}
+            </ActionButton>
           )}
         </div>
       )}
@@ -1395,9 +1414,10 @@ function TestCaseInspector({
                     ...(tc.then.length === 0 ? ["Then"] : []),
                   ].join(" / ")} not recorded. Prerequisites do not replace scenario
                   steps. Review the original source or{" "}
-                  <button type="button" className="btn-secondary" onClick={() => setSection("History")}>
+                  <ActionButton type="button" className="btn-secondary" onClick={() => setSection("History")} tooltip={<>
                     View case history
-                  </button>
+                   </>}>
+                     Case history </ActionButton>
                   {!readOnly && <> before using Edit case to complete the procedure.</>}
                 </p>
               )}
@@ -1407,7 +1427,7 @@ function TestCaseInspector({
         {tc.steps.length > 0 && (
           <section className="case-step-table">
             <h3>Steps</h3>
-            <p className="text-muted">Each row pairs the tester’s action with its technical behavior, expected visible result and expected response. A parameter dataset is separate from these per-step descriptors.</p>
+            <details><summary>Details</summary><p className="text-muted">Each row pairs the tester’s action with its technical behavior, expected visible result and expected response. A parameter dataset is separate from these per-step descriptors.</p></details>
             <table style={{ borderCollapse: "collapse", width: "100%" }}>
               <thead>
                 <tr>
@@ -1624,16 +1644,22 @@ function TestCaseInspector({
           )}
           {!readOnly && (
             <div style={{ marginTop: 8 }}>
-              <button
+              <ActionButton
                 onClick={() => setRiskDialogOpen(true)}
                 disabled={assessingRisk}
-              >
+               tooltip={<>
                 {assessingRisk
                   ? "Assessing…"
                   : tc.riskScore != null
                     ? "Review risk assessment"
                     : "Assess risk"}
-              </button>
+               </>}>
+                {assessingRisk
+                  ? "Assessing…"
+                  : tc.riskScore != null
+                    ? "Review"
+                    : "Assess risk"}
+              </ActionButton>
             </div>
           )}
         </div>
@@ -1646,16 +1672,17 @@ function TestCaseInspector({
           {prioritySuggestion.error ? (
             <p role="alert">
               Risk-derived priority advice could not be refreshed. Existing priority and your local business rationale remain unchanged.{" "}
-              <button type="button" disabled={prioritySuggestion.isFetching} onClick={() => void prioritySuggestion.refetch()}>
+              <ActionButton type="button" disabled={prioritySuggestion.isFetching} onClick={() => void prioritySuggestion.refetch()} tooltip={<>
                 Retry priority advice
-              </button>
+               </>}>
+                 Retry </ActionButton>
             </p>
           ) : prioritySuggestion.isPending || prioritySuggestion.isFetching || prioritySuggestion.isPaused ? (
             <p role="status">
               {prioritySuggestion.isPaused
                 ? "Priority advice is paused. Reconnect and retry this read; existing priority and your local business rationale remain unchanged."
                 : "Loading current priority advice. Existing priority and your local business rationale remain unchanged."}
-              {prioritySuggestion.isPaused && <>{" "}<button type="button" disabled={prioritySuggestion.isFetching} onClick={() => void prioritySuggestion.refetch()}>Retry priority advice</button></>}
+              {prioritySuggestion.isPaused && <>{" "}<ActionButton type="button" disabled={prioritySuggestion.isFetching} onClick={() => void prioritySuggestion.refetch()} tooltip={<> Retry priority advice </>}> Retry </ActionButton></>}
             </p>
           ) : prioritySuggestion.data?.suggestedPriority ? (
             <>
@@ -1680,18 +1707,17 @@ function TestCaseInspector({
                 <details>
                   <summary>Optional risk suggestion or business override</summary>
                   <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
-                    <button
+                    <ActionButton
                       className="btn-secondary"
                       disabled={
                         priorityBusy ||
                         prioritySuggestion.data.currentPriority ===
                           prioritySuggestion.data.suggestedPriority
                       }
-                      onClick={() => void decidePriority("MATCH_RISK")}
-                    >
+                      onClick={() => void decidePriority("MATCH_RISK")} tooltip={<>
                       Use risk suggestion (
                       {prioritySuggestion.data.suggestedPriority.toLowerCase()})
-                    </button>
+                     </>}>Apply suggestion</ActionButton>
                     <label>
                       Business-critical priority
                       <select
@@ -1721,15 +1747,16 @@ function TestCaseInspector({
                         placeholder="Explain the business need for this override"
                       />
                     </label>
-                    <button
+                    <ActionButton
                       className="btn-secondary"
                       disabled={
                         priorityBusy || businessRationale.trim().length < 10
                       }
                       onClick={() => void decidePriority("BUSINESS_OVERRIDE")}
-                    >
+                     tooltip={<>
                       Save business override
-                    </button>
+                     </>}>
+                       Save </ActionButton>
                   </div>
                 </details>
               )}
@@ -1945,13 +1972,13 @@ function TestCaseInspector({
                   !arraysEqual(snap.then, tc.then) ||
                   !arraysEqual(snap.tags, tc.tags);
                 const comparisonScope = (
-                  <p className="text-muted" style={{ fontSize: 11, marginTop: 8 }}>
+                  <details><summary>Details</summary><p className="text-muted" style={{ fontSize: 11, marginTop: 8 }}>
                     This comparison covers title, background, Given, When, Then
                     and tags only. Structured steps, technical descriptors,
                     media, priority and custom fields are not compared. Version
                     history shows recorded snapshots where available, not
                     complete edit provenance.
-                  </p>
+                  </p></details>
                 );
                 if (!changed) {
                   return (
@@ -1969,13 +1996,14 @@ function TestCaseInspector({
                 return (
                   <div style={{ marginTop: 10 }}>
                     {comparisonScope}
-                    <button
+                    <ActionButton
                       className="btn-secondary"
                       style={{ fontSize: 12 }}
                       onClick={() => setShowDiff((v) => !v)}
-                    >
+                     tooltip={<>
                       {showDiff ? "Hide" : "Show"} compared generation-field changes
-                    </button>
+                     </>}>
+                      {showDiff ? "Hide" : "Show"} changes </ActionButton>
                     {showDiff && (
                       <div
                         style={{

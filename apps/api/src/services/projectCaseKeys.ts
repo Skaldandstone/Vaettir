@@ -6,8 +6,12 @@ import { lockCaseFieldProject } from "./caseFields.js";
 import { lockCaseFieldReadScope, lockCurrentCaseFieldActor, type CaseFieldReadAuthorization } from "./caseFieldReadScope.js";
 
 const id = z.string().min(1).max(200);
+// Historical keys, aliases and exact retry receipts retain their original grammar.
 export const projectCaseKeySchema = z.string().trim().toLowerCase().regex(
   /^[a-z][a-z0-9-]{0,23}$/, "Use 1–24 letters, numbers or hyphens, starting with a letter.",
+);
+export const newProjectCaseKeySchema = z.string().trim().toLowerCase().regex(
+  /^[a-z]{3,5}$/, "Use 3–5 letters only.",
 );
 export const projectCaseKeySave = z.object({
   projectId: id, originalOrganizationId: id, expectedClerkActorId: id, expectedNativeActorId: id,
@@ -94,6 +98,8 @@ export async function saveProjectCaseKey(db: PrismaClient, userId: string, raw: 
         if (receipts.length !== 1 || previous.projectId !== input.projectId || previous.organizationId !== input.originalOrganizationId || previous.actorId !== userId || previous.clerkActorId !== actor || previous.requestHash !== requestHash) throw conflict();
         return { ...assertProjectCaseKeyReceipt(previous.receipt, input, userId), replayed: true };
       }
+      if (!newProjectCaseKeySchema.safeParse(input.caseKey).success)
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Use 3–5 letters only." });
       if (row.caseKey !== input.expectedCaseKey || row.caseKeyRevision !== input.expectedRevision) throw conflict();
       const reserved = await tx.$queryRaw<Array<{ projectId: string }>>`SELECT "projectId" FROM "ProjectCaseKeyAlias" WHERE "organizationId"=${row.organizationId} AND "caseKey"=${input.caseKey}`;
       if (reserved.some(item => item.projectId !== input.projectId)) throw conflict();

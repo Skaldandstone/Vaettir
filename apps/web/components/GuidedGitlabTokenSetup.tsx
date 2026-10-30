@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useState } from "react";
 import { gitlabInstanceOrigin } from "@/lib/gitlab-instance-selection";
 import { TokenRepositoryConnection } from "./TokenRepositoryConnection";
@@ -27,7 +29,7 @@ export function GuidedGitlabTokenSetup({ projectId, onConnected, onClose, active
       <p>For a group token, select the exact group in GitLab, then Settings → Access tokens. A group Owner must create it; use a read-only Reporter role with read_api. Group token availability depends on your GitLab edition. Vaettir does not create or issue tokens automatically.</p>
     </details>
     <footer className="connection-footer">
-      <button type="button" className="btn-primary" style={{order:1}} disabled={!active || !origin} onClick={() => { if (active && origin) setVerifiedOrigin(origin); }}>Verify token &amp; choose repositories</button>
+      <ActionButton type="button" className="btn-primary" style={{order:1}} disabled={!active || !origin} onClick={() => { if (active && origin) setVerifiedOrigin(origin); }} tooltip={<> Verify token &amp; choose repositories </>}> Verify token </ActionButton>
       <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
     </footer>
   </section>;

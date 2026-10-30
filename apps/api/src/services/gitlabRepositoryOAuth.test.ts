@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { repositoryProviderJson, repositoryProviderRevokeGitlabToken } from "./repositoryProviderHttp.js";
-import { createGitlabAuthorization, GitlabOAuthRevocationPendingError, listGitlabGroups, listGitlabRepositories, repositorySelectionSchema, revokeGitlabAuthorization, verifyGitlabAuthorization, verifyGitlabAccessToken, refreshGitlabAuthorization } from "./gitlabRepositoryOAuth.js";
+import { createGitlabAuthorization, GitlabOAuthRevocationPendingError, listGitlabGroups, listGitlabRepositories, repositorySelectionSchema, revokeGitlabAuthorization, verifyGitlabAuthorization, verifyGitlabAccessToken, refreshGitlabAuthorization, repositoryOAuthRedirect } from "./gitlabRepositoryOAuth.js";
 
 vi.mock("./repositoryProviderHttp.js", async importOriginal => ({
   ...await importOriginal<typeof import("./repositoryProviderHttp.js")>(), repositoryProviderJson: vi.fn(), repositoryProviderRevokeGitlabToken: vi.fn(),
@@ -11,6 +11,12 @@ const token = { access_token: "synthetic-token", token_type: "Bearer", expires_i
 beforeEach(() => { vi.resetAllMocks(); });
 
 describe("GitLab repository OAuth contract", () => {
+  it("uses a dedicated public callback without rewriting unrelated legacy application URLs",()=>{
+    const env={WEB_APP_URL:"https://vaettir.skaldandstone.com",REPOSITORY_OAUTH_PUBLIC_URL:"https://app.vaettir.app"};
+    expect(repositoryOAuthRedirect(env)).toBe("https://app.vaettir.app/connections/gitlab/callback");expect(repositoryOAuthRedirect(env,"github")).toBe("https://app.vaettir.app/connections/github/callback");expect(env.WEB_APP_URL).toBe("https://vaettir.skaldandstone.com");
+    expect(repositoryOAuthRedirect({WEB_APP_URL:"https://legacy.example"})).toBe("https://legacy.example/connections/gitlab/callback");
+    expect(()=>repositoryOAuthRedirect({...env,REPOSITORY_OAUTH_PUBLIC_URL:"http://127.0.0.1"})).toThrow();
+  });
   it("retains refresh credentials and immutable account/callback identity after account verification",async()=>{
     vi.mocked(repositoryProviderJson).mockResolvedValueOnce({...token,refresh_token:"synthetic-refresh"}).mockResolvedValueOnce({id:17,username:"fixture-user"});
     expect((await verifyGitlabAuthorization(input)).renewal).toEqual({refreshToken:"synthetic-refresh",accountId:"17",redirectUri:input.redirectUri});

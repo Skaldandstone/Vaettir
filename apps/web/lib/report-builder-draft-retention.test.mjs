@@ -371,7 +371,7 @@ test("keeping the local report restores visible focus before clearing the replac
   assert.equal(state.replacement, null);
   assert.equal(draft(state), before);
   assert.match(source.replace(/\s+/g, " "), /ref=\{closeButton\} className="btn-secondary modal-close"/);
-  assert.match(source, /onClick=\{keepCurrentReport\}\s*>\s*Keep current report/);
+  assert.match(source, /onClick=\{keepCurrentReport\}[^>]*tooltip=\{<>\s*Keep current report/);
 });
 
 test("replacement confirmation focuses before writes and refused routes never focus or clear review", () => {

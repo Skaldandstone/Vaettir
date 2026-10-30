@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 // Execute the actual page body with synthetic hooks and RPC boundaries. Effects
 // are deliberately not run: no pairing generation, helper HTTP or paid mutation.
 // This proves caller wiring/cancellation, not React lifecycle or device acceptance.
@@ -20,7 +21,7 @@ const sdkDeclarations = sdkAst.statements.filter(node => ts.isFunctionDeclaratio
   .map(node => printer.printNode(ts.EmitHint.Unspecified, node, sdkAst).replace(/\bexport\s+/g, "")).join("\n");
 // Execute the actual source dependencies without installing a synthetic ready
 // SDK. Effects remain deliberately unrun, so private capture admission is absent.
-const code = ts.transpileModule(sdkDeclarations + "\n" + printer.printNode(ts.EmitHint.Unspecified, ownershipClass, ast) + "\n" + printer.printNode(ts.EmitHint.Unspecified, declaration, ast).replace("export default ", "") + "\nthis.page = LiveAppGenerationPage;", {
+const code = controllerTranspile(sdkDeclarations + "\n" + printer.printNode(ts.EmitHint.Unspecified, ownershipClass, ast) + "\n" + printer.printNode(ts.EmitHint.Unspecified, declaration, ast).replace("export default ", "") + "\nthis.page = LiveAppGenerationPage;", {
   compilerOptions: { module: ts.ModuleKind.None, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React },
 }).outputText;
 type Element = React.ReactElement<Record<string, unknown>>;

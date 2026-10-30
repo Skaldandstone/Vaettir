@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useLayoutEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { Modal } from "./Modal";
@@ -49,7 +51,7 @@ function Manager({ projectId }: { projectId: string }) {
       ? query.data
       : null;
   return (<>
-    {!accessReady && <p role="status">Reusable definition drafts and exact requests remain retained but hidden until current access to the original account and workspace is verified. <button type="button" className="btn-secondary" disabled={!actorMatches} onClick={() => { if (actorMatches) void Promise.all([project.refetch(), organizations.refetch(), query.refetch()]); }}>Retry definition access</button></p>}
+    {!accessReady && <p role="status">Reusable definition drafts and exact requests remain retained but hidden until current access to the original account and workspace is verified. <ActionButton type="button" className="btn-secondary" disabled={!actorMatches} onClick={() => { if (actorMatches) void Promise.all([project.refetch(), organizations.refetch(), query.refetch()]); }} tooltip={<> Retry definition access </>}> Retry </ActionButton></p>}
     <details
       hidden={!accessReady}
       style={{ marginBlock: 16 }}
@@ -76,16 +78,17 @@ function Manager({ projectId }: { projectId: string }) {
       {pending && (
         <p role="status">
           An exact change request is retained.{" "}
-          <button
+          <ActionButton
             type="button"
             className="btn-secondary"
             onClick={() => {
               setId(pending.id);
               setOpen(true);
             }}
-          >
+           tooltip={<>
             Resume the same request
-          </button>
+           </>}>
+             Resume </ActionButton>
         </p>
       )}
       {query.error ? (
@@ -150,7 +153,7 @@ function Manager({ projectId }: { projectId: string }) {
                         </td>
                         <td>{row.version}</td>
                         <td>
-                          <button
+                          <ActionButton
                             type="button"
                             className="btn-secondary"
                             disabled={!!pending && pending.id !== row.id}
@@ -158,11 +161,15 @@ function Manager({ projectId }: { projectId: string }) {
                               setId(row.id);
                               setOpen(true);
                             }}
-                          >
+                           tooltip={<>
                             {row.canManage
                               ? "Manage / history"
                               : "View history"}
-                          </button>
+                           </>}>
+                            {row.canManage
+                              ? "History"
+                              : "View history"}
+                          </ActionButton>
                         </td>
                       </tr>
                     ))}
@@ -479,16 +486,17 @@ function DefinitionReview({
               <p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
                 {pending.reason}
               </p>
-              <button
+              <ActionButton
                 type="button"
                 className="btn-primary"
                 disabled={!canManage || mutation.isPending}
                 onClick={() => void save()}
-              >
+               tooltip={<>
                 Retry same reviewed change
-              </button>
+               </>}>
+                 Retry </ActionButton>
               {definitiveRefusal && (
-                <button
+                <ActionButton
                   type="button"
                   className="btn-secondary"
                   disabled={mutation.isPending}
@@ -503,9 +511,10 @@ function DefinitionReview({
                     );
                     void query.refetch();
                   }}
-                >
+                 tooltip={<>
                   Discard refused review and refresh
-                </button>
+                 </>}>
+                   Discard </ActionButton>
               )}
             </>
           ) : (
@@ -580,7 +589,7 @@ function DefinitionReview({
                               current history before reviewing them against a
                               newer head.
                             </p>
-                            <button
+                            <ActionButton
                               type="button"
                               className="btn-secondary"
                               onClick={() => {
@@ -591,9 +600,10 @@ function DefinitionReview({
                                 setConfirmed(false);
                                 setSharing(false);
                               }}
-                            >
+                             tooltip={<>
                               Keep edits and review against current version
-                            </button>
+                             </>}>
+                               Keep </ActionButton>
                           </div>
                         )}
                         {settingsChecked && !settingsChecked.success && (
@@ -678,7 +688,7 @@ function DefinitionReview({
                       </label>
                     )}
                     {(kind !== "settings" || settingsScreen === 3) && (
-                      <button
+                      <ActionButton
                         type="button"
                         className="btn-primary"
                         disabled={
@@ -700,9 +710,10 @@ function DefinitionReview({
                           setConfirmed(false);
                           setSharing(false);
                         }}
-                      >
+                       tooltip={<>
                         Review proposed change
-                      </button>
+                       </>}>
+                         Review </ActionButton>
                     )}
                   </div>
                 ) : (
@@ -814,7 +825,7 @@ function DefinitionReview({
                         >
                           Back
                         </button>
-                        <button
+                        <ActionButton
                           type="button"
                           className="btn-primary"
                           disabled={
@@ -824,9 +835,10 @@ function DefinitionReview({
                             (needsSharing && !sharing)
                           }
                           onClick={() => void save()}
-                        >
+                         tooltip={<>
                           Apply reviewed change
-                        </button>
+                         </>}>
+                           Apply </ActionButton>
                       </div>
                     </>
                   )

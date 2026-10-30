@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useEffect, useRef, useState } from "react";
 import { Modal } from "@/components/Modal";
 import {
@@ -199,9 +201,10 @@ export function SharedStepHistoryReview({
                 </button>
               ) : (
                 <>
-                  <button onClick={() => choose("UPDATE")}>
+                  <ActionButton onClick={() => choose("UPDATE")} tooltip={<>
                     Edit current procedure
-                  </button>
+                   </>}>
+                     Edit </ActionButton>
                   <button
                     disabled={data.usageCount > 0}
                     onClick={() => choose("ARCHIVE")}
@@ -215,10 +218,10 @@ export function SharedStepHistoryReview({
           {!action && (
             <>
               <h4>Retained revisions</h4>
-              <p className="text-muted">
+              <details><summary>Details</summary><p className="text-muted">
                 Migration baselines capture the content present then, not an
                 invented earlier edit history. Unknown actors remain unknown.
-              </p>
+              </p></details>
               {data.revisions.map((r) => (
                 <details key={r.id}>
                   <summary>
@@ -257,9 +260,11 @@ export function SharedStepHistoryReview({
                     !data.snapshot.archived &&
                     r.revision !== data.revision &&
                     !pending && (
-                      <button onClick={() => choose("RESTORE", r.revision)}>
+                      <ActionButton onClick={() => choose("RESTORE", r.revision)} tooltip={<>
                         Review restore revision {r.revision}
-                      </button>
+                       </>}>
+                         Review {r.revision}
+                      </ActionButton>
                     )}
                 </details>
               ))}
@@ -389,7 +394,7 @@ export function SharedStepHistoryReview({
                       <div
                         style={{ display: "flex", gap: 8, flexWrap: "wrap" }}
                       >
-                        <button
+                        <ActionButton
                           disabled={i === 0}
                           onClick={() => {
                             const next = [...draft.steps];
@@ -398,11 +403,10 @@ export function SharedStepHistoryReview({
                               ...draft,
                               steps: next.map((s, order) => ({ ...s, order })),
                             });
-                          }}
-                        >
+                          }} tooltip={<>
                           Move step {i + 1} up
-                        </button>
-                        <button
+                         </>}>Move up</ActionButton>
+                        <ActionButton
                           disabled={i === draft.steps.length - 1}
                           onClick={() => {
                             const next = [...draft.steps];
@@ -411,11 +415,10 @@ export function SharedStepHistoryReview({
                               ...draft,
                               steps: next.map((s, order) => ({ ...s, order })),
                             });
-                          }}
-                        >
+                          }} tooltip={<>
                           Move step {i + 1} down
-                        </button>
-                        <button
+                         </>}>Move down</ActionButton>
+                        <ActionButton
                           disabled={draft.steps.length === 1}
                           onClick={() =>
                             setDraft({
@@ -424,10 +427,9 @@ export function SharedStepHistoryReview({
                                 .filter((_, j) => j !== i)
                                 .map((s, order) => ({ ...s, order })),
                             })
-                          }
-                        >
+                          } tooltip={<>
                           Remove step {i + 1}
-                        </button>
+                         </>}>Remove step</ActionButton>
                       </div>
                     </div>
                   ))}
@@ -490,7 +492,7 @@ export function SharedStepHistoryReview({
                 <button disabled={!!pending} onClick={reset}>
                   Back
                 </button>
-                <button
+                <ActionButton
                   className="btn-primary"
                   disabled={
                     !data.canEdit ||
@@ -505,13 +507,19 @@ export function SharedStepHistoryReview({
                   onClick={() =>
                     pending ? mutation.mutate(pending) : submit()
                   }
-                >
+                 tooltip={<>
                   {mutation.isPending
                     ? "Saving reviewed revision…"
                     : pending
                       ? "Retry exact approved change"
                       : "Approve and save new revision"}
-                </button>
+                 </>}>
+                  {mutation.isPending
+                    ? "Saving…"
+                    : pending
+                      ? "Retry"
+                      : "Approve"}
+                </ActionButton>
               </div>
             </section>
           )}

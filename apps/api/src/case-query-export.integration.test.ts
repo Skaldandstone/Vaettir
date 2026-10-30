@@ -1,3 +1,4 @@
+import { fixtureProjectKey } from "./testProjectKey.js";
 // Synthetic integration coverage; requires an owned migrated loopback test DB.
 import { randomUUID } from "node:crypto";
 import { describe, beforeAll, afterAll, it, expect } from "vitest";
@@ -104,7 +105,7 @@ describe("whole applied typed-query reviewed metadata export", () => {
             organizationId: org.id,
             name: tag,
             slug: tag,
-            caseKey: `e${randomUUID().replaceAll("-", "").slice(0, 12)}`,
+            caseKey: fixtureProjectKey(),
             caseFieldSchema: { version: 1, fields },
           },
         });

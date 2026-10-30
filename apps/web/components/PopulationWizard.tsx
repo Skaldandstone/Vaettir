@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useState } from "react";
 import type { PopulationDraft } from "@vaettir/core";
 import { CreationWizard, WizardChoices } from "./CreationWizard";
@@ -120,7 +122,7 @@ export function PopulationWizard({
                   });
                 }}
               />
-              <button
+              <ActionButton
                 type="button"
                 className="btn-secondary"
                 onClick={() =>
@@ -131,9 +133,10 @@ export function PopulationWizard({
                     ) as PopulationDraft["sections"],
                   })
                 }
-              >
+               tooltip={<>
                 Select all sections
-              </button>
+               </>}>
+                 Select all </ActionButton>
             </>
           )}
           {step === 1 && (
@@ -170,21 +173,20 @@ export function PopulationWizard({
                   }
                 />
               </label>
-              <p className="text-muted">
+              <details><summary>Details</summary><p className="text-muted">
                 Add what you know, or leave this blank. You can return to this
                 draft later. Saving a setup draft does not change your approved
                 project objective. Keep secrets and customer data out of this
                 description.
-              </p>
-              <button
+              </p></details>
+              <ActionButton
                 type="button"
                 className="btn-secondary"
-                onClick={() => move(step + 1)}
-              >
+                onClick={() => move(step + 1)} tooltip={<>
                 {draft.objective.trim()
                   ? "Keep this objective and continue"
                   : "Not sure yet · continue without an objective"}
-              </button>
+               </>}>Continue</ActionButton>
               <details>
                 <summary>
                   Hardware, software, regulatory and compliance details

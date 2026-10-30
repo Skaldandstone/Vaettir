@@ -76,6 +76,7 @@ export interface CommitImportArgs {
   keyPrefix: string;
   framework: string;
   testPlanId?: string;
+  captureRows?: boolean;
 }
 
 export interface CommitImportResult {
@@ -83,6 +84,7 @@ export interface CommitImportResult {
   createdCount: number;
   updatedCount: number;
   skipped: { rowNumber: number; reason: string }[];
+  rowReceipts?: { rowNumber: number; caseId: string }[];
 }
 
 export async function commitImportedTestCases(
@@ -184,6 +186,7 @@ export async function commitImportedTestCasesInTransaction(
   });
 
   const updated = [] as Awaited<ReturnType<typeof prisma.testCase.findMany<{ include: { steps: true } }>>>;
+  const rowReceipts: { rowNumber: number; caseId: string }[] = [];
   for (const row of toUpdate) {
     const source = sourceByKey.get(keyFor(row.externalId!))!;
     const incoming = snapshotFromRow(row);
@@ -222,7 +225,7 @@ export async function commitImportedTestCasesInTransaction(
         return { kind: "conflict" as const, reason: HUMAN_EDIT_SKIP_REASON };
       }
       if (sameSnapshot(incoming, baseline.data)) {
-        return { kind: "unchanged" as const };
+        return { kind: "unchanged" as const, caseId: current.id };
       }
       const changed = await tx.testCase.update({
         where: { id: current.id },
@@ -247,7 +250,8 @@ export async function commitImportedTestCasesInTransaction(
       });
       return { kind: "updated" as const, changed };
     })();
-    if (result.kind === "updated") updated.push(result.changed);
+    if (result.kind === "updated") { updated.push(result.changed); rowReceipts.push({ rowNumber: row.rowNumber, caseId: result.changed.id }); }
+    if (result.kind === "unchanged") rowReceipts.push({ rowNumber: row.rowNumber, caseId: result.caseId });
     if (result.kind === "conflict") skipped.push({ rowNumber: row.rowNumber, reason: result.reason });
   }
 
@@ -291,6 +295,7 @@ export async function commitImportedTestCasesInTransaction(
       }),
     ),
   );
+  created.forEach((c, i) => rowReceipts.push({ rowNumber: toCreate[i]!.rowNumber, caseId: c.id }));
 
   await Promise.all(
     [...created, ...updated].map((c) =>
@@ -351,5 +356,6 @@ export async function commitImportedTestCasesInTransaction(
     createdCount: created.length,
     updatedCount: updated.length,
     skipped,
+    ...(args.captureRows ? { rowReceipts } : {}),
   };
 }

@@ -122,7 +122,7 @@ test("report presentation never invents optional notes, selection, evidence or l
     frozen,
     /REPORT_SECTIONS.filter\(\s*\(?section\)? => report.definition.sections.includes\(section\),?\s*\)/,
   );
-  assert.match(frozen, /Data limitations and missing evidence/);
+  assert.match(frozen, /<summary>Limitations<\/summary>/);
   assert.match(frozen, /This saved report does not update itself/);
   assert.match(frozen, /renderFrozenReportHtml\(report\)/);
   assert.match(frozen, /review recipients before sharing/);

@@ -96,7 +96,7 @@ describe.skipIf(!scopeOptIn || !manualCaseFixtureEnabled())(
         await owner.project.create({
           organizationId: organizations[0]!,
           name: `${prefix} synthetic bounded case history`,
-          caseKey: "HSCOPE",
+          caseKey: "HSCOP",
         })
       ).id;
     });

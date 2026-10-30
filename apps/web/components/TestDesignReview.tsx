@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useState } from "react";
 import { Modal } from "./Modal";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
@@ -50,13 +52,15 @@ export function TestDesignReview({
   const content = saved?.content;
   return (
     <>
-      <button
+      <ActionButton
         type="button"
         className="btn-secondary"
         onClick={() => setOpen(true)}
-      >
+       tooltip={<>
         {readOnly ? "View saved design reviews" : "Review test design"}
-      </button>
+       </>}>
+        {readOnly ? "Design reviews" : "Review"}
+      </ActionButton>
       <Modal
         open={open}
         title={readOnly ? "Saved test design reviews" : "Improve this test"}
@@ -107,12 +111,13 @@ export function TestDesignReview({
               </label>
             </details>
             {saved && (
-              <button
+              <ActionButton
                 className="btn-secondary"
                 onClick={() => setStep("review")}
-              >
+               tooltip={<>
                 Open saved review (no credits)
-              </button>
+               </>}>
+                 Open </ActionButton>
             )}
             <button
               disabled={Boolean(code.trim()) !== Boolean(ref.trim())}
@@ -144,9 +149,10 @@ export function TestDesignReview({
               Nothing will be applied to the case.
             </p>
             {matched?.content ? (
-              <button onClick={() => setStep("review")}>
+              <ActionButton onClick={() => setStep("review")} tooltip={<>
                 Open existing review without charging
-              </button>
+               </>}>
+                 Open </ActionButton>
             ) : matched ? (
               <p role="status">
                 Review status:{" "}
@@ -172,7 +178,7 @@ export function TestDesignReview({
                     use credits.
                   </p>
                 )}
-                <button
+                <ActionButton
                   disabled={
                     !approved ||
                     !preview.data?.canSpend ||
@@ -189,9 +195,11 @@ export function TestDesignReview({
                       approved: true,
                     })
                   }
-                >
+                 tooltip={<>
                   {generate.isPending ? "Reviewing…" : "Confirm and review"}
-                </button>
+                 </>}>
+                  {generate.isPending ? "Reviewing…" : "Confirm"}
+                </ActionButton>
               </>
             )}
             <button
@@ -270,7 +278,7 @@ export function TestDesignReview({
                 )}
                 {!readOnly && (
                   <>
-                    <button
+                    <ActionButton
                       disabled={
                         saved.stale || !preview.data?.canSpend || !canUseDraft
                       }
@@ -278,9 +286,10 @@ export function TestDesignReview({
                         onUse(content);
                         setOpen(false);
                       }}
-                    >
+                     tooltip={<>
                       Use recommendations in draft setup
-                    </button>
+                     </>}>
+                       Use </ActionButton>
                     {!canUseDraft && (
                       <small>
                         Your existing automation draft is preserved. Reject it
@@ -303,12 +312,13 @@ export function TestDesignReview({
               </p>
             )}
             {!readOnly && (
-              <button
+              <ActionButton
                 className="btn-secondary"
                 onClick={() => setStep("evidence")}
-              >
+               tooltip={<>
                 Back to evidence
-              </button>
+               </>}>
+                 Back </ActionButton>
             )}
           </div>
         )}

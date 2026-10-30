@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 // Actual component functions + installed SSR + real isolated controller.
 // Auth/native RPC/read completion are synthetic; not browser/native acceptance.
 import { readFileSync } from "node:fs";
@@ -11,7 +12,7 @@ import { admitRetestRead, inspectRetestWire, retestReviewedBrowserKey, type Rete
 import { currentSessionScope } from "./auth-query-cache";
 import { sameManualRetestScope } from "./manual-retest-scope-ack";
 const source=readFileSync(new URL("../components/ManualRetestWizard.tsx",import.meta.url),"utf8");
-const compiled=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.React}}).outputText;
+const compiled=controllerTranspile(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.React}}).outputText;
 const scope={projectId:"p",organizationId:"o",clerkActorId:"cl"},hash="a".repeat(64);
 let counter=0;
 const pendingDigests = new Set<Promise<ArrayBuffer>>();

@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { trpcReact, type RouterInputs, type RouterOutputs } from "@/lib/trpcReact";
@@ -129,13 +131,13 @@ export function SmartCaseSuggestions({ projectId, cases, caseIds, onApplyImport,
     {!draft && <>
       <p>{availability?.reason}</p><p>{count > maximum ? `Choose at most ${maximum} cases for one review, using the case selection or filters. ` : ""}{count} selected cases. Suggestions are included without deducting AI credits. Work runs in batches of 20, up to {maximum.toLocaleString()} selected cases.</p>
       <label><input type="checkbox" checked={consent} disabled={busy} onChange={e => { setConsentKey(e.target.checked ? key : null); analysis.current = null; setHasAnalysis(false); }} /> I approve sending these selected case definitions, tags, current placement and project suite names to Vaettir’s configured Anthropic AI provider for suggestions. This approval does not grant plugin access or apply changes.</label>
-      <p><button type="button" className="btn-primary" disabled={!consent || !availability?.canAnalyze || !ready || busy || !count || count > maximum} onClick={() => void analyze()}>{busy ? `Reviewing ${progress} of ${count}…` : hasAnalysis ? "Retry suggestion review" : "Generate suggestions"}</button></p>
+      <p><ActionButton type="button" className="btn-primary" disabled={!consent || !availability?.canAnalyze || !ready || busy || !count || count > maximum} onClick={() => void analyze()} tooltip={<> {busy ? `Reviewing ${progress} of ${count}…` : hasAnalysis ? "Retry suggestion review" : "Generate suggestions"} </>}>{busy ? "Reviewing…" : hasAnalysis ? "Retry" : "Generate suggestions"}</ActionButton></p>
       {busy && <button type="button" className="btn-secondary" onClick={() => { analysisController.current?.abort(); analysis.current = null; setHasAnalysis(false); setConsentKey(null); }}>Stop analysis</button>}
     </>}
     {visible && draft && <>
       <p role="status">Review {draft.reviews.reduce((n, r) => n + r.before.length, 0)} cases. New paths create the named suite and subsuite levels when applied. Uncertain values remain unchanged.</p>
       {draft.reviews.some(r => r.legacySuitePaths?.length) && <p>Older imported suite labels remain unchanged and are included in this review’s source checks. They are not converted into folders. Only the selected case placements below can change.</p>}
-      <button type="button" className="btn-secondary" disabled={busy || hasPending} onClick={() => setDraft({ ...draft, selected: Object.fromEntries(draft.reviews.flatMap(changes).map(s => [s.id, s])) })}>Select all proposed changes</button>{" "}
+      <ActionButton type="button" className="btn-secondary" disabled={busy || hasPending} onClick={() => setDraft({ ...draft, selected: Object.fromEntries(draft.reviews.flatMap(changes).map(s => [s.id, s])) })} tooltip={<> Select all proposed changes </>}> Select all </ActionButton>{" "}
       <button type="button" className="btn-secondary" disabled={busy || hasPending} onClick={() => setDraft({ ...draft, selected: {} })}>Clear selection</button>
       <div className="smart-suggestion-list">{draft.reviews.flatMap(review => review.suggestions.map(s => {
         const before = review.before.find(c => c.id === s.id)!;
@@ -144,7 +146,7 @@ export function SmartCaseSuggestions({ projectId, cases, caseIds, onApplyImport,
           {fields.map(field => <label key={field} className="smart-suggestion-choice"><input type="checkbox" disabled={busy || hasPending || s[field] === null || s[field] === before[field]} checked={Boolean(draft.selected[s.id]?.[field])} onChange={event => setDraft({ ...draft, selected: { ...draft.selected, [s.id]: { id: s.id, suitePath: false, priority: false, testType: false, ...draft.selected[s.id], [field]: event.target.checked } } })} /><span><strong>{label[field]}</strong>: {before[field] ?? "Unassigned"} → {s[field] ?? "Leave unchanged"}{field === "suitePath" && s.suitePath && !review.knownSuites.includes(s.suitePath) ? " (new suite path)" : ""}</span></label>)}
         </details>;
       }))}</div>
-      <p><button type="button" className="btn-primary" disabled={busy || !selectedPatches().length} onClick={() => void apply()}>{busy ? "Applying reviewed changes…" : hasPending ? "Retry the exact reviewed save" : onApplyImport ? "Use selected suggestions in import preview" : "Apply selected changes"}</button>{" "}<button type="button" className="btn-secondary" disabled={busy || hasPending} onClick={() => { setDraft(null); setConsentKey(null); analysis.current = null; setHasAnalysis(false); }}>Discard suggestions</button></p>
+      <p><ActionButton type="button" className="btn-primary" disabled={busy || !selectedPatches().length} onClick={() => void apply()} tooltip={<> {busy ? "Applying reviewed changes…" : hasPending ? "Retry the exact reviewed save" : onApplyImport ? "Use selected suggestions in import preview" : "Apply selected changes"} </>}>{busy ? "Applying…" : hasPending ? "Retry" : onApplyImport ? "Use" : "Apply changes"}</ActionButton>{" "}<button type="button" className="btn-secondary" disabled={busy || hasPending} onClick={() => { setDraft(null); setConsentKey(null); analysis.current = null; setHasAnalysis(false); }}>Discard suggestions</button></p>
       {onApplyImport && <p>No cases are saved by this action. Review the updated import preview, then confirm the import separately.</p>}
     </>}
     {error && <p role="alert">{error}</p>}
@@ -182,15 +184,15 @@ export function SmartColumnMapping({ projectId, csvText, fileBase64, sheetName, 
   return <details className="panel" open><summary>Suggest column mappings from the content</summary>
     <p>{availability?.reason}</p><p>Use this when column names or layout are unfamiliar. Expected behavior and historical pass/fail results remain separate.</p>
     <label><input type="checkbox" checked={consent} disabled={busy} onChange={e => setConsentSignature(e.target.checked ? signature : null)} /> I approve sending the column names and first 25 data rows to Vaettir’s Anthropic AI provider to propose mappings. No source is changed or imported.</label>
-    <p><button type="button" className="btn-primary" disabled={!consent || !availability?.canAnalyze || !ready || busy} onClick={() => void analyze()}>{busy ? "Reading column meanings…" : "Suggest mappings"}</button></p>
+    <p><ActionButton type="button" className="btn-primary" disabled={!consent || !availability?.canAnalyze || !ready || busy} onClick={() => void analyze()} tooltip={<> {busy ? "Reading column meanings…" : "Suggest mappings"} </>}>{busy ? "Reading…" : "Suggest mappings"}</ActionButton></p>
     {result?.signature === signature && ready && <>
       {result.mappings.length === 0 && <p>No defensible mapping was found. Existing mappings are unchanged.</p>}
       {result.mappings.map(m => <label key={m.field} className="smart-suggestion-choice"><input type="checkbox" checked={chosen.has(m.field)} disabled={busy} onChange={e => setChosen(previous => { const next = new Set(previous); if (e.target.checked) next.add(m.field); else next.delete(m.field); return next; })} /><span><strong>{m.field}</strong>: {currentMapping[m.field] || "Unmapped"} → {m.column}<br />{m.confidence.toLowerCase()} confidence. {m.reason}{m.evidence.map((q, i) => <blockquote key={i}>{q}</blockquote>)}</span></label>)}
       <p>Review all mapping changes, including any field unmapped because a column can have only one role:</p>
       <dl>{([...new Set([...Object.keys(currentMapping), ...Object.keys(reviewedMapping)])] as Array<keyof typeof currentMapping>).filter(field => currentMapping[field] !== reviewedMapping[field]).map(field => <div key={field}><dt>{field}</dt><dd>{currentMapping[field] || "Unmapped"} → {reviewedMapping[field] || "Unmapped"}</dd></div>)}</dl>
-      <button type="button" className="btn-primary" disabled={busy || !chosen.size} onClick={() => {
+      <ActionButton type="button" className="btn-primary" disabled={busy || !chosen.size} onClick={() => {
         setBusy(true); void onApply(reviewedMapping).then(() => { setResult(null); request.current = null; }).catch(cause => setError(cause instanceof Error ? cause.message : "Preview could not refresh.")).finally(() => setBusy(false));
-      }}>Use selected mappings in preview</button>
+      }} tooltip={<> Use selected mappings in preview </>}> Use </ActionButton>
     </>}
     {error && <p role="alert">{error}</p>}
   </details>;

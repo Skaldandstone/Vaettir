@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { type ChangeEvent, type CSSProperties, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
@@ -159,9 +161,9 @@ function StringListEditor({
           {item.text === "" && !item.editorPlaceholder && <span className="text-muted" style={{ flexBasis: "100%", fontSize: 12 }}>Retained empty entry. It stays in this phase unless you explicitly remove it.</span>}
         </div>
       ))}
-      <button type="button" className="btn-secondary" style={SECONDARY_ACTION_STYLE} onClick={() => { const key = `${prefix}-${nextKey.current++}`; onChange([...items, { text: "", editorKey: key, editorPlaceholder: true }]); }}>
+      <ActionButton type="button" className="btn-secondary" style={SECONDARY_ACTION_STYLE} onClick={() => { const key = `${prefix}-${nextKey.current++}`; onChange([...items, { text: "", editorKey: key, editorPlaceholder: true }]); }} tooltip={<>
         + Add {label} item
-      </button>
+       </>}>Add item</ActionButton>
       <span role="status" className="sr-only">{announcement}</span>
     </div>
   );
@@ -612,7 +614,7 @@ export default function TestCaseForm({
       )}
       {value.sharedStepGroupId && !selectedGroup && <div role={sharedGroupsQuery.error ? "alert" : "status"}>
         <p>The selected shared procedure could not currently be verified. Its reference is retained; no empty or action-only replacement is shown.</p>
-        <button type="button" disabled={!active || sharedGroupsQuery.isFetching || sharedGroupsQuery.isPaused} onClick={() => void sharedGroupsQuery.refetch()}>Refresh current shared procedure</button>
+        <ActionButton type="button" disabled={!active || sharedGroupsQuery.isFetching || sharedGroupsQuery.isPaused} onClick={() => void sharedGroupsQuery.refetch()} tooltip={<> Refresh current shared procedure </>}> Refresh </ActionButton>
       </div>}
       {!value.sharedStepGroupId && <div role="list" aria-label="Ordered test steps">
         {value.steps.map((step, i) => {
@@ -734,7 +736,7 @@ export default function TestCaseForm({
           );
         })}</div>}
       {!value.sharedStepGroupId && (
-        <button
+        <ActionButton
           type="button"
           className="btn-secondary"
           style={SECONDARY_ACTION_STYLE}
@@ -743,9 +745,10 @@ export default function TestCaseForm({
             setValue((v) => ({ ...v, steps: [...v.steps, { ...EMPTY_STEP, editorKey }] }));
             setOpenSteps(previous => new Set([...previous, editorKey]));
           }}
-        >
+         tooltip={<>
           + Add step
-        </button>
+         </>}>
+           Add step </ActionButton>
       )}
       <span role="status" className="sr-only">{stepAnnouncement}</span>
 
@@ -759,13 +762,19 @@ export default function TestCaseForm({
       />
 
       <div className="case-editor-footer">
-        <button className="btn-primary" onClick={submit} disabled={saving || !value.title || !caseFieldsDraft?.ready}>
+        <ActionButton className="btn-primary" onClick={submit} disabled={saving || !value.title || !caseFieldsDraft?.ready} tooltip={<>
           {saving
             ? "Saving…"
             : mode === "create"
               ? "Create test case"
               : "Save changes"}
-        </button>
+         </>}>
+          {saving
+            ? "Saving…"
+            : mode === "create"
+              ? "Create case"
+              : "Save changes"}
+        </ActionButton>
         {error && <p role="alert" style={{ color: "var(--ember)" }}>{error}</p>}
       </div>
     </fieldset>

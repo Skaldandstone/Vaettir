@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
@@ -39,14 +41,15 @@ function EditCaseSession({
     return (
       <div role="alert">
         <p>{pageError}</p>
-        <button
+        <ActionButton
           onClick={() => {
             retryAccess();
             void tcQuery.refetch();
           }}
-        >
+         tooltip={<>
           Retry access and case
-        </button>
+         </>}>
+           Retry </ActionButton>
       </div>
     );
   if (!tc && !loaded) return <p>Checking project access…</p>;
@@ -74,14 +77,15 @@ function EditCaseSession({
             Your unsaved draft is retained. Editing and saving are paused until
             access is verified.
           </p>
-          <button
+          <ActionButton
             onClick={() => {
               retryAccess();
               void tcQuery.refetch();
             }}
-          >
+           tooltip={<>
             Retry access and case
-          </button>
+           </>}>
+             Retry </ActionButton>
         </div>
       )}
       {savedChanged && (

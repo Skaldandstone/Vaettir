@@ -1,4 +1,7 @@
 "use client";
+
+import { ActionHelp } from "@/components/ui/ActionHelp";
+import { ActionButton } from "@/components/ui/ActionButton";
 import { trpcReact } from "@/lib/trpcReact";
 import { useCaseFieldAccess } from "@/lib/use-case-field-access";
 
@@ -10,8 +13,8 @@ export function ProjectRepositorySummary({ projectId }: { projectId: string }) {
   const ready = access.readable && query.isSuccess && !query.error && !query.isFetching && !query.isPaused;
   return <section id="project-repositories" aria-label="Project repository summary" style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", marginBlock: 16 }}>
     <strong>{ready ? query.data.length + " registered repositories" : "Repository count unavailable"}</strong>
-    <a className="btn-secondary" href={"/projects/" + encodeURIComponent(projectId) + "/settings/integrations"}>Manage project integrations</a>
-    {query.error ? <><span role="alert">Project repositories could not be refreshed; no empty count is inferred.</span><button type="button" disabled={!access.readable || query.isFetching} onClick={() => { if (access.origin && access.owns(access.origin)) void query.refetch(); }}>Retry repository count</button></>
+    <ActionHelp tooltip={<>Manage project integrations</>}><a className="btn-secondary" href={"/projects/" + encodeURIComponent(projectId) + "/settings/integrations"}>Integrations</a></ActionHelp>
+    {query.error ? <><span role="alert">Project repositories could not be refreshed; no empty count is inferred.</span><ActionButton type="button" disabled={!access.readable || query.isFetching} onClick={() => { if (access.origin && access.owns(access.origin)) void query.refetch(); }} tooltip={<> Retry repository count </>}> Retry </ActionButton></>
       : !ready ? <span role="status">Checking saved project repositories…</span> : null}
   </section>;
 }

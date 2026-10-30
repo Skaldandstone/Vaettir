@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionHelp } from "@/components/ui/ActionHelp";
 import { useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { ModularWorkspace } from "@/components/ui/ModularWorkspace";
@@ -13,7 +14,6 @@ import { RepositoryReleaseDiscovery } from "@/components/RepositoryReleaseDiscov
 import { ProductionSignalChips } from "@/components/ProductionSignalChips";
 import { ProjectPopulationModal } from "@/components/ProjectPopulationModal";
 import { ProjectRepositorySummary } from "@/components/ProjectRepositorySummary";
-import { ProjectCaseKey } from "@/components/ProjectCaseKey";
 import { TestTypeDistribution } from "@/components/TestTypeDistribution";
 import {
   QualityExperienceSummary,
@@ -54,7 +54,6 @@ export default function ProjectOverviewPage() {
   return (
     <div className="project-overview-workbench">
       <header className="overview-heading"><div><p className="workspace-eyebrow">Project overview</p><h1>{project.name}</h1>
-      <ProjectCaseKey projectId={projectId} canEdit={canEdit} />
       </div><div className="workspace-toolbar">
       {canEdit && (
         <button
@@ -137,12 +136,10 @@ export default function ProjectOverviewPage() {
               Ask your team owner or an editor to add test cases.
             </p>
           ) : project.repoUrl ? (
-            <a
+            <ActionHelp tooltip={<>Review legacy repository source</>}><a
               className="btn-primary"
               href={`/projects/${projectId}/reverse-engineer`}
-            >
-              Review legacy repository source
-            </a>
+            >Legacy source</a></ActionHelp>
           ) : (
             <p className="text-muted" style={{ fontSize: 13 }}>
               <a href={`/projects/${encodeURIComponent(projectId)}/settings/integrations`}>Connect a repository in project integrations</a>, then review its source scope, or{" "}

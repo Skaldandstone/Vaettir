@@ -13,7 +13,7 @@ const source = readFileSync(new URL("../components/PlanCustomFieldsForm.tsx", im
 const ast = ts.createSourceFile("PlanCustomFieldsForm.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 const printer = ts.createPrinter();
 const declarations = ast.statements.filter(node => ts.isFunctionDeclaration(node)).map(node => printer.printNode(ts.EmitHint.Unspecified, node, ast).replace(/^export /, ""));
-const compiled = ts.transpileModule(declarations.join("\n"), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
+const compiled = controllerTranspile(declarations.join("\n"), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
 function harness() {
   const sandbox = { React, useState: React.useState, useEffect: React.useEffect, useId: React.useId, useRef: React.useRef, ...helpers, ...rowHelpers };
   vm.createContext(sandbox); vm.runInContext(compiled, sandbox); return sandbox;
@@ -125,3 +125,4 @@ test("actual finite-number input applies only finite values and keeps invalid dr
   input.props.onChange({ target: { value: "0" } }); input.props.onChange({ target: { value: "-4.5" } });
   assert.deepEqual(applied, [0, -4.5]);
 });
+import { controllerTranspile } from "./controller-transpile.fixture.ts";

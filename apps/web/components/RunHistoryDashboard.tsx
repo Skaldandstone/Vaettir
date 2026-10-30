@@ -1,4 +1,7 @@
 "use client";
+
+import { ActionHelp } from "@/components/ui/ActionHelp";
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useRunHistory } from "@/lib/use-run-history";
@@ -205,17 +208,23 @@ export function RunHistoryCard({
           : "Ingested outcomes do not establish planned CI coverage or release readiness."}
       </p>
       <footer>
-        <button
+        <ActionButton
           className={manual ? "btn-primary" : "btn-secondary"}
           type="button"
           onClick={() => onView(run.id)}
-        >
+         tooltip={<>
           {manual
             ? run.status === "RUNNING"
               ? "Resume execution"
               : "Open execution record"
             : "View recorded results"}
-        </button>
+         </>}>
+          {manual
+            ? run.status === "RUNNING"
+              ? "Resume execution"
+              : "Open"
+            : "View results"}
+        </ActionButton>
       </footer>
     </article>
   );
@@ -376,36 +385,36 @@ export function RunHistoryDashboard({
       >
         <h2>Run history</h2>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-          <a
+          <ActionHelp tooltip={<>Compare saved manual runs</>}><a
             className="btn-secondary"
             href={`/projects/${encodeURIComponent(projectId)}/manual-run-comparison`}
-          >
-            Compare saved manual runs
-          </a>
-          <button
+          >Compare manual</a></ActionHelp>
+          <ActionButton
             className="btn-secondary"
             type="button"
             disabled={!active}
             onClick={() => reader.refresh()}
-          >
+           tooltip={<>
             Refresh current native access
-          </button>
-          <button
+           </>}>
+             Refresh </ActionButton>
+          <ActionButton
             className="btn-secondary"
             type="button"
             disabled={!page}
             onClick={reviewPage}
-          >
+           tooltip={<>
             Review current page CSV
-          </button>
+           </>}>
+             Review </ActionButton>
         </div>
       </div>
-      <p className="text-muted">
+      <details><summary>Details</summary><p className="text-muted">
         This history page is not a whole-project dashboard. Manual completion
         counts recorded planned run-case instances, not pass rate. CI counts
         ingested observations, not planned completion. Each page is a fresh
         current read inside a run-start anchor, not a globally frozen snapshot.
-      </p>
+      </p></details>
       {!page ? (
         <p role="status">
           {reader.loading
@@ -511,13 +520,14 @@ export function RunHistoryDashboard({
               marginBlock: 16,
             }}
           >
-            <button
+            <ActionButton
               className="btn-secondary"
               type="button"
               onClick={() => reader.first()}
-            >
+             tooltip={<>
               First anchored page
-            </button>
+             </>}>
+               First page </ActionButton>
             <button
               className="btn-secondary"
               type="button"
@@ -545,9 +555,10 @@ export function RunHistoryDashboard({
         </p>
       )}
       {exportState && exportReadable && !exportState.open && (
-        <button className="btn-secondary" type="button" onClick={reopenReview}>
+        <ActionButton className="btn-secondary" type="button" onClick={reopenReview} tooltip={<>
           Reopen reviewed current-page CSV
-        </button>
+         </>}>
+           Download CSV </ActionButton>
       )}
       <Modal
         keepMounted
@@ -581,21 +592,23 @@ export function RunHistoryDashboard({
               Manual recorded percentage is not pass rate. CI planned completion
               is unavailable; unsupported progress stays explicitly unavailable.
             </p>
-            <button
+            <ActionButton
               className="btn-primary"
               type="button"
               disabled={exportOwner.wasConsumed(exportState.review)}
               onClick={downloadReview}
-            >
+             tooltip={<>
               Download reviewed current page CSV
-            </button>
-            <button
+             </>}>
+               Download </ActionButton>
+            <ActionButton
               className="btn-secondary"
               type="button"
               onClick={closeReview}
-            >
+             tooltip={<>
               Keep review and close
-            </button>
+             </>}>
+               Keep </ActionButton>
             {exportState.notice && <p role="status">{exportState.notice}</p>}
           </>
         ) : (

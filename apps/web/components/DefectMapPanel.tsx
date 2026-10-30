@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { defectBatchSchema, defectRecordKey } from "@vaettir/core";
 import {
@@ -517,16 +519,17 @@ export function DefectClusterWorkbench({
                           ))}
                         </select>
                       </label>
-                      <button
+                      <ActionButton
                         type="button"
                         className="btn-secondary"
                         disabled={!manualTaskKey}
                         onClick={() =>
                           onReview(selected.id, manualTaskKey, "confirmed")
                         }
-                      >
+                       tooltip={<>
                         Review selected task
-                      </button>
+                       </>}>
+                         Review </ActionButton>
                     </details>
                   )}
                   {!canEdit && (
@@ -539,11 +542,11 @@ export function DefectClusterWorkbench({
               ) : (
                 <>
                   <h3>Recorded signal summaries</h3>
-                  <p className="text-muted">
+                  <details><summary>Details</summary><p className="text-muted">
                     Last recorded occurrence: {date(selected.lastSeen)}. Source
                     citations are imported references, not verification that
                     live access is available.
-                  </p>
+                  </p></details>
                   {selected.signals.map((signal) => (
                     <div className={styles.task} key={signal.key}>
                       <strong>
@@ -637,11 +640,11 @@ function ImportChanges({
           </tbody>
         </table>
       </div>
-      <p className="text-muted">
+      <details><summary>Details</summary><p className="text-muted">
         Missing records are retained. Stale incoming snapshots do not replace
         newer evidence. Metadata labels may be redacted during validation. Human
         decisions are retained; affected links can become stale.
-      </p>
+      </p></details>
     </>
   );
 }
@@ -843,22 +846,24 @@ export default function DefectMapPanel({ projectId }: { projectId: string }) {
           : "The server rejected this reviewed request. Retry the exact receipt, or deliberately refresh and review the current map before a new write."}
       </p>
       <div className={styles.actions}>
-        <button
+        <ActionButton
           type="button"
           disabled={!freshAccess || busy}
           onClick={() => void sendWrite(receipt)}
-        >
+         tooltip={<>
           Retry exact reviewed request
-        </button>
+         </>}>
+           Retry </ActionButton>
         {receipt.rejected && !receipt.ambiguous && (
-          <button
+          <ActionButton
             type="button"
             className="btn-secondary"
             disabled={!freshAccess || busy}
             onClick={() => void discardRejected()}
-          >
+           tooltip={<>
             Discard rejected receipt and review current map
-          </button>
+           </>}>
+             Discard </ActionButton>
         )}
       </div>
     </div>
@@ -872,36 +877,38 @@ export default function DefectMapPanel({ projectId }: { projectId: string }) {
         actions={
           <>
           <JiraTrackerConnection projectId={projectId} canEdit={canEdit} onSaved={() => void snapshot.refetch()} />
-          <button
+          <ActionButton
             type="button"
             disabled={!canEdit}
             onClick={() => {
               setError(null);
               setImportOpen(true);
             }}
-          >
+           tooltip={<>
             Import normalized export
-          </button>
+           </>}>
+             Import export </ActionButton>
           </>
         }
       />
-      <p role="note" className="text-muted">
+      <details><summary>Details</summary><p role="note" className="text-muted">
         Occurrence volume is not unique users. Suggested matches need human
         review. A closed task is not evidence that a runtime defect is fixed.
-      </p>
+      </p></details>
       <div className={styles.statusLine}>
         <span>
           Jira connection and reviewed exports · Manual snapshots · No AI · 0
           credits
         </span>
-        <button
+        <ActionButton
           type="button"
           className="btn-secondary"
           onClick={() => void refresh()}
           disabled={busy || snapshot.isFetching}
-        >
+         tooltip={<>
           Refresh access and evidence
-        </button>
+         </>}>
+           Refresh </ActionButton>
       </div>
       {(permissions.accessError || snapshot.error) && (
         <p role="alert" className="text-error">
@@ -930,16 +937,17 @@ export default function DefectMapPanel({ projectId }: { projectId: string }) {
             {receipt.kind === "import" ? "import" : "task-link decision"} is
             awaiting confirmation.
           </p>
-          <button
+          <ActionButton
             type="button"
             className="btn-secondary"
             onClick={() => {
               if (receipt.kind === "import") setImportOpen(true);
               else setLinkOpen(true);
             }}
-          >
+           tooltip={<>
             Resume reviewed request
-          </button>
+           </>}>
+             Resume </ActionButton>
         </div>
       )}
       {snapshot.data && (
@@ -1034,13 +1042,14 @@ export default function DefectMapPanel({ projectId }: { projectId: string }) {
                 metadata schema first. Up to 100 signal summaries, 100 tasks and
                 20 explicit source scopes per batch; below 150 KB.
               </p>
-              <button
+              <ActionButton
                 type="button"
                 className="btn-secondary"
                 onClick={downloadSample}
-              >
+               tooltip={<>
                 Download normalized example
-              </button>
+               </>}>
+                 Download example </ActionButton>
               <label className={styles.file}>
                 JSON export file (optional, below 150 KB)
                 <input
@@ -1077,11 +1086,11 @@ export default function DefectMapPanel({ projectId }: { projectId: string }) {
                   spellCheck={false}
                 />
               </label>
-              <p className="text-muted">
+              <details><summary>Details</summary><p className="text-muted">
                 0 AI credits. This previews metadata only and does not save it.
                 Unknown fields, raw traces and credentials are rejected; labels
                 may be redacted.
-              </p>
+              </p></details>
               <div className={styles.actions}>
                 <button
                   type="button"
@@ -1126,14 +1135,15 @@ export default function DefectMapPanel({ projectId }: { projectId: string }) {
         )}
         {receipt?.kind === "import" && recovery}
         {!freshAccess && (
-          <button
+          <ActionButton
             type="button"
             className="btn-secondary"
             disabled={busy}
             onClick={() => void refresh()}
-          >
+           tooltip={<>
             Retry access and evidence
-          </button>
+           </>}>
+             Retry </ActionButton>
         )}
       </Modal>
       <Modal
@@ -1153,15 +1163,19 @@ export default function DefectMapPanel({ projectId }: { projectId: string }) {
                 ? "Confirm that this imported task tracks this defect cluster."
                 : "Reject this task match. Signal evidence and the task snapshot will remain."}
             </p>
-            <p className="text-muted">
+            <details><summary>Details</summary><p className="text-muted">
               Human confirmation records a relationship, not a deployed fix.
               Closed tasks still need runtime evidence.
-            </p>
-            <button type="button" disabled={!canEdit} onClick={approveLink}>
+            </p></details>
+            <ActionButton type="button" disabled={!canEdit} onClick={approveLink} tooltip={<>
               {linkReview.status === "confirmed"
                 ? "Confirm task link"
                 : "Reject task match"}
-            </button>
+             </>}>
+              {linkReview.status === "confirmed"
+                ? "Confirm"
+                : "Reject match"}
+            </ActionButton>
           </>
         )}
         {busy && <p role="status">Saving reviewed decision…</p>}
@@ -1172,14 +1186,15 @@ export default function DefectMapPanel({ projectId }: { projectId: string }) {
         )}
         {receipt?.kind === "link" && recovery}
         {!freshAccess && (
-          <button
+          <ActionButton
             type="button"
             className="btn-secondary"
             disabled={busy}
             onClick={() => void refresh()}
-          >
+           tooltip={<>
             Retry access and evidence
-          </button>
+           </>}>
+             Retry </ActionButton>
         )}
       </Modal>
     </section>

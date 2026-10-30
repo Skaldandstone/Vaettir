@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionHelp } from "@/components/ui/ActionHelp";
 import { useParams } from "next/navigation";
 import { TestPlanDetailContent } from "@/components/TestPlanDetailContent";
 import { useReadOnlySeat } from "@/lib/trpcReact";
@@ -13,9 +14,7 @@ export default function TestPlanDetailPage() {
 
   return (
     <div style={{ maxWidth: 640 }}>
-      <a className="btn-secondary" style={{ fontSize: 13 }} href={`/projects/${params.projectId}/test-plans`}>
-        &larr; Test plans
-      </a>
+      <ActionHelp tooltip={<>&larr; Test plans</>}><a className="btn-secondary" style={{ fontSize: 13 }} href={`/projects/${params.projectId}/test-plans`}>← Test plans</a></ActionHelp>
       <TestPlanDetailContent key={params.id} id={params.id} projectId={params.projectId} readOnly={readOnly} />
     </div>
   );

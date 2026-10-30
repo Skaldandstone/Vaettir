@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { resolveQualityExperience } from "@vaettir/core";
@@ -602,13 +604,14 @@ function ManualExecutionContent() {
               ? "The exact saved run could not be loaded."
               : "Verifying current original workspace and saved-run access…"}
         </p>
-        <button
+        <ActionButton
           type="button"
           className="btn-secondary"
           onClick={() => void recheckAccess()}
-        >
+         tooltip={<>
           Recheck original run access
-        </button>
+         </>}>
+           Refresh </ActionButton>
       </section>
     );
 
@@ -646,13 +649,14 @@ function ManualExecutionContent() {
             verified. Private cached procedures and observations are hidden;
             mounted drafts and identical requests remain retained.
           </p>
-          <button
+          <ActionButton
             type="button"
             className="btn-secondary"
             onClick={() => void recheckAccess()}
-          >
+           tooltip={<>
             Recheck original run access
-          </button>
+           </>}>
+             Refresh </ActionButton>
         </section>
       )}
       {readable && (
@@ -675,16 +679,17 @@ function ManualExecutionContent() {
               <p role="alert" style={{ color: "var(--ember)" }}>
                 {pageError} Displayed evidence and open drafts are retained.
               </p>
-              <button
+              <ActionButton
                 className="btn-secondary"
                 onClick={() => {
                   if (!currentFrame()) return;
                   setError(null);
                   reader.refresh();
                 }}
-              >
+               tooltip={<>
                 Refresh run without discarding drafts
-              </button>
+               </>}>
+                 Refresh </ActionButton>
             </div>
           )}
           {unconfirmedStepCases.size > 0 && (
@@ -796,7 +801,7 @@ function ManualExecutionContent() {
                   <option value="RECORDED">Recorded</option>
                 </select>
               </label>
-              <button
+              <ActionButton
                 type="button"
                 className="btn-secondary"
                 disabled={!matchingCases.length}
@@ -804,10 +809,11 @@ function ManualExecutionContent() {
                   if (matchingCases[0])
                     navigateToCase(matchingCases[0].testCaseId);
                 }}
-              >
+               tooltip={<>
                 Open first match
-              </button>
-              <button
+               </>}>
+                 Open </ActionButton>
+              <ActionButton
                 type="button"
                 className="btn-primary"
                 disabled={
@@ -830,10 +836,11 @@ function ManualExecutionContent() {
                   );
                   if (id) navigateToCase(id, true);
                 }}
-              >
+               tooltip={<>
                 Next untested case
-              </button>
-              <button
+               </>}>
+                 Next untested </ActionButton>
+              <ActionButton
                 type="button"
                 className="btn-secondary"
                 onClick={() => {
@@ -843,9 +850,10 @@ function ManualExecutionContent() {
                   setCaseFilter("ALL");
                   setNavigationNotice("");
                 }}
-              >
+               tooltip={<>
                 Show all cases
-              </button>
+               </>}>
+                 Show </ActionButton>
             </div>
             <p className="text-muted">
               {matchingCases.length} shown of {data.cases.length} cases in this

@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { roleLabel } from "@/lib/membership";
 
 import { Fragment, useEffect, useState } from "react";
@@ -205,12 +207,13 @@ export default function AccessReviewPage() {
         >
           Confirm selected
         </button>
-        <button
+        <ActionButton
           disabled={!selected.length || submitMutation.isPending}
           onClick={() => selected.forEach((id) => setDecision(id, "REVOKED"))}
-        >
+         tooltip={<>
           Mark selected for revocation
-        </button>
+         </>}>
+           Mark revocations </ActionButton>
         <input
           aria-label="Note for selected members"
           placeholder="Shared review note"

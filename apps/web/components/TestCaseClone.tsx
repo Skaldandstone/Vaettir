@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   trpcReact,
@@ -279,7 +281,7 @@ function CaseCloneWorkflow({ projectId, caseId, onChanged }: CloneProps) {
                   ? "A current full Editor seat is required. Human input and exact pending requests are preserved."
                   : "Checking current project access. Cached or offline data cannot authorize duplication."}
             </p>
-            <button
+            <ActionButton
               type="button"
               disabled={!scope.actorReady || scope.changed}
               onClick={() => {
@@ -291,9 +293,10 @@ function CaseCloneWorkflow({ projectId, caseId, onChanged }: CloneProps) {
                   }
                 });
               }}
-            >
+             tooltip={<>
               Retry current access
-            </button>
+             </>}>
+               Retry </ActionButton>
           </div>
         ) : created ? (
           <>
@@ -328,7 +331,7 @@ function CaseCloneWorkflow({ projectId, caseId, onChanged }: CloneProps) {
             >
               Close
             </button>
-            <button
+            <ActionButton
               type="button"
               className="btn-secondary"
               onClick={() => {
@@ -340,9 +343,10 @@ function CaseCloneWorkflow({ projectId, caseId, onChanged }: CloneProps) {
                 setDraftSeeded(false);
                 setCopyParameterDataset(false);
               }}
-            >
+             tooltip={<>
               Review another duplicate
-            </button>
+             </>}>
+               Review </ActionButton>
           </>
         ) : (
           <>
@@ -606,7 +610,7 @@ function CaseCloneWorkflow({ projectId, caseId, onChanged }: CloneProps) {
                   >
                     Refresh preview
                   </button>
-                  <button
+                  <ActionButton
                     type="button"
                     className="btn-primary"
                     disabled={
@@ -616,13 +620,19 @@ function CaseCloneWorkflow({ projectId, caseId, onChanged }: CloneProps) {
                         (!confirmed || !title.trim() || !reason.trim()))
                     }
                     onClick={() => void duplicate()}
-                  >
+                   tooltip={<>
                     {create.isPending
                       ? "Duplicating…"
                       : pending
                         ? "Retry reviewed duplicate"
                         : "Create duplicate"}
-                  </button>
+                   </>}>
+                    {create.isPending
+                      ? "Duplicating…"
+                      : pending
+                        ? "Retry"
+                        : "Create duplicate"}
+                  </ActionButton>
                 </div>
               </>
             )}

@@ -1,3 +1,4 @@
+import { fixtureProjectKey } from "./testProjectKey.js";
 // Synthetic integration coverage; requires an owned migrated loopback test DB.
 import { randomUUID } from "node:crypto";
 import { beforeAll, afterAll, describe, it, expect } from "vitest";
@@ -37,7 +38,7 @@ describe("recorded comparison original-scope continuation", () => {
     await prisma.user.delete({ where: { id: actorId } });
   });
   async function fixture() {
-    const project = await prisma.project.create({ data: { organizationId, name: tag, slug: randomUUID(), caseKey: `s${randomUUID().replaceAll("-", "").slice(0, 15)}` } });
+    const project = await prisma.project.create({ data: { organizationId, name: tag, slug: randomUUID(), caseKey: fixtureProjectKey() } });
     const baseline = await prisma.testRun.create({ data: { projectId: project.id, ciProvider: "synthetic-ci", commitSha: "a", branch: "main", startedAt: new Date("2026-10-04T01:00:00Z"), status: "FAILED" } });
     const candidate = await prisma.testRun.create({ data: { projectId: project.id, ciProvider: "synthetic-ci", commitSha: "b", branch: "main", startedAt: new Date("2026-10-04T02:00:00Z"), status: "PASSED" } });
     await prisma.testResult.create({ data: { testRunId: baseline.id, status: "FAIL", errorMessage: "Private fixture detail must not be projected" } });

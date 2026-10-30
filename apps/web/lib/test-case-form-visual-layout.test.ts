@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 // Installed React SSR of the actual form and its real presentation/authoring
 // helpers. RPC/access and child components are explicitly synthetic boundaries.
 // This checks rendered structure, not CSS geometry, authentication or deployment.
@@ -29,7 +30,7 @@ for (const [file, name] of [
   ["../components/ui/IconButton.tsx", "IconButton"],
   ["../components/ui/ProcedureStep.tsx", "ProcedureStep"],
 ] as const) {
-  vm.runInContext(ts.transpileModule(actualUiDeclaration(file, name), {
+  vm.runInContext(controllerTranspile(actualUiDeclaration(file, name), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React },
   }).outputText, iconScope);
 }
@@ -37,7 +38,7 @@ const IconButton = (iconScope as unknown as { IconButton: React.ComponentType<Re
 const ProcedureStep = (iconScope as unknown as { ProcedureStep: React.ComponentType<Record<string, unknown>> }).ProcedureStep;
 
 const source = readFileSync(new URL("../components/TestCaseForm.tsx", import.meta.url), "utf8");
-const compiled = ts.transpileModule(source, {
+const compiled = controllerTranspile(source, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React },
 }).outputText;
 const labels = { action: "Tester action", expectedActionOrData: "On-click / API behavior", expectedResult: "Visible result", expectedResponse: "API response" };

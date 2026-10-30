@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { trpcReact, type RouterInputs, type RouterOutputs } from "@/lib/trpcReact";
@@ -138,16 +140,16 @@ export function PlanReleaseDetach({ projectId, releaseId, releaseStatus, plans, 
   const editable = !busy && !save.isPending && access.canEdit && newDraftAllowed();
   return <section aria-label="Detach an attached quality plan" style={{ display: "grid", gap: 8, marginTop: 12 }}>
     <h3>Detach a quality plan</h3>
-    {(query.error || refreshFailed) && <p role="alert">The reviewed workspace could not fully refresh. <button type="button" disabled={query.isFetching} onClick={async () => {
+    {(query.error || refreshFailed) && <p role="alert">The reviewed workspace could not fully refresh. <ActionButton type="button" disabled={query.isFetching} onClick={async () => {
       const reader = pending?.origin ?? draft?.origin ?? access.origin;
       if (!reader || !owns(reader)) return;
       try { if (refreshFailed) onChanged(); await query.refetch(); if (owns(reader)) setRefreshFailed(false); }
       catch { if (owns(reader)) setRefreshFailed(true); }
-    }}>Retry plan read</button></p>}
+    }} tooltip={<> Retry plan read </>}> Retry </ActionButton></p>}
     {pending ? <>
       <p>The exact detachment request remains retained until acknowledged, even if this plan no longer appears in the attached list.</p>
       <p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>Plan: {pending.input.testPlanId}{"\n"}Original release: {pending.input.expectedReleaseId}{"\n"}Reviewed revision: {pending.input.expectedPlanRevision}{"\n"}Reason: {pending.input.reason}</p>
-      <button type="button" onClick={commit} disabled={busy || save.isPending || !access.canEdit || !fresh?.canRecover}>Retry same detachment</button>
+      <ActionButton type="button" onClick={commit} disabled={busy || save.isPending || !access.canEdit || !fresh?.canRecover} tooltip={<> Retry same detachment </>}> Retry </ActionButton>
     </> : <>
       {releaseStatus !== "PLANNING" && <p>Return this release to PLANNING before reviewing a new detachment.</p>}
       {!draft && <label>Attached test plan<select value={planId} disabled={busy || !access.canEdit || releaseStatus !== "PLANNING"} onChange={event => {
@@ -155,7 +157,7 @@ export function PlanReleaseDetach({ projectId, releaseId, releaseStatus, plans, 
         setPlanId(event.target.value); setConfirmed(false); publishGeneration(++eventGeneration.current);
       }}><option value="">Choose a plan…</option>{plans.map(plan => <option key={plan.id} value={plan.id}>{plan.name}</option>)}</select></label>}
       {fresh?.editBlockedReason && <p role="status">{fresh.editBlockedReason}</p>}
-      <button type="button" disabled={!editable} onClick={review}>{draft ? "Reload current plan for review (replaces unsaved reason)" : "Load current plan for review"}</button>
+      <ActionButton type="button" disabled={!editable} onClick={review} tooltip={<> {draft ? "Reload current plan for review (replaces unsaved reason)" : "Load current plan for review"} </>}>{draft ? "Refresh" : "Load"}</ActionButton>
       {draft && <>
         <p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>Plan: {draft.preview.snapshot.name}{"\n"}Plan ID: {draft.preview.snapshot.id}{"\n"}Source release: {draft.releaseId}{"\n"}Reviewed revision: {draft.preview.planRevision}</p>
         <p>{draft.preview.snapshot.criteria.length} criteria will stop contributing to this release. Their wording, verdicts and linked requirements stay on the plan; no test case or evidence is deleted.</p>
@@ -163,11 +165,11 @@ export function PlanReleaseDetach({ projectId, releaseId, releaseStatus, plans, 
         {reviewRequired && <p role="status">Load the current plan for a deliberate new review before another request. Your unsaved reason remains here until you choose to replace it.</p>}
         <label>Reason for detachment<input value={reason} maxLength={1000} disabled={!editable || reviewRequired} onChange={event => { if (!canChangeDraft()) return; setReason(event.target.value); setConfirmed(false); publishGeneration(++eventGeneration.current); }} /></label>
         <label><input type="checkbox" checked={confirmed} disabled={!editable || reviewRequired || fresh?.planRevision !== draft.preview.planRevision} onChange={event => { if (canChangeDraft()) { setConfirmed(event.target.checked); publishGeneration(++eventGeneration.current); } }} /> I reviewed this plan and its removal from this release&apos;s quality scope.</label>
-        <button type="button" disabled={!editable || reviewRequired || !confirmed || !reason.trim() || fresh?.planRevision !== draft.preview.planRevision} onClick={commit}>Detach reviewed plan</button>
-        <button type="button" className="btn-secondary" disabled={busy || save.isPending} onClick={() => {
+        <ActionButton type="button" disabled={!editable || reviewRequired || !confirmed || !reason.trim() || fresh?.planRevision !== draft.preview.planRevision} onClick={commit} tooltip={<> Detach reviewed plan </>}> Detach </ActionButton>
+        <ActionButton type="button" className="btn-secondary" disabled={busy || save.isPending} onClick={() => {
           if (generation !== eventGeneration.current || inFlight.current || held.current || !owns(draft.origin)) return;
           setDraft(null); setReason(""); setConfirmed(false); publishGeneration(++eventGeneration.current);
-        }}>Cancel unsaved detachment</button>
+        }} tooltip={<> Cancel unsaved detachment </>}> Cancel </ActionButton>
       </>}
     </>}
     {notice && <p role="status">{notice}</p>}

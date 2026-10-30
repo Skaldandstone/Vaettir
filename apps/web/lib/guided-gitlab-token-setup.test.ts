@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import React from "react";
@@ -15,7 +16,7 @@ function load(name: string, context: vm.Context) {
   const ast = ts.createSourceFile(name, readFileSync(new URL(`../components/${name}.tsx`, import.meta.url), "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const printer = ts.createPrinter();
   const source = ast.statements.filter(n => !ts.isImportDeclaration(n)).map(n => printer.printNode(ts.EmitHint.Unspecified, n, ast).replace(/^export\s+/gm, "")).join("\n");
-  vm.runInContext(ts.transpileModule(`${source}\nthis.actual=${name};`, { compilerOptions: { jsx: ts.JsxEmit.React, target: ts.ScriptTarget.ES2022 } }).outputText, context);
+  vm.runInContext(controllerTranspile(`${source}\nthis.actual=${name};`, { compilerOptions: { jsx: ts.JsxEmit.React, target: ts.ScriptTarget.ES2022 } }).outputText, context);
 }
 function guide() {
   const slots: unknown[] = []; let cursor = 0;

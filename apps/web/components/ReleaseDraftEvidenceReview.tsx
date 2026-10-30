@@ -32,10 +32,10 @@ export function ReleaseDraftEvidenceReview({
           <p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
             <strong>{proposedPlan.name}</strong>
           </p>
-          <p className="text-muted">
+          <details><summary>Details</summary><p className="text-muted">
             These acceptance criteria will start pending, not satisfied. This
             review does not record test results or approve release readiness.
-          </p>
+          </p></details>
           {proposedPlan.criteria.length ? (
             <ol aria-label="Proposed pending acceptance criteria">
               {proposedPlan.criteria.map((criterion, index) => (

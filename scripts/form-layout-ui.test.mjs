@@ -1,3 +1,5 @@
+import { actionName } from "../apps/web/e2e/action-name.mjs";
+/* global document */
 import { reactBrowserScripts } from "./test-support/react-browser-runtime.mjs";
 import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
@@ -78,9 +80,9 @@ test('long selected values wrap in a full-value caption, while ordinary values d
 });
 test('short-height dialogs retain scroll and keyboard access to all actions without horizontal overflow',async()=>{
  const p=await page(390,568);try{
- await p.getByRole('button',{name:'Save private preview',exact:true}).focus();
- const bounds=await p.getByRole('button',{name:'Save private preview',exact:true}).boundingBox();assert.ok(bounds.y>=0&&bounds.y+bounds.height<=568);
+ await p.getByRole('button',{name:actionName('Save private preview'),exact:true}).focus();
+ const bounds=await p.getByRole('button',{name:actionName('Save private preview'),exact:true}).boundingBox();assert.ok(bounds.y>=0&&bounds.y+bounds.height<=568);
  assert.equal(await p.getByRole('dialog').evaluate(el=>el.scrollHeight>el.clientHeight&&el.scrollWidth<=el.clientWidth),true);
- await p.keyboard.press('Tab');await p.getByRole('button',{name:'Close report builder'}).evaluate(el=>{if(el!==document.activeElement)throw Error('Focus did not wrap inside native dialog')});
+ await p.keyboard.press('Tab');await p.getByRole('button',{name:actionName('Close report builder', false)}).evaluate(el=>{if(el!==document.activeElement)throw Error('Focus did not wrap inside native dialog')});
  }finally{await p.close()}
 });

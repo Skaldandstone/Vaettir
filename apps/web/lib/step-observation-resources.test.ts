@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
@@ -12,7 +13,7 @@ const code = ["./use-step-execution-resources.ts", "../components/StepObservatio
   const source = readFileSync(new URL(name, import.meta.url), "utf8"), ast = ts.createSourceFile(name, source, ts.ScriptTarget.Latest, true, name.endsWith("tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
   return ast.statements.filter(node => ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node) || ts.isVariableStatement(node) && node.declarationList.declarations.some(declaration => ts.isIdentifier(declaration.name) && declaration.name.text === "text")).map(node => ts.createPrinter().printNode(ts.EmitHint.Unspecified, node, ast).replace(/\bexport\s+/, "")).join("\n");
 }).join("\n");
-const executable = ts.transpileModule(code + "\nthis.component=StepObservationResources;", { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
+const executable = controllerTranspile(code + "\nthis.component=StepObservationResources;", { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
 function expanded(node: ReactNode): ReactNode[] {
   if (Array.isArray(node)) return node.flatMap(expanded);
   if (!isValidElement<Record<string, unknown>>(node)) return [node];

@@ -1,5 +1,8 @@
 "use client";
 
+import { ActionHelp } from "@/components/ui/ActionHelp";
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useState } from "react";
 import { useParams } from "next/navigation";
 import {
@@ -94,11 +97,11 @@ function GenerateSummaryModal({
   return (
     <Modal open={open} onClose={close} title="Generate a release summary">
       <div style={{ display: "grid", gap: 10, minWidth: 460, maxWidth: 560 }}>
-        <p className="text-muted" style={{ fontSize: 13, marginTop: -4 }}>
+        <details><summary>Details</summary><p className="text-muted" style={{ fontSize: 13, marginTop: -4 }}>
           A stakeholder-readable draft, grounded in this release's real
           readiness score, acceptance criteria, and open risk flags. Review and
           edit before sharing -- nothing here is posted or sent automatically.
-        </p>
+        </p></details>
         {projectRepo?.repoUrl && (
           <div
             style={{
@@ -196,9 +199,11 @@ function GenerateSummaryModal({
               <button className="btn-secondary" onClick={close}>
                 Close
               </button>
-              <button className="btn-primary" onClick={copyToClipboard}>
+              <ActionButton className="btn-primary" onClick={copyToClipboard} tooltip={<>
                 {copied ? "Copied!" : "Copy to clipboard"}
-              </button>
+               </>}>
+                {copied ? "Copied!" : "Copy"}
+              </ActionButton>
             </div>
           </>
         )}
@@ -386,13 +391,14 @@ export default function ReleaseReadinessPage() {
           active={!projectQuery.error && !projectQuery.isFetching && !projectQuery.isPaused && projectQuery.data?.id === projectId &&
             !releaseQuery.error && !releaseQuery.isFetching && !releaseQuery.isPaused && release.projectId === projectId}
         />
-        <button
+        <ActionButton
           className="btn-secondary"
           style={{ fontSize: 13 }}
           onClick={() => setSummaryModalOpen(true)}
-        >
+         tooltip={<>
           Generate release summary
-        </button>
+         </>}>
+           Generate </ActionButton>
       </div>
 
       <GenerateSummaryModal
@@ -409,10 +415,10 @@ export default function ReleaseReadinessPage() {
         <ScoreRing value={readiness.score} label="Release readiness" />
         <div>
           <h2 id="release-health-title">Release health</h2>
-          <p className="text-muted">
+          <details><summary>Details</summary><p className="text-muted">
             Readiness combines acceptance evidence and unresolved release risk.
             The detail below remains the source of truth.
-          </p>
+          </p></details>
           <DistributionBar
             label="Acceptance criteria status"
             segments={[
@@ -494,15 +500,17 @@ export default function ReleaseReadinessPage() {
                 </span>
               </strong>
             </div>
-            <a
+            <ActionHelp tooltip={<>{readOnly
+                ? "View plan criteria"
+                : "Open plan to add or manage criteria"}</>}><a
               className="btn-secondary"
               style={{ fontSize: 12, marginTop: 6 }}
               href={`/projects/${projectId}/test-plans/${p.id}`}
             >
               {readOnly
-                ? "View plan criteria"
-                : "Open plan to add or manage criteria"}
-            </a>
+                ? "Plan criteria"
+                : "Plan criteria"}
+            </a></ActionHelp>
             <ul style={{ listStyle: "none", padding: 0, marginTop: 6 }}>
               {p.acceptanceCriteria.map((c) => (
                 <li
@@ -568,12 +576,10 @@ export default function ReleaseReadinessPage() {
           <div
             style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}
           >
-            <a
+            <ActionHelp tooltip={<>Create a test plan</>}><a
               className="btn-secondary"
               href={`/projects/${projectId}/test-plans`}
-            >
-              Create a test plan
-            </a>
+            >New plan</a></ActionHelp>
           </div>
         )}
         {!readOnly && allPlansQuery.error && (
@@ -627,11 +633,11 @@ export default function ReleaseReadinessPage() {
       <div className="panel">
         <div className="panel" style={{ marginBottom: 20 }}>
           <h2 style={{ marginTop: 0 }}>Readiness history</h2>
-          <p className="text-muted" style={{ fontSize: 13, marginTop: -8 }}>
+          <details><summary>Details</summary><p className="text-muted" style={{ fontSize: 13, marginTop: -8 }}>
             Checked every five minutes. A change in the READY / AT RISK /
             BLOCKED label notifies subscribed webhooks, Slack, and mobile
             devices; score-only moves are recorded here without a notification.
-          </p>
+          </p></details>
           {(historyQuery.data ?? []).length === 0 ? (
             <p className="text-muted" style={{ fontSize: 13 }}>
               No snapshots yet - the first one lands within five minutes of a

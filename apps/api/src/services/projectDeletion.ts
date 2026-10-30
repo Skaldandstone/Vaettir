@@ -26,6 +26,7 @@ const labels: Record<string, string> = {
   unrealPlaytestJobs: "Unreal playtest history",
   unrealPlaytestCatalogs: "Unreal map and actor catalogs",
   importJobs: "Import history",
+  importMappingBatches: "Retained import mappings and source observations",
   reverseEngineerJobs: "Generation jobs",
   customFrameworkHeuristics: "Framework settings",
   repositories: "Repository references",

@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useEffect, useState } from "react";
 import {
   trpcReact,
@@ -239,13 +241,14 @@ function FieldDefinitions({ projectId }: { projectId: string }) {
         </p>
       )}
       {access.readable && access.canConfigure && (
-        <button
+        <ActionButton
           type="button"
           className="btn-secondary"
           onClick={() => void show()}
-        >
+         tooltip={<>
           Configure case fields
-        </button>
+         </>}>
+           Case fields </ActionButton>
       )}
       {access.readable && access.canConfigure && notice && !open && (
         <p role="status">{notice}</p>
@@ -392,7 +395,7 @@ function FieldDefinitions({ projectId }: { projectId: string }) {
                     />{" "}
                     Retire (retain original values read-only)
                   </label>
-                  <button
+                  <ActionButton
                     type="button"
                     className="btn-secondary"
                     disabled={
@@ -401,9 +404,10 @@ function FieldDefinitions({ projectId }: { projectId: string }) {
                       !field.label
                     }
                     onClick={applyField}
-                  >
+                   tooltip={<>
                     Keep field in draft
-                  </button>
+                   </>}>
+                     Keep </ActionButton>
                 </fieldset>
                 <p>
                   {schema.fields.length}/20 definitions, including retired
@@ -426,15 +430,16 @@ function FieldDefinitions({ projectId }: { projectId: string }) {
                     </li>
                   ))}
                 </ul>
-                <p className="text-muted">Up and Down change this local display-order draft only, including retained retired definitions. Review impact and approve saving to apply it; no case values or choices are changed.</p>
-                <button
+                <details><summary>Details</summary><p className="text-muted">Up and Down change this local display-order draft only, including retained retired definitions. Review impact and approve saving to apply it; no case values or choices are changed.</p></details>
+                <ActionButton
                   type="button"
                   className="btn-primary"
                   disabled={busy}
                   onClick={() => void compare()}
-                >
+                 tooltip={<>
                   Review impact before saving
-                </button>
+                 </>}>
+                   Review </ActionButton>
               </>
             )}
             {impact && !pending && (
@@ -474,7 +479,7 @@ function FieldDefinitions({ projectId }: { projectId: string }) {
                   I reviewed the retained incomplete cases and approve these
                   definitions.
                 </label>
-                <button
+                <ActionButton
                   type="button"
                   className="btn-secondary"
                   disabled={busy}
@@ -482,9 +487,10 @@ function FieldDefinitions({ projectId }: { projectId: string }) {
                     setImpact(null);
                     setConfirmed(false);
                   }}
-                >
+                 tooltip={<>
                   Back to definitions
-                </button>
+                 </>}>
+                   Back </ActionButton>
               </>
             )}
             {pending?.uncertain && (
@@ -494,7 +500,7 @@ function FieldDefinitions({ projectId }: { projectId: string }) {
               </p>
             )}
             {baseline && !pending && (
-              <button
+              <ActionButton
                 type="button"
                 className="btn-secondary"
                 disabled={busy}
@@ -514,12 +520,13 @@ function FieldDefinitions({ projectId }: { projectId: string }) {
                   setNotice(null);
                   setOpen(false);
                 }}
-              >
+               tooltip={<>
                 Discard local definition draft
-              </button>
+               </>}>
+                 Discard draft </ActionButton>
             )}
             {(impact || pending) && (
-              <button
+              <ActionButton
                 type="button"
                 className="btn-primary"
                 disabled={
@@ -527,13 +534,19 @@ function FieldDefinitions({ projectId }: { projectId: string }) {
                   (!pending && (!canApprove || !reason.trim() || !confirmed))
                 }
                 onClick={() => void commit()}
-              >
+               tooltip={<>
                 {configure.isPending
                   ? "Saving…"
                   : pending
                     ? "Retry exact configuration"
                     : "Approve definitions"}
-              </button>
+               </>}>
+                {configure.isPending
+                  ? "Saving…"
+                  : pending
+                    ? "Retry"
+                    : "Approve definitions"}
+              </ActionButton>
             )}
           </>
         )}

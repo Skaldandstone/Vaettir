@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useEffect, useRef, useState } from "react";
 import { Modal } from "@/components/Modal";
 import { IconButton } from "@/components/ui/IconButton";
@@ -248,12 +250,13 @@ export function TestCaseFolderRecovery({
                 ? options.error.message
                 : "Checking current full editor access…"}
             </p>
-            <button
+            <ActionButton
               disabled={!scope.actorReady}
               onClick={() => void refreshOptions()}
-            >
+             tooltip={<>
               Retry access and receipts
-            </button>
+             </>}>
+               Retry </ActionButton>
           </div>
         ) : !reviewId ? (
           <div style={{ display: "grid", gap: 12, minWidth: 0 }}>
@@ -315,7 +318,7 @@ export function TestCaseFolderRecovery({
             {review.isError ? (
               <div role="alert">
                 <p>{review.error.message}</p>
-                <button
+                <ActionButton
                   onClick={() => {
                     setFresh(false);
                     setApproved(false);
@@ -336,9 +339,10 @@ export function TestCaseFolderRecovery({
                       }
                     });
                   }}
-                >
+                 tooltip={<>
                   Retry current review
-                </button>
+                 </>}>
+                   Retry </ActionButton>
               </div>
             ) : !reviewed ? (
               <p role="status">
@@ -434,7 +438,7 @@ export function TestCaseFolderRecovery({
               >
                 Back
               </button>
-              <button
+              <ActionButton
                 className="btn-primary"
                 disabled={
                   mutation.isPending ||
@@ -479,13 +483,19 @@ export function TestCaseFolderRecovery({
                   setPending(input);
                   mutation.mutate(input);
                 }}
-              >
+               tooltip={<>
                 {mutation.isPending
                   ? "Saving…"
                   : pending
                     ? "Retry exact approved recovery"
                     : "Approve placement recovery"}
-              </button>
+               </>}>
+                {mutation.isPending
+                  ? "Saving…"
+                  : pending
+                    ? "Retry"
+                    : "Approve"}
+              </ActionButton>
             </div>
           </div>
         )}

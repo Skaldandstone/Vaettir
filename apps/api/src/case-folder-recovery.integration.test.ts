@@ -1,3 +1,4 @@
+import { fixtureProjectKey } from "./testProjectKey.js";
 import { randomUUID } from "node:crypto";
 import { beforeEach, describe, it, expect } from "vitest";
 import { prisma, type PrismaClient, type Prisma } from "@vaettir/db";
@@ -39,6 +40,7 @@ describe("non-destructive reviewed folder recovery (authored; morning validation
       });
       const caller = appRouter.createCaller({ prisma, user });
       const project = await caller.project.create({
+        caseKey: fixtureProjectKey(),
         organizationId: org.id,
         name: key,
       });

@@ -31,7 +31,7 @@ function button(nodes, label) {
   return nodes.find(
     (node) =>
       node.type === "button" &&
-      React.Children.toArray(node.props.children).join("") === label,
+      React.Children.toArray(node.props.children).join("").trim() === label,
   );
 }
 
@@ -73,9 +73,9 @@ test("actual controls preserve raw text, explicit empty, NULL and absent keys wi
     .find((node) => node.type === "textarea")
     .props.onChange({ target: { value: "" } });
   assert.deepEqual({ ...changes.pop() }, { ...values, prose: "" });
-  button(nodes, "Set NULL explicitly").props.onClick();
+  button(nodes, "Set NULL").props.onClick();
   assert.deepEqual({ ...changes.pop() }, { ...values, prose: null });
-  button(nodes, "Remove value (unset)").props.onClick();
+  button(nodes, "Unset").props.onClick();
   assert.deepEqual({ ...changes.pop() }, { untouched: false });
   nodes
     .find((node) => node.type === "textarea")
@@ -101,7 +101,7 @@ test("checkbox and tri-state expose false/NULL/unset without render initializati
   );
   assert.equal(checkbox.props.checked, false);
   assert.equal(changes.length, 0);
-  button(nodes, "Set false explicitly").props.onClick();
+  button(nodes, "Set false").props.onClick();
   assert.equal(changes.pop().toggle, false);
   checkbox.props.onChange({ target: { checked: true } });
   assert.equal(changes.pop().toggle, true);
@@ -158,7 +158,7 @@ test("missing-only visibility reveals deliberately, while null/empty/false/zero/
       ),
     );
     assert.doesNotMatch(html, /Reveal notes/);
-    assert.match(html, /Set NULL explicitly/);
+    assert.match(html, /Set NULL/);
   }
   const required = renderToStaticMarkup(
     React.createElement(
@@ -273,11 +273,11 @@ test("invalid/blank numeric input stays visible, blocks parent validity immediat
     .find((node) => node.type === "input")
     .props.onChange({ target: { value: "" } });
   nodes = elements(render(make()));
-  button(nodes, "Set NULL explicitly").props.onClick();
+  button(nodes, "Set NULL").props.onClick();
   assert.equal(values.number, null);
   assert.equal(validity.at(-1).valid, true);
   nodes = elements(render(make()));
-  button(nodes, "Remove value (unset)").props.onClick();
+  button(nodes, "Unset").props.onClick();
   assert.equal(Object.hasOwn(values, "number"), false);
 });
 test("disabled handlers never mutate, and changed external values cannot discard unresolved invalid text", () => {
@@ -301,7 +301,7 @@ test("disabled handlers never mutate, and changed external values cannot discard
   nodes
     .find((node) => node.type === "input")
     .props.onChange({ target: { value: "3" } });
-  button(nodes, "Set NULL explicitly").props.onClick();
+  button(nodes, "Set NULL").props.onClick();
   nodes = elements(
     render({
       ...props(definitions, { number: 9 }),

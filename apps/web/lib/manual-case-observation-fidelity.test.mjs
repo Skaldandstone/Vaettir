@@ -1,3 +1,5 @@
+// Controller fixture treats the presentation-only wrapper as its native button.
+// Real hover/focus/form/ref/touch behavior is covered by action-button-ui.test.mjs.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -38,7 +40,7 @@ const compiled = ts.transpileModule([
 function harness(locked = false) {
   const context = { specimen: "Synthetic | sample", hardwareRevision: "H1", firmwareVersion: "F2", environment: "Synthetic bench\nNo external system | local" };
   const sandbox = {
-    React, locked, projectId: "synthetic-project", testRunId: "synthetic-run", testCaseId: "synthetic-case",
+    React, ActionButton: "button", locked, projectId: "synthetic-project", testRunId: "synthetic-run", testCaseId: "synthetic-case",
     origin: { projectId: "synthetic-project", testRunId: "synthetic-run", testCaseId: "synthetic-case", organizationId: "synthetic-org", clerkActorId: "synthetic-actor", nativeActorId: "synthetic-native", sessionId: "synthetic-session" },
     draft: { context, status: "FAIL", note: "Literal | evidence\nsecond line", reason: "",
       baseline: { canWrite: true, frozenEvidenceHash: "synthetic-frozen-hash", current: null, currentRevisionId: null, currentFingerprint: "synthetic-fingerprint" }, readings: [], measurementsPresent: true },

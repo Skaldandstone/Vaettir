@@ -1,3 +1,4 @@
+import { fixtureProjectKey } from "./testProjectKey.js";
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma, type PrismaClient, type Prisma } from "@vaettir/db";
@@ -69,14 +70,14 @@ describe.skipIf(!isolated)(
         await owner.project.create({
           organizationId,
           name: "Version review",
-          caseKey: "restore",
+          caseKey: "rest",
         })
       ).id;
       otherProjectId = (
         await outsider.project.create({
           organizationId: otherOrgId,
           name: "Outside",
-          caseKey: "outside",
+          caseKey: "outer",
         })
       ).id;
     });
@@ -565,7 +566,7 @@ describe.skipIf(!isolated)(
       const sibling = await owner.project.create({
         organizationId,
         name: "Sibling",
-        caseKey: "sibling",
+        caseKey: "sib",
       });
       await expect(
         owner.caseVersionReview.preview({
@@ -901,7 +902,7 @@ describe.skipIf(!isolated)(
       const sibling = await owner.project.create({
         organizationId,
         name: "Sibling version project",
-        caseKey: `sibling${randomUUID().slice(0, 8)}`,
+        caseKey: fixtureProjectKey(),
       });
       await expect(
         owner.caseVersionReview.compareHistorical({

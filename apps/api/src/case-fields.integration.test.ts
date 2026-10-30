@@ -1,3 +1,4 @@
+import { fixtureProjectKey } from "./testProjectKey.js";
 // Authored tonight; do not run until schema generation/migration on an owned disposable DB.
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -103,7 +104,7 @@ describe("reviewed typed project case fields", () => {
     return owner.project.create({
       organizationId: orgIds[0]!,
       name: `Fields ${randomUUID()}`,
-      caseKey: `f${randomUUID().replaceAll("-", "").slice(0, 15)}`,
+      caseKey: fixtureProjectKey(),
     });
   }
   async function create(

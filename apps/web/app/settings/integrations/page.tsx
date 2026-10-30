@@ -1,5 +1,8 @@
 "use client";
 
+import { ActionHelp } from "@/components/ui/ActionHelp";
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import Link from "next/link";
 import { useState } from "react";
 import { trpcReact } from "@/lib/trpcReact";
@@ -146,7 +149,7 @@ export default function IntegrationsHealthPage() {
         title="Integrations"
         description="Connect delivery, incident, and collaboration systems so readiness is based on real evidence rather than manual status chasing."
       />
-      <p><Link className="btn-secondary" href="/settings/integrations/repositories">Manage repository applications</Link> <span className="text-muted">Workspace administrators only; members connect inside their project.</span></p>
+      <p><ActionHelp tooltip={<>Manage repository applications</>}><Link className="btn-secondary" href="/settings/integrations/repositories">Repository apps</Link></ActionHelp> <span className="text-muted">Workspace administrators only; members connect inside their project.</span></p>
       <div className="integration-summary" role="status">
         <strong>{rows.filter((row) => row.configured).length}</strong>
         <span>of {rows.length} legacy integration types configured; saved setup is not verified access</span>
@@ -185,12 +188,12 @@ export default function IntegrationsHealthPage() {
           </article>
         ))}
       </div>
-      <p className="text-muted">This summary covers existing organization settings. Project-scoped connections are reviewed inside each project and are not included in the legacy counts above.</p>
+      <details><summary>Details</summary><p className="text-muted">This summary covers existing organization settings. Project-scoped connections are reviewed inside each project and are not included in the legacy counts above.</p></details>
       <Modal open={Boolean(active)} title={`${active ?? "Integration"} setup`} onClose={() => { setActive(null); setProjectId(null); }}>
         {active && projectScoped ? selectedProject ? <>
           <p role="status">Project: <strong>{selectedProject.name}</strong></p>
           {active === "Jira" || active === "Linear" ? <SourceConnectionChips projectId={selectedProject.id} only={[active.toLowerCase()]} /> : <ProductionSignalChips projectId={selectedProject.id} />}
-          <button type="button" className="btn-secondary" onClick={() => setProjectId(null)}>Choose another project</button>
+          <ActionButton type="button" className="btn-secondary" onClick={() => setProjectId(null)} tooltip={<> Choose another project </>}> Choose </ActionButton>
         </> : <>
           <h3>Which project should use {active}?</h3>
           <p>Choose the destination before authorizing access or saving routing. No provider is contacted by this project picker.</p>
@@ -203,7 +206,7 @@ export default function IntegrationsHealthPage() {
           <p>{rows.find(row => row.name === active)?.detail}</p>
           <p>{active === "Slack" ? "Slack uses an incoming webhook tied to your chosen channel. A saved URL does not establish delivery. Review the webhook and subscribed events in organization settings; no message is sent from this dialog." : "Outbound webhooks use signed event deliveries. Review endpoint URLs, enabled events and delivery history in organization settings. A successful previous delivery does not establish current endpoint health."}</p>
           <p className="text-muted">Full Owner or Admin access is required to change organization configuration. This dialog only reviews setup; it does not write settings.</p>
-          <Link className="btn-secondary" href="/settings/organization">Open organization configuration</Link>
+          <ActionHelp tooltip={<>Open organization configuration</>}><Link className="btn-secondary" href="/settings/organization">Organization</Link></ActionHelp>
         </> : null}
       </Modal>
     </div>

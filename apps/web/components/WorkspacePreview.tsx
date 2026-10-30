@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useState } from "react";
 import Link from "next/link";
 import { Drawer } from "./Drawer";
@@ -236,7 +238,7 @@ export function WorkspacePreview() {
                 <h2 id="attention-title">Needs your attention</h2>
                 <span className="small-count">{pending.length + 1}</span>
               </div>
-              <button
+              <ActionButton
                 className="attention-row"
                 type="button"
                 onClick={() => {
@@ -244,7 +246,7 @@ export function WorkspacePreview() {
                   setQuery("");
                   setStatus("Failed");
                 }}
-              >
+               tooltip={<>
                 <span className="attention-icon status-danger">
                   <Icon name="alert" />
                 </span>
@@ -253,12 +255,12 @@ export function WorkspacePreview() {
                   <small>CI integration · 1 case</small>
                 </span>
                 <Icon name="arrow" size={16} />
-              </button>
-              <button
+               </>}>Check CI</ActionButton>
+              <ActionButton
                 className="attention-row"
                 type="button"
                 onClick={() => changeView("AI reviews")}
-              >
+               tooltip={<>
                 <span className="attention-icon status-info">
                   <Icon name="spark" />
                 </span>
@@ -269,7 +271,7 @@ export function WorkspacePreview() {
                   </small>
                 </span>
                 <Icon name="arrow" size={16} />
-              </button>
+               </>}>Review suggestions</ActionButton>
               <div className="attention-note">
                 <Icon name="check" size={16} />
                 <p>
@@ -522,16 +524,17 @@ export function WorkspacePreview() {
             <EmptyState
               title="You’re all caught up"
               action={
-                <button
+                <ActionButton
                   className="btn-secondary"
                   type="button"
                   onClick={() => {
                     setReviewed([]);
                     setNotice("Example suggestions reset.");
                   }}
-                >
+                 tooltip={<>
                   Reset example reviews
-                </button>
+                 </>}>
+                   Reset reviews </ActionButton>
               }
             >
               Both sample suggestions have been reviewed. No cases were created.

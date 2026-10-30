@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useEffect, useId, useRef, useState } from "react";
 import { Modal } from "./Modal";
 import {
@@ -188,7 +190,7 @@ export function DatasetExecutionWizard({
           <button type="button" className="btn-secondary" onClick={onClose}>
             Close
           </button>
-          <button
+          <ActionButton
             type="button"
             className="btn-secondary"
             onClick={() => {
@@ -200,9 +202,10 @@ export function DatasetExecutionWizard({
               setRejected(false);
               setScreen("context");
             }}
-          >
+           tooltip={<>
             Review another batch
-          </button>
+           </>}>
+             Review </ActionButton>
         </section>
       ) : (
         <>
@@ -284,11 +287,11 @@ export function DatasetExecutionWizard({
                   </label>
                 ))}
               </details>
-              <p className="text-muted">
+              <details><summary>Details</summary><p className="text-muted">
                 Up to 50 rows and 500 planned case instances per batch.
                 References are context, not a safety or regulatory
                 certification.
-              </p>
+              </p></details>
             </section>
           )}
           {screen === "preview" && preview && (
@@ -471,13 +474,14 @@ export function DatasetExecutionWizard({
                 </p>
               )}
               {rejected && (
-                <button
+                <ActionButton
                   type="button"
                   className="btn-secondary"
                   onClick={reviewAgain}
-                >
+                 tooltip={<>
                   Refresh and review again
-                </button>
+                 </>}>
+                   Refresh </ActionButton>
               )}
             </section>
           )}
@@ -522,27 +526,34 @@ export function DatasetExecutionWizard({
                 </button>
               )}
               {screen === "preview" && (
-                <button
+                <ActionButton
                   type="button"
                   className="btn-primary"
                   onClick={() => setScreen("review")}
-                >
+                 tooltip={<>
                   Continue to review
-                </button>
+                 </>}>
+                   Continue </ActionButton>
               )}
               {screen === "review" && (
-                <button
+                <ActionButton
                   type="button"
                   className="btn-primary"
                   disabled={!approved || busy || rejected}
                   onClick={() => void start()}
-                >
+                 tooltip={<>
                   {busy
                     ? "Confirming batch…"
                     : attempt
                       ? "Retry same batch"
                       : "Create row runs"}
-                </button>
+                 </>}>
+                  {busy
+                    ? "Confirming batch…"
+                    : attempt
+                      ? "Retry"
+                      : "Create runs"}
+                </ActionButton>
               )}
             </div>
           </div>

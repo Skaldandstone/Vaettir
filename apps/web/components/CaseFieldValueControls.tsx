@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useEffect, useId, useRef, useState } from "react";
 import {
   fieldValueProblem,
@@ -360,31 +362,34 @@ export function CaseFieldValueControls({
                   <pre>{JSON.stringify(resolved.value)}</pre>
                 )}
                 {field.type === "BOOLEAN" && (
-                    <button
+                    <ActionButton
                       type="button"
                       disabled={locked}
                       onClick={() => apply(field.key, false)}
-                    >
+                     tooltip={<>
                       Set false explicitly
-                    </button>
+                     </>}>
+                       Set false </ActionButton>
                 )}
                 <details style={{marginTop:8}}>
                   <summary>Clear or unset value</summary>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop:8 }}>
-                  <button
+                  <ActionButton
                     type="button"
                     disabled={locked}
                     onClick={() => apply(field.key, null)}
-                  >
+                   tooltip={<>
                     Set NULL explicitly
-                  </button>
-                  <button
+                   </>}>
+                     Set NULL </ActionButton>
+                  <ActionButton
                     type="button"
                     disabled={locked}
                     onClick={() => apply(field.key, undefined, true)}
-                  >
+                   tooltip={<>
                     Remove value (unset)
-                  </button>
+                   </>}>
+                     Unset </ActionButton>
                   </div>
                 </details>
               </>

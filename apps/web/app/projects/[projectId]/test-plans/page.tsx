@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useParams } from "next/navigation";
@@ -78,9 +80,9 @@ function ManualPlanCreate({projectId,readOnly,onCreated}:{projectId:string;readO
       <form onSubmit={async event=>{event.preventDefault();await submit();}} style={{display:"flex",flexWrap:"wrap",gap:10,alignItems:"end"}}>
         <label style={{display:"grid",gap:6,flex:"2 1 220px",minWidth:0}}>Plan name<input value={name} maxLength={200} disabled={pending||unknown} onChange={event=>edit(()=>setName(event.target.value))} placeholder="e.g. Release regression" style={{width:"100%",minWidth:0,boxSizing:"border-box"}}/></label>
         <label style={{display:"grid",gap:6,flex:"1 1 190px",minWidth:0}}>Plan type<select value={typeId} disabled={pending||unknown} onChange={event=>edit(()=>setTypeId(event.target.value))} style={{width:"100%",minWidth:0}}><option value="">Functional (default)</option>{typeId&&!types.some(type=>type.id===typeId)&&<option value={typeId}>Selected type (refresh required)</option>}{types.map(type=><option key={type.id} value={type.id}>{type.name}</option>)}</select></label>
-        <button type="submit" className="btn-primary" disabled={pending||unknown||!name.trim()||!!typeId&&(!typesReady||!types.some(type=>type.id===typeId))}>{pending?"Creating test plan…":"Create test plan"}</button>
+        <ActionButton type="submit" className="btn-primary" disabled={pending||unknown||!name.trim()||!!typeId&&(!typesReady||!types.some(type=>type.id===typeId))} tooltip={<> {pending?"Creating test plan…":"Create test plan"} </>}>{pending?"Creating…":"Create plan"}</ActionButton>
       </form>
-      {typesQuery.error?<p role="alert" style={{fontSize:13}}>Plan types could not be loaded. Functional (default) is still available. <button type="button" className="btn-secondary" disabled={typesQuery.isFetching||pending} onClick={()=>{if(owns())void typesQuery.refetch();}}>Retry plan types</button></p>:!typesReady?<p role="status" style={{fontSize:13}}>Checking plan types… Functional (default) is available.</p>:!types.length?<p role="status" style={{fontSize:13}}>No other plan types are available. Functional (default) can be created now.</p>:null}
+      {typesQuery.error?<p role="alert" style={{fontSize:13}}>Plan types could not be loaded. Functional (default) is still available. <ActionButton type="button" className="btn-secondary" disabled={typesQuery.isFetching||pending} onClick={()=>{if(owns())void typesQuery.refetch();}} tooltip={<> Retry plan types </>}> Retry </ActionButton></p>:!typesReady?<p role="status" style={{fontSize:13}}>Checking plan types… Functional (default) is available.</p>:!types.length?<p role="status" style={{fontSize:13}}>No other plan types are available. Functional (default) can be created now.</p>:null}
       <details style={{fontSize:13,marginTop:8}}><summary>Plan type help</summary><p>A manual plan needs a name. Functional is the standard case-planning format; other types add their own fields. Creating a manual plan does not generate AI content or start a test run.</p></details>
       {notice&&<p role={unknown?"alert":"status"}>{notice}</p>}
       {unknown&&!notice&&<p role="alert">The original creation remains unacknowledged. Check the plan list; do not submit this draft again.</p>}
@@ -314,13 +316,15 @@ function GenerateStrategyModal({
               <button className="btn-secondary" onClick={onClose}>
                 Discard
               </button>
-              <button
+              <ActionButton
                 className="btn-primary"
                 onClick={createFromDraft}
                 disabled={generating || creating || !planName.trim()}
-              >
+               tooltip={<>
                 {creating ? "Creating…" : "Create QA strategy plan"}
-              </button>
+               </>}>
+                {creating ? "Creating…" : "Create strategy"}
+              </ActionButton>
             </div>
           </>
         )}
@@ -380,12 +384,13 @@ export default function TestPlansPage() {
       <ManualPlanCreate projectId={projectId} readOnly={readOnly} onCreated={invalidatePlans}/>
       {!readOnly && (
         <div style={{marginBottom:16}}>
-          <button
+          <ActionButton
             className="btn-secondary"
             onClick={() => setGenerateOpen(true)}
-          >
+           tooltip={<>
             Generate strategy with AI
-          </button>
+           </>}>
+             Generate </ActionButton>
         </div>
       )}
 

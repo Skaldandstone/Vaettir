@@ -1,5 +1,8 @@
 "use client";
 
+import { ActionHelp } from "@/components/ui/ActionHelp";
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import {
@@ -154,10 +157,10 @@ function PrScanPolicySection({ projectId }: { projectId: string }) {
         <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4 }}>
           Path severity rules
         </div>
-        <p className="text-muted" style={{ fontSize: 12, marginTop: 0 }}>
+        <details><summary>Details</summary><p className="text-muted" style={{ fontSize: 12, marginTop: 0 }}>
           A coverage gap in a matching path gets this severity instead of the
           default (HIGH). Checked in order, first match wins.
-        </p>
+        </p></details>
         {policy.pathSeverityRules.map((r, i) => (
           <div key={i} style={{ display: "flex", gap: 6, marginBottom: 6 }}>
             <input
@@ -204,7 +207,7 @@ function PrScanPolicySection({ projectId }: { projectId: string }) {
             </button>
           </div>
         ))}
-        <button
+        <ActionButton
           className="btn-secondary"
           style={{ fontSize: 12 }}
           onClick={() =>
@@ -216,9 +219,10 @@ function PrScanPolicySection({ projectId }: { projectId: string }) {
               ],
             })
           }
-        >
+         tooltip={<>
           + Add rule
-        </button>
+         </>}>
+           Add rule </ActionButton>
       </div>
 
       <div style={{ marginTop: 12 }}>
@@ -499,7 +503,7 @@ export default function TestStrategyPage() {
                 }
                 style={{ flex: 1 }}
               />
-              <button
+              <ActionButton
                 onClick={createRelease}
                 disabled={
                   !canEdit ||
@@ -507,9 +511,11 @@ export default function TestStrategyPage() {
                   creatingRelease ||
                   (!releaseRequest && !newReleaseName.trim())
                 }
-              >
+               tooltip={<>
                 {releaseRequest ? "Retry retained release" : "+ New release"}
-              </button>
+               </>}>
+                {releaseRequest ? "Retry" : "New release"}
+              </ActionButton>
             </div>
             {releaseRequest && (
               <p role="status">
@@ -521,30 +527,35 @@ export default function TestStrategyPage() {
               <p role="status">
                 Verify original account/workspace and a full editor seat before
                 creating or retrying a release.{" "}
-                <button
+                <ActionButton
                   type="button"
                   className="btn-secondary"
                   onClick={() => void releaseAccess.refresh()}
-                >
+                 tooltip={<>
                   Recheck original access
-                </button>
+                 </>}>
+                   Refresh </ActionButton>
               </p>
             )}
           </label>
-          <button
+          <ActionButton
             onClick={analyze}
             disabled={!canEdit || analyzing || !headRef}
-          >
+           tooltip={<>
             {analyzing ? "Diffing + analyzing…" : "Analyze change"}
-          </button>
-          <button
+           </>}>
+            {analyzing ? "Analyzing…" : "Analyze change"}
+          </ActionButton>
+          <ActionButton
             className="btn-secondary"
             onClick={analyzeWithAi}
             disabled={!canEdit || aiAnalyzing || !headRef}
             style={{ marginLeft: 8 }}
-          >
+           tooltip={<>
             {aiAnalyzing ? "Reading the diff…" : "Also check with AI"}
-          </button>
+           </>}>
+            {aiAnalyzing ? "Reading…" : "AI check"}
+          </ActionButton>
         </div>
 
         {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
@@ -689,13 +700,11 @@ export default function TestStrategyPage() {
             }}
           >
             <h2 style={{ marginTop: 0 }}>Risk flags on this release</h2>
-            <a
+            <ActionHelp tooltip={<>Full readiness view →</>}><a
               className="btn-secondary"
               style={{ fontSize: 13 }}
               href={`/projects/${projectId}/releases/${releaseId}`}
-            >
-              Full readiness view →
-            </a>
+            >Readiness</a></ActionHelp>
           </div>
           {riskFlags.length === 0 && (
             <p style={{ color: "var(--muted)" }}>None yet.</p>

@@ -6,7 +6,7 @@ import {router,protectedProcedure,type Context} from "../trpc.js";
 import {hashOAuthState} from "../services/gitlabRepositoryOAuth.js";
 import {jiraProjectSchema} from "../services/jiraSourceConnection.js";
 import {jiraIssueSchema,listJiraIssuePage} from "../services/jiraIssueIntake.js";
-import {own,verified,decrypt,liveEditor} from "./jiraConnections.js";
+import {own,verified,ticketCredentials,liveEditor} from "./jiraConnections.js";
 
 const ids=z.array(z.string().regex(/^[1-9]\d{0,31}$/)).min(1).max(100);
 const runInput=z.object({runId:z.string()});
@@ -42,6 +42,12 @@ async function liveConnection(tx:Prisma.TransactionClient,run:JiraIssueImportRun
   const connection=await tx.ticketSourceConnection.findUniqueOrThrow({where:{id:run.connectionId}});
   if(connection.actorId!==run.actorId||connection.projectId!==run.projectId||connection.organizationId!==run.organizationId||connection.provider!=="jira"||!connection.providerOrigin)throw new TRPCError({code:"NOT_FOUND"});
   verified(connection);
+  if(connection.oauthConnectionId){
+    await tx.$queryRaw`SELECT id FROM "AtlassianOAuthConnection" WHERE id=${connection.oauthConnectionId} FOR SHARE`;
+    const grant=await tx.atlassianOAuthConnection.findUnique({where:{id:connection.oauthConnectionId}});
+    const actor=await tx.user.findUnique({where:{id:run.actorId},select:{clerkUserId:true}});
+    if(!grant||grant.status!=="VERIFIED"||grant.product!=="jira"||grant.actorId!==run.actorId||grant.clerkActorId!==actor?.clerkUserId||grant.projectId!==run.projectId||grant.organizationId!==run.organizationId||!grant.tokenExpiresAt||grant.tokenExpiresAt.getTime()<=Date.now()+60000)throw new TRPCError({code:"FORBIDDEN",message:"Reconnect Jira before continuing."});
+  }
   const approved=z.array(jiraProjectSchema).parse(connection.approvedProjects);
   if(scope(run).some(p=>!approved.some(a=>a.id===p.id)))throw new TRPCError({code:"FORBIDDEN",message:"The issue-read scope is no longer approved."});
   return connection;
@@ -135,7 +141,7 @@ export const jiraIssueIntakeRouter=router({
     });
     if(!claimed)return {id:run.id};
     try{
-      const page=await listJiraIssuePage(decrypt(claimed.access.encryptedToken),scope(claimed.run).map(p=>p.id),claimed.run.nextCursor);
+      const page=await listJiraIssuePage(await ticketCredentials(ctx,claimed.access),scope(claimed.run).map(p=>p.id),claimed.run.nextCursor);
       const fresh=z.array(jiraIssueSchema).max(20).parse(page.issues);
       if(fresh.some(i=>!scope(claimed.run).some(p=>p.id===i.projectId)||new URL(i.url).origin!==claimed.access.providerOrigin))throw new Error("Out-of-scope Jira response");
       const seen=z.array(z.string()).max(5).parse(claimed.run.seenCursors);

@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import type { CSSProperties } from "react";
 import { useCiRunDetail } from "../lib/use-ci-run-detail";
 import type { CiRunDetailPage } from "../lib/ci-run-detail-reader";
@@ -239,9 +241,10 @@ export function CiRunDetail({
         }}
       >
         <h2 style={{ margin: 0 }}>CI run results</h2>
-        <button type="button" onClick={() => reader.refresh()}>
+        <ActionButton type="button" onClick={() => reader.refresh()} tooltip={<>
           Refresh current native access
-        </button>
+         </>}>
+           Refresh </ActionButton>
       </div>
       {!page ? (
         <div className="panel" role="status">
@@ -327,27 +330,30 @@ export function CiRunDetail({
             execution chronology.
           </p>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-            <button
+            <ActionButton
               type="button"
               disabled={!reader.canPrevious}
               onClick={() => reader.previous()}
-            >
+             tooltip={<>
               Previous ID page
-            </button>
-            <button
+             </>}>
+               Previous IDs </ActionButton>
+            <ActionButton
               type="button"
               disabled={!reader.canPrevious}
               onClick={() => reader.first()}
-            >
+             tooltip={<>
               First anchored ID page
-            </button>
-            <button
+             </>}>
+               First IDs </ActionButton>
+            <ActionButton
               type="button"
               disabled={!reader.canNext}
               onClick={() => reader.next()}
-            >
+             tooltip={<>
               Next ID page
-            </button>
+             </>}>
+               Next IDs </ActionButton>
           </div>
           {page.rows.length === 0 ? (
             <p className="panel">

@@ -74,19 +74,28 @@ const pageSchema = z.object({
 });
 
 export type JiraSourceCredentials = z.infer<typeof credentialsSchema>;
+export const jiraOAuthCredentialsSchema=z.object({kind:z.literal("oauth"),siteUrl:canonicalSite,cloudId:z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i),accessToken:z.string().min(1).max(10000).regex(/^[!-~]+$/),accountId,accountName:label}).strict();
+export type JiraReadCredentials=JiraSourceCredentials|z.infer<typeof jiraOAuthCredentialsSchema>;
+export function jiraReadTransport(credentials:JiraReadCredentials){
+  const oauth=jiraOAuthCredentialsSchema.safeParse(credentials);
+  if(oauth.success)return {siteUrl:oauth.data.siteUrl,origin:"https://api.atlassian.com",prefix:`/ex/jira/${oauth.data.cloudId}`,options:{token:oauth.data.accessToken}};
+  const basic=credentialsSchema.parse(credentials);
+  return {siteUrl:jiraSiteOrigin(basic.siteUrl),origin:jiraSiteOrigin(basic.siteUrl),prefix:"",options:{basic:{username:basic.email,password:basic.apiToken}}};
+}
 
 /** At most two GETs, using the existing DNS-pinned TLS/response/deadline boundary.
  * Provider-supplied self, nextPage, avatar and external project links are neither
  * followed nor retained. Pagination is reconstructed from validated integers.
  */
-export async function listJiraProjects(credentials: JiraSourceCredentials, after = 0) {
-  const input = credentialsSchema.parse(credentials);
-  const origin = jiraSiteOrigin(input.siteUrl);
+export async function listJiraProjects(credentials: JiraReadCredentials, after = 0) {
+  const transport=jiraReadTransport(credentials);
+  const origin = transport.siteUrl;
   const startAt = offset.parse(after);
-  const options = { basic: { username: input.email, password: input.apiToken } };
-  const myself = myselfSchema.parse(await repositoryProviderJson(origin, "/rest/api/3/myself", options));
-  const page = pageSchema.parse(await repositoryProviderJson(origin,
-    `/rest/api/3/project/search?startAt=${startAt}&maxResults=50`, options));
+  const options=transport.options;
+  const myself = myselfSchema.parse(await repositoryProviderJson(transport.origin, `${transport.prefix}/rest/api/3/myself`, options));
+  if("kind" in credentials&&myself.accountId!==credentials.accountId)throw new Error("Jira identity changed");
+  const page = pageSchema.parse(await repositoryProviderJson(transport.origin,
+    `${transport.prefix}/rest/api/3/project/search?startAt=${startAt}&maxResults=50`, options));
   const next = page.startAt + page.maxResults;
   if (page.startAt !== startAt || page.values.length > page.maxResults ||
       (!page.isLast && (page.values.length === 0 || next > 1000000)) ||

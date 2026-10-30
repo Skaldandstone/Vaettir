@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useId, useReducer } from "react";
 import { RecordedExecutionTrend } from "./RecordedExecutionTrend";
 import { toggleRunDashboard, type RunDashboardVisibility } from "@/lib/run-dashboard-visibility";
@@ -12,18 +14,20 @@ export function RunAllPagesDashboard({ projectId }: { projectId: string }) {
     <section className="panel" aria-label="All-pages recorded run dashboard" style={{ marginBlock: 20, minWidth: 0 }}>
       <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
         <h2 style={{ margin: 0 }}>All-pages run dashboard</h2>
-        <button type="button" className="btn-secondary" aria-expanded={opened} aria-controls={contentId} onClick={toggle}>
+        <ActionButton type="button" className="btn-secondary" aria-expanded={opened} aria-controls={contentId} onClick={toggle} tooltip={<>
           {opened ? "Collapse dashboard" : visibility === "UNOPENED" ? "Open all-pages dashboard" : "Reopen all-pages dashboard"}
-        </button>
+         </>}>
+          {opened ? "Collapse dashboard" : visibility === "UNOPENED" ? "Open" : "Open dashboard"}
+        </ActionButton>
       </div>
-      <p className="text-muted">
+      <details><summary>Details</summary><p className="text-muted">
         Compare recorded outcomes across every history page in an explicitly applied window of up to 90 inclusive UTC days.
         Days and weeks use stored run-start timestamps, not individual result observation times.
         The recorded-outcome section counts result observations, including repeated records, not global manual planned cases, work left or release readiness.
         A separate manual section reconciles trusted frozen run-case instances with current verdict heads, with explicit exclusions and remaining work.
         Neither section represents release readiness or completion of excluded runs.
         The cards below still cover only the current history page.
-      </p>
+      </p></details>
       {visibility === "UNOPENED" && <p>No aggregate is requested until you open the dashboard and choose Show recorded outcomes to apply a scope.</p>}
       <div id={contentId} hidden={!opened}>
         {visibility !== "UNOPENED" && (

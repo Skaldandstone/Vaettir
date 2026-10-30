@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useId, useState } from "react";
 import { trpcReact } from "@/lib/trpcReact";
 import { useStepExecutionResources } from "@/lib/use-step-execution-resources";
@@ -318,13 +320,14 @@ function ResourcePager({
           ))}
         </select>
       </label>
-      <button
+      <ActionButton
         className="btn-secondary"
         disabled={!canRequest || busy}
         onClick={onRefresh}
-      >
+       tooltip={<>
         Refresh / first page
-      </button>
+       </>}>
+         Refresh </ActionButton>
       <button
         className="btn-secondary"
         disabled={!canRequest || busy || !hasNext}
@@ -478,32 +481,36 @@ export function StepObservationResources({
       style={{ margin: "16px 0", minWidth: 0 }}
     >
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-        <button
+        <ActionButton
           className="btn-secondary"
           aria-expanded={historyOpen}
           disabled={!origin}
           onClick={() => setHistoryOpen((value) => !value)}
-        >
+         tooltip={<>
           {historyOpen ? "Hide step history" : "View step history"}
-        </button>
-        <button
+         </>}>
+          {historyOpen ? "Hide" : "Step history"}
+        </ActionButton>
+        <ActionButton
           className="btn-secondary"
           aria-expanded={pickerOpen}
           disabled={!origin}
           onClick={() => setPickerOpen((value) => !value)}
-        >
+         tooltip={<>
           {pickerOpen ? "Hide confirmed files" : "Link confirmed stored files"}
-        </button>
+         </>}>
+          {pickerOpen ? "Hide" : "Link files"}
+        </ActionButton>
       </div>
       {notice && (historyData || pickerData) && <p role="status">{notice}</p>}
       {historyOpen && (
         <section aria-label="Stored step revision history">
           <h3>Step revision history</h3>
-          <p className="text-muted">
+          <details><summary>Details</summary><p className="text-muted">
             Up to 25 rows per page and 100 revisions per step within native byte
             bounds. Current reader authorization is not proof of historical
             original tenancy or a fix.
-          </p>
+          </p></details>
           <ResourcePager
             prefix={`${prefix}-history`}
             limit={history.view.intent?.limit ?? 10}
@@ -580,12 +587,13 @@ export function StepObservationResources({
                       <div key={`${index}:${id}`} style={text}>
                         <span>Stored reference: {id}</span>
                         {onOpenRecordedEvidence && (
-                          <button
+                          <ActionButton
                             className="btn-secondary"
                             onClick={() => openIntent(revision.id, id)}
-                          >
+                           tooltip={<>
                             Request recorded file
-                          </button>
+                           </>}>
+                             Request file </ActionButton>
                         )}
                       </div>
                     ))}
@@ -603,11 +611,11 @@ export function StepObservationResources({
       {pickerOpen && (
         <section aria-label="Confirmed project evidence picker">
           <h3>Confirmed stored files</h3>
-          <p className="text-muted">
+          <details><summary>Details</summary><p className="text-muted">
             Same-project confirmed uploads only. Literal search; up to 25 rows
             per page and 10,000 candidates within native byte bounds. Selected
             references stay retained when unavailable.
-          </p>
+          </p></details>
           <label htmlFor={`${prefix}-search`}>
             Find confirmed files
             <input
@@ -623,13 +631,14 @@ export function StepObservationResources({
               }}
             />
           </label>
-          <button
+          <ActionButton
             className="btn-secondary"
             disabled={!picker.view.canRequest || picker.view.busy}
             onClick={() => void picker.setSearch(searchDraft)}
-          >
+           tooltip={<>
             Apply literal search
-          </button>
+           </>}>
+             Search </ActionButton>
           <ResourcePager
             prefix={`${prefix}-picker`}
             limit={picker.view.intent?.limit ?? 25}

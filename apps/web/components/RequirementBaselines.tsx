@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import Link from "next/link";
@@ -149,10 +151,10 @@ function Register({ projectId }: { projectId: string }) {
   const cases = current && <>
     <h3>Direct case scope and change-review candidates</h3>
     <p>{current.capturedDirectCases ?? "Unavailable"} captured direct cases; {current.currentDirectCases ?? "Unavailable"} current direct cases. {baselineDirectLinkComparison(!!current.baseline, !!current.current, current.comparison.coverageChanged)}</p>
-    <p className="text-muted">These are the union of captured/current explicitly linked case IDs, not proven coverage. When requirement wording changes, review these cases; no automatic execution or suspect resolution occurs.</p>
+    <details><summary>Details</summary><p className="text-muted">These are the union of captured/current explicitly linked case IDs, not proven coverage. When requirement wording changes, review these cases; no automatic execution or suspect resolution occurs.</p></details>
     <label style={label}>Find a case ID or recorded title on this page<input type="search" style={control} value={caseSearch} maxLength={80} onChange={e => setCaseSearch(e.target.value)} /></label>
-    <p className="text-muted">Literal search covers only the {current.affected.items.length} loaded candidates on this page, including bounded title excerpts. It does not search other pages or full case procedures. Clear it and use Previous / Next cases to review the complete bounded union.</p>
-    {caseSearch && <button type="button" className="btn-secondary" onClick={() => setCaseSearch("")}>Show all candidates on this page</button>}
+    <details><summary>Details</summary><p className="text-muted">Literal search covers only the {current.affected.items.length} loaded candidates on this page, including bounded title excerpts. It does not search other pages or full case procedures. Clear it and use Previous / Next cases to review the complete bounded union.</p></details>
+    {caseSearch && <ActionButton type="button" className="btn-secondary" onClick={() => setCaseSearch("")} tooltip={<> Show all candidates on this page </>}> Show </ActionButton>}
     <div style={{ display: "grid", gap: 8 }}>{visibleCases.map(c => {
       const href = baselineNativeCaseHref(projectId, c.caseId, c.available);
       return <details key={c.caseId ?? c.displayId} style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 10, minWidth: 0 }}>
@@ -177,12 +179,12 @@ function Register({ projectId }: { projectId: string }) {
   </>;
   return <section>
     <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}><h1 style={{ marginRight: "auto" }}>Requirement baselines and changes</h1>
-      <button type="button" className="btn-secondary" onClick={() => void Promise.all([project.refetch(), organizations.refetch(), permissions.refetch(), list.refetch()])}>Refresh current access and requirements</button>
-      {pending && <button type="button" className="btn-primary" onClick={() => setOpen(true)}>Recover unconfirmed capture</button>}
+      <ActionButton type="button" className="btn-secondary" onClick={() => void Promise.all([project.refetch(), organizations.refetch(), permissions.refetch(), list.refetch()])} tooltip={<> Refresh current access and requirements </>}> Refresh </ActionButton>
+      {pending && <ActionButton type="button" className="btn-primary" onClick={() => setOpen(true)} tooltip={<> Recover unconfirmed capture </>}> Recover </ActionButton>}
     </div>
     <p>Compare current native requirement wording and explicit case links with a retained human-reviewed baseline. Changes are review candidates, not defects, verified coverage or formal regulatory sign-off.</p>
     <label style={label}>Find current or captured requirement by title<input type="search" style={control} value={search} maxLength={80} onChange={e => { setSearch(e.target.value); setOffset(0); }} /></label>
-    <p className="text-muted">Case-insensitive literal title search; %, _ and backslash are text, not wildcard patterns. Surrounding whitespace is ignored. A match in older captured wording can display the current title or newest retained title on this register.</p>
+    <details><summary>Details</summary><p className="text-muted">Case-insensitive literal title search; %, _ and backslash are text, not wildcard patterns. Surrounding whitespace is ignored. A match in older captured wording can display the current title or newest retained title on this register.</p></details>
     {!ready ? <p role="alert">Original organization and current signed-in membership are unavailable. Local rationale, selections and any exact pending capture are retained; cached wording, chips and history are hidden.</p> : list.error ? <div role="alert"><p>Requirement comparison unavailable; cached or incomplete results are not substituted.</p><button type="button" className="btn-secondary" onClick={() => void list.refetch()}>Retry register</button></div>
       : !catalog ? <p role="status">{list.isPaused ? "Waiting to verify current access…" : "Checking bounded requirement scope…"}</p>
         : <>
@@ -197,19 +199,19 @@ function Register({ projectId }: { projectId: string }) {
             <td><button type="button" className="btn-secondary" onClick={() => view(row.requirementId ? { requirementId: row.requirementId } : { baselineId: row.baselineId! })}>Compare</button></td>
           </tr>)}</tbody></table></div>
           {!catalog.items.length && <p>No matching requirements on this page. This does not establish complete requirements or an absence of risk.</p>}
-          <p className="text-muted">Scroll sideways for all columns. Up to 20 rows per page and 1,000 matching identities; narrow the search for larger registers.</p>
+          <details><summary>Details</summary><p className="text-muted">Scroll sideways for all columns. Up to 20 rows per page and 1,000 matching identities; narrow the search for larger registers.</p></details>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}><button type="button" className="btn-secondary" disabled={offset === 0 || frozen} onClick={() => setOffset(Math.max(0, offset - 20))}>Previous requirements</button>
             <button type="button" className="btn-secondary" disabled={!catalog.hasMore || offset >= 980 || frozen} onClick={() => setOffset(offset + 20)}>Next requirements</button></div>
         </>}
     <Modal open={open} onClose={() => { setOpen(false); setAcknowledged(false); }} size="wide" title={reviewing ? "Review a new requirement baseline" : "Requirement change comparison"}>
       {ready && message && <p role="status">{message}</p>}
-      {permissions.error && <div role="alert"><p>Current capture access could not be verified. Cached permissions cannot authorize a capture or retry.</p><button type="button" className="btn-secondary" onClick={() => void permissions.refetch()}>Retry capture access</button></div>}
-      {pending && <div role="alert"><p>The original capture payload and baseline are fixed while its outcome is unconfirmed.</p><button type="button" className="btn-primary" disabled={!access?.canWrite || mutation.isPending} onClick={() => void send(pending, true)}>Retry exact baseline capture</button></div>}
+      {permissions.error && <div role="alert"><p>Current capture access could not be verified. Cached permissions cannot authorize a capture or retry.</p><ActionButton type="button" className="btn-secondary" onClick={() => void permissions.refetch()} tooltip={<> Retry capture access </>}> Retry </ActionButton></div>}
+      {pending && <div role="alert"><p>The original capture payload and baseline are fixed while its outcome is unconfirmed.</p><ActionButton type="button" className="btn-primary" disabled={!access?.canWrite || mutation.isPending} onClick={() => void send(pending, true)} tooltip={<> Retry exact baseline capture </>}> Retry </ActionButton></div>}
       {detail.error ? <div role="alert"><p>Current comparison unavailable. No cached approval, zero coverage or partial comparison has been substituted.</p><button type="button" className="btn-secondary" onClick={() => void detail.refetch()}>Retry comparison</button></div>
         : !current ? <p role="status">{detail.isPaused ? "Waiting to verify comparison…" : "Checking current wording, native links and baseline…"}</p>
           : reviewing ? <>
             <p role="status">Step {screen + 1} of 3: {["Wording comparison", "Direct case scope", "Capture rationale and limits"][screen]}</p>
-            {!reviewed && <div role="alert"><p>The reviewed wording, baseline or current access changed. No stale capture can be submitted.</p><button type="button" className="btn-secondary" disabled={frozen} onClick={() => { setReviewing(false); setApproval(null); void detail.refetch(); }}>Reload and review again</button></div>}
+            {!reviewed && <div role="alert"><p>The reviewed wording, baseline or current access changed. No stale capture can be submitted.</p><ActionButton type="button" className="btn-secondary" disabled={frozen} onClick={() => { setReviewing(false); setApproval(null); void detail.refetch(); }} tooltip={<> Reload and review again </>}> Refresh </ActionButton></div>}
             {screen === 0 ? wording : screen === 1 ? cases : <fieldset disabled={frozen || !reviewed} style={{ minWidth: 0 }}>
               <legend>Explicit reviewed capture</legend><p>{current.current?.title}. Latest version {approval?.version ?? 0}; {current.currentDirectCases ?? "Unavailable"} current direct cases.</p>
               <p>New capture restarts the comparison against this wording and direct link scope. Earlier snapshots remain intact. It does not clear defects, attest mitigation, approve coverage or resolve an independently tracked suspect.</p>
@@ -218,14 +220,14 @@ function Register({ projectId }: { projectId: string }) {
             </fieldset>}
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBlock: 16 }}><button type="button" className="btn-secondary" disabled={screen === 0 || frozen} onClick={() => setScreen(screen - 1)}>Previous step</button>
               {screen < 2 ? <button type="button" className="btn-primary" disabled={frozen || !reviewed} onClick={() => setScreen(screen + 1)}>Continue</button>
-                : <button type="button" className="btn-primary" disabled={frozen || !reviewed || !acknowledged || !rationale.trim()} onClick={capture}>Capture reviewed baseline</button>}
-              <button type="button" className="btn-secondary" disabled={frozen} onClick={() => { setReviewing(false); setApproval(null); }}>Back to comparison</button>
+                : <ActionButton type="button" className="btn-primary" disabled={frozen || !reviewed || !acknowledged || !rationale.trim()} onClick={capture} tooltip={<> Capture reviewed baseline </>}> Capture baseline </ActionButton>}
+              <ActionButton type="button" className="btn-secondary" disabled={frozen} onClick={() => { setReviewing(false); setApproval(null); }} tooltip={<> Back to comparison </>}> Back </ActionButton>
             </div>
           </> : <>
             {wording}{cases}
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBlock: 16 }}>
-              {canReview && <button type="button" className="btn-primary" disabled={frozen} onClick={startReview}>Review a new baseline</button>}
-              {!current.selectedIsLatest && <button type="button" className="btn-secondary" disabled={frozen} onClick={latest}>Compare latest baseline</button>}
+              {canReview && <ActionButton type="button" className="btn-primary" disabled={frozen} onClick={startReview} tooltip={<> Review a new baseline </>}> Review </ActionButton>}
+              {!current.selectedIsLatest && <ActionButton type="button" className="btn-secondary" disabled={frozen} onClick={latest} tooltip={<> Compare latest baseline </>}> Compare </ActionButton>}
               <button type="button" className="btn-secondary" disabled={frozen} onClick={() => void detail.refetch()}>Refresh comparison</button>
             </div>
             <details><summary>Retained immutable baseline history</summary><label style={label}>Compare a retained baseline<select style={control} disabled={frozen} value={current.baseline?.id ?? ""} onChange={e => {

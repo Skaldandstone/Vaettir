@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useLayoutEffect,useRef,useState } from "react";
 import { useParams } from "next/navigation";
 import { trpcReact } from "@/lib/trpcReact";
@@ -22,7 +24,7 @@ function ReviewQueueSession({projectId}:{projectId:string}){
     <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
       <label>Search pending cases<input type="search" maxLength={200} value={queue.freshAccess?queue.filter.search:""} disabled={!queue.freshAccess} onChange={event=>queue.setSearch(event.target.value)} placeholder="Case ID, title or source path"/></label>
       <label>Sort<select value={queue.filter.sort} disabled={!queue.freshAccess} onChange={event=>queue.setSort(event.target.value as typeof queue.filter.sort)}><option value="confidence">Lowest known confidence</option><option value="case-id">Case ID</option><option value="title">Title</option></select></label>
-      <button type="button" onClick={queue.refresh}>Refresh current reader</button><button type="button" disabled={!queue.freshAccess} onClick={queue.first}>Return to first page</button>
+      <ActionButton type="button" onClick={queue.refresh} tooltip={<> Refresh current reader </>}> Refresh </ActionButton><ActionButton type="button" disabled={!queue.freshAccess} onClick={queue.first} tooltip={<> Return to first page </>}> First page </ActionButton>
     </div>
     {!page&&<p role="status">Verifying the current original workspace, native actor and pending page. Cached queue details are withheld.</p>}
     {queue.error&&<p role="alert">{queue.error}</p>}{(queue.notice||notice)&&<p role="status">{queue.notice||notice}</p>}
@@ -30,14 +32,14 @@ function ReviewQueueSession({projectId}:{projectId:string}){
       {page.items.length===0&&<p>No pending cases match this filter.</p>}
       <ul style={{listStyle:"none",padding:0}}>{page.items.map(item=><li key={item.id} style={{border:"1px solid var(--line)",padding:16,marginBottom:12,borderRadius:8}}>
         <code>{item.displayId}</code><h2 style={{fontSize:18,whiteSpace:"pre-wrap"}}>{item.title}</h2><p>{item.confidence===null?"Confidence not supplied":`${(item.confidence*100).toFixed(0)}% model confidence, not human approval`}</p>{item.sourceFilePath&&<p style={{overflowWrap:"anywhere"}}>{item.sourceFilePath}</p>}
-        <button type="button" onClick={()=>open(item.id)}>Open supported review snapshot</button>
+        <ActionButton type="button" onClick={()=>open(item.id)} tooltip={<> Open supported review snapshot </>}> Open </ActionButton>
       </li>)}</ul>
       <nav aria-label="Current pending queue pages"><button type="button" disabled={page.offset===0} onClick={queue.previous}>Previous</button><button type="button" disabled={page.nextOffset===null} onClick={queue.next}>Next</button></nav>
     </>}
-    {selected&&<button type="button" onClick={()=>setSelected(null)}>Close review view (retain decision)</button>}
+    {selected&&<ActionButton type="button" onClick={()=>setSelected(null)} tooltip={<> Close review view (retain decision) </>}> Close review </ActionButton>}
     {/* Editors stay mounted when closed or their current reader disappears. No
         request is silently rebased, discarded or recreated by another page. */}
     {opened.map(item=>{const active=item.projectId===projectId&&selected===item.caseId&&!!queue.freshAccess;return <div key={`${item.projectId}:${item.caseId}`} hidden={!active} ref={node=>{if(node)node.inert=!active;}}><CaseReviewDecision projectId={item.projectId} caseId={item.caseId} active={active} readOnly={!queue.freshAccess?.canRecover} onSaved={refresh} onRelease={()=>releaseAcknowledged(item)}/></div>;})}
-    <p className="text-muted">Retained requests survive closing this mounted view and temporary access changes. Reload/route-away recovery, bulk decisions and additional relationship review contexts are not provided by this slice.</p>
+    <details><summary>Details</summary><p className="text-muted">Retained requests survive closing this mounted view and temporary access changes. Reload/route-away recovery, bulk decisions and additional relationship review contexts are not provided by this slice.</p></details>
   </main>;
 }

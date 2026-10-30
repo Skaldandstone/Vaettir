@@ -27,10 +27,10 @@ export default function ExploratorySessionsPage() {
   return (
     <div style={{ maxWidth: 700 }}>
       <h1>Exploratory testing</h1>
-      <p className="text-muted" style={{ fontSize: 13 }}>
+      <details><summary>Details</summary><p className="text-muted" style={{ fontSize: 13 }}>
         Session-based exploratory testing: no predefined steps - explore against a charter, log what you find as you
         go, then optionally turn real findings into a permanent scripted test case.
-      </p>
+      </p></details>
 
       <div style={{ display: "flex", gap: 8, margin: "16px 0" }}>
         <input

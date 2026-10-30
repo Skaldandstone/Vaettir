@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useState } from "react";
 import { trpcReact, type RouterInputs } from "@/lib/trpcReact";
 import { Modal } from "./Modal";
@@ -350,13 +352,14 @@ export function TestCaseVersionReview({
         <p role="status">{notice}</p>
       )}
       {pending && !open && active && reads.readable && (
-        <button
+        <ActionButton
           type="button"
           className="btn-secondary"
           onClick={() => setOpen(true)}
-        >
+         tooltip={<>
           Review pending restore
-        </button>
+         </>}>
+           Review </ActionButton>
       )}
       {list.isFetching && <p role="status">Loading case versions…</p>}
       {list.error ? (
@@ -546,19 +549,20 @@ export function TestCaseVersionReview({
               style={{ display: "flex", gap: 8, flexWrap: "wrap" }}
             >
               {cursors.length > 1 && (
-                <button
+                <ActionButton
                   type="button"
                   className="btn-secondary"
                   disabled={list.isFetching}
                   onClick={() => {
                     if (editor.canBrowse()) setCursors((c) => c.slice(0, -1));
                   }}
-                >
+                 tooltip={<>
                   Browse newer versions
-                </button>
+                 </>}>
+                   Browse </ActionButton>
               )}
               {list.data?.nextCursor != null && (
-                <button
+                <ActionButton
                   type="button"
                   className="btn-secondary"
                   disabled={list.isFetching}
@@ -566,18 +570,20 @@ export function TestCaseVersionReview({
                     editor.canBrowse() &&
                     setCursors((c) => [...c, list.data!.nextCursor!])
                   }
-                >
+                 tooltip={<>
                   Browse older versions
-                </button>
+                 </>}>
+                   Browse </ActionButton>
               )}
               {list.error && (
-                <button
+                <ActionButton
                   type="button"
                   className="btn-secondary"
                   onClick={() => void list.refetch()}
-                >
+                 tooltip={<>
                   Retry version choices
-                </button>
+                 </>}>
+                   Retry </ActionButton>
               )}
             </nav>
             {list.isFetching && <p role="status">Loading version choices…</p>}
@@ -619,13 +625,14 @@ export function TestCaseVersionReview({
               Saved-version comparison could not be loaded.{" "}
               {historical.error.message}
             </p>
-            <button
+            <ActionButton
               type="button"
               className="btn-secondary"
               onClick={() => void historical.refetch()}
-            >
+             tooltip={<>
               Retry saved comparison
-            </button>
+             </>}>
+               Retry </ActionButton>
           </div>
         )}
         {fromVersion !== null &&
@@ -683,15 +690,17 @@ export function TestCaseVersionReview({
                   </div>
                 </details>
               ))}
-              <button
+              <ActionButton
                 type="button"
                 className="btn-secondary"
                 onClick={() => changeComparison(version!, null)}
-              >
-                {readOnly
+               tooltip={<>{readOnly
                   ? `Compare v${version} with current`
-                  : `Review restoring v${version} to current`}
-              </button>
+                  : `Review restoring v${version} to current`}</>}>
+                {readOnly
+                  ? "Compare"
+                  : "Review restore"}
+              </ActionButton>
             </>
           )}
         {fromVersion === null && baseline && (
@@ -835,18 +844,24 @@ export function TestCaseVersionReview({
               >
                 Refresh comparison
               </button>
-              <button
+              <ActionButton
                 type="button"
                 className="btn-primary"
                 disabled={!editor.canCommit}
                 onClick={() => void applyRestore()}
-              >
+               tooltip={<>
                 {editor.busy
                   ? "Restoring…"
                   : pending
                     ? "Retry reviewed restore"
                     : `Restore ${fields.length} selected fields`}
-              </button>
+               </>}>
+                {editor.busy
+                  ? "Restoring…"
+                  : pending
+                    ? "Retry"
+                    : `Restore (${fields.length})`}
+              </ActionButton>
             </div>
           </>
         )}

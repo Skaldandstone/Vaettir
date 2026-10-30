@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useEffect, useRef, useState } from "react";
 import { trpcReact, type RouterInputs } from "@/lib/trpcReact";
 import { usePlanChangeEditor } from "@/lib/use-plan-change-editor";
@@ -118,9 +120,9 @@ export function PlanTemplateEditor({ projectId, testPlanId, organizationId, onCh
           </footer>
         </> : <p>{notice || "No editable configuration is available."}</p>}
         {notice && draft && <p role="status">{notice}</p>}
-        {!editor.pending && <button type="button" className="btn-secondary" disabled={editor.busy} onClick={editor.review}>Reload saved selection</button>}
+        {!editor.pending && <ActionButton type="button" className="btn-secondary" disabled={editor.busy} onClick={editor.review} tooltip={<> Reload saved selection </>}> Refresh </ActionButton>}
       </>}
-      {editor.reads.query.error && <button type="button" onClick={editor.reads.refresh}>Retry loading plan</button>}
+      {editor.reads.query.error && <ActionButton type="button" onClick={editor.reads.refresh} tooltip={<> Retry loading plan </>}> Retry </ActionButton>}
     </Modal>
   </>;
 }

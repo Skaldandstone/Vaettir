@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import { trpcReact } from "@/lib/trpcReact";
 import { GOOGLE_SHEETS_SCOPE, GOOGLE_SHEET_MIME, readSheetBook, readSheetSnapshot, sheetId, validSheetToken, type GoogleSheetSnapshot, type SheetBook } from "@/lib/google-sheets-import";
@@ -141,14 +143,14 @@ export function GoogleSheetsImportSource({ projectId, disabled, onSnapshots, max
     {config.isLoading ? <p role="status">Checking Google Sheets availability…</p> : config.error ? <p role="alert">Could not check Google Sheets availability. Try reloading this page.</p> : !config.data ? <p role="status">Google Sheets connection is awaiting administrator setup. You can download your sheet as CSV or Excel and use “Upload an export” now.</p> : <>
       <label><input type="checkbox" checked={approved} disabled={busy || disabled} onChange={event => setApproved(event.target.checked)} /> I approve reading the spreadsheet I select and sending the selected worksheet to this Vaettir project for import review.</label>
       <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-        {!ready ? <button type="button" className="btn-primary" disabled={!approved || busy || disabled} onClick={() => void prepare()}>Load Google connection</button> : !book ? <button type="button" className="btn-primary" disabled={!approved || busy || disabled} onClick={authorize}>Authorize Google and choose a spreadsheet</button> : null}
-        {(busy || book) && <button type="button" className="btn-secondary" onClick={cancel}>Cancel Google selection</button>}
+        {!ready ? <ActionButton type="button" className="btn-primary" disabled={!approved || busy || disabled} onClick={() => void prepare()} tooltip={<> Load Google connection </>}> Load </ActionButton> : !book ? <ActionButton type="button" className="btn-primary" disabled={!approved || busy || disabled} onClick={authorize} tooltip={<> Authorize Google and choose a spreadsheet </>}> Choose spreadsheet </ActionButton> : null}
+        {(busy || book) && <ActionButton type="button" className="btn-secondary" onClick={cancel} tooltip={<> Cancel Google selection </>}> Cancel </ActionButton>}
       </div>
       {busy && <p role="status">Waiting for Google or reading your selection…</p>}
       {book && <div style={{ marginTop: 12, overflowWrap: "anywhere" }}><strong>{book.title}</strong>
-        <div style={{ display: "flex", gap: 8, margin: "8px 0" }}><button type="button" className="btn-secondary" disabled={busy || disabled} onClick={() => setSelected(book.tabs.slice(0, maxWorksheets).map(tab => tab.id))}>Select {book.tabs.length > maxWorksheets ? `first ${maxWorksheets}` : "all"}</button><button type="button" className="btn-secondary" disabled={busy || disabled} onClick={() => setSelected([])}>Deselect all</button></div>
+        <div style={{ display: "flex", gap: 8, margin: "8px 0" }}><ActionButton type="button" className="btn-secondary" disabled={busy || disabled} onClick={() => setSelected(book.tabs.slice(0, maxWorksheets).map(tab => tab.id))} tooltip={<>Select {book.tabs.length > maxWorksheets ? `first ${maxWorksheets}` : "all"}</>}>{book.tabs.length > maxWorksheets ? `Select ${maxWorksheets}` : "Select all"}</ActionButton><button type="button" className="btn-secondary" disabled={busy || disabled} onClick={() => setSelected([])}>Deselect all</button></div>
         <fieldset disabled={busy || disabled} style={{ maxHeight: 250, overflowY: "auto" }}><legend>Worksheets · {selected.length} selected</legend>{book.tabs.map(tab => <label key={tab.id} style={{ display: "block", margin: "8px 0" }}><input type="checkbox" checked={selected.includes(tab.id)} disabled={!selected.includes(tab.id) && selected.length >= maxWorksheets} onChange={event => setSelected(current => event.target.checked ? [...current, tab.id] : current.filter(id => id !== tab.id))} /> {tab.title} <small className="text-muted">{tab.rows.toLocaleString()} allocated rows</small></label>)}</fieldset>
-        <button type="button" className="btn-primary" disabled={busy || disabled || !approved || !selected.length} onClick={() => void preview()}>Read selected tabs and preview</button></div>}
+        <ActionButton type="button" className="btn-primary" disabled={busy || disabled || !approved || !selected.length} onClick={() => void preview()} tooltip={<> Read selected tabs and preview </>}> Read </ActionButton></div>}
     </>}
     {error && <p role="alert">{error}</p>}
   </section>;

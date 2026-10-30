@@ -3,7 +3,7 @@ import type { RequestOptions } from "node:https";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { lookup } from "node:dns/promises";
 import { request } from "node:https";
-import { isPublicProviderIPv4, repositoryProviderJson, repositoryProviderOrigin, repositoryProviderRevokeGithubToken, repositoryProviderRevokeGitlabToken,linearProviderGraphql } from "./repositoryProviderHttp.js";
+import { isPublicProviderIPv4, repositoryProviderJson, repositoryProviderOrigin, repositoryProviderRevokeGithubToken, repositoryProviderRevokeGitlabToken,linearProviderGraphql,atlassianProviderToken } from "./repositoryProviderHttp.js";
 
 vi.mock("node:dns/promises", () => ({ lookup: vi.fn() }));
 vi.mock("node:https", () => ({ request: vi.fn() }));
@@ -29,6 +29,19 @@ afterEach(() => { vi.useRealTimers(); });
 const flushDns = async () => { await Promise.resolve(); await Promise.resolve(); };
 
 describe("repository provider HTTP boundary", () => {
+  it("posts Atlassian credentials as JSON only to the fixed pinned token endpoint",async()=>{
+    const body={grant_type:"authorization_code" as const,client_id:"synthetic-client",client_secret:"synthetic-secret",code:"synthetic-code",redirect_uri:"https://app.example/connections/atlassian/callback"};
+    const pending=atlassianProviderToken(body);await flushDns();
+    expect(vi.mocked(request).mock.calls[0]?.[0]).toMatchObject({origin:"https://auth.atlassian.com",pathname:"/oauth/token"});
+    expect(transportOptions.method).toBe("POST");expect(transportOptions.headers).toMatchObject({"Content-Type":"application/json"});expect(transportOptions.headers).not.toHaveProperty("Authorization");
+    expect(JSON.parse(requestWrite.mock.calls[0]![0])).toEqual(body);
+    deliver();response.emit("data",Buffer.from("{}"));response.emit("end");await expect(pending).resolves.toEqual({});
+  });
+  it("rejects injected or extra Atlassian token fields before DNS",()=>{
+    expect(()=>atlassianProviderToken({grant_type:"refresh_token",client_id:"synthetic",client_secret:"bad\r\nheader",refresh_token:"synthetic"})).toThrow();
+    expect(()=>atlassianProviderToken({grant_type:"refresh_token",client_id:"synthetic",client_secret:"synthetic",refresh_token:"synthetic",url:"https://untrusted.invalid"} as Parameters<typeof atlassianProviderToken>[0])).toThrow();
+    expect(lookup).not.toHaveBeenCalled();expect(request).not.toHaveBeenCalled();
+  });
   it("posts Linear JSON only to the pinned host with raw-key authorization",async()=>{
     const pending=linearProviderGraphql("synthetic-linear-key","query Metadata { viewer { id } }",{after:null});
     await flushDns();

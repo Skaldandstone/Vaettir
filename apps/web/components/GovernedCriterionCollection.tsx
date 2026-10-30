@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useLayoutEffect, useRef, useState } from "react";
 import {
   trpcReact,
@@ -231,15 +233,19 @@ export function GovernedCriterionCollection({
   return (
     <>
       {(!readOnly || pending) && (
-        <button
+        <ActionButton
           type="button"
           className="btn-secondary"
           onClick={() => setOpen(true)}
-        >
+         tooltip={<>
           {pending
             ? "Reconcile criterion request"
             : "Add / remove / link criteria"}
-        </button>
+         </>}>
+          {pending
+            ? "Recover"
+            : "Edit criteria"}
+        </ActionButton>
       )}
       <Modal
         open={open}
@@ -256,18 +262,19 @@ export function GovernedCriterionCollection({
           </p>
         ) : (
           <div style={{ display: "grid", gap: 12, minWidth: 0 }}>
-            <p className="text-muted">
+            <details><summary>Details</summary><p className="text-muted">
               Add a pending criterion, remove one explicitly, or change its
               requirement association. Existing wording, native verdicts, plan
               approvals and unrelated criteria are retained. Frozen
               plans/releases must be reopened first.
-            </p>
+            </p></details>
             {query.error && (
               <p role="alert">
                 {query.error.message}
-                <button onClick={() => void query.refetch()}>
+                <ActionButton onClick={() => void query.refetch()} tooltip={<>
                   Retry plan read
-                </button>
+                 </>}>
+                   Retry </ActionButton>
               </p>
             )}
             {fresh?.editBlockedReason && (
@@ -288,12 +295,13 @@ export function GovernedCriterionCollection({
                     {JSON.stringify(pending.input, null, 2)}
                   </pre>
                 </details>
-                <button
+                <ActionButton
                   disabled={busy || !access.canEdit}
                   onClick={() => void commit()}
-                >
+                 tooltip={<>
                   Retry identical criterion request
-                </button>
+                 </>}>
+                   Retry </ActionButton>
               </>
             ) : (
               <>
@@ -323,11 +331,15 @@ export function GovernedCriterionCollection({
                     </option>
                   </select>
                 </label>
-                <button disabled={busy || !fresh?.canEdit} onClick={review}>
+                <ActionButton disabled={busy || !fresh?.canEdit} onClick={review} tooltip={<>
                   {baseline
                     ? "Load current plan (replaces reviewed baseline)"
                     : "Load current plan for review"}
-                </button>
+                 </>}>
+                  {baseline
+                    ? "Load"
+                    : "Load"}
+                </ActionButton>
                 {baseline && (
                   <>
                     {baseline.planRevision !== fresh?.planRevision && (
@@ -456,9 +468,10 @@ export function GovernedCriterionCollection({
                         {choicesQuery.error && (
                           <p role="alert">
                             {choicesQuery.error.message}
-                            <button onClick={() => void choicesQuery.refetch()}>
+                            <ActionButton onClick={() => void choicesQuery.refetch()} tooltip={<>
                               Retry requirement search
-                            </button>
+                             </>}>
+                               Retry </ActionButton>
                           </p>
                         )}
                         {choices?.choices.length === 0 && (
@@ -473,11 +486,12 @@ export function GovernedCriterionCollection({
                           </button>
                         )}
                         {choices?.nextCursor && (
-                          <button
+                          <ActionButton
                             onClick={() => setCursor(choices.nextCursor!)}
-                          >
+                           tooltip={<>
                             Next 25 requirements
-                          </button>
+                           </>}>
+                             Next requirements </ActionButton>
                         )}
                       </fieldset>
                     )}
@@ -512,7 +526,7 @@ export function GovernedCriterionCollection({
                         ? "I explicitly reviewed removal of this exact criterion. Its complete native row will remain in governance history."
                         : "I reviewed this exact change and requirement choice. All other criteria and native verdicts stay unchanged."}
                     </label>
-                    <button
+                    <ActionButton
                       disabled={
                         busy ||
                         !fresh?.canEdit ||
@@ -525,11 +539,15 @@ export function GovernedCriterionCollection({
                           : !criterion)
                       }
                       onClick={() => void commit()}
-                    >
+                     tooltip={<>
                       {mode === "DELETE_CRITERION"
                         ? "Remove reviewed criterion"
                         : "Save reviewed criterion change"}
-                    </button>
+                     </>}>
+                      {mode === "DELETE_CRITERION"
+                        ? "Remove"
+                        : "Save"}
+                    </ActionButton>
                   </>
                 )}
               </>

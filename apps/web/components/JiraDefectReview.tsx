@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useLayoutEffect, useRef, useState } from "react";
 import { defectRecordKey } from "@vaettir/core";
 import { trpcReact, type RouterInputs, type RouterOutputs } from "@/lib/trpcReact";
@@ -55,7 +57,7 @@ export function JiraDefectReview({ projectId, runId, runVersion, issueIds, disab
   return <section aria-label="Review Jira defect tasks" style={{ display: "grid", gap: 10, minWidth: 0 }}>
     <h4>Add issue summaries to the defect map</h4>
     <p>Review {issueIds.length} selected summaries as tracker tasks. This does not create requirements or modify Jira. Source reads remain a manual snapshot; automatic sync is not enabled.</p>
-    {!receipt && <button type="button" disabled={busy || !issueIds.length} onClick={() => void preview()}>{working ? "Working…" : "Review selected defect tasks"}</button>}
+    {!receipt && <ActionButton type="button" disabled={busy || !issueIds.length} onClick={() => void preview()} tooltip={<> {working ? "Working…" : "Review selected defect tasks"} </>}>{working ? "Working…" : "Review"}</ActionButton>}
     {shownReview && !done && <>
       <ul style={{ paddingLeft: 20, overflowWrap: "anywhere" }}>{shownReview.tasks.map(task => {
         const change = shownReview.changes.find(item => item.record === "task" && item.key === defectRecordKey(task));
@@ -64,8 +66,8 @@ export function JiraDefectReview({ projectId, runId, runVersion, issueIds, disab
       })}</ul>
       <p>Missing tasks and existing human link decisions are retained. Older snapshots do not overwrite newer saved summaries. Metadata labels may be redacted. Jira status labels are not mapped to a resolution category; imported status remains unknown until supported category evidence is available.</p>
       <label><input type="checkbox" checked={approved} disabled={busy || !!receipt} onChange={event => setApproved(event.target.checked)} /> I approve saving these reviewed Jira summaries as defect-map tasks.</label>
-      <button type="button" disabled={busy || (!receipt && !approved)} onClick={() => void save()}>{working ? "Saving tasks…" : receipt ? "Retry the same task import" : "Save reviewed Jira tasks"}</button>
-      {rejected && <button type="button" disabled={busy} onClick={() => { setReceipt(null); onHeldChange(false); setReview(null); setApproved(false); setRejected(false); setMessage("The rejected request was not applied. Review the current source and map before trying again."); }}>Review again after rejection</button>}
+      <ActionButton type="button" disabled={busy || (!receipt && !approved)} onClick={() => void save()} tooltip={<> {working ? "Saving tasks…" : receipt ? "Retry the same task import" : "Save reviewed Jira tasks"} </>}>{working ? "Saving tasks…" : receipt ? "Retry" : "Save"}</ActionButton>
+      {rejected && <ActionButton type="button" disabled={busy} onClick={() => { setReceipt(null); onHeldChange(false); setReview(null); setApproved(false); setRejected(false); setMessage("The rejected request was not applied. Review the current source and map before trying again."); }} tooltip={<> Review again after rejection </>}> Review </ActionButton>}
     </>}
     {message && <p role="status">{message}</p>}
   </section>;

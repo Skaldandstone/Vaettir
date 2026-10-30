@@ -3,7 +3,7 @@ import {afterEach,beforeEach,describe,expect,it,vi} from "vitest";
 import {prisma,type OrgRole,type SeatType} from "@vaettir/db";
 import {jiraConnectionsRouter} from "./routers/jiraConnections.js";
 import {listJiraProjects} from "./services/jiraSourceConnection.js";
-import {decryptToken,type EncryptedToken} from "./services/tokenEncryption.js";
+import {decryptToken,encryptToken,type EncryptedToken} from "./services/tokenEncryption.js";
 vi.mock("./services/jiraSourceConnection.js",async original=>({...await original<typeof import("./services/jiraSourceConnection.js")>(),listJiraProjects:vi.fn()}));
 const url=process.env.DATABASE_URL?new URL(process.env.DATABASE_URL):null;
 const isolated=url&&["localhost","127.0.0.1"].includes(url.hostname)&&/test/i.test(url.pathname)&&!url.searchParams.has("host");
@@ -21,7 +21,11 @@ describe.skipIf(!isolated)("Jira native metadata connection",()=>{
     return {id:user.id,caller:jiraConnectionsRouter.createCaller({prisma,user,staff:null,securityLogger:undefined,staffAttempt:{tokenConfigured:false,tokenPresented:false,actorHeaderPresented:false}})};
   }
   const request=()=>({projectId,requestId:randomUUID(),siteUrl:workspace.id,email:"synthetic@example.invalid",apiToken:key,approveMetadataAccess:true as const});
-  async function ready(){const result=await owner.verify(request());return {id:result.id,...await owner.list({id:result.id})};}
+  async function ready(){
+    // A pre-existing encrypted connection is fixture input, not a new token enrollment.
+    const row=await prisma.ticketSourceConnection.create({data:{projectId,organizationId:orgId,actorId:ownerId,provider:"jira",providerOrigin:workspace.id,requestKey:randomUUID(),requestHash:"legacy-fixture",status:"VERIFIED",encryptedToken:{...encryptToken(JSON.stringify({siteUrl:workspace.id,email:"synthetic@example.invalid",apiToken:key}))},authorizationExpiresAt:new Date(Date.now()+600000),tokenExpiresAt:new Date(Date.now()+28800000),verifiedAt:new Date(),catalog:{workspace,account,projects:[projectA],cursors:[]},catalogAt:new Date(),version:1}});
+    return {id:row.id,...await owner.list({id:row.id})};
+  }
   beforeEach(async()=>{
     vi.resetAllMocks();vi.stubEnv("PRODUCTION_SIGNAL_ENCRYPTION_KEY",Buffer.alloc(32,11).toString("base64"));
     vi.mocked(listJiraProjects).mockResolvedValue(listing());
@@ -38,13 +42,17 @@ describe.skipIf(!isolated)("Jira native metadata connection",()=>{
     expect(listJiraProjects).not.toHaveBeenCalled();
     expect(await viewer.capabilities({projectId})).toMatchObject({canConnect:false,oauthAvailable:false,issueImportAvailable:true});
   });
+  it("refuses every new token without calling the provider or storing credentials",async()=>{
+    for(const siteUrl of [workspace.id,"https://other.atlassian.net","https://jira.example.invalid","http://127.0.0.1"]){await expect(owner.verify({...request(),siteUrl})).rejects.toMatchObject({code:"PRECONDITION_FAILED",message:expect.stringContaining("browser sign-in")});}
+    expect(listJiraProjects).not.toHaveBeenCalled();expect(await prisma.ticketSourceConnection.count({where:{projectId}})).toBe(0);expect(await owner.capabilities({projectId})).toMatchObject({tokenImplemented:false});
+  });
   it("fails closed when encrypted storage is unconfigured",async()=>{
     vi.stubEnv("PRODUCTION_SIGNAL_ENCRYPTION_KEY","");
     expect(await owner.capabilities({projectId})).toMatchObject({credentialStorageReady:false});
     await expect(owner.verify(request())).rejects.toMatchObject({code:"PRECONDITION_FAILED"});
     expect(listJiraProjects).not.toHaveBeenCalled();expect(await prisma.ticketSourceConnection.count({where:{projectId}})).toBe(0);
   });
-  it("stores only encrypted access and no scope until explicit reviewed approval",async()=>{
+  it("retains encrypted legacy access and requires explicit project-scope approval",async()=>{
     const result=await ready();const row=await prisma.ticketSourceConnection.findUniqueOrThrow({where:{id:result.id}});
     expect(JSON.stringify(row)).not.toContain(key);expect(JSON.parse(decryptToken(row.encryptedToken as EncryptedToken))).toEqual({siteUrl:workspace.id,email:"synthetic@example.invalid",apiToken:key});
     expect(row.approvedProjects).toEqual([]);expect(await prisma.requirement.count({where:{projectId}})).toBe(0);
@@ -58,17 +66,6 @@ describe.skipIf(!isolated)("Jira native metadata connection",()=>{
       await expect(caller.forget({id:result.id,confirmed:true})).rejects.toMatchObject({code:"NOT_FOUND"});
     }
     expect(await editor.mine({projectId})).toEqual([]);
-  });
-  it("replays verification and rejects changed key under the same idempotency key",async()=>{
-    const input=request();const first=await owner.verify(input);expect(await owner.verify(input)).toEqual(first);expect(listJiraProjects).toHaveBeenCalledTimes(1);
-    await expect(owner.verify({...input,apiToken:"different-synthetic-key"})).rejects.toMatchObject({code:"CONFLICT"});
-    expect(await prisma.ticketSourceConnection.count({where:{projectId}})).toBe(1);
-  });
-  it("retains failed diagnostics without provider secrets and permits a new attempt",async()=>{
-    vi.mocked(listJiraProjects).mockRejectedValueOnce(new Error(key));
-    await expect(owner.verify(request())).rejects.toMatchObject({code:"BAD_REQUEST",message:expect.not.stringContaining(key)});
-    const failed=await prisma.ticketSourceConnection.findFirstOrThrow({where:{projectId}});expect(failed.status).toBe("FAILED");expect(failed.encryptedToken).toBeNull();
-    await expect(owner.verify(request())).resolves.toHaveProperty("id");
   });
   it("preserves completed scope on identical approval retries and enriches incrementally",async()=>{
     const first=await ready();const approval={id:first.id,version:first.version,projectIds:[projectA.id],requestId:randomUUID(),approved:true as const};
@@ -122,10 +119,10 @@ describe.skipIf(!isolated)("Jira native metadata connection",()=>{
     expect(next.catalogReset).toBe(false);expect((await prisma.ticketSourceConnection.findUniqueOrThrow({where:{id:first.id}})).catalogAt).toEqual(baseline.catalogAt);
     await owner.approve({id:first.id,version:next.version,projectIds:[projectA.id,projectB.id],requestId:randomUUID(),approved:true});
   });
-  it("recovers abandoned verification after its ten-minute lease",async()=>{
+  it("retains expired legacy evidence while refusing a new token registration",async()=>{
     const first=await ready();await prisma.ticketSourceConnection.update({where:{id:first.id},data:{status:"VERIFYING",authorizationExpiresAt:new Date(Date.now()-1000),encryptedToken:undefined}});
-    expect((await owner.mine({projectId}))[0]!.status).toBe("EXPIRED");const next=await owner.verify(request());expect(next.id).not.toBe(first.id);
-    expect((await prisma.ticketSourceConnection.findUniqueOrThrow({where:{id:first.id}})).encryptedToken).toBeNull();
+    expect((await owner.mine({projectId}))[0]!.status).toBe("EXPIRED");await expect(owner.verify(request())).rejects.toMatchObject({code:"PRECONDITION_FAILED"});
+    expect(await prisma.ticketSourceConnection.count({where:{projectId}})).toBe(1);expect((await prisma.ticketSourceConnection.findUniqueOrThrow({where:{id:first.id}})).encryptedToken).not.toBeNull();
   });
   it("reports the exact safe pagination boundary instead of offering a failing next page",async()=>{
     let native=20000;const batch=()=>Array.from({length:50},()=>{const id=String(++native);return {id,key:`P${id}`,name:`Synthetic batch ${id}`,url:`https://synthetic.atlassian.net/browse/P${id}`};});
@@ -162,42 +159,11 @@ describe.skipIf(!isolated)("Jira native metadata connection",()=>{
     await expect(owner.approve({id:first.id,version:first.version,projectIds:[projectA.id],requestId:randomUUID(),approved:true})).rejects.toMatchObject({code:"FORBIDDEN"});
     expect((await prisma.ticketSourceConnection.findUniqueOrThrow({where:{id:first.id}})).approvedProjects).toEqual([]);
   });
-  it("rechecks live authorization after provider I/O",async()=>{
-    vi.mocked(listJiraProjects).mockImplementationOnce(async()=>{await prisma.membership.update({where:{organizationId_userId:{organizationId:orgId,userId:ownerId}},data:{role:"VIEWER"}});return listing();});
-    await expect(owner.verify(request())).rejects.toMatchObject({code:"BAD_REQUEST"});
-    expect((await prisma.ticketSourceConnection.findFirstOrThrow({where:{projectId}})).status).toBe("FAILED");
-  });
-  it("rejects unsafe or self-hosted sites before contacting a provider",async()=>{
-    for(const siteUrl of ["https://jira.example.invalid","http://synthetic.atlassian.net","https://synthetic.atlassian.net/path","https://synthetic.atlassian.net@127.0.0.1","https://synthetic.atlassian.net.evil.invalid"]){
-      await expect(owner.verify({...request(),siteUrl})).rejects.toMatchObject({code:"BAD_REQUEST"});
-    }
-    expect(listJiraProjects).not.toHaveBeenCalled();
-    expect(await prisma.ticketSourceConnection.count({where:{projectId}})).toBe(0);
-  });
-  it("supports multiple sites and rejects altered credentials on a verification retry",async()=>{
-    const input=request();const first=await owner.verify(input);
-    await expect(owner.verify({...input,email:"changed@example.invalid"})).rejects.toMatchObject({code:"CONFLICT"});
-    await expect(owner.verify({...input,siteUrl:"https://other.atlassian.net"})).rejects.toMatchObject({code:"CONFLICT"});
-    await expect(owner.verify(request())).rejects.toMatchObject({code:"CONFLICT"});
-    const secondSite="https://other.atlassian.net";
-    vi.mocked(listJiraProjects).mockResolvedValue({...listing([]),workspace:{id:secondSite,name:secondSite}});
-    const second=await owner.verify({...request(),siteUrl:secondSite});
-    expect(second.id).not.toBe(first.id);expect(await owner.mine({projectId})).toHaveLength(2);
-  });
   it("cannot read or remove another provider's connection",async()=>{
     const first=await ready();await prisma.ticketSourceConnection.update({where:{id:first.id},data:{provider:"linear"}});
     await expect(owner.list({id:first.id})).rejects.toMatchObject({code:"NOT_FOUND"});
     await expect(owner.forget({id:first.id,confirmed:true})).rejects.toMatchObject({code:"NOT_FOUND"});
     expect(await owner.mine({projectId})).toEqual([]);
-  });
-  it("does not resurrect verification removed while provider I/O is in flight",async()=>{
-    vi.mocked(listJiraProjects).mockImplementationOnce(async()=>{
-      const row=await prisma.ticketSourceConnection.findFirstOrThrow({where:{projectId}});
-      await owner.forget({id:row.id,confirmed:true});return listing();
-    });
-    await expect(owner.verify(request())).rejects.toMatchObject({code:"BAD_REQUEST"});
-    const row=await prisma.ticketSourceConnection.findFirstOrThrow({where:{projectId}});
-    expect(row.status).toBe("DISCONNECTED");expect(row.encryptedToken).toBeNull();
   });
   it("rejects live role and read-only-seat changes during catalog I/O",async()=>{
     const first=await ready();
@@ -212,15 +178,14 @@ describe.skipIf(!isolated)("Jira native metadata connection",()=>{
       await prisma.membership.update({where:{organizationId_userId:{organizationId:orgId,userId:ownerId}},data:{role:"OWNER",seatType:"FULL"}});
     }
   });
-  it("rejects stale continuation before provider I/O and limits verification attempts",async()=>{
+  it("rejects stale continuation before provider I/O and refuses new token enrollment",async()=>{
     vi.mocked(listJiraProjects).mockResolvedValue(listing([projectA],50));const first=await ready();
     await prisma.ticketSourceConnection.update({where:{id:first.id},data:{catalogAt:new Date(Date.now()-660000)}});
     const calls=vi.mocked(listJiraProjects).mock.calls.length;
     await expect(owner.list({id:first.id,after:50})).rejects.toMatchObject({code:"PRECONDITION_FAILED"});
     expect(listJiraProjects).toHaveBeenCalledTimes(calls);
     await owner.forget({id:first.id,confirmed:true});
-    await prisma.ticketSourceConnection.createMany({data:Array.from({length:19},()=>({projectId,organizationId:orgId,actorId:ownerId,provider:"jira",requestKey:randomUUID(),requestHash:"fixture",status:"FAILED",authorizationExpiresAt:new Date()}))});
-    await expect(owner.verify(request())).rejects.toMatchObject({code:"TOO_MANY_REQUESTS"});
+    await expect(owner.verify(request())).rejects.toMatchObject({code:"PRECONDITION_FAILED"});
     expect(listJiraProjects).toHaveBeenCalledTimes(calls);
   });
 });

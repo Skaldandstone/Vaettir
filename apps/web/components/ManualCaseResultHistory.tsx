@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Modal } from "./Modal";
 import { CaseProcedureColumns } from "./CaseProcedureColumns";
@@ -499,20 +501,22 @@ export function ManualCaseResultHistory({
           Current original native reader/session must be verified. Private
           cached observations are hidden; retained drafts and requests remain
           mounted. {access.error}
-          <button type="button" onClick={access.refresh}>
+          <ActionButton type="button" onClick={access.refresh} tooltip={<>
             Recheck original access
-          </button>
+           </>}>
+             Refresh </ActionButton>
         </p>
       ) : history.error ? (
         <p role="alert">
           History could not be admitted, not an empty history. No private cached
           history or raw server error was exposed.
-          <button
+          <ActionButton
             type="button"
             onClick={() => { if (currentRead()) setBaselineRefresh((n) => n + 1); }}
-          >
+           tooltip={<>
             Retry current history
-          </button>
+           </>}>
+             Retry </ActionButton>
         </p>
       ) : !page ? (
         <p role="status">Checking exact native history and read nonce…</p>
@@ -614,13 +618,19 @@ export function ManualCaseResultHistory({
         </>
       )}
       {readerCurrent && parentReadable && access.canRecover && !disabled && (
-        <button type="button" onClick={() => { if (currentRead() && currentWholeCaseParent(parentCurrent, parentActivation)) setOpen(true); }}>
+        <ActionButton type="button" onClick={() => { if (currentRead() && currentWholeCaseParent(parentCurrent, parentActivation)) setOpen(true); }} tooltip={<>
           {view.pending
             ? "Recover identical observation UUID"
             : view.confirmed
               ? "Inspect confirmed observation"
               : "Review whole-case observation"}
-        </button>
+         </>}>
+          {view.pending
+            ? "Recover"
+            : view.confirmed
+              ? "Inspect observation"
+              : "Review"}
+        </ActionButton>
       )}
       <Modal
         open={open && active && nativeSame && parentReadable}
@@ -634,9 +644,10 @@ export function ManualCaseResultHistory({
             Original native author/session access is unavailable. Private
             evidence and actions are hidden; exact local draft/UUID remain
             retained.{" "}
-            <button type="button" onClick={access.refresh}>
+            <ActionButton type="button" onClick={access.refresh} tooltip={<>
               Recheck original access
-            </button>
+             </>}>
+               Refresh </ActionButton>
           </p>
         ) : (
           <>
@@ -649,7 +660,7 @@ export function ManualCaseResultHistory({
                   Earlier observations retained. Do not resubmit this known
                   receipt.
                 </p>
-                <button
+                <ActionButton
                   type="button"
                   disabled={!view.canPublish}
                   onClick={() =>
@@ -659,10 +670,11 @@ export function ManualCaseResultHistory({
                       afterConfirmed,
                     )
                   }
-                >
+                 tooltip={<>
                   Refresh confirmed observation
-                </button>
-                <button
+                 </>}>
+                   Refresh </ActionButton>
+                <ActionButton
                   type="button"
                   disabled={view.busy || !baseline?.canWrite}
                   onClick={() => {
@@ -672,9 +684,10 @@ export function ManualCaseResultHistory({
                       setBaselineRefresh((n) => n + 1);
                     }
                   }}
-                >
+                 tooltip={<>
                   Explicitly review another observation
-                </button>
+                 </>}>
+                   New observation </ActionButton>
               </section>
             ) : !draft ? (
               <p role="status">
@@ -683,12 +696,13 @@ export function ManualCaseResultHistory({
                   : preview.error
                     ? "Current baseline could not be admitted. No raw private server error or cached replacement evidence was exposed."
                     : "Checking saved run procedure and current observation…"}
-                <button
+                <ActionButton
                   type="button"
                   onClick={() => setBaselineRefresh((n) => n + 1)}
-                >
+                 tooltip={<>
                   Retry current baseline
-                </button>
+                 </>}>
+                   Retry </ActionButton>
               </p>
             ) : (
               <section>
@@ -811,7 +825,7 @@ export function ManualCaseResultHistory({
                         ? "Present exact text"
                         : "Unset; typing explicitly sets text"}
                     </small>
-                    <button
+                    <ActionButton
                       type="button"
                       disabled={locked || !Object.hasOwn(draft.context, key)}
                       onClick={() => {
@@ -819,9 +833,10 @@ export function ManualCaseResultHistory({
                         delete next[key];
                         update({ context: next });
                       }}
-                    >
+                     tooltip={<>
                       Remove to unset
-                    </button>
+                     </>}>
+                       Remove </ActionButton>
                   </div>
                 ))}
                 <details>
@@ -871,7 +886,7 @@ export function ManualCaseResultHistory({
                             )}
                           </label>
                           {(key === "lowerLimit" || key === "upperLimit") && (
-                            <button
+                            <ActionButton
                               type="button"
                               onClick={() =>
                                 update({
@@ -882,9 +897,10 @@ export function ManualCaseResultHistory({
                                   ),
                                 })
                               }
-                            >
+                             tooltip={<>
                               Remove limit (unset)
-                            </button>
+                             </>}>
+                               Remove </ActionButton>
                           )}
                         </div>
                       ))}
@@ -953,14 +969,15 @@ export function ManualCaseResultHistory({
                   </p>
                 )}
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                  <button
+                  <ActionButton
                     type="button"
                     disabled={!view.canEdit}
                     onClick={review}
-                  >
+                   tooltip={<>
                     Review exact observation
-                  </button>
-                  <button
+                   </>}>
+                     Review </ActionButton>
+                  <ActionButton
                     type="button"
                     disabled={!view.canSubmit && !view.canRetry}
                     onClick={() =>
@@ -974,25 +991,31 @@ export function ManualCaseResultHistory({
                         () => onUnconfirmedChange?.(true),
                       )
                     }
-                  >
+                   tooltip={<>
                     {view.pending
                       ? "Retry identical UUID"
                       : "Confirm reviewed observation"}
-                  </button>
-                  <button
+                   </>}>
+                    {view.pending
+                      ? "Retry"
+                      : "Confirm observation"}
+                  </ActionButton>
+                  <ActionButton
                     type="button"
                     disabled={!view.canEdit}
                     onClick={refreshBaseline}
-                  >
+                   tooltip={<>
                     Refresh baseline; keep my draft
-                  </button>
-                  <button
+                   </>}>
+                     Refresh </ActionButton>
+                  <ActionButton
                     type="button"
                     disabled={!view.canEdit || !baseline?.canWrite}
                     onClick={adoptBaseline}
-                  >
+                   tooltip={<>
                     Explicitly admit refreshed baseline
-                  </button>
+                   </>}>
+                     Use baseline </ActionButton>
                 </div>
               </section>
             )}

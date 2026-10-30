@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -113,19 +115,19 @@ function AccountMenu() {
                 <small>Passkeys, 2FA, OAuth and sessions</small>
               </span>
             </Link>
-            <button
+            <ActionButton
               type="button"
               onClick={() => {
                 setOpen(false);
                 clerk.openUserProfile();
               }}
-            >
+             tooltip={<>
               <Icon name="people" size={16} />
               <span>
                 <strong>Manage account</strong>
                 <small>Profile and connected identities</small>
               </span>
-            </button>
+             </>}><Icon name="people" size={16} /><strong>Profile</strong></ActionButton>
           </div>
           <div
             className="account-menu-section"
@@ -136,9 +138,10 @@ function AccountMenu() {
               {!canAdmin && <small role="status">{accessMessage}</small>}
             </div>
             {orgsQuery.isError && (
-              <button type="button" disabled={orgsQuery.isFetching} onClick={() => void orgsQuery.refetch()}>
+              <ActionButton type="button" disabled={orgsQuery.isFetching} onClick={() => void orgsQuery.refetch()} tooltip={<>
                 Retry workspace permissions
-              </button>
+               </>}>
+                 Retry </ActionButton>
             )}
             {ORGANIZATION_ADMIN_LINKS.map((item) =>
               canAdmin ? (
@@ -171,16 +174,19 @@ function AccountMenu() {
           </div>
           <div className="account-menu-section">
             {!exampleVisible && (
-              <button
+              <ActionButton
                 type="button"
                 onClick={() => {
                   setExampleWorkspaceVisible(true);
                   setOpen(false);
                 }}
-              >
+               tooltip={<>
                 <Icon name="grid" size={16} />
                 <span><strong>Show example workspace</strong></span>
-              </button>
+               </>}>
+                <Icon name="grid" size={16} />
+                <span><strong> Show </strong></span>
+              </ActionButton>
             )}
             <button
               type="button"

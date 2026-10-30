@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
@@ -7,8 +8,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import * as helpers from "./case-folder-tree";
 import { retainedTraceabilityReceipt } from "./traceability-receipt";
 const iconScope = vm.createContext({React, useId: React.useId, useState: React.useState, useRef: React.useRef, useEffect: React.useEffect});
-vm.runInContext(ts.transpileModule(declarations("../components/ui/Workspace.tsx", ["Icon"]), {compilerOptions: {target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React}}).outputText, iconScope);
-vm.runInContext(ts.transpileModule(declarations("../components/ui/IconButton.tsx", ["IconButton"]), {compilerOptions: {target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React}}).outputText, iconScope);
+vm.runInContext(controllerTranspile(declarations("../components/ui/Workspace.tsx", ["Icon"]), {compilerOptions: {target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React}}).outputText, iconScope);
+vm.runInContext(controllerTranspile(declarations("../components/ui/IconButton.tsx", ["IconButton"]), {compilerOptions: {target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React}}).outputText, iconScope);
 const IconButton = iconScope.IconButton;
 const catalog: helpers.CaseFolderCatalog = { projectId: "synthetic-project", organizationId: "synthetic-org", clerkActorId: "synthetic-actor", canEdit: true, paths: ["Source", "Native", "Destination", "Empty"], folders: [{ id: "stable-destination", path: "Destination" }, { id: "stable-empty", path: "Empty" }] };
 const cases = [{ id: "source", title: "Synthetic source case", suitePath: null, sourceFilePath: "Source" }, { id: "native", title: "Synthetic native case", suitePath: "Native", sourceFilePath: "Original" }];
@@ -20,7 +21,7 @@ function elements(node: React.ReactNode): React.ReactElement<Record<string, unkn
 function treeHarness(scope: helpers.CaseFolderCatalog | null = catalog) {
   const intents: unknown[] = [], moves: unknown[] = [], refusals: string[] = [], selections: unknown[] = [];
   const h: Record<string, unknown> = { React, IconButton, ...helpers, UNASSIGNED: "__unassigned__", useId: () => "synthetic-folder-tools", useMemo: (factory: () => unknown) => factory(), useState: (value: unknown) => [value, () => undefined] };
-  vm.createContext(h); vm.runInContext(ts.transpileModule(declarations("../components/TestCaseTree.tsx", ["effectiveLocation", "buildTree", "TreeNodeView", "countCases", "TestCaseTree", "filterCasesByPath"]), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText, h);
+  vm.createContext(h); vm.runInContext(controllerTranspile(declarations("../components/TestCaseTree.tsx", ["effectiveLocation", "buildTree", "TreeNodeView", "countCases", "TestCaseTree", "filterCasesByPath"]), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText, h);
   const metadata = helpers.caseFolderNodeCatalog(cases, scope);
   function node(path: string) { return (h.TreeNodeView as (props: unknown) => React.ReactElement)({ node: { name: path, path, children: new Map(), cases: cases.filter(item => (item.suitePath || item.sourceFilePath) === path) }, depth: 0, selectedPath: null, catalog: scope, metadata, onSelect: (path: unknown) => selections.push(path), onDropCase: (...args: unknown[]) => moves.push(args), onFolderReview: (value: unknown) => intents.push(value), onDropRefused: (value: string) => refusals.push(value) }); }
   function event(type: string, payload: string) { return { preventDefault() {}, stopPropagation() {}, dataTransfer: { types: [type], getData: () => payload, dropEffect: "", setData() {}, effectAllowed: "" } }; }
@@ -47,7 +48,7 @@ function foldersHarness(feedback = false) {
     useMemo: (factory: () => unknown, deps: unknown[]) => { const index = cursor++, old = hooks[index] as { value: unknown; deps: unknown[] } | undefined; if (!old || deps.some((value, i) => !Object.is(value, old.deps[i]))) hooks[index] = { value: factory(), deps }; return (hooks[index] as { value: unknown }).value; },
   };
   const effect = (callback: () => (() => void) | undefined, deps: unknown[]) => { const index = cursor++, old = effects[index]; if (!old || deps.some((value, i) => !Object.is(value, old.deps[i]))) { old?.cleanup?.(); effects[index] = { deps, cleanup: callback() }; } };
-  h.useEffect = effect; h.useLayoutEffect = effect; vm.createContext(h); vm.runInContext(ts.transpileModule(declarations("../components/TestCaseFolders.tsx", ["TestCaseFolders"]), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText, h);
+  h.useEffect = effect; h.useLayoutEffect = effect; vm.createContext(h); vm.runInContext(controllerTranspile(declarations("../components/TestCaseFolders.tsx", ["TestCaseFolders"]), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText, h);
   function render() { for (let i = 0; i < 20; i++) { cursor = 0; dirty = false; if (feedback) list.data = structuredClone(list.data); const tree = (h.TestCaseFolders as (props: unknown) => React.ReactElement)(props); if (!dirty) return tree; } throw Error("Synthetic folders controller did not settle."); }
   function button(text: string) { const match = elements(render()).find(node => (node.type === "button" && React.Children.toArray(node.props.children as React.ReactNode).join("") === text) || (node.type === IconButton && node.props.label === text)); if (!match) throw Error(`Missing folder button ${text}`); return match.props; }
   const click = (text: string) => (button(text).onClick as () => unknown)();

@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useState } from "react";
 import Link from "next/link";
 import { trpcReact } from "@/lib/trpcReact";
@@ -74,13 +76,14 @@ function SnapshotEvidence({
             Captured evidence could not be verified. No counts or links have
             been substituted.
           </p>
-          <button
+          <ActionButton
             type="button"
             className="btn-secondary"
             onClick={() => void query.refetch()}
-          >
+           tooltip={<>
             Retry captured evidence
-          </button>
+           </>}>
+             Retry </ActionButton>
         </div>
       ) : !evidence ? (
         <p role="status">
@@ -209,22 +212,24 @@ function SnapshotEvidence({
           <div
             style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}
           >
-            <button
+            <ActionButton
               type="button"
               className="btn-secondary"
               disabled={!page}
               onClick={() => setPage(page - 1)}
-            >
+             tooltip={<>
               Previous evidence page
-            </button>
-            <button
+             </>}>
+               Previous </ActionButton>
+            <ActionButton
               type="button"
               className="btn-secondary"
               disabled={(page + 1) * 50 >= evidence.total}
               onClick={() => setPage(page + 1)}
-            >
+             tooltip={<>
               Next evidence page
-            </button>
+             </>}>
+               Next </ActionButton>
           </div>
           <p className="text-muted">
             PASS, FAIL and FLAKY are executed outcomes; SKIP and BLOCKED are not

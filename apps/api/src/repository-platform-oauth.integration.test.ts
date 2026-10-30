@@ -1,3 +1,4 @@
+import { fixtureProjectKey } from "./testProjectKey.js";
 import {randomUUID} from "node:crypto";
 import {afterEach,beforeEach,describe,it,expect,vi} from "vitest";
 import {prisma,type OrgRole,type SeatType} from "@vaettir/db";
@@ -16,7 +17,7 @@ describe.skipIf(!isolated)("tenant-local hosted application snapshots (synthetic
   const organizations:string[]=[];const actors:string[]=[];
   // Distinct stable project keys allow a synthetic cross-tenant reparent to
   // exercise live authorization checks rather than stop at key uniqueness.
-  async function organization(){const key=randomUUID();const tier=await prisma.planTier.findUniqueOrThrow({where:{key:"free"}});const org=await prisma.organization.create({data:{name:key,slug:`platform-${key}`,planTierId:tier.id}});organizations.push(org.id);const project=await prisma.project.create({data:{organizationId:org.id,name:"Synthetic hosted OAuth",slug:"platform",caseKey:`oauth-${organizations.length}`}});return{organizationId:org.id,projectId:project.id};}
+  async function organization(){const key=randomUUID();const tier=await prisma.planTier.findUniqueOrThrow({where:{key:"free"}});const org=await prisma.organization.create({data:{name:key,slug:`platform-${key}`,planTierId:tier.id}});organizations.push(org.id);const project=await prisma.project.create({data:{organizationId:org.id,name:"Synthetic hosted OAuth",slug:"platform",caseKey: fixtureProjectKey()}});return{organizationId:org.id,projectId:project.id};}
   async function actor(role:OrgRole="OWNER",seatType:SeatType="FULL",orgId=organizationId){const key=randomUUID();const user=await prisma.user.create({data:{clerkUserId:key,email:`platform-${key}@example.com`,memberships:{create:{organizationId:orgId,role,seatType}}},include:{memberships:true}});actors.push(user.id);const ctx:Context&{user:typeof user}={prisma,user,staff:null,securityLogger:undefined,staffAttempt:{tokenConfigured:false,tokenPresented:false,actorHeaderPresented:false}};return{ctx,user,caller:repositoryConnectionsRouter.createCaller(ctx)};}
   let owner:Awaited<ReturnType<typeof actor>>,editor:typeof owner,viewer:typeof owner,readOnly:typeof owner;
   beforeEach(async()=>{
