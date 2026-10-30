@@ -218,12 +218,15 @@ export async function checkStoredAtlassianPrivacy(db:PrismaClient,row:AtlassianO
     await tx.$queryRaw`SELECT id FROM "AtlassianOAuthConnection" WHERE id=${row.id} FOR UPDATE`;
     const current=await tx.atlassianOAuthConnection.findUniqueOrThrow({where:{id:row.id}});
     if(current.operationId!==operationId||!["EXCHANGING","REFRESHING","PRIVACY_CHECKING"].includes(current.status))return {kind:"denied" as const};
-    await tx.atlassianOAuthConnection.update({where:{id:row.id},data:{accountId:initialToken.accountId,accountName:initialToken.accountName,privacyAccountKey:key,encryptedToken:encrypted(initialToken),tokenExpiresAt:new Date(initialToken.expiresAt),verifiedAt:initialObservedAt}});
     const cached=await tx.atlassianOAuthConnection.findFirst({where:{privacyAccountKey:key,privacyCheckedAt:{not:null},privacyCycleDays:{not:null}},orderBy:{privacyCheckedAt:"desc"}});
-    if(cached&&atlassianPrivacyFresh(cached))return {kind:"cached" as const,checkedAt:cached.privacyCheckedAt!,cycleDays:cached.privacyCycleDays!,dueAt:new Date(cached.privacyCheckedAt!.getTime()+cached.privacyCycleDays!*ATLASSIAN_PRIVACY_DAY_MS)};
-    const active=await tx.atlassianOAuthConnection.findFirst({where:{privacyAccountKey:key,privacyClaimId:{not:null},id:{not:row.id}}});
+    const fresh=!!cached&&atlassianPrivacyFresh(cached);
+    const active=fresh?null:await tx.atlassianOAuthConnection.findFirst({where:{privacyAccountKey:key,privacyClaimId:{not:null},id:{not:row.id}}});
+    // One update retains the issued token and optional lease atomically. A
+    // second update of this row makes PostgreSQL recheck its parent FKs while
+    // holding the connection lock, inverting a duplicate callback's lock order.
+    await tx.atlassianOAuthConnection.update({where:{id:row.id},data:{accountId:initialToken.accountId,accountName:initialToken.accountName,privacyAccountKey:key,encryptedToken:encrypted(initialToken),tokenExpiresAt:new Date(initialToken.expiresAt),verifiedAt:initialObservedAt,...(!fresh&&!active?{privacyClaimId:operationId,privacyDueAt:new Date(Date.now()+600000)}:{})}});
+    if(cached&&fresh)return {kind:"cached" as const,checkedAt:cached.privacyCheckedAt!,cycleDays:cached.privacyCycleDays!,dueAt:new Date(cached.privacyCheckedAt!.getTime()+cached.privacyCycleDays!*ATLASSIAN_PRIVACY_DAY_MS)};
     if(active)return {kind:"busy" as const};
-    await tx.atlassianOAuthConnection.update({where:{id:row.id},data:{privacyClaimId:operationId,privacyDueAt:new Date(Date.now()+600000)}});
     const oldest=await tx.atlassianOAuthConnection.aggregate({where:{privacyAccountKey:key},_min:{verifiedAt:true}});
     return {kind:"report" as const,oldestAt:oldest._min.verifiedAt??initialObservedAt};
   });
