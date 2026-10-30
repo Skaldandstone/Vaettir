@@ -19,7 +19,8 @@ test("strips spoofed forwarding/staff headers, signs the exact host/target and d
   const upstream = async (request, options) => {
     calls++;
     assert.equal(request.redirect, "manual");
-    assert.equal(options.cf.cacheTtl, 0);
+    assert.equal(options.cache, "no-store");
+    assert.equal(options.cf?.cacheTtl, undefined);
     assert.equal(request.headers.get("x-staff-token"), null);
     assert.equal(request.headers.get("forwarded"), null);
     assert.equal(request.headers.get("x-forwarded-host"), "synthetic-team.vaettir.app");
@@ -36,6 +37,39 @@ test("strips spoofed forwarding/staff headers, signs the exact host/target and d
   assert.equal(calls, 2);
   assert.equal(await response.text(), "workspace");
   assert.equal(response.headers.get("cache-control"), "no-store");
+});
+test("bypasses cached upstream data for probes, authenticated reads and writes", async () => {
+  for (const method of ["GET", "HEAD", "POST"]) {
+    let calls = 0;
+    const response = await handleRequest(new Request("https://synthetic-team.vaettir.app/api/cases", {
+      method,
+      headers: { Authorization: "Bearer synthetic", Cookie: "session=synthetic" },
+      ...(method === "POST" ? { body: "synthetic-body" } : {}),
+    }), env, async (request, options) => {
+      calls++;
+      assert.equal(options.cache, "no-store");
+      assert.equal(options.cf?.cacheTtl, undefined);
+      assert.equal(request.redirect, "manual");
+      if (calls === 1) {
+        assert.equal(new URL(request.url).pathname, "/api/health");
+        assert.equal(request.method, "GET");
+        assert.equal(request.headers.get("authorization"), null);
+        assert.equal(request.headers.get("cookie"), null);
+        return new Response("ok", { headers: { "X-Vaettir-Workspace-Verified": "tenant-v1" } });
+      }
+      assert.equal(request.method, method);
+      assert.equal(request.headers.get("authorization"), "Bearer synthetic");
+      assert.equal(request.headers.get("cookie"), "session=synthetic");
+      if (method === "POST") assert.equal(await request.text(), "synthetic-body");
+      return new Response(method === "HEAD" ? null : "origin unavailable", {
+        status: 503, headers: { "Cache-Control": "public, max-age=86400" },
+      });
+    });
+    assert.equal(calls, 2);
+    assert.equal(response.status, 503);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    await response.body?.cancel();
+  }
 });
 test("denies unknown claims, unapproved hosts, origin spoofing and cross-origin upstream redirects", async () => {
   assert.equal((await handleRequest(new Request("https://synthetic-team.vaettir.app/"), { ...env, VAETTIR_APP_ORIGIN: "malformed" })).status, 503);
