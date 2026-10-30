@@ -437,7 +437,7 @@ export default function ProjectsPage() {
             }
           }}
           busy={createMutation.isPending}
-          submitLabel="Create configured project"
+          submitLabel="Create project"
           onStepChange={setCreateStep}
           onCancel={() => setCreateOpen(false)}
           onSubmit={submit}

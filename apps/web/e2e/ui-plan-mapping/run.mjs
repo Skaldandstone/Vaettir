@@ -193,7 +193,7 @@ try {
   await creation.getByRole("button",{name:"Back",exact:true}).click();
   assert.equal(await publicRights.isChecked(),true);assert.equal(await customRights.isChecked(),true);
   await creation.getByRole("button",{name:"Continue",exact:true}).click();
-  await creation.getByRole("button",{name:"Create configured project",exact:true}).click();
+  await creation.getByRole("button",{name:"Create project",exact:true}).click();
   await creation.waitFor({state:"hidden"});
   await page.getByText("Synthetic transport evidence",{exact:true}).click();
   const projectEvidence=JSON.parse(await page.getByTestId("transport-evidence").innerText());
