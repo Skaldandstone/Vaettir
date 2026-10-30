@@ -2,6 +2,7 @@
 // Intentionally separate from the hosted/authenticated Playwright suites.
 /* global document, innerWidth, window, getComputedStyle */
 import assert from "node:assert/strict";
+import {resolve, sep} from "node:path";
 import { test } from "node:test";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
@@ -12,7 +13,7 @@ const require = createRequire(new URL("../package.json", import.meta.url));
 const { chromium, expect } = require("@playwright/test");
 const { build } = createRequire(createRequire(require.resolve("vitest")).resolve("vite"))("esbuild");
 const webRoot = fileURLToPath(new URL("../", import.meta.url));
-const proofRoot = fileURLToPath(new URL("../../../.local/compliance-coverage-20261030/ui-followup-20261030/", import.meta.url));
+const proofRoot = process.env.VAETTIR_E2E_OUTPUT_DIR ? resolve(process.env.VAETTIR_E2E_OUTPUT_DIR) + sep : fileURLToPath(new URL("../../../.local/compliance-coverage-20261030/ui-followup-20261030/", import.meta.url));
 // Font URLs contain semicolons; strip the whole import line, not part of its URL.
 const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8").replace(/^@import[^\r\n]*\r?\n/gm, "");
 const bundle = await build({

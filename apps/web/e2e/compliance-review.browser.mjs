@@ -1,6 +1,7 @@
 // Pure loopback synthetic UI tests; no authentication, customer data or API calls.
 /* global window, document */
 import assert from "node:assert/strict";
+import {resolve, sep} from "node:path";
 import { test } from "node:test";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
@@ -12,7 +13,7 @@ const { build } = createRequire(
   createRequire(require.resolve("vitest")).resolve("vite"),
 )("esbuild");
 const root = fileURLToPath(new URL("../", import.meta.url));
-const proof = fileURLToPath(
+const proof = process.env.VAETTIR_E2E_OUTPUT_DIR ? resolve(process.env.VAETTIR_E2E_OUTPUT_DIR) + sep : fileURLToPath(
   new URL(
     "../../../.local/compliance-coverage-20261030/ui-followup-20261030/",
     import.meta.url,

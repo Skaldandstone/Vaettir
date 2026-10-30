@@ -11,6 +11,7 @@ const cases = [
 let template = {}, revision = "a".repeat(64), saveCount = 0, decisions = [], savedSource = false;
 const savedRequests = new Map();
 const sentRequests = [], responseListeners = new Set();
+const complianceReads = [], projectCreations = [], projectRoutes = [];
 let pendingResponse = null;
 const controlled = new URLSearchParams(location.search).has("controlled");
 const bulk = new URLSearchParams(location.search).has("bulk");
@@ -34,7 +35,10 @@ export function ResponseControls() {
 }
 const reject = () => { throw Error("Provider calls and unrelated writes are forbidden in this fixture"); };
 export const useAuth = () => ({ userId: scope.actorClerkUserId, sessionId: "synthetic-session", isLoaded: true, isSignedIn: true });
-export const useRouter = () => ({ push: reject });
+export const useRouter = () => ({ push: value => {
+  if (value !== "/projects/synthetic-created/compliance?setup=1") return reject();
+  projectRoutes.push(value);
+} });
 export const usePathname = () => "/projects/synthetic-project/architecture";
 export const CaseCustomFieldsForm = () => null;
 function query(resolve) {
@@ -72,7 +76,22 @@ const architecturePreview = input => ({
   canSpend: true, maximumCredits: 12, batchCount: 1, balance: 0,
 });
 export const trpcReact = {
-  useUtils: () => ({}),
+  useUtils: () => ({project:{list:{invalidate:async()=>{}}}}),
+  compliance: {
+    catalog: query(input => {
+      if (input !== undefined) throw Error("Catalog takes no project input");
+      complianceReads.push({route:"catalog"});
+      return [{id:"music-rights-us",name:"Music and performance rights",version:"synthetic-1",category:"Content & rights",summary:"Synthetic public rights prompts",controls:1,catalogVersion:"synthetic"}];
+    }),
+    listFrameworks: query(input => {
+      if (input.organizationId !== scope.organizationId) throw Error("Wrong catalog workspace");
+      complianceReads.push({route:"listFrameworks",input:structuredClone(input)});
+      return [
+        {id:"synthetic-owned-framework",name:"Music and performance rights",version:"workspace-1",workspaceOwned:true,controlCount:1,revision:1},
+        {id:"synthetic-unowned-framework",name:"Unowned legacy definition",version:null,workspaceOwned:false,controlCount:1,revision:1},
+      ];
+    }),
+  },
   organization: { mine: query(() => [{ id: scope.organizationId, name: "Synthetic workspace", role: "OWNER", seatType: "FULL" }]) },
   testPlanGovernance: {
     preview: query(preview),
@@ -102,7 +121,17 @@ export const trpcReact = {
       { id: "synthetic-identity", name: "Identity & access", repoUrl: null },
       { id: "synthetic-long", name: "Order fulfillment and inventory reconciliation", repoUrl: null },
     ]),
-    create: mutation(reject), update: mutation(reject), delete: mutation(reject),
+    create: {useMutation(options) {
+      const [isPending,setPending]=useState(false);
+      return {isPending,mutate:async input=>{
+        setPending(true);
+        try {
+          if(input.organizationId!==scope.organizationId)throw Error("Wrong creation workspace");
+          projectCreations.push(structuredClone(input));
+          options.onSuccess?.({id:"synthetic-created",name:input.name});
+        } catch(error) {options.onError?.(error);} finally {setPending(false);}
+      }};
+    }}, update: mutation(reject), delete: mutation(reject),
   },
   caseFields: { get: query(() => ({ projectId: scope.projectId, caseId: null, readScope: scope, canEdit: true })) },
   repositoryIntelligence: {
@@ -133,5 +162,5 @@ export const trpcReact = {
 };
 export function Evidence() {
   const [, refresh] = useState(0);
-  return <details><summary onClick={() => refresh(v => v + 1)}>Synthetic transport evidence</summary><pre data-testid="transport-evidence">{JSON.stringify({ template, saveCount, decisions, savedSource, sentRequests, uploadPreviews, uploadSaves, retainedUploadCount: retainedUploads.size })}</pre></details>;
+  return <details><summary onClick={() => refresh(v => v + 1)}>Synthetic transport evidence</summary><pre data-testid="transport-evidence">{JSON.stringify({ complianceReads, projectCreations, projectRoutes, template, saveCount, decisions, savedSource, sentRequests, uploadPreviews, uploadSaves, retainedUploadCount: retainedUploads.size })}</pre></details>;
 }
