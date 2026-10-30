@@ -1,6 +1,6 @@
 # Isolated C/C++ and signed Node proof. This image never receives customer data
 # or provider credentials. The final target contains only reviewed artifacts.
-FROM public.ecr.aws/docker/library/node:22-trixie-slim@sha256:b26b04c123d9ff8ab646ceb18b9d75a1173acf64b9a401094b906d27b29338d4 AS node-brotli-security
+FROM public.ecr.aws/docker/library/node:26-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS node-brotli-security
 RUN test "$(dpkg --print-architecture)" = amd64 \
     && apt-get update --error-on=any \
     && apt-get install -y --no-install-recommends openssl ca-certificates perl-base libpcre2-8-0 build-essential binutils cmake debhelper pkg-config gpg gpgv debian-keyring libbrotli1 \
@@ -21,7 +21,7 @@ RUN --network=none sh /build/scripts/build-node-brotli-security.sh /build/inputs
 # Docker Official Image via ECR Public; keep every stage on the same digest.
 # Repair the shipped shell using maintained signed sources, retaining the
 # package's configuration and honest local version. No compiler reaches runtime.
-FROM public.ecr.aws/docker/library/node:22-trixie-slim@sha256:b26b04c123d9ff8ab646ceb18b9d75a1173acf64b9a401094b906d27b29338d4 AS native-build
+FROM public.ecr.aws/docker/library/node:26-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS native-build
 RUN apt-get update --error-on=any \
     && apt-get install -y --no-install-recommends openssl ca-certificates perl-base libpcre2-8-0 build-essential binutils patch autoconf automake libtool debhelper po-debconf gpgv debian-keyring \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' perl-base)" ge '5.40.1-6+deb13u1' \
@@ -37,7 +37,7 @@ RUN node /build/scripts/fetch-runtime-vendor-sources.mjs /build/zlib-sources zli
 
 # Trixie carries the release-blocking Perl fixes; enforce the package floor
 # in every stage. Source/base metadata is not a substitute for final ECR scans.
-FROM public.ecr.aws/docker/library/node:22-trixie-slim@sha256:b26b04c123d9ff8ab646ceb18b9d75a1173acf64b9a401094b906d27b29338d4 AS builder
+FROM public.ecr.aws/docker/library/node:26-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS builder
 # Native Prisma engines are generated while building dependency types, even
 # though the web app does not connect to the database. Install OpenSSL first.
 RUN apt-get update --error-on=any \
@@ -82,7 +82,7 @@ RUN pnpm install --frozen-lockfile \
     && node scripts/retain-sharp-version-receipt.mjs \
     && node scripts/retain-next-static-assets.mjs --current-dir apps/web/.next/static --previous-dir .release-assets/previous/static --cohort "$VAETTIR_RELEASE_COMMIT" --previous-cohort "$VAETTIR_PREVIOUS_WEB_COMMIT"
 
-FROM public.ecr.aws/docker/library/node:22-trixie-slim@sha256:b26b04c123d9ff8ab646ceb18b9d75a1173acf64b9a401094b906d27b29338d4 AS runtime
+FROM public.ecr.aws/docker/library/node:26-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS runtime
 LABEL vaettir.next-static-cohorts="1"
 WORKDIR /app
 ENV NODE_ENV=production \
