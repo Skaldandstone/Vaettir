@@ -58,7 +58,7 @@ const SOURCE_INFO: Record<
   { label: string; mark: string; blurb: string; accept: string }
 > = {
   csv: {
-    label: "Smart file import",
+    label: "Smart import",
     mark: "CSV",
     blurb:
       "CSV or Excel (.xlsx) from Qase, Tricentis, TestRail, qTest, or another test system. Vaettir detects fields and can propose column mappings, test types, suites and priorities after your separate approval for AI analysis, included free. Nothing is imported until you confirm.",
