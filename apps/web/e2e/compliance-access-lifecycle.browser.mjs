@@ -1,10 +1,10 @@
 // Actual page/workflow/access hooks and tRPC React Query subscriptions; synthetic transport only.
-/* global window */
+/* global window, document */
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 const require = createRequire(new URL("../package.json", import.meta.url));
@@ -12,6 +12,9 @@ const { chromium, expect } = require("@playwright/test");
 const { build } = createRequire(createRequire(require.resolve("vitest")).resolve("vite"))("esbuild");
 const root = fileURLToPath(new URL("../", import.meta.url));
 const proof = resolve(process.env.VAETTIR_E2E_OUTPUT_DIR ?? fileURLToPath(new URL("../../../.local/compliance-access-lifecycle-20261030", import.meta.url)));
+const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8")
+  .replace(/^@import[^\r\n]*\r?\n/gm, "")
+  + readFileSync(new URL("../app/workbench.css", import.meta.url), "utf8");
 const boundary = `
 import React,{useSyncExternalStore} from 'react';
 import {createTRPCReact} from '@trpc/react-query';
@@ -23,7 +26,8 @@ export const useAuth=()=>useSyncExternalStore(fn=>{listeners.add(fn);return()=>l
 export const useParams=()=>({projectId:'project-a'});
 export const useSearchParams=()=>new URLSearchParams();
 const scope={projectId:'project-a',organizationId:'org-a',actorId:'native-a',actorClerkUserId:'actor-a'};
-const draft={id:'draft-a',digest:'a'.repeat(64),state:'DRAFT',authorityGeneration:0,selection:[],receipt:null,fields:{schema:{version:1,fields:[]},version:0},scope:{scanned:1,total:1,omitted:0,archived:0,limit:2000,fields:'Synthetic procedure'},cases:[{id:'case-a',title:'Private synthetic case',reviewStatus:'PENDING_REVIEW',given:[],when:[],then:[],steps:[],tags:[]}],proposals:[{controlId:'control-a',code:'SYNTH',title:'Private synthetic control',description:'Private criterion',existing:[],kind:'UNCERTAIN',matches:[{caseId:'case-a',title:'Private synthetic case',explanation:'Synthetic relevance',titleTerms:[],procedureTerms:[]}],outline:{title:'Synthetic case',prerequisite:'Synthetic setup',action:'Synthetic action',expectedResult:'Synthetic result',customFields:{}}}]};
+const unusedCase={id:'case-unused',title:'Unused synthetic music performance permission with territory and license evidence requiring review',reviewStatus:'PENDING_REVIEW',given:[],when:[],then:[],steps:[],tags:[]};
+const draft={id:'draft-a',digest:'a'.repeat(64),state:'DRAFT',authorityGeneration:0,selection:[],receipt:null,fields:{schema:{version:1,fields:[]},version:0},scope:{scanned:2,total:2,omitted:0,archived:0,limit:2000,fields:'Synthetic procedure'},cases:[{id:'case-a',title:'Private synthetic case',reviewStatus:'PENDING_REVIEW',given:[],when:[],then:[],steps:[],tags:[]},unusedCase],proposals:[{controlId:'control-a',code:'SYNTH',title:'Private synthetic control',description:'Private criterion',existing:[],kind:'UNCERTAIN',matches:[{caseId:'case-a',title:'Private synthetic case',explanation:'Synthetic relevance',titleTerms:[],procedureTerms:[]}],outline:{title:'Synthetic case',prerequisite:'Synthetic setup',action:'Synthetic action',expectedResult:'Synthetic result',customFields:{}}}]};
 function response(path,input){
  if(path==='caseFields.get')return {projectId:'project-a',organizationId:state.wrongOrg?'org-b':'org-a',caseId:null,readScope:{...scope,actorClerkUserId:state.wrongActor?'actor-b':'actor-a'},canEdit:state.canEdit,canConfigure:true};
  if(path==='project.byId')return {id:'project-a',organizationId:'org-a',qualityProfile:{complianceNeeds:[]}};
@@ -58,15 +62,16 @@ const bundle = await build({
   }}],
 });
 test("real compliance parent and child access settle and retain private review through revalidation", async () => {
-  const server=createServer((_req,res)=>{res.setHeader('Content-Type','text/html');res.end('<!doctype html><html><body><div id="root"></div></body></html>');});
+  const server=createServer((_req,res)=>{res.setHeader('Content-Type','text/html');res.end('<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div></body></html>');});
   await new Promise(r=>server.listen(0,'127.0.0.1',r));
   const origin='http://127.0.0.1:'+server.address().port;
   const browser=await chromium.launch({headless:true});
-  const page=await browser.newPage();const errors=[],external=[];
+  const page=await browser.newPage({viewport:{width:390,height:1000},hasTouch:true});const errors=[],external=[],responsive=[];
   page.on('pageerror',e=>errors.push(String(e)));
   await page.route('**/*',route=>{if(new URL(route.request().url()).origin!==origin){external.push(route.request().url());return route.abort();}return route.continue();});
   try {
     await page.goto(origin);
+    await page.addStyleTag({content:css});
     await page.addScriptTag({content:bundle.outputFiles[0].text});
     // A sustained observation catches the repeated 2-read child bootstrap storm.
     await page.waitForTimeout(1800);
@@ -75,6 +80,23 @@ test("real compliance parent and child access settle and retain private review t
     assert.ok(bootstrap.length<=4, 'Access bootstrap must settle; received '+bootstrap.length+' caseFields requests');
     await expect(page.getByRole('heading',{name:'Review coverage',exact:true})).toBeVisible();
     await page.getByRole('button',{name:'Open',exact:true}).click();
+    const additional=page.getByRole('combobox',{name:'Additional scanned case',exact:true});
+    await expect(additional.locator('option[value="case-unused"]')).toHaveText('Unused synthetic music performance permission with territory and license evidence requiring review');
+    await expect(additional).toHaveValue('');
+    // Native select intrinsic width must not let an unused long option widen the page.
+    for(const theme of ['light','dark']){
+      await page.evaluate(t=>{document.documentElement.dataset.theme=t;},theme);
+      for(const width of [390,1280]){
+        await page.setViewportSize({width,height:1000});
+        const layout=await additional.evaluate(el=>{const box=el.getBoundingClientRect();return {viewport:window.innerWidth,clientWidth:document.documentElement.clientWidth,scrollWidth:document.documentElement.scrollWidth,selectX:box.x,selectWidth:box.width,selectRight:box.right};});
+        responsive.push({theme,width,...layout});
+        writeFileSync(resolve(proof,'responsive.json'),JSON.stringify(responsive,null,2));
+        await page.screenshot({path:resolve(proof,`review-${theme}-${width}.png`),fullPage:true});
+        assert.ok(layout.selectX>=0&&layout.selectRight<=layout.clientWidth+1,'Additional scanned case must fit viewport: '+JSON.stringify(layout));
+        assert.ok(layout.scrollWidth<=layout.clientWidth,'Long unused case option must not overflow page: '+JSON.stringify(layout));
+      }
+    }
+    await page.setViewportSize({width:390,height:1000});
     const selected=page.getByRole('checkbox',{name:'Private synthetic case',exact:true});
     await selected.check();
     await page.evaluate(()=>{window.fixture.hold=true;window.fixture.refresh();});
@@ -103,6 +125,6 @@ test("real compliance parent and child access settle and retain private review t
     assert.equal(await page.evaluate(()=>window.fixture.requests.filter(x=>x.path==='caseFields.get').length),before);
     assert.deepEqual(await page.evaluate(()=>window.fixture.mutations),[]);
     assert.deepEqual(errors,[]);assert.deepEqual(external,[]);
-    writeFileSync(resolve(proof,'acceptance.json'),JSON.stringify({passed:true,bootstrapRequests:bootstrap.length,finalRequests:before,realPage:true,realWorkflow:true,realAccessHook:true,realTrpcReactQuery:true,privateHiddenAndSelectionRetained:true,errors,external},null,2));
+    writeFileSync(resolve(proof,'acceptance.json'),JSON.stringify({passed:true,bootstrapRequests:bootstrap.length,finalRequests:before,realPage:true,realWorkflow:true,realAccessHook:true,realTrpcReactQuery:true,privateHiddenAndSelectionRetained:true,longUnusedOptionResponsive:responsive,errors,external},null,2));
   } finally {await browser.close();await new Promise(r=>server.close(r));}
 });
