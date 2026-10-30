@@ -37,6 +37,7 @@ const labels: Record<string, string> = {
   coverageReports: "Coverage reports",
   testSelectionRuns: "Test selection history",
   complianceEvidence: "Compliance evidence",
+  complianceReviewDrafts: "Retained compliance reviews and apply receipts",
   complianceSignOffs: "Compliance sign-offs",
   complianceSignOffRequests: "Sign-off requests",
   healingSuggestions: "Healing suggestions",
@@ -97,6 +98,7 @@ export async function previewProjectDeletion(
   if (!project)
     throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
   const counts: Record<string, number> = { ...project._count };
+  counts.complianceReviewDrafts = await db.complianceReviewDraft.count({where:{projectId:id}});
   for (const key of [
     "aiDisclosurePolicy",
     "populationDraft",

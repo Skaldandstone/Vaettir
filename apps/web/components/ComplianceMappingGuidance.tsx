@@ -1,4 +1,5 @@
 import { controlGuidance, frameworkGuidance } from "@/lib/compliance-guidance";
+import { complianceCheckOutline } from "@/lib/compliance-proposals";
 
 export function ComplianceFrameworkGuidance({
   frameworkKey,
@@ -60,6 +61,7 @@ export function ComplianceMappingGuidance({
 }) {
   const guide = controlGuidance(frameworkKey, control.code, control.title);
   const framework = frameworkGuidance(frameworkKey);
+  const outline = complianceCheckOutline(frameworkKey, control);
   return (
     <details className="compliance-control-guide">
       <summary>{control.code}: what to map</summary>
@@ -93,6 +95,19 @@ export function ComplianceMappingGuidance({
             >
               Read the official source for {control.code}
             </a>
+          )}
+          {outline && (
+            <details>
+              <summary>Suggested check outline</summary>
+              <p>This is a starting outline for review. It has not been saved as a case or checked against existing case steps.</p>
+              <dl>
+                <dt>Title</dt><dd>{outline.title}</dd>
+                <dt>Prerequisites</dt><dd>{outline.prerequisite}</dd>
+                <dt>Action</dt><dd>{outline.action}</dd>
+                <dt>Expected result</dt><dd>{outline.expectedResult}</dd>
+                <dt>Evidence</dt><dd>{outline.evidence}</dd>
+              </dl>
+            </details>
           )}
         </>
       ) : (

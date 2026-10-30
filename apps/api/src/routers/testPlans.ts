@@ -1,3 +1,4 @@
+import { assertComplianceAvailable } from "../services/complianceRecovery.js";
 import { z } from "@vaettir/core/dist/validation.js";
 import { TRPCError } from "@trpc/server";
 import { generateQaStrategyDraft } from "@vaettir/ai-agent";
@@ -630,7 +631,8 @@ export const testPlansRouter = router({
       ),
     )
     .query(async ({ ctx, input }) => {
-      await requireProjectAccess(ctx, input.projectId);
+      assertComplianceAvailable();
+      const {project} = await requireProjectAccess(ctx, input.projectId);
 
       const SEVERITY_WEIGHT: Record<string, number> = {
         CRITICAL: 3,
@@ -721,7 +723,7 @@ export const testPlansRouter = router({
       ];
       if (frameworkIds.length > 0) {
         const controls = await ctx.prisma.complianceControl.findMany({
-          where: { frameworkId: { in: frameworkIds } },
+          where: { frameworkId: { in: frameworkIds }, framework: {organizationId:project.organizationId} },
           include: {
             framework: { select: { name: true } },
             _count: {

@@ -6,6 +6,7 @@ import vm from "node:vm";
 import ts from "typescript";
 import { COMPLIANCE_STARTERS } from "./compliance-starters";
 import { controlGuidance, frameworkGuidance } from "./compliance-guidance";
+import { complianceCheckOutline } from "./compliance-proposals";
 // Same source/SSR test boundary as the other renderer tests. Next preserves JSX;
 // transform the actual component explicitly rather than changing app tooling.
 const componentExports: Record<
@@ -29,7 +30,7 @@ vm.runInNewContext(
   {
     React,
     exports: componentExports,
-    require: () => ({ controlGuidance, frameworkGuidance }),
+    require: () => ({ controlGuidance, frameworkGuidance, complianceCheckOutline }),
   },
 );
 const ComplianceMappingGuidance = componentExports.ComplianceMappingGuidance!;
@@ -56,11 +57,13 @@ describe("compliance reference guidance", () => {
         expect(html).toContain("Tests worth mapping");
         expect(html).toContain("Evidence to review");
         expect(html).toContain("Human review");
+        expect(html).toContain("Suggested check outline");
+        expect(html).toContain("has not been saved as a case");
         expect(html).toContain('rel="noopener noreferrer"');
         count++;
       }
     }
-    expect(count).toBe(63);
+    expect(count).toBe(71);
   });
   it("does not infer a requirement from a matching code on a custom or reworded control", () => {
     expect(

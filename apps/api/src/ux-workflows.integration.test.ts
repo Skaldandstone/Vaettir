@@ -358,6 +358,7 @@ describe.skipIf(!isolated)("assistive UX persistence and authorization", () => {
 
   it("hides and restores frameworks only in the selected project", async () => {
     const framework = await owner.compliance.createFramework({
+      projectId,
       key,
       name: "Fixture framework",
     });
