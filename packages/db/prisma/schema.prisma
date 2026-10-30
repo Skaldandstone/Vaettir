@@ -868,6 +868,11 @@ model AtlassianOAuthConnection {
   tokenExpiresAt DateTime?
   accountId String?
   accountName String?
+  privacyCheckedAt DateTime?
+  privacyDueAt DateTime?
+  privacyCycleDays Float?
+  privacyAccountKey String?
+  privacyClaimId String?
   sites Json @default("[]")
   selectedSite Json?
   catalog Json?
@@ -878,6 +883,8 @@ model AtlassianOAuthConnection {
   ticketConnection TicketSourceConnection?
 
   @@index([projectId,actorId,createdAt])
+  @@index([privacyDueAt])
+  @@index([privacyAccountKey])
 }
 
 // Per-organization provider instances, including separately registered self-hosted OAuth apps.

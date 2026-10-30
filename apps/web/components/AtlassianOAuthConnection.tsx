@@ -37,6 +37,7 @@ function AtlassianOAuthSession({projectId,product,onApproved,onWorkingChange}:Pr
   }
   return <section aria-label={`${title} browser connection`} style={{display:"grid",gap:12,minWidth:0}}>
     <h3>{title} <IconButton label="Connection help" icon="help" tooltip="Sign in with Atlassian, choose a site, then approve projects or spaces for this Vaettir project."/></h3>
+    <a href="/atlassian-privacy" target="_blank" rel="noopener noreferrer">Privacy</a>
     {message&&<p role="status">{message}</p>}
     {capabilities.isError||mine.isError||current.isError?<p role="alert">Access could not be checked. <button type="button" disabled={busy} onClick={()=>{void capabilities.refetch();void mine.refetch();if(id)void current.refetch();}}>Retry</button></p>:null}
     {!isLoaded?<p role="status">Checking sign-in…</p>:!isSignedIn?<p role="alert">Sign in to connect.</p>:!access?<p role="status">Checking access…</p>:!access.canConnect?<p>A full editor seat is required.</p>:!access.available?<p role="status">Browser sign-in needs administrator setup.</p>:<>

@@ -73,7 +73,7 @@ async function invoke({ signedIn = false, pending = false, method = "GET", path 
         throw cause;
       }
     },
-    createRouteMatcher: routes => { assert.deepEqual([...routes], ["/", "/sign-in(.*)", "/sign-up(.*)", "/share(.*)", "/beta-guide(.*)", "/google-sheets-privacy"]); return req => req.nextUrl.pathname === "/google-sheets-privacy" || ["/", "/sign-in", "/sign-up", "/share", "/beta-guide"].some(route => req.nextUrl.pathname === route || (route !== "/" && req.nextUrl.pathname.startsWith(route + "/"))); },
+    createRouteMatcher: routes => { assert.deepEqual([...routes], ["/", "/sign-in(.*)", "/sign-up(.*)", "/share(.*)", "/beta-guide(.*)", "/google-sheets-privacy", "/atlassian-privacy"]); return req => ["/google-sheets-privacy", "/atlassian-privacy"].includes(req.nextUrl.pathname) || ["/", "/sign-in", "/sign-up", "/share", "/beta-guide"].some(route => req.nextUrl.pathname === route || (route !== "/" && req.nextUrl.pathname.startsWith(route + "/"))); },
   };
   vm.createContext(sandbox); vm.runInContext(domainCode, sandbox); vm.runInContext(normalizerCode, sandbox); vm.runInContext(code, sandbox);
   const response = await sandbox.handler(new NextRequest(new URL(path, "http://internal:3000"), { method,
@@ -108,6 +108,13 @@ test("Google data notice is public only at its exact path; project and API acces
     assert.ok(events.some(event => ["redirect", "protect"].includes(event[0])), path);
   }
 });
+  test("Atlassian data notice is public only at its exact path", async () => {
+    assert.deepEqual(await invoke({ path: "/atlassian-privacy" }), []);
+    assert.deepEqual(await invoke({ primary: true, workspaceHost: "synthetic.vaettir.app", path: "/atlassian-privacy" }), []);
+    for (const path of ["/atlassian-privacy/private", "/atlassian-privacy-extra", "/api/atlassian-privacy", "/connections/atlassian/callback", "/projects/synthetic"]) {
+      assert.ok((await invoke({ path })).some(event => ["redirect", "protect"].includes(event[0])), path);
+    }
+  });
 test("primary cutover redirects legacy documents before Clerk while preserving opaque setup query and protecting APIs", async () => {
   assert.deepEqual(await invoke({ primary: true }), [["response", 307, "https://app.vaettir.app/integrations/atlassian/connect?request=opaque_-state", "no-store"]]);
   for (const options of [{ path: "/api/private" }, { path: "/trpc/private" }, { method: "POST" }])

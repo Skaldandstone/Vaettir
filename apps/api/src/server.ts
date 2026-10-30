@@ -2,6 +2,7 @@ import "./validateProductionReleaseIdentity.js";
 import "./resolveDatabaseUrl.js";
 import "./instrument.js";
 import { startReportScheduleWorker, REPORT_SCHEDULE_INTERVAL_MS } from "./jobs/reportScheduleWorker.js";
+import { startAtlassianPrivacyWorker, ATLASSIAN_PRIVACY_INTERVAL_MS } from "./jobs/atlassianPrivacyWorker.js";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -128,6 +129,7 @@ const EXPECTED_POLLER_INTERVALS = {
   aiCreditGrantScheduler: CREDIT_GRANT_CHECK_MS,
   readinessChangeScheduler: READINESS_CHANGE_CHECK_MS,
   reportScheduleWorker: REPORT_SCHEDULE_INTERVAL_MS,
+  atlassianPrivacyWorker: ATLASSIAN_PRIVACY_INTERVAL_MS,
 };
 
 // Deliberately separate from the plain `/health` liveness probe the ALB/
@@ -664,6 +666,8 @@ await server.register(
 const port = Number(process.env.API_PORT ?? 4000);
 let stopReportScheduleWorker: (() => void) | undefined;
 server.addHook("onClose", async () => stopReportScheduleWorker?.());
+let stopAtlassianPrivacyWorker: (() => void) | undefined;
+server.addHook("onClose", async () => stopAtlassianPrivacyWorker?.());
 let credentialTimer: ReturnType<typeof setInterval> | undefined;
 server.addHook("onClose", async () => clearInterval(credentialTimer));
 server
@@ -682,6 +686,7 @@ server
     startCaseAnalysisQueuePoller();
     startReadinessDigestScheduler();
     stopReportScheduleWorker = startReportScheduleWorker();
+    stopAtlassianPrivacyWorker = startAtlassianPrivacyWorker();
     startAiCreditGrantScheduler();
     startReadinessChangeScheduler();
   })

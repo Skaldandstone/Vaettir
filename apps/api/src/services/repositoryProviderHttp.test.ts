@@ -3,12 +3,12 @@ import type { RequestOptions } from "node:https";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { lookup } from "node:dns/promises";
 import { request } from "node:https";
-import { isPublicProviderIPv4, repositoryProviderJson, repositoryProviderOrigin, repositoryProviderRevokeGithubToken, repositoryProviderRevokeGitlabToken,linearProviderGraphql,atlassianProviderToken } from "./repositoryProviderHttp.js";
+import { isPublicProviderIPv4, repositoryProviderJson, repositoryProviderOrigin, repositoryProviderRevokeGithubToken, repositoryProviderRevokeGitlabToken,linearProviderGraphql,atlassianProviderToken,atlassianProviderPrivacy } from "./repositoryProviderHttp.js";
 
 vi.mock("node:dns/promises", () => ({ lookup: vi.fn() }));
 vi.mock("node:https", () => ({ request: vi.fn() }));
 
-type Response = EventEmitter & { statusCode: number; destroy: ReturnType<typeof vi.fn> };
+type Response = EventEmitter & { statusCode: number; headers?:Record<string,string>; destroy: ReturnType<typeof vi.fn> };
 let response: Response;
 let transportOptions: RequestOptions;
 let deliver: () => void;
@@ -29,6 +29,19 @@ afterEach(() => { vi.useRealTimers(); });
 const flushDns = async () => { await Promise.resolve(); await Promise.resolve(); };
 
 describe("repository provider HTTP boundary", () => {
+  it("reports a single account to the fixed TLS endpoint and accepts an empty 204",async()=>{
+    const at=new Date("2026-10-29T00:00:00Z"),pending=atlassianProviderPrivacy("synthetic-access","synthetic-account",at);await flushDns();
+    expect(vi.mocked(request).mock.calls[0]?.[0]).toMatchObject({origin:"https://api.atlassian.com",pathname:"/app/report-accounts/"});expect(transportOptions.method).toBe("POST");expect(transportOptions.headers).toMatchObject({Authorization:"Bearer synthetic-access","Content-Type":"application/json"});expect(JSON.parse(requestWrite.mock.calls[0]![0])).toEqual({accounts:[{accountId:"synthetic-account",updatedAt:at.toISOString()}]});
+    response.statusCode=204;deliver();await expect(pending).resolves.toEqual({body:{accounts:[]},cycleDays:7});
+  });
+  it("honors the provider cycle and rate-limit headers without exposing response bodies",async()=>{
+    const pending=atlassianProviderPrivacy("synthetic-access","synthetic-account",new Date());await flushDns();response.statusCode=204;response.headers={"cycle-period":"3.5"};deliver();await expect(pending).resolves.toEqual({body:{accounts:[]},cycleDays:3.5});
+    const limited=atlassianProviderPrivacy("synthetic-access","synthetic-account",new Date());await flushDns();response.statusCode=429;response.headers={"retry-after":"7200"};const rejected=expect(limited).rejects.toMatchObject({status:429,retryAfterSeconds:7200});deliver();await rejected;
+  });
+  it("rejects invalid privacy input before DNS and never follows a redirect",async()=>{
+    expect(()=>atlassianProviderPrivacy("bad\r\nheader","synthetic-account",new Date())).toThrow();expect(()=>atlassianProviderPrivacy("synthetic-access","bad/account",new Date())).toThrow();expect(()=>atlassianProviderPrivacy("synthetic-access","synthetic-account",new Date("invalid"))).toThrow();expect(lookup).not.toHaveBeenCalled();
+    const pending=atlassianProviderPrivacy("synthetic-access","synthetic-account",new Date());await flushDns();const rejected=expect(pending).rejects.toMatchObject({status:302});response.statusCode=302;deliver();await rejected;expect(request).toHaveBeenCalledTimes(1);
+  });
   it("posts Atlassian credentials as JSON only to the fixed pinned token endpoint",async()=>{
     const body={grant_type:"authorization_code" as const,client_id:"synthetic-client",client_secret:"synthetic-secret",code:"synthetic-code",redirect_uri:"https://app.example/connections/atlassian/callback"};
     const pending=atlassianProviderToken(body);await flushDns();

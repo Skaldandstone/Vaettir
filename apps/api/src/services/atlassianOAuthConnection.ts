@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { TRPCError } from "@trpc/server";
-import { Prisma, type AtlassianOAuthConnection } from "@vaettir/db";
+import { Prisma, type PrismaClient, type AtlassianOAuthConnection } from "@vaettir/db";
 import { z } from "@vaettir/core/dist/validation.js";
 import type { Context } from "../trpc.js";
 import { lockCaseFieldProject } from "./caseFields.js";
 import { lockCurrentCaseFieldActor } from "./caseFieldReadScope.js";
 import { encryptToken, decryptToken } from "./tokenEncryption.js";
-import { atlassianApplication, atlassianApplicationSchema, atlassianFingerprint, atlassianSiteSchema, atlassianResourceSchema, atlassianTokenSchema, createAtlassianAuthorization, exchangeAtlassianCode, refreshAtlassianToken, verifyAtlassianToken, listAtlassianSites, listAtlassianResources, type AtlassianProduct } from "./atlassianOAuth.js";
+import { atlassianApplication, atlassianApplicationSchema, atlassianFingerprint, atlassianSiteSchema, atlassianResourceSchema, atlassianTokenSchema, createAtlassianAuthorization, exchangeAtlassianCode, refreshAtlassianToken, verifyAtlassianToken, listAtlassianSites, listAtlassianResources, reportAtlassianPrivacy, readAtlassianAccount, ATLASSIAN_PRIVACY_DAY_MS, type AtlassianProduct, type AtlassianToken } from "./atlassianOAuth.js";
 
 const cipher = z.object({ciphertext:z.string(),iv:z.string(),authTag:z.string()});
 const encrypted = (value:unknown) => ({...encryptToken(JSON.stringify(value))});
@@ -27,8 +27,13 @@ function human(ctx:Context) {
 export async function lockAtlassianScope(tx:Prisma.TransactionClient,ctx:Context,scope:Scope) {
   const actor=human(ctx);
   if(actor.actorId!==scope.actorId || actor.clerkActorId!==scope.clerkActorId || ctx.workspaceOrganizationId && ctx.workspaceOrganizationId!==scope.organizationId) throw denied();
-  await lockCaseFieldProject(tx,actor.actorId,scope.projectId);
-  await lockCurrentCaseFieldActor(tx,actor.actorId,{clerkActorId:actor.clerkActorId});
+  await lockStoredAtlassianScope(tx,scope);
+}
+/** Maintenance uses the stored human pins and the same fresh permission locks;
+ * it never constructs an authenticated user context or reads project content. */
+export async function lockStoredAtlassianScope(tx:Prisma.TransactionClient,scope:Scope) {
+  await lockCaseFieldProject(tx,scope.actorId,scope.projectId);
+  await lockCurrentCaseFieldActor(tx,scope.actorId,{clerkActorId:scope.clerkActorId});
   const project=await tx.project.findUniqueOrThrow({where:{id:scope.projectId},select:{organizationId:true}});
   if(project.organizationId!==scope.organizationId)throw denied();
 }
@@ -44,11 +49,14 @@ async function locked(tx:Prisma.TransactionClient,ctx:Context,row:Scope&{id:stri
   await tx.$queryRaw`SELECT id FROM "AtlassianOAuthConnection" WHERE id=${row.id} FOR UPDATE`;
   return tx.atlassianOAuthConnection.findUniqueOrThrow({where:{id:row.id}});
 }
-export function requireAtlassianVerified(row:Pick<AtlassianOAuthConnection,"status"|"tokenExpiresAt"|"encryptedToken">) {
-  if(row.status!=="VERIFIED" || !row.tokenExpiresAt || row.tokenExpiresAt.getTime()<=Date.now()+60000 || !row.encryptedToken)throw stale();
+export function atlassianPrivacyFresh(row:Pick<AtlassianOAuthConnection,"privacyCheckedAt"|"privacyCycleDays">){
+  return !!row.privacyCheckedAt&&!!row.privacyCycleDays&&row.privacyCheckedAt.getTime()+row.privacyCycleDays*ATLASSIAN_PRIVACY_DAY_MS>Date.now();
+}
+export function requireAtlassianVerified(row:Pick<AtlassianOAuthConnection,"status"|"tokenExpiresAt"|"encryptedToken"|"privacyCheckedAt"|"privacyCycleDays">) {
+  if(row.status!=="VERIFIED" || !row.tokenExpiresAt || row.tokenExpiresAt.getTime()<=Date.now()+60000 || !row.encryptedToken || !atlassianPrivacyFresh(row))throw stale();
 }
 export function publicAtlassian(row:AtlassianOAuthConnection) {
-  const expired=row.status==="VERIFIED"&&(!row.tokenExpiresAt||row.tokenExpiresAt.getTime()<=Date.now()+60000)||row.status==="PENDING"&&row.authorizationExpiresAt.getTime()<=Date.now();
+  const expired=row.status==="VERIFIED"&&(!row.tokenExpiresAt||row.tokenExpiresAt.getTime()<=Date.now()+60000||!atlassianPrivacyFresh(row))||row.status==="PENDING"&&row.authorizationExpiresAt.getTime()<=Date.now();
   return {id:row.id,projectId:row.projectId,product:row.product,status:expired?"EXPIRED":row.status,accountName:row.accountName,version:row.version,sites:sites.parse(row.sites),selectedSite:row.selectedSite?atlassianSiteSchema.parse(row.selectedSite):null,approvedResources:resources.parse(row.approvedResources),canRefresh:row.status==="VERIFIED"&&!!row.encryptedToken};
 }
 export function atlassianStorageReady(){try{encryptToken("availability-check");return true;}catch{return false;}}
@@ -97,15 +105,18 @@ async function issueAndVerify(ctx:Context,row:AtlassianOAuthConnection,operation
     const saved=await ctx.prisma.atlassianOAuthConnection.updateMany({where:{id:row.id,operationId,status:{in:["EXCHANGING","REFRESHING","DISCONNECTING"]}},data:{encryptedToken:encrypted({issued:response}),tokenExpiresAt:null}});
     if(saved.count!==1)throw stale();
     const issued=z.object({access_token:z.string().min(1).max(10000).regex(/^[!-~]+$/),refresh_token:z.string().min(1).max(10000).regex(/^[!-~]+$/),token_type:z.string().max(20),expires_in:z.number().int().positive().max(86400)}).parse(response);
-    const token=await verifyAtlassianToken(issued,row.accountId??undefined),available=await listAtlassianSites(token.accessToken);
+    let token=await verifyAtlassianToken(issued,row.accountId??undefined);
+    const privacy=await checkStoredAtlassianPrivacy(ctx.prisma,row,operationId,token,new Date());
+    token=privacy.token;const observedAt=privacy.observedAt;
+    const available=await listAtlassianSites(token.accessToken);
     const productSites=available.filter(site=>site.products.includes(row.product as AtlassianProduct));
     if(!productSites.length)throw stale();
     if(row.selectedSite){const selected=atlassianSiteSchema.parse(row.selectedSite);if(!available.some(site=>site.id===selected.id&&site.url===selected.url&&site.products.includes(row.product as AtlassianProduct)))throw stale();}
     await ctx.prisma.$transaction(async tx=>{
       const current=await locked(tx,ctx,row);
       if(current.operationId!==operationId||!["EXCHANGING","REFRESHING"].includes(current.status))throw stale();
-      await tx.atlassianOAuthConnection.update({where:{id:row.id},data:{status:"VERIFIED",operationId:null,encryptedToken:encrypted(token),tokenExpiresAt:new Date(token.expiresAt),accountId:token.accountId,accountName:token.accountName,sites:available,selectedSite:current.selectedSite??(productSites.length===1?productSites[0]:Prisma.DbNull),verifiedAt:new Date(),catalog:Prisma.DbNull,version:{increment:1}}});
-      await tx.ticketSourceConnection.updateMany({where:{oauthConnectionId:row.id,status:"VERIFIED"},data:{tokenExpiresAt:new Date(token.expiresAt)}});
+      await tx.atlassianOAuthConnection.update({where:{id:row.id},data:{status:"VERIFIED",operationId:null,encryptedToken:encrypted(token),tokenExpiresAt:new Date(token.expiresAt),accountId:token.accountId,accountName:token.accountName,sites:available,selectedSite:current.selectedSite??(productSites.length===1?productSites[0]:Prisma.DbNull),verifiedAt:observedAt,privacyCheckedAt:privacy.checkedAt,privacyCycleDays:privacy.cycleDays,privacyDueAt:privacy.dueAt,catalog:Prisma.DbNull,version:{increment:1}}});
+      await tx.ticketSourceConnection.updateMany({where:{oauthConnectionId:row.id,status:"VERIFIED"},data:{tokenExpiresAt:new Date(token.expiresAt),catalog:Prisma.DbNull,catalogAt:null}});
     });
     return {connected:true};
   }catch{
@@ -181,11 +192,60 @@ export async function approveAtlassian(ctx:Context,input:{id:string;version:numb
 export async function disconnectAtlassian(ctx:Context,id:string) {
   const row=await ownAtlassian(ctx,id);
   await ctx.prisma.$transaction(async tx=>{
-    const current=await locked(tx,ctx,row),inFlight=["EXCHANGING","REFRESHING","DISCONNECTING"].includes(current.status);
+    const current=await locked(tx,ctx,row),inFlight=["EXCHANGING","REFRESHING","DISCONNECTING","PRIVACY_CHECKING"].includes(current.status);
     await tx.atlassianOAuthConnection.update({where:{id},data:{status:inFlight?"DISCONNECTING":"DISCONNECTED",encryptedState:Prisma.DbNull,tokenExpiresAt:null,...(!inFlight?{encryptedToken:Prisma.DbNull,operationId:null}:{}),version:{increment:1}}});
     await tx.ticketSourceConnection.updateMany({where:{oauthConnectionId:id},data:{status:"DISCONNECTED",encryptedToken:Prisma.DbNull,tokenExpiresAt:null,version:{increment:1}}});
   });
   return {disconnected:true,providerRevocationRequired:true,manageAccessUrl:"https://id.atlassian.com/manage-profile/apps"};
+}
+
+/** No provider user profile or credential survives an erasure decision.
+ * Imported project content and resource/audit references are separate records. */
+export async function eraseAtlassianPersonalData(tx:Prisma.TransactionClient,id:string){
+  await tx.atlassianOAuthConnection.update({where:{id},data:{status:"DISCONNECTED",operationId:null,encryptedApplication:{},encryptedState:Prisma.DbNull,encryptedToken:Prisma.DbNull,tokenExpiresAt:null,accountId:null,accountName:null,catalog:Prisma.DbNull,privacyDueAt:null,privacyAccountKey:null,privacyClaimId:null,version:{increment:1}}});
+  await tx.ticketSourceConnection.updateMany({where:{oauthConnectionId:id},data:{status:"DISCONNECTED",encryptedToken:Prisma.DbNull,tokenExpiresAt:null,catalog:Prisma.DbNull,catalogAt:null,version:{increment:1}}});
+}
+
+export class AtlassianPrivacyBusyError extends Error{constructor(){super("Atlassian account-data check is already in progress.");}}
+/** All copies for the same provider app/account share one cycle and one claim.
+ * The hash separates different apps without persisting another raw account ID.
+ * Account erasure covers every project copy; project content is never read. */
+export async function checkStoredAtlassianPrivacy(db:PrismaClient,row:AtlassianOAuthConnection,operationId:string,initialToken:AtlassianToken,initialObservedAt:Date){
+  const app=atlassianApplicationSchema.parse(decrypted(row.encryptedApplication));
+  const key=atlassianFingerprint(["atlassian-privacy/v1",app.clientId,initialToken.accountId]);
+  const claim=await db.$transaction(async tx=>{
+    await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtextextended(${key},0))`;
+    await tx.$queryRaw`SELECT id FROM "AtlassianOAuthConnection" WHERE id=${row.id} FOR UPDATE`;
+    const current=await tx.atlassianOAuthConnection.findUniqueOrThrow({where:{id:row.id}});
+    if(current.operationId!==operationId||!["EXCHANGING","REFRESHING","PRIVACY_CHECKING"].includes(current.status))return {kind:"denied" as const};
+    await tx.atlassianOAuthConnection.update({where:{id:row.id},data:{accountId:initialToken.accountId,accountName:initialToken.accountName,privacyAccountKey:key,encryptedToken:encrypted(initialToken),tokenExpiresAt:new Date(initialToken.expiresAt),verifiedAt:initialObservedAt}});
+    const cached=await tx.atlassianOAuthConnection.findFirst({where:{privacyAccountKey:key,privacyCheckedAt:{not:null},privacyCycleDays:{not:null}},orderBy:{privacyCheckedAt:"desc"}});
+    if(cached&&atlassianPrivacyFresh(cached))return {kind:"cached" as const,checkedAt:cached.privacyCheckedAt!,cycleDays:cached.privacyCycleDays!,dueAt:new Date(cached.privacyCheckedAt!.getTime()+cached.privacyCycleDays!*ATLASSIAN_PRIVACY_DAY_MS)};
+    const active=await tx.atlassianOAuthConnection.findFirst({where:{privacyAccountKey:key,privacyClaimId:{not:null},id:{not:row.id}}});
+    if(active)return {kind:"busy" as const};
+    await tx.atlassianOAuthConnection.update({where:{id:row.id},data:{privacyClaimId:operationId,privacyDueAt:new Date(Date.now()+600000)}});
+    const oldest=await tx.atlassianOAuthConnection.aggregate({where:{privacyAccountKey:key},_min:{verifiedAt:true}});
+    return {kind:"report" as const,oldestAt:oldest._min.verifiedAt??initialObservedAt};
+  });
+  if(claim.kind==="denied")throw stale();
+  if(claim.kind==="busy")throw new AtlassianPrivacyBusyError();
+  if(claim.kind==="cached")return {...claim,token:initialToken,observedAt:initialObservedAt};
+  let token=initialToken,observedAt=initialObservedAt;
+  const result=await reportAtlassianPrivacy(token.accessToken,token.accountId,claim.oldestAt);
+  if(result.decision==="updated"){
+    const account=await readAtlassianAccount(token.accessToken,token.accountId);
+    if(account.account_id!==token.accountId)throw stale();
+    token={...token,accountName:account.name};observedAt=new Date();
+  }
+  const checkedAt=new Date(),dueAt=new Date(checkedAt.getTime()+result.cycleDays*ATLASSIAN_PRIVACY_DAY_MS);
+  await db.$transaction(async tx=>{
+    await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtextextended(${key},0))`;
+    const copies=await tx.atlassianOAuthConnection.findMany({where:{privacyAccountKey:key},orderBy:{id:"asc"},select:{id:true}});
+    if(result.decision!=="clear")for(const copy of copies)if(result.decision==="closed"||copy.id!==row.id)await eraseAtlassianPersonalData(tx,copy.id);
+    await tx.atlassianOAuthConnection.updateMany({where:{privacyAccountKey:key},data:{privacyCheckedAt:checkedAt,privacyCycleDays:result.cycleDays,privacyDueAt:dueAt,privacyClaimId:null}});
+  });
+  if(result.decision==="closed")throw stale();
+  return {token,observedAt,checkedAt,dueAt,cycleDays:result.cycleDays};
 }
 /** Resolve only the actor's linked Jira grant; this is not an org-wide service credential. */
 export async function jiraOAuthCredentials(ctx:Context,connection:{oauthConnectionId:string|null;providerOrigin:string|null;projectId:string;organizationId:string;actorId:string;approvedProjects:unknown}) {
