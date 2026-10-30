@@ -1602,14 +1602,16 @@ export function MigrationWizard({
                 ? "Change connection"
                 : "Choose"}
             </ActionButton>
-            <button
+            <ActionButton
               onClick={commit}
               disabled={committing || loading || filePreview.caseCount === 0 || ((source === "qtest" || source === "zephyr") && (manifestNeedsRefresh || !filePreview.sourceManifest))}
-            >
+             tooltip={<>{committing
+                ? "Importing…"
+                : `Import ${filePreview.caseCount} test case(s)`}</>}>
               {committing
                 ? "Importing…"
-                : `Import ${filePreview.caseCount} test case(s)`}
-            </button>
+                : `Import (${filePreview.caseCount})`}
+            </ActionButton>
           </div>
         </div>
       )}

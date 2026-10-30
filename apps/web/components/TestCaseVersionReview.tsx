@@ -690,15 +690,17 @@ export function TestCaseVersionReview({
                   </div>
                 </details>
               ))}
-              <button
+              <ActionButton
                 type="button"
                 className="btn-secondary"
                 onClick={() => changeComparison(version!, null)}
-              >
-                {readOnly
+               tooltip={<>{readOnly
                   ? `Compare v${version} with current`
-                  : `Review restoring v${version} to current`}
-              </button>
+                  : `Review restoring v${version} to current`}</>}>
+                {readOnly
+                  ? "Compare"
+                  : "Review restore"}
+              </ActionButton>
             </>
           )}
         {fromVersion === null && baseline && (
@@ -858,7 +860,7 @@ export function TestCaseVersionReview({
                   ? "Restoring…"
                   : pending
                     ? "Retry"
-                    : `Restore ${fields.length} selected fields`}
+                    : `Restore (${fields.length})`}
               </ActionButton>
             </div>
           </>

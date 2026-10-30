@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionHelp } from "@/components/ui/ActionHelp";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
@@ -73,7 +74,7 @@ export function AtlassianConnectWorkflow() {
     <div className="connection-symbol" aria-hidden="true">{acknowledgement.value.state === "APPROVED" ? "✓" : "—"}</div>
     <h1>{acknowledgement.value.state === "APPROVED" ? "Project connected" : "Connection is stopped"}</h1>
     <p>{acknowledgement.value.state === "APPROVED" ? `${acknowledgement.projectName} is connected. Return to your Jira or Confluence tab; it checks for the connection automatically.` : "The original connection was saved, then revoked. This retry has not restored its permissions."}</p>
-    <a className="btn-secondary" href={`/projects/${encodeURIComponent(acknowledgement.value.projectId)}/settings/integrations#atlassian-quality`}>Manage this project’s connection</a>
+    <ActionHelp tooltip={<>Manage this project’s connection</>}><a className="btn-secondary" href={`/projects/${encodeURIComponent(acknowledgement.value.projectId)}/settings/integrations#atlassian-quality`}>Manage connection</a></ActionHelp>
   </section>;
   return <section className="panel connection-workflow">
     <header><p className="eyebrow">Quality Intelligence · Project connection</p><h1>Connect your project</h1><p className="text-muted">Choose a Vaettir project to share with Jira or Confluence. You stay in control of what is visible.</p></header>

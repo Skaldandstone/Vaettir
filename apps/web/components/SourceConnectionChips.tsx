@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionHelp } from "@/components/ui/ActionHelp";
 import { ActionButton } from "@/components/ui/ActionButton";
 
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
@@ -116,12 +117,12 @@ export function SourceConnectionChips({documentsHref,only,onDocuments,onGitlab,o
         {projectId&&visitedRepositories.map(provider=><div key={`${projectId}:${provider}`} hidden={selectedRepository!==provider}>
           <RepositoryConnectionContent projectId={projectId} provider={provider} initialAuthorization={authorizations[provider]} active={active==="repository"&&selectedRepository===provider} onConnected={()=>{void utils.project.repositories.invalidate({projectId});void utils.project.byId.invalidate({id:projectId});}} onClose={close}/>
         </div>)}
-        {selectedRepository&&!projectId&&<><p>{repositoryName} account discovery is not available in this intake. Open a project to authorize a provider, or add an exported specification or ticket as Markdown or text.</p>{onDocuments?<ActionButton type="button" onClick={()=>{close();onDocuments();}} tooltip={<> Add file or text </>}> Add </ActionButton>:documentsHref?<a className="btn-primary" href={documentsHref}>Add document evidence</a>:<p>No account connection has been made.</p>}</>}
+        {selectedRepository&&!projectId&&<><p>{repositoryName} account discovery is not available in this intake. Open a project to authorize a provider, or add an exported specification or ticket as Markdown or text.</p>{onDocuments?<ActionButton type="button" onClick={()=>{close();onDocuments();}} tooltip={<> Add file or text </>}> Add </ActionButton>:documentsHref?<ActionHelp tooltip={<>Add document evidence</>}><a className="btn-primary" href={documentsHref}>Add documents</a></ActionHelp>:<p>No account connection has been made.</p>}</>}
         {selectedRepository&&<ActionButton type="button" className="btn-secondary" disabled={busy} onClick={()=>{if(!busy){cancelRepositoryAuthorization(authorizations[selectedRepository]);setRepositoryChoice(selectedRepository);setSelectedRepository(null);}}} tooltip={<> Back to providers </>}> Back </ActionButton>}
         {busy&&<p role="status">Connection update in progress. Wait before switching providers or closing.</p>}
       </fieldset>:active==="drive"&&projectId?<GoogleDriveSourceConnection key={active} projectId={projectId} onClose={close}/>:active==="linear"&&projectId?<LinearSourceConnection key={active} projectId={projectId} onClose={close}/>:<>
         {active&&active!=="document"&&<p>{name} account discovery is not available in this intake. Add an exported specification or ticket as Markdown or text, then review the proposed changes.</p>}
-        {projectId&&active?<PopulationDocuments projectId={projectId}/>:onDocuments?<ActionButton type="button" onClick={onDocuments} tooltip={<> Add file or text </>}> Add </ActionButton>:documentsHref?<a className="btn-primary" href={documentsHref}>Add document evidence</a>:<p>Open project evidence to add a file.</p>}
+        {projectId&&active?<PopulationDocuments projectId={projectId}/>:onDocuments?<ActionButton type="button" onClick={onDocuments} tooltip={<> Add file or text </>}> Add </ActionButton>:documentsHref?<ActionHelp tooltip={<>Add document evidence</>}><a className="btn-primary" href={documentsHref}>Add documents</a></ActionHelp>:<p>Open project evidence to add a file.</p>}
       </>}
     </Modal>
     {projectId&&<Modal open={active==="jira"} keepMounted dismissible={!busy} title="Connect Jira" onClose={close}>

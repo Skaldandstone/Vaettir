@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionHelp } from "@/components/ui/ActionHelp";
 import { ActionButton } from "@/components/ui/ActionButton";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -699,14 +700,12 @@ export default function LiveAppGenerationPage() {
                             page cannot identify or override the blocking
                             policy.
                           </span>
-                          <a
+                          <ActionHelp tooltip={<>Download raw connector</>}><a
                             className="btn btn-secondary"
                             href="/connectors/vaettir-device-connector.mjs"
                             download="vaettir-device-connector.mjs"
                             style={{ width: "fit-content" }}
-                          >
-                            Download raw connector
-                          </a>
+                          >Download source</a></ActionHelp>
                           <span className="text-muted" style={{ fontSize: 13 }}>
                             Manual alternative, only if your policy permits:
                             review the downloaded connector, then open a

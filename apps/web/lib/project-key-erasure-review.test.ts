@@ -1,3 +1,4 @@
+import { ActionHelp } from "./test-support/action-button";
 import { controllerTranspile } from "./controller-transpile.fixture";
 import React from "react";
 import { readFileSync } from "node:fs";
@@ -44,7 +45,7 @@ function harness() {
   } }) });
   const admin: Record<string, unknown> = { getOrganization: { useQuery: () => orgQuery }, listPlanTiers: query([]), staffActionLog: query([]) };
   for (const name of ["adjustPlanTier", "unlimitedPrivateBetaSeats", "resendInvite", "suspendOrganization", "reactivateOrganization", "transferOwnership", "hardDeleteOrganization", "deactivateMember"]) admin[name] = mutation(name);
-  const modules: Record<string, unknown> = { react: hooks, "next/navigation": { useParams: () => ({ id: org.id }) },
+  const modules: Record<string, unknown> = { "@/components/ui/ActionHelp": { ActionHelp }, react: hooks, "next/navigation": { useParams: () => ({ id: org.id }) },
     "@clerk/nextjs": { useAuth: () => ({ isLoaded: true, isSignedIn: true, userId: "synthetic-clerk" }) },
     "@/lib/membership": { roleLabel: (value: string) => value },
     "@/lib/trpcReact": { trpcReact: { admin, useUtils: () => ({ admin: { previewOrgHardDelete: { fetch: async () => preview } } }) } } };

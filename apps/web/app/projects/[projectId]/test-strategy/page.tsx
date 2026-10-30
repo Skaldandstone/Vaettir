@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionHelp } from "@/components/ui/ActionHelp";
 import { ActionButton } from "@/components/ui/ActionButton";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -699,13 +700,11 @@ export default function TestStrategyPage() {
             }}
           >
             <h2 style={{ marginTop: 0 }}>Risk flags on this release</h2>
-            <a
+            <ActionHelp tooltip={<>Full readiness view →</>}><a
               className="btn-secondary"
               style={{ fontSize: 13 }}
               href={`/projects/${projectId}/releases/${releaseId}`}
-            >
-              Full readiness view →
-            </a>
+            >Readiness</a></ActionHelp>
           </div>
           {riskFlags.length === 0 && (
             <p style={{ color: "var(--muted)" }}>None yet.</p>

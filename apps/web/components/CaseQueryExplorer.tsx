@@ -625,7 +625,7 @@ function Explorer({ projectId }: { projectId: string }) {
                  tooltip={<>
                   Add condition to group {gi + 1}
                  </>}>
-                   Add condition {gi + 1}
+                   Add condition
                 </ActionButton>
               </fieldset>
             ))}

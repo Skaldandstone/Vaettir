@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionHelp } from "@/components/ui/ActionHelp";
 import { ActionButton } from "@/components/ui/ActionButton";
 
 import { CompactSidebar } from "@/components/ui/CompactSidebar";
@@ -1723,12 +1724,10 @@ export default function TestCasesPage() {
           >
             Review queue
           </a>
-          <a
+          <ActionHelp tooltip={<>Shared step libraries</>}><a
             className="btn-secondary"
             href={`/projects/${projectId}/shared-steps`}
-          >
-            Shared step libraries
-          </a>
+          >Shared steps</a></ActionHelp>
           <a
             className="btn-secondary"
             href={`/projects/${projectId}/exploratory`}
@@ -1743,15 +1742,17 @@ export default function TestCasesPage() {
               Import cases
             </Link>
           )}
-          <button
+          <ActionButton
             className="btn-secondary"
             disabled={loading || exporting || visibleCases.length === 0}
             onClick={() => void exportCsv("filtered")}
-          >
+           tooltip={<>{exporting
+              ? "Exporting…"
+              : `Spreadsheet CSV (${visibleCases.length} shown)`}</>}>
             {exporting
               ? "Exporting…"
-              : `Spreadsheet CSV (${visibleCases.length} shown)`}
-          </button>
+              : `CSV (${visibleCases.length})`}
+          </ActionButton>
           <ActionButton
             className="btn-secondary"
             disabled={loading || exporting || visibleCases.length === 0}
@@ -1849,12 +1850,10 @@ export default function TestCasesPage() {
               setAddOpen(false);
             }}
           />
-          <a
+          <ActionHelp tooltip={<>Open full editor</>}><a
             className="btn-secondary"
             href={`/projects/${projectId}/test-cases/new`}
-          >
-            Open full editor
-          </a>
+          >Full editor</a></ActionHelp>
         </Modal>
       )}
       {!readOnly && organizeAction && <Modal open title={organizeAction.kind === "move" ? "Move cases to a test plan" : "Tag cases"}

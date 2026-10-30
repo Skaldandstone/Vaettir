@@ -38,7 +38,7 @@ globalThis.ReactDOM = { ...ReactDOM, createRoot };`,
 export function actionButtonBrowserSource() {
   const require = createRequire(new URL("../../apps/web/package.json", import.meta.url));
   const ts = require("typescript");
-  const compiled = ["FloatingTooltip.tsx", "ActionButton.tsx"].map(name => {
+  const compiled = ["FloatingTooltip.tsx", "ActionButton.tsx", "ActionHelp.tsx"].map(name => {
     const path = new URL("../../apps/web/components/ui/" + name, import.meta.url);
     const source = ts.createSourceFile(name, readFileSync(path, "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
     const ast = ts.factory.updateSourceFile(source, source.statements.filter(node => !ts.isImportDeclaration(node)));
@@ -46,5 +46,5 @@ export function actionButtonBrowserSource() {
       compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.React },
     }).outputText.replace(/^export /gm, "");
   }).join("\n");
-  return `const {ActionButton}=(()=>{const {Children,isValidElement,forwardRef,useEffect,useId,useLayoutEffect,useRef,useState}=React;const {createPortal}=ReactDOM;\n${compiled}\nreturn {ActionButton};})();`;
+  return `const {ActionButton,ActionHelp}=(()=>{const {Children,cloneElement,isValidElement,forwardRef,useEffect,useId,useLayoutEffect,useRef,useState}=React;const {createPortal}=ReactDOM;\n${compiled}\nreturn {ActionButton,ActionHelp};})();`;
 }

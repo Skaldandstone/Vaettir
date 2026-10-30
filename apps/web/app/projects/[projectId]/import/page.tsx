@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { useSession } from "@clerk/nextjs";
@@ -185,9 +186,9 @@ function BackfillSection({ projectId, defaultBranch }: { projectId: string; defa
       {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
 
       {files.length > 0 && (
-        <button onClick={runBackfill} disabled={running || files.every((f) => f.status === "done")} style={{ marginTop: 16 }}>
-          {running ? "Importing…" : `Backfill ${files.length - doneCount} run(s)`}
-        </button>
+        <ActionButton onClick={runBackfill} disabled={running || files.every((f) => f.status === "done")} style={{ marginTop: 16 }} tooltip={<>{running ? "Importing…" : `Backfill ${files.length - doneCount} run(s)`}</>}>
+          {running ? "Importing…" : `Backfill (${files.length - doneCount})`}
+        </ActionButton>
       )}
       {doneCount > 0 && doneCount === files.length && (
         <p style={{ color: "var(--frost)", marginTop: 8 }}>All {doneCount} run(s) imported with their real historical dates.</p>

@@ -3,6 +3,7 @@
 // call RPC or prove browser geometry/native outcomes.
 import { readFileSync } from "node:fs";
 import React from "react";
+import { ActionButton } from "./test-support/action-button";
 import { renderToStaticMarkup } from "react-dom/server";
 import ts from "typescript";
 import { expect, it, vi } from "vitest";
@@ -24,6 +25,7 @@ const source = readFileSync(new URL("../components/TestCaseBulkActionReview.tsx"
 const compiled = ts.transpileModule(source, { compilerOptions: { jsx: ts.JsxEmit.React, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const exports: { TestCaseBulkActionReview?: (props: Props) => React.ReactNode } = {};
 new Function("require", "exports", "React", compiled)((name: string) => {
+  if (name === "./ui/ActionButton") return { ActionButton };
   if (name !== "./ui/Workspace") throw Error("Unreviewed component dependency: " + name);
   return { StatusPill };
 }, exports, React);
@@ -33,7 +35,7 @@ function fixture(count = 851, extra: Partial<Props> = {}) {
   const cases = Array.from({ length: count }, (_, position) => ({ id: `synthetic-id-${position}`, displayId: `CASE-${String(position + 1).padStart(2, "0")}`, title: `  Case ${position + 1}: long tester action ${"full detail ".repeat(20)}\nTechnical descriptor <literal> & λ  ` }));
   const props: Props = { kind: "delete", ids: cases.map(item => item.id), cases, busy: false, onCancel: vi.fn(), onConfirm: vi.fn(), ...extra };
   const tree = Review(props);
-  return { props, tree, html: renderToStaticMarkup(tree), nodes: elements(tree), button: (label: string) => { const element = elements(tree).find(node => node.type === "button" && text(node.props.children) === label); if (!element) throw Error("Button missing: " + label); return element; } };
+  return { props, tree, html: renderToStaticMarkup(tree), nodes: elements(tree), button: (label: string) => { const element = elements(tree).find(node => (node.type === "button" || node.type === ActionButton) && (text(node.props.children) === label || text(node.props.tooltip) === label)); if (!element) throw Error("Button missing: " + label); return element; } };
 }
 it("851-case review is structured, bounded and complete rather than a bullet wall", () => {
   const h = fixture();

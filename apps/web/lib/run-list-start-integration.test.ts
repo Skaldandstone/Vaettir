@@ -1,3 +1,4 @@
+import { ActionHelp } from "./test-support/action-button";
 import { controllerTranspile } from "./controller-transpile.fixture";
 // Actual route handlers + existing completion controller, with synthetic hooks,
 // native metadata/auth/RPC boundaries. Not React DOM, SDK lifecycle or SQL proof.
@@ -134,7 +135,7 @@ function harness(mixedSuites = false) {
   const send = vi.fn<(request: ReviewedRunStartEnvelope) => Promise<unknown>>(),
     navigate = vi.fn();
   const mutation = { isPending: false, mutateAsync: send };
-  const context = vm.createContext({
+  const context = vm.createContext({ ActionHelp,
     React,
     window: browser,
     useState: (initial: unknown) => {
@@ -394,7 +395,7 @@ function modalBulk(
   visit(modalAst);
   if (!apply) throw Error("Actual modal bulk handler missing");
   const callback = vi.fn(props.onSelectionChange),
-    context = vm.createContext({
+    context = vm.createContext({ ActionHelp,
       bulkScope: {
         key: "all",
         label: "Approved scope",

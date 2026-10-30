@@ -151,13 +151,13 @@ function GenerateTestCasesModal({
             <button className="btn-secondary" onClick={onClose}>
               Cancel
             </button>
-            <button
+            <ActionButton
               className="btn-primary"
               onClick={createSelected}
               disabled={creating || selected.size === 0}
-            >
-              {creating ? "Creating…" : `Create ${selected.size} selected`}
-            </button>
+             tooltip={<>{creating ? "Creating…" : `Create ${selected.size} selected`}</>}>
+              {creating ? "Creating…" : `Create (${selected.size})`}
+            </ActionButton>
           </div>
         </div>
       )}
@@ -329,7 +329,7 @@ function DraftRequirementReview({
         <button className="btn-secondary" onClick={onClose} disabled={creating}>
           Close review
         </button>
-        <button
+        <ActionButton
           className="btn-primary"
           onClick={createSelected}
           disabled={
@@ -337,9 +337,9 @@ function DraftRequirementReview({
             selected.size === 0 ||
             [...selected].some((i) => !editableDrafts[i]?.title.trim())
           }
-        >
-          {creating ? "Creating…" : `Create ${selected.size} selected`}
-        </button>
+         tooltip={<>{creating ? "Creating…" : `Create ${selected.size} selected`}</>}>
+          {creating ? "Creating…" : `Create (${selected.size})`}
+        </ActionButton>
       </div>
     </div>
   );

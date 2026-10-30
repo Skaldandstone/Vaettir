@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionHelp } from "@/components/ui/ActionHelp";
 import { ActionButton } from "@/components/ui/ActionButton";
 
 import Link from "next/link";
@@ -92,9 +93,7 @@ function AccessPanel({
       <h2 id="access-title">{content.title}</h2>
       <p className="text-muted">{content.body}</p>
       {status === "NOT_ENROLLED" && !canManageEnrollments && (
-        <Link className="btn-primary onboarding-primary-action" href="/">
-          Explore the sales demo
-        </Link>
+        <ActionHelp tooltip={<>Explore the sales demo</>}><Link className="btn-primary onboarding-primary-action" href="/">Sales demo</Link></ActionHelp>
       )}
       {error && (
         <p className="text-error onboarding-action-error" role="alert">

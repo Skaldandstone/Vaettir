@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionHelp } from "@/components/ui/ActionHelp";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -384,12 +385,10 @@ export function RunHistoryDashboard({
       >
         <h2>Run history</h2>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-          <a
+          <ActionHelp tooltip={<>Compare saved manual runs</>}><a
             className="btn-secondary"
             href={`/projects/${encodeURIComponent(projectId)}/manual-run-comparison`}
-          >
-            Compare saved manual runs
-          </a>
+          >Compare manual</a></ActionHelp>
           <ActionButton
             className="btn-secondary"
             type="button"

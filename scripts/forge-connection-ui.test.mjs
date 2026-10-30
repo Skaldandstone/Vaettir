@@ -14,6 +14,7 @@ const source=readFileSync(new URL('../apps/web/components/AtlassianConnectWorkfl
 let compiled=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext,jsx:ts.JsxEmit.React}}).outputText;
 compiled=compiled.replace(/^import .* from "react";$/m,'const {useEffect,useRef,useState}=React;')
  .replace(/^import .* from "@\/components\/ui\/ActionButton";$/m,actionButtonBrowserSource())
+ .replace(/^import .* from "@\/components\/ui\/ActionHelp";$/m,'')
  .replace(/^import .* from "@clerk\/nextjs";$/m,'const useAuth=()=>window.auth;')
  .replace(/^import .* from "next\/navigation";$/m,'const useSearchParams=()=>new URLSearchParams("request="+window.token);')
  .replace(/^import .* from "@\/lib\/trpcReact";$/m,'const trpcReact=window.trpc;');

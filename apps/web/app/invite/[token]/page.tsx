@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionHelp } from "@/components/ui/ActionHelp";
 import { ActionButton } from "@/components/ui/ActionButton";
 
 import Link from "next/link";
@@ -16,7 +17,7 @@ function InvitationUnavailable({ title, children }: { title: string; children: R
       <h2 id="invitation-state-title">{title}</h2>
       <p className="text-muted">{children}</p>
       <div className="guide-actions">
-        <Link className="btn-secondary" href="/beta-guide">Review beta access</Link>
+        <ActionHelp tooltip={<>Review beta access</>}><Link className="btn-secondary" href="/beta-guide">Beta access</Link></ActionHelp>
         <Link href="/projects">Go to projects</Link>
       </div>
     </section>

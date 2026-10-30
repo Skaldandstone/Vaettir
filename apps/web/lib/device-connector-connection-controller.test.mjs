@@ -1,3 +1,4 @@
+import { ActionHelp } from "./test-support/action-button.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
@@ -217,7 +218,7 @@ test("actual blocked setup markup hides pairing/code and raw download until an e
   function visit(node) { if (ts.isJsxElement(node) && node.openingElement.tagName.getText(ast) === "details" && node.openingElement.getText(ast).includes("manualSetupOpen")) details = node; ts.forEachChild(node, visit); } visit(page);
   assert.ok(details);
   const jsx = printer.printNode(ts.EmitHint.Unspecified, details, ast), code = ts.transpileModule(`function SetupFixture(){ return (${jsx}); }`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
-  const h = { React, connectorStatus: "blocked", manualSetupOpen: false, manualSetupRevealed: false, pairingCode: "ABCDEF123456", helperActorAllowed: true, captureInputsAllowed: true, setManualSetupOpen() {} }; vm.createContext(h); vm.runInContext(code, h);
+  const h = { React, ActionHelp, connectorStatus: "blocked", manualSetupOpen: false, manualSetupRevealed: false, pairingCode: "ABCDEF123456", helperActorAllowed: true, captureInputsAllowed: true, setManualSetupOpen() {} }; vm.createContext(h); vm.runInContext(code, h);
   let html = renderToStaticMarkup(React.createElement(h.SetupFixture)); assert.ok(!html.includes("ABCDEF123456")); assert.ok(!html.includes("Download raw connector")); assert.match(html, /Pairing code and private setup command are hidden/);
   h.manualSetupRevealed = true; h.manualSetupOpen = true; html = renderToStaticMarkup(React.createElement(h.SetupFixture)); assert.match(html, /ABCDEF123456/); assert.match(html, /only if your policy permits/); assert.ok(!html.includes("Unblock-File"));
   h.captureInputsAllowed = false; assert.ok(!renderToStaticMarkup(React.createElement(h.SetupFixture)).includes("ABCDEF123456"));

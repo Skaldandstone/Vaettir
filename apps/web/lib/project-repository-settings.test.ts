@@ -1,3 +1,4 @@
+import { ActionHelp } from "./test-support/action-button";
 import { controllerTranspile } from "./controller-transpile.fixture";
 // Actual complete JSX/controllers with synthetic hooks/RPC/child boundaries.
 // Does not authorize a provider, read source, spend credits or prove deployment.
@@ -16,7 +17,7 @@ function text(value: unknown): string { return typeof value === "string" || type
 function controller(path: string, modules: Record<string, unknown>, extra = "", browser: unknown = undefined) {
   const source = readFileSync(new URL(path, import.meta.url), "utf8"), output = controllerTranspile(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.React } }).outputText;
   const exports: Record<string, unknown> = {};
-  new Function("require", "exports", "React", "window", output + extra)((name: string) => { if (!(name in modules)) throw Error("Unreviewed fixture dependency: " + name); return modules[name]; }, exports, React, browser);
+  new Function("require", "exports", "React", "window", output + extra)((name: string) => { if (name === "@/components/ui/ActionHelp") return { ActionHelp }; if (!(name in modules)) throw Error("Unreviewed fixture dependency: " + name); return modules[name]; }, exports, React, browser);
   return exports;
 }
 function states() { const slots: unknown[] = []; let cursor = 0; return { reset: () => { cursor = 0; }, hooks: { ...React, useState: (initial: unknown) => { const index = cursor++; if (!(index in slots)) slots[index] = typeof initial === "function" ? (initial as () => unknown)() : initial; return [slots[index], (next: unknown) => { slots[index] = typeof next === "function" ? (next as (prior: unknown) => unknown)(slots[index]) : next; }]; } } }; }

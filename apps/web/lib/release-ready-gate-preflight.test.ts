@@ -1,3 +1,4 @@
+import { ActionHelp } from "./test-support/action-button";
 import { controllerTranspile } from "./controller-transpile.fixture";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
@@ -38,7 +39,7 @@ function harness() {
   const release = { id: "synthetic-release", projectId: "synthetic-project", name: "Synthetic release", status: "PLANNING", goals: [], targetDate: null };
   const readiness = { score: 0, label: "BLOCKED", criteria: { met: 0, atRisk: 0, notMet: 1, pending: 0, total: 1 }, riskFlags: { openTotal: 0, critical: 0, high: 0 } };
   const stub = () => null;
-  const context = vm.createContext({ React, Error, releasePlanChoices, alert, confirm,
+  const context = vm.createContext({ ActionHelp, React, Error, releasePlanChoices, alert, confirm,
     useParams: () => ({ projectId: release.projectId, releaseId: release.id }), useReadOnlySeat: () => false,
     useState: (initial: unknown) => { const index = cursor++; if (!(index in hooks)) hooks[index] = initial;
       return [hooks[index], (next: unknown) => { hooks[index] = typeof next === "function" ? next(hooks[index]) : next; }]; },

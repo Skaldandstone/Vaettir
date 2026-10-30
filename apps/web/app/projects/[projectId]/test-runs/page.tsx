@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionHelp } from "@/components/ui/ActionHelp";
 import { ActionButton } from "@/components/ui/ActionButton";
 
 import { useRef, useState, useSyncExternalStore } from "react";
@@ -439,12 +440,8 @@ export default function TestRunsPage() {
       <RunAllPagesDashboard key={`${projectId}:all-pages`} projectId={projectId} />
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 16 }}>
-        <a className="btn-secondary" href={`/projects/${projectId}/import`}>
-          Import historical results
-        </a>
-        <a className="btn-secondary" href="/settings/integrations">
-          Configure CI and integrations
-        </a>
+        <ActionHelp tooltip={<>Import historical results</>}><a className="btn-secondary" href={`/projects/${projectId}/import`}>Import results</a></ActionHelp>
+        <ActionHelp tooltip={<>Configure CI and integrations</>}><a className="btn-secondary" href="/settings/integrations">Integrations</a></ActionHelp>
       </div>
 
       <Drawer

@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionHelp } from "@/components/ui/ActionHelp";
 import { ActionButton } from "@/components/ui/ActionButton";
 
 import { useState } from "react";
@@ -499,15 +500,17 @@ export default function ReleaseReadinessPage() {
                 </span>
               </strong>
             </div>
-            <a
+            <ActionHelp tooltip={<>{readOnly
+                ? "View plan criteria"
+                : "Open plan to add or manage criteria"}</>}><a
               className="btn-secondary"
               style={{ fontSize: 12, marginTop: 6 }}
               href={`/projects/${projectId}/test-plans/${p.id}`}
             >
               {readOnly
-                ? "View plan criteria"
-                : "Open plan to add or manage criteria"}
-            </a>
+                ? "Plan criteria"
+                : "Plan criteria"}
+            </a></ActionHelp>
             <ul style={{ listStyle: "none", padding: 0, marginTop: 6 }}>
               {p.acceptanceCriteria.map((c) => (
                 <li
@@ -573,12 +576,10 @@ export default function ReleaseReadinessPage() {
           <div
             style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}
           >
-            <a
+            <ActionHelp tooltip={<>Create a test plan</>}><a
               className="btn-secondary"
               href={`/projects/${projectId}/test-plans`}
-            >
-              Create a test plan
-            </a>
+            >New plan</a></ActionHelp>
           </div>
         )}
         {!readOnly && allPlansQuery.error && (

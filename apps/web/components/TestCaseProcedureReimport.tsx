@@ -806,7 +806,7 @@ function ProcedureWorkflow({ projectId }: { projectId: string }) {
                           ? "Confirming…"
                           : pending
                             ? "Retry"
-                            : `Restore ${selected.length} reviewed cases`}
+                            : `Restore (${selected.length})`}
                       </ActionButton>
                     </div>
                   </>

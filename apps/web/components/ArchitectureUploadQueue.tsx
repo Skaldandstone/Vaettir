@@ -99,7 +99,7 @@ export function ArchitectureUploadQueue({ projectId, organizationId, actorClerkU
       <p>{rows.length} diagrams selected. Inspect each file, review its preview, then save the valid versions. Files are saved individually; partial progress is retained.</p>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         <ActionButton type="button" disabled={disabled || rows.every(row => row.preview)} onClick={() => void inspectAll()} tooltip={<> Inspect selected diagrams </>}> Inspect diagrams </ActionButton>
-        <ActionButton type="button" disabled={disabled || !ready} onClick={() => void saveReviewed()} tooltip={<> {ready ? `Save ${ready} reviewed ${ready === 1 ? "version" : "versions"}` : "Save reviewed versions"} </>}>{ready ? `Save ${ready} reviewed ${ready === 1 ? "version" : "versions"}` : "Save"}</ActionButton>
+        <ActionButton type="button" disabled={disabled || !ready} onClick={() => void saveReviewed()} tooltip={<> {ready ? `Save ${ready} reviewed ${ready === 1 ? "version" : "versions"}` : "Save reviewed versions"} </>}>{ready ? `Save (${ready})` : "Save"}</ActionButton>
       </div>
       <ul>{rows.map((row, index) => <li key={index} style={{ marginBlock: 10, overflowWrap: "anywhere" }}>
         <strong>{row.file.name}</strong>{" · "}{row.saved ? "Saved" : row.preview ? `${row.preview.document.elements.length} elements · ready for review` : row.error ? "Could not inspect" : "Not inspected"}

@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionHelp } from "@/components/ui/ActionHelp";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { roleLabel } from "@/lib/membership";
 
@@ -258,9 +259,7 @@ export default function AdminOrganizationDetailPage() {
               </li>
             ))}
         </ul>
-        <a className="btn-secondary" href="/admin">
-          &larr; Back to search
-        </a>
+        <ActionHelp tooltip={<>&larr; Back to search</>}><a className="btn-secondary" href="/admin">← Search</a></ActionHelp>
       </div>
     );
   }
