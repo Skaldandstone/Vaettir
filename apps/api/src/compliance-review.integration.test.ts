@@ -1,3 +1,4 @@
+import { caseReviewRouter } from "./routers/caseReview.js";
 import { testPlansRouter } from "./routers/testPlans.js";
 import { previewProjectDeletion } from "./services/projectDeletion.js";
 import {
@@ -896,3 +897,128 @@ describe.skipIf(!available)(
     });
   },
 );
+
+// Cross-workflow regression: real compliance Apply must feed ordinary manual
+// approval without removing mappings or treating a structural link as evidence.
+async function mappedReviewFixture() {
+  const f = await fixture(), d = await selected(f);
+  const applied = await applyComplianceReview(prisma, f.actor, { ...f.scope, draftId: d.id, expectedDigest: d.digest, requestId: randomUUID(), confirmed: true });
+  assert.equal(applied.state, "APPLIED");
+  const created = await prisma.testCase.findFirstOrThrow({ where: { projectId: f.scope.projectId, id: { not: f.tc.id } } });
+  assert.equal(created.reviewStatus, "PENDING_REVIEW");
+  const caller = caseReviewRouter.createCaller(f.ctx);
+  const read = { ...f.scope, caseId: created.id, expectedNativeActorId: f.actor.id, requestId: randomUUID() };
+  const preview = await caller.preview(read);
+  return { ...f, caller, read, created, preview };
+}
+function ordinaryDecision(f: Awaited<ReturnType<typeof mappedReviewFixture>>, preview = f.preview) {
+  assert.equal(preview.supported, true);
+  return { ...f.read, requestId: randomUUID(), expectedContentHash: preview.contentHash!, expectedReviewStateHash: preview.reviewStateHash!, decision: "APPROVED" as const, note: { operation: "KEEP" as const }, confirmed: true as const };
+}
+describe.skipIf(!available)("compliance Apply to complete ordinary review (owned database)", () => {
+  it("keeps the new case pending and mapped, then permits one explicit complete V3 ordinary decision and exact recovery", async () => {
+    const f = await mappedReviewFixture();
+    assert.equal(f.preview.supported, true);
+    assert.equal(f.preview.canDecide, true);
+    assert.equal(f.preview.snapshot?.kind, "CaseReviewSnapshot/v3");
+    const context = (f.preview.snapshot!.context as { complianceContext: { projectId: string; organizationId: string; caseId: string; mappings: Array<{mapping: unknown; control: unknown; framework: unknown}> } }).complianceContext;
+    assert.equal(context.projectId, f.scope.projectId);
+    assert.equal(context.organizationId, f.scope.originalOrganizationId);
+    assert.equal(context.caseId, f.created.id);
+    const links = await prisma.testCaseComplianceControl.findMany({ where: { testCaseId: f.created.id }, include: { control: { include: { framework: true } } } });
+    assert.equal(links.length, 1);
+    const { control: { framework, ...control }, ...mapping } = links[0]!;
+    assert.deepEqual(context.mappings, [{ mapping, control, framework }]);
+    assert.equal((await prisma.testCase.findUniqueOrThrow({ where: { id: f.created.id } })).reviewStatus, "PENDING_REVIEW");
+    const input = ordinaryDecision(f), ack = await f.caller.decide(input);
+    assert.equal(ack.replayed, false);
+    assert.equal((await f.caller.decide(input)).replayed, true);
+    assert.equal(await prisma.testCaseComplianceControl.count({ where: { testCaseId: f.created.id } }), 1);
+    assert.equal(await prisma.auditLog.count({ where: { entityType: "CaseReviewDecision/v1", entityId: f.created.id } }), 1);
+    assert.equal(await prisma.complianceEvidence.count({ where: { testCaseId: f.created.id } }), 0);
+    assert.equal(await prisma.complianceSignOff.count({ where: { projectId: f.scope.projectId } }), 0);
+  });
+  it.each(["control", "framework", "mapping"])("binds %s changes to the reviewed hash and refuses the stale decision", async change => {
+    const f = await mappedReviewFixture(), input = ordinaryDecision(f);
+    const link = await prisma.testCaseComplianceControl.findFirstOrThrow({ where: { testCaseId: f.created.id } });
+    if (change === "control") await prisma.complianceControl.update({ where: { id: link.controlId }, data: { description: " Exact changed\n control " } });
+    if (change === "framework") await prisma.complianceFramework.update({ where: { id: f.framework.id }, data: { description: " Exact changed\n framework " } });
+    if (change === "mapping") await prisma.testCaseComplianceControl.create({ data: { testCaseId: f.created.id, controlId: f.controls.find(c => c.id !== link.controlId)!.id } });
+    const current = await f.caller.preview({ ...f.read, requestId: randomUUID() });
+    assert.equal(current.supported, true); assert.notEqual(current.contentHash, f.preview.contentHash);
+    await assert.rejects(f.caller.decide(input), { code: "CONFLICT" });
+    assert.equal((await prisma.testCase.findUniqueOrThrow({ where: { id: f.created.id } })).reviewStatus, "PENDING_REVIEW");
+  });
+  it.each(["control", "framework", "mapping"])("does not revive a mapped review after %s change-and-restore", async change => {
+    const f = await mappedReviewFixture(), input = ordinaryDecision(f);
+    const link = await prisma.testCaseComplianceControl.findFirstOrThrow({ where: { testCaseId: f.created.id } });
+    if (change === "control") {
+      const original = await prisma.complianceControl.findUniqueOrThrow({ where: { id: link.controlId } });
+      await prisma.complianceControl.update({ where: { id: link.controlId }, data: { description: "Synthetic temporary edit" } });
+      await prisma.complianceControl.update({ where: { id: link.controlId }, data: { description: original.description } });
+    }
+    if (change === "framework") {
+      await prisma.complianceFramework.update({ where: { id: f.framework.id }, data: { description: "Synthetic temporary edit" } });
+      await prisma.complianceFramework.update({ where: { id: f.framework.id }, data: { description: f.framework.description } });
+    }
+    // Native UPDATE of the unchanged pair exercises the mapping revision trigger
+    // without deleting retained links or changing ownership.
+    if (change === "mapping") await prisma.$executeRaw`UPDATE "TestCaseComplianceControl" SET "controlId"="controlId" WHERE "testCaseId"=${f.created.id}`;
+    const fresh = await f.caller.preview(f.read); assert.equal(fresh.supported, true); assert.notEqual(fresh.contentHash, f.preview.contentHash);
+    await assert.rejects(f.caller.decide(input), { code: "CONFLICT" });
+  });
+  it.each(["foreign", "unowned", "oversized", "too-many", "evidence"])("refuses complete review for %s retained context without a partial snapshot or decision", async change => {
+    const f = await mappedReviewFixture(), input = ordinaryDecision(f);
+    if (change === "foreign") { const other = await fixture(); await prisma.testCaseComplianceControl.create({ data: { testCaseId: f.created.id, controlId: other.controls[0]!.id } }); }
+    if (change === "unowned") {
+      const legacy = await prisma.complianceFramework.create({ data: { key: `unowned-${randomUUID()}`, name: "Unowned retained reference", organizationId: null, isBuiltIn: true, controls: { create: { code: "LEGACY", title: "No inferred ownership" } } }, include: { controls: true } });
+      await prisma.testCaseComplianceControl.create({ data: { testCaseId: f.created.id, controlId: legacy.controls[0]!.id } });
+    }
+    if (change === "oversized") await prisma.complianceFramework.update({ where: { id: f.framework.id }, data: { description: "x".repeat(65537) } });
+    if (change === "too-many") {
+      const controls = await Promise.all(Array.from({ length: 50 }, (_, index) => prisma.complianceControl.create({ data: { frameworkId: f.framework.id, code: `extra-${index}`, title: "Synthetic retained control" } })));
+      await prisma.testCaseComplianceControl.createMany({ data: controls.map(control => ({ testCaseId: f.created.id, controlId: control.id })) });
+    }
+    if (change === "evidence") await prisma.complianceEvidence.create({ data: { testCaseId: f.created.id, projectId: f.scope.projectId, controlId: f.controls[0]!.id, recordedById: f.actor.id, note: "Synthetic unsupported evidence" } });
+    if (change === "foreign") await assert.rejects(f.caller.preview(f.read), { code: "FORBIDDEN" });
+    else { const blocked = await f.caller.preview(f.read); assert.equal(blocked.supported, false); assert.equal(blocked.snapshot, null); assert.equal(blocked.contentHash, null); }
+    await assert.rejects(f.caller.decide(input), { code: change === "foreign" ? "FORBIDDEN" : "PRECONDITION_FAILED" });
+    assert.equal((await prisma.testCase.findUniqueOrThrow({ where: { id: f.created.id } })).reviewStatus, "PENDING_REVIEW");
+    assert.equal(await prisma.auditLog.count({ where: { entityType: "CaseReviewDecision/v1", entityId: f.created.id } }), 0);
+  });
+  it("gates transitive mapped review in disabled/unknown recovery while unmapped V2 reads and exact old decision recovery remain available", async () => {
+    const f = await mappedReviewFixture(), input = ordinaryDecision(f);
+    const unmapped = await prisma.testCase.create({ data: { projectId: f.scope.projectId, title: "Unmapped ordinary review", given: [], when: [], then: [], tags: [], testType: "FUNCTIONAL", reviewStatus: "PENDING_REVIEW" } });
+    const oldRead = { ...f.read, caseId: unmapped.id }, oldPreview = await f.caller.preview(oldRead);
+    assert.equal(oldPreview.snapshot?.kind, "CaseReviewSnapshot/v2");
+    assert.equal(Object.hasOwn(oldPreview.snapshot!.context as object, "complianceContext"), false);
+    const oldInput = { ...ordinaryDecision(f, oldPreview), caseId: unmapped.id };
+    await f.caller.decide(oldInput);
+    await prisma.testCaseComplianceControl.create({ data: { testCaseId: unmapped.id, controlId: f.controls[0]!.id } });
+    const plainRead = { ...f.read, caseId: f.tc.id };
+    const plain = await prisma.testCase.create({ data: { projectId: f.scope.projectId, title: "Still unlinked", given: [], when: [], then: [], tags: [], testType: "FUNCTIONAL", reviewStatus: "PENDING_REVIEW" } });
+    plainRead.caseId = plain.id;
+    const before = await f.caller.preview(plainRead);
+    try {
+      for (const mode of ["disabled", "unexpected"]) {
+        vi.stubEnv("VAETTIR_COMPLIANCE_RECOVERY_MODE", mode);
+        const hidden = await f.caller.preview(f.read); assert.equal(hidden.supported, false); assert.equal(hidden.snapshot, null);
+        await assert.rejects(f.caller.decide(input), { code: "PRECONDITION_FAILED" });
+        const after = await f.caller.preview(plainRead); assert.equal(after.supported, true); assert.equal(after.contentHash, before.contentHash); assert.deepEqual(after.snapshot, before.snapshot);
+        assert.equal((await f.caller.decide(oldInput)).replayed, true);
+        await assert.rejects(f.caller.decide({ ...oldInput, note: { operation: "SET", value: "changed" } }), { code: "CONFLICT" });
+      }
+    } finally { vi.unstubAllEnvs(); }
+  });
+  it.each(["actor", "organization", "role", "seat", "suspension"])("revalidates original %s before mapped context/decision", async change => {
+    const f = await mappedReviewFixture(), input = ordinaryDecision(f);
+    let read = f.read;
+    if (change === "actor") { read = { ...read, expectedClerkActorId: "another-actor" }; input.expectedClerkActorId = "another-actor"; }
+    if (change === "organization") { read = { ...read, originalOrganizationId: "another-org" }; input.originalOrganizationId = "another-org"; }
+    if (change === "role" || change === "seat") await prisma.membership.update({ where: { organizationId_userId: { organizationId: f.scope.originalOrganizationId, userId: f.actor.id } }, data: change === "role" ? { role: "VIEWER" } : { seatType: "READ_ONLY" } });
+    if (change === "suspension") await prisma.organization.update({ where: { id: f.scope.originalOrganizationId }, data: { suspendedAt: new Date() } });
+    if (change === "role" || change === "seat") assert.equal((await f.caller.preview(read)).canDecide, false);
+    else await assert.rejects(f.caller.preview(read), { code: "FORBIDDEN" });
+    await assert.rejects(f.caller.decide(input), { code: "FORBIDDEN" });
+  });
+});

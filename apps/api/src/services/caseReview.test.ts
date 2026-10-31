@@ -20,6 +20,7 @@ function fixture(){
       if(sql.includes("'CaseReviewDecision/v1'")){events.push("receipt");return state.prior;}
       if(sql.includes('FOR UPDATE')){events.push("case-lock");return[{id:"c"}];}
       if(sql.includes(" AS foreign")){events.push("relationships");return[{foreign:state.foreign,unsupported:state.unsupported,missing:state.missing}];}
+      if(sql.includes('AS "mappingCount"'))return[{mappingCount:0n,mappingForeign:false,mappingUnowned:false}];
       if(sql.includes('AS "linkedForeign"')){events.push("linked-relationships");return[{linkedForeign:state.linkedForeign,linkedMissing:state.linkedMissing,linkedUnsupported:state.linkedUnsupported}];}
       if(sql.includes('AS "labelsUnsupported"')){events.push("linked-admission");return[{labelBytes:state.labelBytes,typeBytes:state.typeBytes,planBytes:state.planBytes,criteria:state.criteria,typeCount:state.typeCount,labelsUnsupported:state.labelsUnsupported}];}
       if(sql.includes('AS "customBytes"')){events.push("complete-admission");return[{bytes:state.bytes,customBytes:state.customBytes,definitionBytes:state.definitionBytes,linkedBytes:state.linkedBytes,labelBytes:state.labelBytes,typeBytes:state.typeBytes,planBytes:state.planBytes,steps:state.steps,prerequisites:state.prerequisites,sharedSteps:state.sharedSteps}];}

@@ -560,6 +560,7 @@ export function ComplianceReviewWorkflow({ projectId }: { projectId: string }) {
                     <label>
                       Additional scanned case{" "}
                       <select
+                        style={{ width: "100%", maxWidth: "100%", minWidth: 0 }}
                         value=""
                         onChange={(e) => {
                           if (

@@ -423,3 +423,30 @@ test("durable compliance review has explicit selection, ordinary approval, lost-
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+// This is the actual ordinary-review renderer. Transport/controller exports are
+// inert because this test renders only the already admitted snapshot body.
+test("ordinary review presents bounded compliance context in both themes and widths", async () => {
+  const snapshot={kind:"CaseReviewSnapshot/v3",case:{displayId:"SYN-19",title:"Synthetic music permission review",customFields:{},background:"Retained setup",given:[],when:[],then:[],tags:[]},authoredSteps:[],effectiveSteps:[],sharedProcedure:null,prerequisites:[],context:{linkedContext:{organizationLabels:{organizationId:"org-synthetic",resolved:{}},references:{},types:[],plan:null},complianceContext:{kind:"CaseReviewComplianceContext/v1",caseRevision:5,projectId:"project-synthetic",organizationId:"org-synthetic",caseId:"case-synthetic",mappings:[{mapping:{testCaseId:"case-synthetic",controlId:"control-synthetic"},control:{id:"control-synthetic",frameworkId:"framework-synthetic",revision:3,code:"MUSIC",title:"Check permission for the recorded use",description:"Retained control description with territory and expiry conditions."},framework:{id:"framework-synthetic",organizationId:"org-synthetic",catalogKey:null,revision:2,key:"synthetic-private-reference",name:"Synthetic music rights review",version:null,description:"Retained framework definition. No clearance inferred.",isBuiltIn:false}}]}},source:null,aiBaseline:null,state:{status:"PENDING_REVIEW",origin:"AUTHORED",note:null,confidence:null,reviewedAt:null,reviewedById:null}};
+  const rendered = await build({stdin:{contents:`import React from 'react';import {createRoot} from 'react-dom/client';import {CaseReviewSnapshotContent} from './components/CaseReviewDecision';createRoot(document.getElementById('root')).render(<CaseReviewSnapshotContent snapshot={${JSON.stringify(snapshot)}}/>);`,resolveDir:root,loader:"tsx"},bundle:true,write:false,platform:"browser",jsx:"automatic",define:{"process.env.NODE_ENV":'"development"'},plugins:[{name:"inert-unused-review-controllers",setup(b){
+    b.onResolve({filter:/^@\/lib\/(trpcReact|use-case-review-controller)$/},args=>({path:args.path,namespace:"inert"}));
+    b.onLoad({filter:/.*/,namespace:"inert"},()=>({contents:"export const trpcReact={};export function useCaseReviewController(){throw Error('Snapshot-only test must not mount decision controller');}",loader:"js"}));
+    b.onResolve({filter:/^@\//},args=>{const p=resolve(root,args.path.slice(2));return{path:existsSync(p+".tsx")?p+".tsx":p+".ts"};});
+  }}]});
+  const server=createServer((_request,response)=>{response.setHeader("Content-Type","text/html");response.end('<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><main id="root" style="padding:16px;min-width:0"></main></body></html>');});
+  await new Promise(resolve=>server.listen(0,"127.0.0.1",resolve));const origin="http://127.0.0.1:"+server.address().port;
+  let browser;
+  try {browser=await chromium.launch({headless:true});mkdirSync(proof,{recursive:true});
+    for(const theme of["light","dark"])for(const width of[390,1280]){
+      const context=await browser.newContext({viewport:{width,height:1000},hasTouch:true});
+      try {const page=await context.newPage(),errors=[],external=[];page.on("pageerror",error=>errors.push(String(error)));await page.route("**/*",route=>{if(route.request().url().startsWith(origin))return route.continue();external.push(route.request().url());return route.abort();});
+        await page.goto(origin);await page.addStyleTag({content:css});await page.evaluate(theme=>{document.documentElement.dataset.theme=theme;},theme);await page.addScriptTag({content:rendered.outputFiles[0].text});
+        const region=page.getByRole("region",{name:"Bound compliance mappings"});await expect(region).toBeVisible();await expect(region).toContainText("Check permission for the recorded use");await expect(region).toContainText("Retained framework definition");await expect(region).toContainText("Intended coverage; case approval does not verify compliance.");
+        await expect(page.getByRole("button",{name:/Approve/})).toHaveCount(0);await expect(page.locator("details[open]")).toHaveCount(0);
+        assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);
+        await region.screenshot({path:proof+`ordinary-mappings-${theme}-${width}.png`});
+        await region.getByText("Mapping details",{exact:true}).click();await expect(region.locator("pre")).toContainText('"revision": 3');await expect(region.locator("pre")).toContainText("org-synthetic");assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);assert.deepEqual(errors,[]);assert.deepEqual(external,[]);
+      }finally{await context.close();}
+    }
+  }finally{await browser?.close();await new Promise(resolve=>server.close(resolve));}
+});
