@@ -9,7 +9,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 const hash = (v) => createHash("sha256").update(v).digest("hex"),
   scope = { projectId: "p", organizationId: "o", actorId: "a", sessionId: "s" };
-function fixture() {
+function fixture(network) {
   let clock = 1000,
     taps = 0,
     observations = 0,
@@ -52,6 +52,7 @@ function fixture() {
   };
   const engine = createAndroidCaseReplay(
     {
+      network,
       inspect: () => focused,
       observe: () => {
         observations++;
@@ -88,7 +89,7 @@ function fixture() {
     ],
   };
   let r;
-  const start = () => {
+  const start = (networkApproval) => {
     const t = engine.handle(
       "inspect",
       { serial: "synthetic", scope },
@@ -98,6 +99,7 @@ function fixture() {
       "start",
       {
         ticket: t.ticket,
+        ...(networkApproval === undefined ? {} : { networkApproval }),
         scope,
         plan,
         consent: {
@@ -149,6 +151,141 @@ function fixture() {
     break: () => (broken = true),
   };
 }
+const approvedNetwork = {
+  sourceId: "qa",
+  catalog: {
+    id: "qa",
+    revision: 1,
+    routes: [{ routeKey: "catalog", method: "GET", template: "/catalog" }],
+  },
+  debugMetadata: true,
+  sourceReviewed: true,
+  catalogReviewed: true,
+  temporalOnlyReviewed: true,
+};
+test("navigation alone never calls the optional metadata adapter", () => {
+  let calls = 0;
+  const f = fixture({
+    start() {
+      calls++;
+      throw Error();
+    },
+    sample() {
+      calls++;
+      throw Error();
+    },
+  });
+  const initial = f.start();
+  assert.equal(Object.hasOwn(initial, "networkCapture"), false);
+  f.next();
+  assert.equal(calls, 0);
+});
+test("separate requested capability must start successfully before any tap", () => {
+  for (const adapter of [
+    undefined,
+    {
+      start() {
+        throw Error("unavailable");
+      },
+    },
+  ]) {
+    const f = fixture(adapter),
+      r = f.start(approvedNetwork);
+    assert.equal(r.status, "STOPPED");
+    assert.equal(r.networkCapture.status, "UNAVAILABLE");
+    assert.throws(() => f.next());
+    assert.equal(f.taps, 0);
+  }
+});
+test("replay binds exact scope and clocks and captures only after complete native receipt", () => {
+  const calls = [];
+  const f = fixture({
+    start(c) {
+      calls.push({ op: "START", c });
+      return { metadata: { test: true }, selection: { test: true } };
+    },
+    sample(c, op) {
+      calls.push({ op, c });
+      return { metadata: { test: true }, selection: { test: true } };
+    },
+  });
+  f.start(approvedNetwork);
+  const { r } = f.next();
+  assert.equal(r.status, "COMPLETED");
+  assert.deepEqual(
+    calls.map((x) => x.op),
+    ["START", "FINISH"],
+  );
+  assert.equal(calls[0].c.runId, r.id);
+  assert.equal(calls[0].c.origin, "https://example.test");
+  assert.equal(calls[0].c.scopeKey, JSON.stringify(["p", "o", "a", "s"]));
+  assert.deepEqual(calls[0].c.approval, approvedNetwork);
+  assert.equal(r.receipts[0].timing.clockId, calls[0].c.clockId);
+  assert.equal(r.receipts[0].timing.endedAt, r.receipts[0].observedAt);
+  assert.equal(f.taps, 1);
+  f.engine.handle("read", { id: r.id, scope }, "https://example.test");
+  assert.equal(calls.length, 2);
+});
+test("metadata failure retains known completed receipt and blocks subsequent actions", () => {
+  let samples = 0;
+  const f = fixture({
+    start() {
+      return { metadata: {}, selection: {} };
+    },
+    sample() {
+      samples++;
+      throw Error();
+    },
+  });
+  f.start(approvedNetwork);
+  const { r } = f.next();
+  assert.equal(r.status, "STOPPED");
+  assert.equal(r.networkCapture.status, "UNAVAILABLE");
+  assert.equal(r.receipts.length, 1);
+  assert.throws(() => f.next());
+  f.engine.handle("stop", { id: r.id, scope }, "https://example.test");
+  assert.equal(samples, 1);
+  assert.equal(f.taps, 1);
+});
+test("uncertain native outcome never triggers another private command or implicit cleanup", () => {
+  let samples = 0;
+  const f = fixture({
+    start() {
+      return { metadata: {}, selection: {} };
+    },
+    sample() {
+      samples++;
+      throw Error();
+    },
+  });
+  f.start(approvedNetwork);
+  f.break();
+  const { r } = f.next();
+  assert.equal(r.status, "UNCERTAIN");
+  assert.equal(r.receipts.length, 0);
+  assert.equal(samples, 0);
+  f.engine.handle("stop", { id: r.id, scope }, "https://example.test");
+  assert.equal(samples, 0);
+  assert.equal(f.taps, 1);
+});
+test("explicit stop sends one guarded challenge, repeated stop and reads are passive", () => {
+  let samples = 0;
+  const f = fixture({
+    start() {
+      return { metadata: {}, selection: {} };
+    },
+    sample(c, op) {
+      assert.equal(op, "STOP");
+      samples++;
+      return { metadata: {}, selection: {} };
+    },
+  });
+  const r = f.start(approvedNetwork);
+  for (let i = 0; i < 2; i++)
+    f.engine.handle("stop", { id: r.id, scope }, "https://example.test");
+  assert.equal(samples, 1);
+  assert.equal(f.taps, 0);
+});
 test("one reviewed tap records actual target, request and explicit assertion", () => {
   const f = fixture();
   f.start();
@@ -461,7 +598,12 @@ test("replay HTTP requires original origin/pairing and refuses malformed or unkn
     });
     assert.equal(caps.status, 200);
     assert.equal(caps.headers.get("cache-control"), "no-store");
-    assert.equal((await caps.json()).appNetwork, "DEBUG_APP_EXPORT_ONLY");
+    const capability = await caps.json();
+    assert.equal(capability.appNetwork, "DEBUG_APP_EXPORT_ONLY");
+    assert.deepEqual(capability.appNetworkCapture, {
+      version: 2,
+      transport: "APP_PRIVATE_FILES",
+    });
     for (const [h, status] of [
       [{ ...headers, origin: "https://foreign.example" }, 403],
       [{ origin }, 401],

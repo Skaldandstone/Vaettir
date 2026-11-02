@@ -3,7 +3,14 @@ import {
   androidExplorationScope,
   observedAndroidObject,
 } from "./androidExplorationSchema.js";
-import { androidNetworkEvidence } from "./androidNetworkEvidenceSchema.js";
+import {
+  androidNetworkEvidence,
+  androidNetworkSelection,
+} from "./androidNetworkEvidenceSchema.js";
+import {
+  summarizeStepNetwork,
+  type AndroidNetworkCorrelation,
+} from "./androidNetworkCorrelation.js";
 const text = (max = 200) =>
   z
     .string()
@@ -60,6 +67,14 @@ export const androidReplayReceipt = z
     from: digest,
     to: digest,
     observedAt: z.number().int().nonnegative(),
+    timing: z
+      .object({
+        clockId: z.string().regex(/^[a-f0-9]{48}$/),
+        startedAt: z.number().int().nonnegative(),
+        endedAt: z.number().int().nonnegative(),
+      })
+      .strict()
+      .optional(),
     originalLocator: androidReplayLocator,
     target: observedAndroidObject,
     commandArgs: z.tuple([
@@ -92,6 +107,16 @@ export const androidReplayReceipt = z
   .strict()
   .superRefine((v, ctx) => {
     const b = v.target.bounds;
+    if (
+      v.timing &&
+      (v.timing.endedAt !== v.observedAt ||
+        v.timing.startedAt > v.timing.endedAt ||
+        v.timing.endedAt - v.timing.startedAt > 300000)
+    )
+      ctx.addIssue({
+        code: "custom",
+        message: "Keep the bounded original command observation window.",
+      });
     if (
       v.repaired !== (v.repairApproval !== null) ||
       (v.repairApproval && v.repairApproval.screenId !== v.from)
@@ -167,6 +192,24 @@ export const androidReplayState = z
       )
       .max(150),
     lastRequestId: z.string().uuid().nullable(),
+    networkCapture: z
+      .discriminatedUnion("status", [
+        z
+          .object({
+            status: z.literal("CAPTURED"),
+            metadata: androidNetworkEvidence,
+            selection: androidNetworkSelection,
+          })
+          .strict(),
+        z
+          .object({
+            status: z.literal("UNAVAILABLE"),
+            metadata: z.null(),
+            selection: z.null(),
+          })
+          .strict(),
+      ])
+      .optional(),
     nativeExecutionIndependentlyVerified: z.literal(false),
   })
   .strict();
@@ -212,15 +255,7 @@ export const androidReplayPatchInput = androidReplayScopeInput
     planHash: digest,
     receipts: z.array(androidReplayReceipt).min(1).max(12),
     network: androidNetworkEvidence.nullable(),
-    networkSelection: z
-      .object({
-        sourceId: text(64),
-        approvedRouteKeys: z.array(text(64)).min(1).max(32),
-        startedAt: z.number().int().nonnegative(),
-        endedAt: z.number().int().nonnegative(),
-      })
-      .strict()
-      .nullable(),
+    networkSelection: androidNetworkSelection.nullable(),
     localReportedEvidenceReviewed: z.literal(true),
     patchReviewed: z.literal(true),
     disclosureApproved: z.literal(true),
@@ -247,6 +282,7 @@ export function androidReplayPatchedAction(
   r: z.infer<typeof androidReplayReceipt>,
   network: z.infer<typeof androidNetworkEvidence> | null,
   requestId: string,
+  correlation?: AndroidNetworkCorrelation | null,
 ) {
-  return `${action}\nReviewed Android replay ${runId}; package=${r.target.packageName}; selector=${JSON.stringify(r.target.selector)}; class=${JSON.stringify(r.target.className)}; ADB=${JSON.stringify(r.commandArgs)}; request=${r.requestId}; assertion=${JSON.stringify(r.assertion)}. Local-reported evidence, not independently verified execution. ${network ? `Approved debug-app HTTP metadata source=${network.sourceId}; ${network.events.length} events; receipt=${requestId}. No response bodies or API correctness assertion.` : "App HTTP traffic NOT_CAPTURED; ADB is not HTTP evidence."} Automation suggestion: UI Automator; retain expected result; review locator and assertion before generating a draft.`;
+  return `${action}\nReviewed Android replay ${runId}; package=${r.target.packageName}; selector=${JSON.stringify(r.target.selector)}; class=${JSON.stringify(r.target.className)}; ADB=${JSON.stringify(r.commandArgs)}; request=${r.requestId}; assertion=${JSON.stringify(r.assertion)}. Local-reported evidence, not independently verified execution. ${correlation ? `${summarizeStepNetwork(correlation, r.stepId, r.requestId)} receipt=${requestId}.` : network ? `Approved debug-app HTTP metadata source=${network.sourceId}; ${network.events.length} uncorrelated run-level events; receipt=${requestId}. No clock association, response bodies or API correctness assertion.` : "App HTTP traffic NOT_CAPTURED; ADB is not HTTP evidence."} Automation suggestion: UI Automator; retain expected result; review locator and assertion before generating a draft.`;
 }

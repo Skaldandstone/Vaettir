@@ -46,3 +46,32 @@ writeFileSync(
   path,
   updated.slice(0, ra) + replayStart + replay + "\n" + updated.slice(rb),
 );
+
+const networkStart = "// BEGIN EMBEDDED ANDROID NETWORK EVIDENCE\n",
+  networkEnd = "// END EMBEDDED ANDROID NETWORK EVIDENCE\n";
+const network = readFileSync(
+  new URL("./android-network-evidence-native.mjs", import.meta.url),
+  "utf8",
+)
+  .replaceAll("\r\n", "\n")
+  .replace(
+    "export function createAndroidNetworkEvidenceAdapter",
+    "function createAndroidNetworkEvidenceAdapter",
+  );
+const withReplay = readFileSync(path, "utf8"),
+  na = withReplay.indexOf(networkStart),
+  nb = withReplay.indexOf(networkEnd);
+if (
+  na < 0 ||
+  nb < na ||
+  withReplay.indexOf(networkStart, na + networkStart.length) !== -1
+)
+  throw Error("Exact network embedding markers required");
+writeFileSync(
+  path,
+  withReplay.slice(0, na) +
+    networkStart +
+    network +
+    "\n" +
+    withReplay.slice(nb),
+);

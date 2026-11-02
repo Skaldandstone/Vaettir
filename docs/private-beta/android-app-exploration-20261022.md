@@ -283,6 +283,116 @@ and disclosure approvals. Without this explicit import the patch says
 verified traffic or an API assertion. An installed app with no approved debug
 integration remains unsupported for request capture.
 
+### APP-NAV-03 correlated debug HTTP producer
+
+Version 1 imports remain valid, explicitly uncorrelated run-level metadata.
+Version 2 adds a reviewed static operation catalog, a local app clock identity,
+pending-request count and actual challenge/response clock observations. A clock
+ID identifies one capture instance; matching IDs or wall-clock epochs do not
+establish synchronization. The server derives an offset interval from the real
+host send/receive observations. It assigns an event only when its complete
+uncertainty envelope falls strictly inside exactly one step's original
+dispatch-to-observation window and inside the calibration span. Overlapping,
+boundary, missing-clock and inconsistent observations remain unassigned in the
+audit. This assumes compatible reported clocks between samples and is temporal
+association only, never causality, network attestation or API correctness.
+
+For version 2, `selection.startedAt/endedAt` are explicitly app-clock bounds:
+`selection.correlation.captureClock` must be `{domain:"APP_REPORTED",clockId}`
+with the exact metadata clock ID. Calibration separately retains host
+send/receive times and `connectorClockId`; each native receipt separately
+retains that clock ID and its host command window. The initial capture has
+`clockCalibration:null` because one sample cannot calibrate a span. Never fill
+in missing times or replace them with host wall-clock values.
+
+The connector now contains a bounded adapter for an explicitly integrated debug
+app. Download, pairing, ordinary navigation and retained-state reads perform no
+HTTP-metadata file I/O. The replay start request must separately include:
+
+```js
+networkApproval: {
+  sourceId: "qa_catalog",
+  catalog: {
+    id: "catalog_api", revision: 1,
+    routes: [{routeKey: "catalog_item", method: "GET", template: "/v1/catalog/{item_id}"}]
+  },
+  debugMetadata: true,
+  sourceReviewed: true,
+  catalogReviewed: true,
+  temporalOnlyReviewed: true
+}
+```
+
+Review the source, catalog and debug-build integration independently. Templates
+are static lowercase path vocabulary and named placeholders, with an optional
+version prefix. They contain no host, query, fragment, escaped bytes, concrete
+IDs or personal values. Syntax cannot prove a static word is non-private; the
+catalog reviewer must exclude private names and identifiers. The wrapper checks
+the actual requested method/path against this catalog and exports only symbolic
+operations, actual status/outcome and timing. URLs and app headers remain within
+the app's own fetch call and are never copied to evidence.
+
+App developer integration uses `createDebugAppNetworkFileBridge` from
+`scripts/android-network-evidence-debug.mjs`. The developer creates these two
+files inside the selected debuggable application's private data directory and
+supplies synchronous bounded native file methods. Vaettir neither installs nor
+creates the app integration or its directories:
+
+```js
+const bridge = createDebugAppNetworkFileBridge({
+  debugBuild: __DEV__, packageName: approvedPackageName,
+  sourceId: "qa_catalog", catalog: reviewedCatalog,
+  fetchImpl: appOwnedFetch,
+  // Each callback must restrict access to its exact path below.
+  readControl: path => appDebugFiles.readUtf8Sync(path, 16384),
+  writeResponse: (path, text) => appDebugFiles.atomicReplaceUtf8Sync(path, text, 65536),
+  // Consult CURRENT app-local approval for this exact run/origin/source/catalog.
+  // Never implement this as unconditional true or as a production capability.
+  approveRun: request => debugApproval.matchesCurrent(request),
+  nonce: () => appCrypto.randomBytesHex(24),
+});
+// The app's existing debug lifecycle calls bridge.poll(), on its own thread.
+// Route ONLY explicitly selected calls through this wrapper while approved.
+const response = await bridge.request("catalog_item", itemUrl, {method: "GET", headers: appHeaders});
+```
+
+`appDebugFiles`, `debugApproval` and `appCrypto` above are developer-supplied
+native app adapters, not installed libraries or simulated capture results. The
+app must build and verify them on its target runtime. Start with empty files,
+create a fresh bridge for each expressly approved run, poll within the bounded
+host deadline, and stop polling when that run expires or is refused. The SDK
+has no background timer, global interception or automatic permission grant.
+App approval is rechecked on every challenge and selected request; refusal is
+terminal for that bridge instance. A pending request may finish after the last
+snapshot, so `pendingRequests` is retained and is not treated as a successful
+or failed response. No extra navigation or private-file read is issued to wait
+for such a request.
+
+The only host file operations are `adb -s <original serial> exec-out run-as
+<original package> tee files/vaettir-debug-http/control.json` and the corresponding
+`cat files/vaettir-debug-http/response.json`. There is no shell expansion, mkdir,
+path discovery, rooting, device-wide logs or TLS interception. Each control is a
+canonical JSON frame terminated by a newline; empty/incomplete frames cause no
+app response, handling the tee truncation window. The app atomically replaces
+its response. Each exchange writes once, reads at most four times, admits at
+most 16 KiB control/64 KiB response and requires a round trip at most one second.
+At most 32 unique challenges, 100 requests and five minutes are allowed. Focus,
+original device/package, origin, scope, source, catalog, approval, nonce and
+clock are rechecked. Failed or ambiguous writes are never retried automatically.
+After uncertain native execution the connector issues no metadata cleanup
+command. App-side expiry remains in force; restoring focus/access cannot revive
+a refused capture.
+
+Requested replay state contains `networkCapture` with `status: "CAPTURED"`,
+`metadata` and `selection`, or `status: "UNAVAILABLE"` and both values null. The
+UI forwards the exact captured pair through the existing disclosure/patch
+review. Failure to start capture prevents the first tap. Capture failure after
+a complete native receipt preserves that receipt but stops further navigation.
+It does not falsely label the known action as uncertain. Source-only tests use
+the actual producer, adapter, engine, strict downloaded-connector parser and
+service with synthetic I/O. Physical app integration, device traffic, root UI
+wiring and hosted acceptance remain separate Main-owned release gates.
+
 ### APP-NAV-02 validation boundary
 
 Focused tests execute the actual replay engine, native adapter and helper HTTP
