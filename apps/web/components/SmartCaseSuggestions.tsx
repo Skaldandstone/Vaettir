@@ -154,7 +154,7 @@ export function SmartCaseSuggestions({ projectId, cases, caseIds, onApplyImport,
 }
 
 export function SmartColumnMapping({ projectId, csvText, fileBase64, sheetName, currentMapping, onApply }: {
-  projectId: string; csvText?: string; fileBase64?: string; sheetName?: string; currentMapping: Partial<Record<"title" | "given" | "when" | "then" | "priority" | "tags" | "testType" | "automationStatus" | "externalId", string>>;
+  projectId: string; csvText?: string; fileBase64?: string; sheetName?: string; currentMapping: Partial<Record<"title" | "given" | "when" | "then" | "priority" | "tags" | "testType" | "automationStatus" | "externalId" | "suitePath", string>>;
   onApply: (mapping: typeof currentMapping) => Promise<void>;
 }) {
   const auth = useAuth(), utils = trpcReact.useUtils(), project = trpcReact.project.byId.useQuery({ id: projectId }, { retry: false, staleTime: 0 });
