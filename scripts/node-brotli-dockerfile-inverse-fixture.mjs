@@ -1,6 +1,7 @@
 // TEST FIXTURE ONLY. Never use this inverse for runtime or source admission.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import {SQLITE_DOCKERFILE_SHA256, restorePreSqliteDockerfileFixture} from "./sqlite-dockerfile-inverse-fixture.mjs";
 export const NODE_BROTLI_DOCKERFILE_SHA256 =
   "3053480495dd451d4297717aadea4ad0f61e1923c1359c69ccd40b9f0e1aadda";
 const beforeExplicitBaseline =
@@ -67,6 +68,7 @@ const sha = (b) => createHash("sha256").update(b).digest("hex");
 export function restorePreNodeBrotliDockerfileFixture(raw) {
   assert.equal(arguments.length, 1);
   assert.ok(Buffer.isBuffer(raw));
+  if (sha(raw) === SQLITE_DOCKERFILE_SHA256) raw = restorePreSqliteDockerfileFixture(raw);
   const text = raw.toString("utf8");
   assert.deepEqual(Buffer.from(text), raw);
   assert.equal(text.includes("\r"), false);
