@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { readFileSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import ts from "typescript";
+import { controllerTranspile } from "./controller-transpile.fixture";
 import { it, expect } from "vitest";
 import * as schemas from "../../api/src/services/androidCaseReplaySchema";
 import * as network from "../../api/src/services/androidNetworkEvidenceSchema";
@@ -12,7 +13,7 @@ const source = readFileSync(
   new URL("../components/AndroidCaseReplay.tsx", import.meta.url),
   "utf8",
 );
-const compiled = ts.transpileModule(source, {
+const compiled = controllerTranspile(source, {
   compilerOptions: {
     jsx: ts.JsxEmit.React,
     module: ts.ModuleKind.CommonJS,
@@ -36,7 +37,7 @@ const label = (v: unknown): string =>
       : Array.isArray(v)
         ? v.map(label).join("")
         : "";
-function fixture() {
+function fixture(stepCount = 1) {
   let cursor = 0,
     epoch = "original",
     serial = "synthetic",
@@ -46,7 +47,11 @@ function fixture() {
     denyRead = false,
     denySave = false,
     changedPlan = false,
-    staleRead = false;
+    staleRead = false,
+    scopeAfterNext = false,
+    failedNext = false;
+  let releaseNext: (() => void) | null = null;
+  let heldNext: Promise<void> | null = null;
   const values: unknown[] = [],
     calls: { path: string; body?: unknown }[] = [],
     writes: unknown[] = [];
@@ -72,6 +77,7 @@ function fixture() {
       },
     ],
   };
+  for (let i = 1; i < stepCount; i++) tc.steps.push({ ...structuredClone(tc.steps[0]!), id: `step${i + 1}`, order: i });
   const currentScope = () => ({
     scope: {
       projectId: "project",
@@ -131,19 +137,19 @@ function fixture() {
       if (path.endsWith("next")) {
         const input = body as { requestId: string };
         const r = local!;
-        const p = r.plan.steps[0]!;
-        r.status = "COMPLETED";
-        r.index = 1;
-        r.sequence = 1;
+        const p = r.plan.steps[r.index]!;
+        if (!failedNext) r.index++;
+        r.status = failedNext ? "ASSERTION_FAILED" : r.index === r.plan.steps.length ? "COMPLETED" : "ACTIVE";
+        r.sequence++;
         r.lastRequestId = input.requestId;
-        r.receipts = [
+        r.receipts.push(
           {
-            stepId: "step",
+            stepId: p.stepId,
             expectedResult: p.expectedResult,
             requestId: input.requestId,
-            sequence: 1,
-            from: "c".repeat(64),
-            to: "d".repeat(64),
+            sequence: r.sequence,
+            from: r.screen!.id,
+            to: String.fromCharCode(99 + r.sequence).repeat(64),
             observedAt: Date.now(),
             originalLocator: p.locator,
             target: {
@@ -154,11 +160,14 @@ function fixture() {
               bounds: [0, 0, 100, 100],
             },
             commandArgs: ["shell", "input", "tap", "50", "50"],
-            assertion: { ...p.assertion, matches: 1, passed: true },
+            assertion: { ...p.assertion, matches: failedNext ? 0 : 1, passed: !failedNext },
             repaired: false,
             repairApproval: null,
           },
-        ];
+        );
+        r.screen!.id = r.receipts.at(-1)!.to;
+        if (scopeAfterNext) epoch = "foreign";
+        if (heldNext) await heldNext;
         if (dropNext) throw Error("synthetic lost next reply");
         return structuredClone(r);
       }
@@ -272,7 +281,7 @@ function fixture() {
     return n;
   };
   const settle = async () => {
-    for (let i = 0; i < 20; i++) await Promise.resolve();
+    for (let i = 0; i < 100; i++) await Promise.resolve();
     render();
   };
   const click = async (wanted: string) => {
@@ -294,7 +303,7 @@ function fixture() {
     const input = nodes(parent).find((n) => n.type === "input")!;
     change(input, true);
   };
-  const start = async () => {
+  const start = async (automatic = false) => {
     render();
     await click("Load existing cases");
     change(
@@ -304,10 +313,11 @@ function fixture() {
     await click("Review selected case");
     const area = find("textarea", "Reviewed replay plan");
     const plan = JSON.parse(String(area.props.value));
-    plan.steps[0].assertion.value = "Catalog";
+    for (const step of plan.steps) step.assertion.value = "Catalog";
     change(area, JSON.stringify(plan));
+    if (!automatic) checkbox("Step by step");
     await click("Check selected device’s open app");
-    checkbox("I approve this exact app");
+    checkbox("I approve this app");
     await click("Start reviewed run");
   };
   return {
@@ -319,6 +329,10 @@ function fixture() {
     find,
     checkbox,
     settle,
+    holdNext: () => { heldNext = new Promise<void>(resolve => { releaseNext = resolve; }); },
+    releaseNext: () => { releaseNext?.(); heldNext = null; },
+    failNext: () => { failedNext = true; },
+    scopeAfterNext: () => { scopeAfterNext = true; },
     denySave: () => {
       denySave = true;
     },
@@ -355,9 +369,36 @@ function fixture() {
 }
 it("renders initial supported scope without performing RPC/native/AI work", () => {
   const h = fixture();
-  expect(h.render()).toContain("Replay an existing case");
+  expect(h.render()).toContain("Run a case");
   expect(h.calls).toHaveLength(0);
   expect(h.writes).toHaveLength(0);
+});
+it("one approved Run advances multiple reviewed steps without more clicks or case writes", async () => {
+  const h = fixture(2);
+  await h.start(true);
+  expect(h.calls.filter(c => c.path.endsWith("next"))).toHaveLength(2);
+  expect(h.render()).toContain("COMPLETED");
+  expect(h.render()).toContain("2 of 2 assertions matched");
+  expect(h.writes).toHaveLength(0);
+});
+it("automatic execution stops at a failed assertion, lost reply or changed authority", async () => {
+  for (const mode of ["failNext", "dropNext", "scopeAfterNext"] as const) {
+    const h = fixture(2); h[mode](); await h.start(true);
+    expect(h.calls.filter(c => c.path.endsWith("next"))).toHaveLength(1);
+    expect(h.writes).toHaveLength(0);
+    const html = h.render();
+    expect(html).not.toContain("COMPLETED");
+    if (mode === "scopeAfterNext") expect(html).not.toContain("Private synthetic case");
+  }
+});
+it("Stop remains available during an action and prevents dispatching the next step", async () => {
+  const h = fixture(2); h.holdNext(); await h.start(true);
+  expect(h.calls.filter(c => c.path.endsWith("next"))).toHaveLength(1);
+  await h.click("Stop run");
+  h.releaseNext(); await h.settle();
+  expect(h.calls.filter(c => c.path.endsWith("next"))).toHaveLength(1);
+  expect(h.calls.filter(c => c.path.endsWith("stop"))).toHaveLength(1);
+  expect(h.render()).toContain("STOPPED");
 });
 it("actual event handlers admit only an explicitly reviewed plan and one next action", async () => {
   const h = fixture();
@@ -369,7 +410,7 @@ it("actual event handlers admit only an explicitly reviewed plan and one next ac
   ]);
   await h.click("Run next reviewed step");
   expect(h.render()).toContain("COMPLETED");
-  expect(h.render()).toContain("Review exact case patch and disclosure");
+  expect(h.render()).toContain("Review changes");
   expect(h.writes).toHaveLength(0);
 });
 it("lost action response offers retained read, never another next dispatch", async () => {
@@ -393,7 +434,7 @@ it("uncertain patch retry reuses exact reviewed payload and request ID", async (
   await h.click("Recover exact patch receipt");
   expect(h.writes).toHaveLength(2);
   expect(h.writes[1]).toEqual(h.writes[0]);
-  expect(h.render()).toContain("Saved case version 2");
+  expect(h.render()).toContain("Version 2 saved for review");
   expect(h.calls.filter((c) => c.path.endsWith("next"))).toHaveLength(1);
 });
 it("scope or device change hides retained private evidence and blocks stale handlers", async () => {
@@ -402,7 +443,7 @@ it("scope or device change hides retained private evidence and blocks stale hand
     await h.start();
     h[change]();
     expect(h.render()).not.toContain("Private synthetic case");
-    expect(h.render()).toContain("Retained replay evidence is hidden");
+    expect(h.render()).toContain("Access changed. Start a new connection");
     expect(h.calls.filter((c) => c.path.endsWith("next"))).toHaveLength(0);
   }
 });
@@ -411,9 +452,9 @@ it("current revision/access denial consumes run authority before any action and 
   await h.start();
   h.deny();
   await h.click("Run next reviewed step");
-  expect(h.render()).toContain("Retained replay evidence is hidden");
+  expect(h.render()).toContain("Access changed. Start a new connection");
   h.restore();
-  expect(h.render()).toContain("Retained replay evidence is hidden");
+  expect(h.render()).toContain("Access changed. Start a new connection");
   expect(h.calls.filter((c) => c.path.endsWith("next"))).toHaveLength(0);
 });
 
@@ -425,9 +466,9 @@ it("save authorization denial hides evidence and never restores pending write au
   h.checkbox("I reviewed the separate");
   h.denySave();
   await h.click("Save reviewed technical case patch");
-  expect(h.render()).toContain("Retained replay evidence is hidden");
+  expect(h.render()).toContain("Access changed. Start a new connection");
   h.restore();
-  expect(h.render()).toContain("Retained replay evidence is hidden");
+  expect(h.render()).toContain("Access changed. Start a new connection");
   expect(h.writes).toHaveLength(1);
 });
 it("retained recovery refuses changed assertions and unacknowledged command sequence", async () => {
@@ -441,7 +482,7 @@ it("retained recovery refuses changed assertions and unacknowledged command sequ
     expect(h.find("button", "Run next reviewed step").props.disabled).toBe(
       true,
     );
-    expect(h.render()).toContain("last operation is unresolved");
+    expect(h.render()).toContain("Result unconfirmed");
     expect(h.calls.filter((c) => c.path.endsWith("next"))).toHaveLength(1);
   }
 });

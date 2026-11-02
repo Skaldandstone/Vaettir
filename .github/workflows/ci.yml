@@ -175,6 +175,10 @@ jobs:
           VAETTIR_AI_MCP_TEST: "1"
           VAETTIR_AI_CASE_DB_TEST: "1"
         run: pnpm --filter @vaettir/api exec vitest run src/ai-disclosure-mcp.integration.test.ts src/ai-approved-cases.integration.test.ts
+      - name: Verify reviewed Android case patches against synthetic PostgreSQL
+        env:
+          VAETTIR_ANDROID_REPLAY_DB_TEST: "1"
+        run: pnpm --filter @vaettir/api exec vitest run src/android-case-replay.integration.test.ts
       - name: Verify workflow layouts and project connection interactions
         run: |
           pnpm --filter @vaettir/web exec playwright install --with-deps chromium
