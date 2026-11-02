@@ -15,6 +15,9 @@ import {
   sha,
   admitPreparation,
   readRef,
+  jsonRef,
+  completeInventoryRef,
+  COMPLETE_INVENTORY_MAX_BYTES,
   verifyMigrations,
 } from "./contracts.mjs";
 import { prepareContext, recipe } from "./overlay-context.mjs";
@@ -440,6 +443,91 @@ for (const [name, change] of [
     change(f);
     assert.throws(() => prepareContext(f.bindings, f.policy, "api", f.io));
   });
+test("complete API inventory admits exact large mocked bytes through both preparation reads", () => {
+  const f = fixture();
+  // Match the actual API71 inventory size without reading private evidence.
+  const bytes = Buffer.alloc(112986232, 0x20);
+  bytes.write("[]");
+  const ref = f.put("api-inventory", bytes);
+  f.bindings.baseline.api.inventory = ref;
+  f.policy.roles.api.inventorySha256 = ref.sha256;
+  const originalRead = f.io.read;
+  let inventoryReads = 0;
+  f.io.read = (path, maximum) => {
+    if (path === ref.path) {
+      inventoryReads++;
+      assert.equal(maximum, bytes.length);
+    }
+    return originalRead(path, maximum);
+  };
+  const context = prepareContext(f.bindings, f.policy, "api", f.io);
+  assert.equal(inventoryReads, 2);
+  assert.deepEqual(JSON.parse(context["baseline-inventory.json"]), []);
+  assert.throws(() => jsonRef(ref, f.io.read), /unbounded exact artifact pin/);
+  assert.equal(inventoryReads, 2); // Ordinary JSON refuses before reader I/O.
+  bytes[bytes.length - 1] = 0x09; // Still valid JSON, but no longer hash-matched.
+  assert.throws(
+    () => prepareContext(f.bindings, f.policy, "api", f.io),
+    /Artifact mismatch: api-inventory/,
+  );
+});
+
+test("complete inventory ceiling and ordinary JSON ceiling refuse before oversized reads", () => {
+  const ref = {
+    path: "inventory",
+    bytes: COMPLETE_INVENTORY_MAX_BYTES,
+    sha256: "a".repeat(64),
+  };
+  const boundary = Error("bounded reader reached");
+  let calls = 0;
+  const read = (path, maximum) => {
+    calls++;
+    assert.equal(path, ref.path);
+    assert.equal(maximum, COMPLETE_INVENTORY_MAX_BYTES);
+    throw boundary; // No allocation or acceptance claim for a 256 MiB payload.
+  };
+  assert.throws(
+    () => completeInventoryRef(ref, read),
+    (e) => e === boundary,
+  );
+  assert.equal(calls, 1);
+  for (const bytes of [COMPLETE_INVENTORY_MAX_BYTES + 1, Infinity, -1])
+    assert.throws(
+      () => completeInventoryRef({ ...ref, bytes }, read),
+      /unbounded exact artifact pin/,
+    );
+  assert.throws(
+    () => jsonRef({ ...ref, bytes: 64 * 1024 ** 2 + 1 }, read),
+    /unbounded exact artifact pin/,
+  );
+  assert.equal(calls, 1);
+  assert.throws(
+    () => completeInventoryRef({ ...ref, bytes: 2 }, () => Buffer.from("[ ]")),
+    /Artifact mismatch/,
+  );
+  assert.throws(
+    () => completeInventoryRef({ ...ref, bytes: 2 }, () => Buffer.from("[]")),
+    /Artifact mismatch/,
+  );
+});
+
+test("oversized config and native inventory cannot use complete inventory allowance", () => {
+  for (const key of ["config", "nativeInventory"]) {
+    const f = fixture();
+    const ref = f.bindings.baseline.api[key];
+    ref.bytes = 64 * 1024 ** 2 + 1;
+    const read = f.io.read;
+    f.io.read = (path, maximum) => {
+      assert.notEqual(path, ref.path);
+      return read(path, maximum);
+    };
+    assert.throws(
+      () => prepareContext(f.bindings, f.policy, "api", f.io),
+      /unbounded exact artifact pin/,
+    );
+  }
+});
+
 test("empty original native logs remain hash-bound", () => {
   const f = fixture();
   assert.equal(readRef(f.bindings.sqlite.logs[16], f.io.read).length, 0);

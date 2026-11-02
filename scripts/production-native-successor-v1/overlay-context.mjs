@@ -4,6 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import {
   admitPreparation,
   jsonRef,
+  completeInventoryRef,
   readRef,
   requireThat,
   sha,
@@ -69,7 +70,7 @@ export function prepareContext(bindings, policy, role, io) {
     config.os === "linux" && config.architecture === "amd64",
     "Wrong baseline platform",
   );
-  const inventory = jsonRef(baseline.inventory, io.read);
+  const inventory = completeInventoryRef(baseline.inventory, io.read);
   requireThat(
     Array.isArray(inventory) &&
       !inventory.some((r) =>

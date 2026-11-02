@@ -13,6 +13,13 @@ successor. A correction after acceptance requires a newly named successor.
 
 ## Exact inputs and deliberate holds
 
+Complete baseline filesystem inventory JSON has an explicit 256 MiB ceiling in
+both admission and context preparation. The pinned API71 inventory is
+112,986,232 bytes. Configs, native inventories and other JSON retain the 64 MiB
+default. Every read still requires its exact byte count and SHA-256; the larger
+inventory ceiling does not waive either check. Synthetic reader tests cover the
+API-sized input, both preparation reads, the ceiling and size/hash refusals.
+
 `policy.json` pins the application ancestor 1d7e1018, SQLite ancestor 2b721d3d,
 the accepted API71/Web79 parent images, parent configs and complete filesystem/
 native inventories, all 110 old migrations and the 111 candidate migrations.

@@ -50,8 +50,14 @@ export function readRef(ref, read, maximum = 64 * 1024 * 1024) {
   );
   return bytes;
 }
-export function jsonRef(ref, read) {
-  return JSON.parse(readRef(ref, read).toString("utf8"));
+export function jsonRef(ref, read, maximum) {
+  return JSON.parse(readRef(ref, read, maximum).toString("utf8"));
+}
+// Complete filesystem inventories exceed ordinary receipt sizes. Other JSON
+// retains readRef's 64 MiB default, including config and native inventories.
+export const COMPLETE_INVENTORY_MAX_BYTES = 256 * 1024 ** 2;
+export function completeInventoryRef(ref, read) {
+  return jsonRef(ref, read, COMPLETE_INVENTORY_MAX_BYTES);
 }
 export function verifyRef(ref, read, maximum = 12 * 1024 ** 3) {
   requireThat(
@@ -366,7 +372,8 @@ export function admitPreparation(
         baseline[key]?.sha256 === policy.roles[role][key + "Sha256"],
         "Baseline content/config pin changed",
       );
-      jsonRef(baseline[key], read);
+      if (key === "inventory") completeInventoryRef(baseline[key], read);
+      else jsonRef(baseline[key], read);
     }
   }
   return {
