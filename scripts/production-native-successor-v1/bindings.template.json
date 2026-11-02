@@ -1,0 +1,389 @@
+{
+  "schemaVersion": 1,
+  "purpose": "production-native-successor/v1",
+  "source": {
+    "commit": null,
+    "tree": null,
+    "mergeReceipt": {
+      "path": null,
+      "sha256": null,
+      "bytes": null
+    },
+    "sourceLedger": {
+      "path": null,
+      "sha256": null,
+      "bytes": null
+    },
+    "privacyAcceptance": {
+      "path": null,
+      "sha256": null,
+      "bytes": null
+    },
+    "mainCiReceipt": {
+      "path": null,
+      "sha256": null,
+      "bytes": null
+    },
+    "mainCiLog": {
+      "path": null,
+      "sha256": null,
+      "bytes": null
+    }
+  },
+  "sqlite": {
+    "source": "2b721d3d9a3397d0e14da859ab517e71b4c0c48b",
+    "buildId": "vaettir-api-build:e01d0c21-314b-4864-bb45-dc75bd91b29d",
+    "imageDigest": "sha256:1b6c7f8f1862e39f6f0d5ee7a3182aa02d7d4a634c914a05401bd3e5d0fc348b",
+    "package": {
+      "path": ".local/sqlite-proof-20261102-v4/artifact-v2/files/sqlite-native/libsqlite3-0_3.54.1-0+vaettir1_amd64.deb",
+      "sha256": "e8621e3109bd33ee9f454ecb97d05c758c201b2adc5da4d69c856a1ea112b67f",
+      "bytes": 758036
+    },
+    "library": {
+      "path": ".local/sqlite-proof-20261102-v4/artifact-v2/files/sqlite-native/libsqlite3.so.0.8.6",
+      "sha256": "222a0487f6d62ff522bcf69663c64685fb00bd4434953e30be73126d57b5c43d",
+      "bytes": 1765656
+    },
+    "probe": {
+      "path": ".local/sqlite-proof-20261102-v4/artifact-v2/files/sqlite-native/sqlite-runtime-regression",
+      "sha256": "d1900198b70edab1326531cd2315ae9c43ffe2518fd49929a57884d115dfff4d",
+      "bytes": 16912
+    },
+    "proof": {
+      "path": ".local/sqlite-proof-20261102-v4/artifact-v2/files/sqlite-native/sqlite-runtime-proof.json",
+      "sha256": "2173c92813786733b7115b552c9335835ff460c850fc9e70f26e9f48d09e65ca",
+      "bytes": 97501
+    },
+    "acceptance": {
+      "path": ".local/sqlite-proof-20261102-v4/standalone-native-accepted.json",
+      "sha256": "8dac2cb6c66f28d3822554378c6c9406b86089ac124a742b6d575c0b9f546147",
+      "bytes": 1958
+    },
+    "evidence": [
+      {
+        "path": ".local/sqlite-proof-20261102-v4/artifact-v2/artifact-collected.json",
+        "sha256": "7cebdbfe639154aef001acf7fb8cc1d6cb40d4878b6f959912fa682ef5eb9028",
+        "bytes": 750
+      },
+      {
+        "path": ".local/sqlite-proof-20261102-v4/native-log-review.json",
+        "sha256": "b5edab2f3c4fd0962434b889548555de67af861784b30f3bb14b70f5c4a8df0f",
+        "bytes": 308
+      },
+      {
+        "path": ".local/sqlite-proof-20261102-v4/independent-elf-source-review.json",
+        "sha256": "7b6700b4521c0b103c66929067c3c600c18e3c6ca27b1ea200c572e9c071af91",
+        "bytes": 336
+      },
+      {
+        "path": ".local/sqlite-proof-20261102-v4/package-inspection-accepted.json",
+        "sha256": "869636e03a60f478740a560e24d4e1b9ae6e8cc65b705870d52b9d02e6016494",
+        "bytes": 558
+      },
+      {
+        "path": ".local/sqlite-proof-20261102-v4/original-build.log",
+        "sha256": "3bd9180920da4c73333fdbfcc414862fd914634810bbf462b60a3ea4faa0cc43",
+        "bytes": 52611
+      },
+      {
+        "path": ".local/sqlite-proof-20261102-v4/source-accepted.json",
+        "sha256": "fca4cd480c10704ef5f37a2d113118f90aad795d6dcdbd908109e7dac0c47ebe",
+        "bytes": 3685
+      },
+      {
+        "path": ".local/sqlite-proof-20261102-v4/artifact-v2/files/sqlite-native/sqlite-runtime-proof.json",
+        "sha256": "2173c92813786733b7115b552c9335835ff460c850fc9e70f26e9f48d09e65ca",
+        "bytes": 97501
+      }
+    ],
+    "logs": [
+      {
+        "path": ".local/sqlite-proof-20261102-v4/artifact-v2/files/sqlite-native/logs/build-release.log",
+        "sha256": "3d641c794e0af43d4e4568233756a3b4b48014178d892945bde5579100361aa3",
+        "bytes": 17909
+      },
+      {
+        "path": ".local/sqlite-proof-20261102-v4/artifact-v2/files/sqlite-native/logs/build-sanitizer.log",
+        "sha256": "eccfb978455ae02dcbf4ee05c701beb3801e30d66afd495e5d398aeba21113d1",
+        "bytes": 17931
+      },
+      {
+        "path": ".local/sqlite-proof-20261102-v4/artifact-v2/files/sqlite-native/logs/configure-release.log",
+        "sha256": "00de7e84a743c0d48738f5136dfc43d3c41f0f4579f5de1e0ef5fd6e7f37d55a",
+        "bytes": 5814
+      },
+      {
+        "path": ".local/sqlite-proof-20261102-v4/artifact-v2/files/sqlite-native/logs/configure-sanitizer.log",
+        "sha256": "8f0c92f48aef00f8d239ca06afa63cf042055c315870d4fee17aa2047743613a",
+        "bytes": 5842
+      },
+      {
+        "path": ".local/sqlite-proof-20261102-v4/artifact-v2/files/sqlite-native/logs/functional-release.log",
+        "sha256": "b1eda025edb159fc12eff33c58b97d67dd73613e34dce832af5eb44974796438",
+        "bytes": 1898
+      },
+      {
+        "path": ".local/sqlite-proof-20261102-v4/artifact-v2/files/sqlite-native/logs/functional-sanitizer.log",
+        "sha256": "60512ab9b6b0cd5b370f80f093474d0f08c83ed7f54746b32df658b93d93a036",
+        "bytes": 1900
+      },
+      {
+        "path": ".local/sqlite-proof-20261102-v4/artifact-v2/files/sqlite-native/logs/nss-create.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bytes": 0
+      },
+      {
+        "path": ".local/sqlite-proof-20261102-v4/artifact-v2/files/sqlite-native/logs/nss-dynamic.txt",
+        "sha256": "3c713b1cf9afb614d95f6d7645efcd1056e03f0613cf385e588c3ff5337030d7",
+        "bytes": 1932
+      },
+      {
+        "path": ".local/sqlite-proof-20261102-v4/artifact-v2/files/sqlite-native/logs/nss-list.log",
+        "sha256": "fea42a02c8de16ec8e1b3ed32f76ac777ea5f0196f02f30e9f5aad3b0a3316f9",
+        "bytes": 160
+      },
+      {
+        "path": ".local/sqlite-proof-20261102-v4/artifact-v2/files/sqlite-native/logs/nss-loader.txt",
+        "sha256": "9f00fa0bea20b5273dfa00c8c6265844f2696e2bb1d815ea911a0c95fb02541b",
+        "bytes": 589
+      },
+      {
+        "path": ".local/sqlite-proof-20261102-v4/artifact-v2/files/sqlite-native/logs/release-ext_fts5_test_fts5corruptB.test.log",
+        "sha256": "49221c1929b6fae92314e91e2e3786eefbb41e00431f34e4f93c65c39987bb19",
+        "bytes": 861
+      },
+      {
+        "path": ".local/sqlite-proof-20261102-v4/artifact-v2/files/sqlite-native/logs/release-ext_fts5_test_fts5prefix2.test.log",
+        "sha256": "c58ebfd270e44d660893df9e43f16547a8ef3bfbe0a73c12a148bc4cca54fef2",
+        "bytes": 1247
+      },
+      {
+        "path": ".local/sqlite-proof-20261102-v4/artifact-v2/files/sqlite-native/logs/release-ext_rtree_rtreeI.test.log",
+        "sha256": "709a025d2a7f21c4f37864a5c7d5795d82cb1d5945837477013bfde75ed89402",
+        "bytes": 859
+      },
+      {
+        "path": ".local/sqlite-proof-20261102-v4/artifact-v2/files/sqlite-native/logs/release-ext_session_sessioncorrupt.test.log",
+        "sha256": "0a53f22b62731274d651ae8fcfd19e1657952db5aac88ac3423612ef850378ae",
+        "bytes": 613
+      },
+      {
+        "path": ".local/sqlite-proof-20261102-v4/artifact-v2/files/sqlite-native/logs/release-test_auth.test.log",
+        "sha256": "960bfb2e6af1d9c083a78191abb3a7a9d5bc2fc7768f3e06f1f037f5e2be55cf",
+        "bytes": 6900
+      },
+      {
+        "path": ".local/sqlite-proof-20261102-v4/artifact-v2/files/sqlite-native/logs/release-test_fts3snippet2.test.log",
+        "sha256": "37765faf4dd3000571e94a0d749f9117e89621d7fd1606d5dc32bf0be6a37d20",
+        "bytes": 737
+      },
+      {
+        "path": ".local/sqlite-proof-20261102-v4/artifact-v2/files/sqlite-native/logs/release-test_sqllimits1.test.log",
+        "sha256": "fbd6ebcd4a0b5e545448325fa2e811403bb431b25e60bb5bf55deffdde3c1d01",
+        "bytes": 80884
+      },
+      {
+        "path": ".local/sqlite-proof-20261102-v4/artifact-v2/files/sqlite-native/logs/release-test_with2.test.log",
+        "sha256": "bb1064772171bd6aac4a55458834c257db24625e9be18088a9f394542be64ac0",
+        "bytes": 1697
+      },
+      {
+        "path": ".local/sqlite-proof-20261102-v4/artifact-v2/files/sqlite-native/logs/sanitizer-ext_fts5_test_fts5corruptB.test.log",
+        "sha256": "49221c1929b6fae92314e91e2e3786eefbb41e00431f34e4f93c65c39987bb19",
+        "bytes": 861
+      },
+      {
+        "path": ".local/sqlite-proof-20261102-v4/artifact-v2/files/sqlite-native/logs/sanitizer-ext_fts5_test_fts5prefix2.test.log",
+        "sha256": "f04e5e495d3a4782959f3e85a4d630399b38a5caa44b752c09efe941c7ee07a8",
+        "bytes": 1247
+      },
+      {
+        "path": ".local/sqlite-proof-20261102-v4/artifact-v2/files/sqlite-native/logs/sanitizer-ext_rtree_rtreeI.test.log",
+        "sha256": "985a33906ed5b76a414a8db0e7e0a381307f7c3fa737f059ccad2c04b1f95cff",
+        "bytes": 859
+      },
+      {
+        "path": ".local/sqlite-proof-20261102-v4/artifact-v2/files/sqlite-native/logs/sanitizer-ext_session_sessioncorrupt.test.log",
+        "sha256": "0a53f22b62731274d651ae8fcfd19e1657952db5aac88ac3423612ef850378ae",
+        "bytes": 613
+      },
+      {
+        "path": ".local/sqlite-proof-20261102-v4/artifact-v2/files/sqlite-native/logs/sanitizer-test_auth.test.log",
+        "sha256": "be1ff49eeb302b4fda3a0363dfe44580c8b86a4dfda2be2fd336fe7155b2202a",
+        "bytes": 6900
+      },
+      {
+        "path": ".local/sqlite-proof-20261102-v4/artifact-v2/files/sqlite-native/logs/sanitizer-test_fts3snippet2.test.log",
+        "sha256": "103ae34371fd1363cb7de7a8ad725001abfce100ab2c369b967efdb44dbec0b3",
+        "bytes": 737
+      },
+      {
+        "path": ".local/sqlite-proof-20261102-v4/artifact-v2/files/sqlite-native/logs/sanitizer-test_sqllimits1.test.log",
+        "sha256": "fbd6ebcd4a0b5e545448325fa2e811403bb431b25e60bb5bf55deffdde3c1d01",
+        "bytes": 80884
+      },
+      {
+        "path": ".local/sqlite-proof-20261102-v4/artifact-v2/files/sqlite-native/logs/sanitizer-test_with2.test.log",
+        "sha256": "bb1064772171bd6aac4a55458834c257db24625e9be18088a9f394542be64ac0",
+        "bytes": 1697
+      },
+      {
+        "path": ".local/sqlite-proof-20261102-v4/artifact-v2/files/sqlite-native/logs/wal-negative.log",
+        "sha256": "7987b50af83aaa7095dbce5f7dbdcbc5a3c5792c744ca405f86bf0761f525295",
+        "bytes": 28
+      },
+      {
+        "path": ".local/sqlite-proof-20261102-v4/artifact-v2/files/sqlite-native/logs/wal-negative.status",
+        "sha256": "084c799cd551dd1d8d5c5f9a5d593b2e931f5e36122ee5c793c1d08a19839cc0",
+        "bytes": 3
+      },
+      {
+        "path": ".local/sqlite-proof-20261102-v4/artifact-v2/files/sqlite-native/logs/wal-negative.stderr",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bytes": 0
+      },
+      {
+        "path": ".local/sqlite-proof-20261102-v4/artifact-v2/files/sqlite-native/logs/wal-release.log",
+        "sha256": "58eb193da82679ab3aebc3a349a00b332c49db5e6f3237c7da67f88f45741932",
+        "bytes": 21
+      },
+      {
+        "path": ".local/sqlite-proof-20261102-v4/artifact-v2/files/sqlite-native/logs/wal-sanitizer.log",
+        "sha256": "58eb193da82679ab3aebc3a349a00b332c49db5e6f3237c7da67f88f45741932",
+        "bytes": 21
+      }
+    ],
+    "scripts": {
+      "check-sqlite-runtime.mjs": {
+        "path": ".local/sqlite-proof-20261102-v4/artifact-v2/files/scripts/check-sqlite-runtime.mjs",
+        "sha256": "d6e67e635e0c2b022eb38e1d77d5276d9b76a48dbfcfca8e624726634c8918a1",
+        "bytes": 13882
+      },
+      "fetch-sqlite-runtime-sources.mjs": {
+        "path": ".local/sqlite-proof-20261102-v4/artifact-v2/files/scripts/fetch-sqlite-runtime-sources.mjs",
+        "sha256": "958a9b93482691e6cc9d5a0ef086a9855647305edd949ecfbba6bbbba6dda5b9",
+        "bytes": 3348
+      },
+      "sqlite-runtime-sources.json": {
+        "path": ".local/sqlite-proof-20261102-v4/artifact-v2/files/scripts/sqlite-runtime-sources.json",
+        "sha256": "c787352f4b57d1490e51308a9b7364bb68ad759c6cea28f2709915f12a775e4a",
+        "bytes": 108843
+      }
+    }
+  },
+  "baseline": {
+    "root": {
+      "path": ".local/releases/compliance-case-review-release-20261030-v1/root-review.json",
+      "sha256": "8726efc25924a37613c3ad1d632617c335881f2d21ce36a393ecc98e362b73f4",
+      "bytes": 83704
+    },
+    "runtime": {
+      "path": ".local/releases/compliance-case-review-release-20261030-v1/deployed-runtime-acceptance.json",
+      "sha256": "c9285436cbecde3137ba96b5faa99cb508f9f433ba6c18999be7278125ee785c",
+      "bytes": 2822
+    },
+    "availability": {
+      "path": ".local/production-launch-20261102/availability-accepted.json",
+      "sha256": "7ab67fcdf1446d9ea72b143882275fb0cd916a067853d8a3464cf7db2a65f558",
+      "bytes": 71747
+    },
+    "api": {
+      "inventory": {
+        "path": ".local/releases/compliance-case-review-release-20261030-v1/api-image-audit-v1/complete-merged-inventory.json",
+        "sha256": "b6bd65f28489046aa6a450a0b47bbaaa0c687e9147c75db594461d6d5a327a08",
+        "bytes": 112986232
+      },
+      "ociAcceptance": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "nativeInventory": {
+        "path": ".local/releases/compliance-case-review-release-20261030-v1/api-image-audit-v1/complete-native-inventory.json",
+        "sha256": "76a34f521308d281a45c6c553c2416884ba90cf5afc67dd65c156ea370851b00",
+        "bytes": 210804
+      },
+      "config": {
+        "path": ".local/releases/compliance-case-review-release-20261030-v1/api-image-audit-v1/original-config.json",
+        "sha256": "11678875d5358b491a25ffdb1a802ffdc288e69f3029f353a7f2439df6b0198d",
+        "bytes": 47785
+      }
+    },
+    "web": {
+      "inventory": {
+        "path": ".local/releases/compliance-case-review-release-20261030-v1/web-image-audit-v1/complete-merged-inventory.json",
+        "sha256": "920f26f4f10d6d5215d325c0bf3129ae330714022ab3221a3f06acc73087fb7f",
+        "bytes": 3885909
+      },
+      "ociAcceptance": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "nativeInventory": {
+        "path": ".local/releases/compliance-case-review-release-20261030-v1/web-image-audit-v1/complete-native-inventory.json",
+        "sha256": "f5bb61ca159160a2b1d7bee08c999db90e1a09d4d6b81008ff236c90d7f5c663",
+        "bytes": 148087
+      },
+      "config": {
+        "path": ".local/releases/compliance-case-review-release-20261030-v1/web-image-audit-v1/original-config.json",
+        "sha256": "94b97129f87bdacb8d3bbf98f564addfb6dbe65e096781e1fc603198f5817dff",
+        "bytes": 26629
+      }
+    }
+  },
+  "review": {
+    "operatorSourceAcceptance": {
+      "path": null,
+      "sha256": null,
+      "bytes": null
+    },
+    "apiLedger": {
+      "path": null,
+      "sha256": null,
+      "bytes": null
+    },
+    "webLedger": {
+      "path": null,
+      "sha256": null,
+      "bytes": null
+    },
+    "migrationRecoveryPlan": {
+      "path": null,
+      "sha256": null,
+      "bytes": null
+    },
+    "operatorManifest": {
+      "path": null,
+      "sha256": null,
+      "bytes": null
+    },
+    "migrationCompatibilityProof": {
+      "path": null,
+      "sha256": null,
+      "bytes": null
+    }
+  },
+  "nssTool": {
+    "pins": {
+      "path": ".local/sqlite-nss-runtime-tool-20261102/tool-pins.json",
+      "sha256": "ae962899d94270e6f6e3a84a8768f0fc0e31f68cce57d52fd95d617363719b37",
+      "bytes": 799
+    },
+    "binary": {
+      "path": ".local/sqlite-nss-runtime-tool-20261102/certutil",
+      "sha256": "815d8be06440a4dea3735ac102c7fedbcdb3b72d6ec32349431ac2cba55c19da",
+      "bytes": 207680
+    },
+    "fixture": {
+      "path": null,
+      "sha256": null,
+      "bytes": null
+    },
+    "acceptance": {
+      "path": null,
+      "sha256": null,
+      "bytes": null
+    }
+  }
+}

@@ -1,0 +1,1961 @@
+{
+  "schemaVersion": 1,
+  "purpose": "production-native-successor/v1",
+  "owner": "Main",
+  "applicationAncestor": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+  "sqliteAncestor": "2b721d3d9a3397d0e14da859ab517e71b4c0c48b",
+  "baselineSource": "62c6645a99e4bfa156b8b242569e3a828a0f48fe",
+  "baselineRootSha256": "8726efc25924a37613c3ad1d632617c335881f2d21ce36a393ecc98e362b73f4",
+  "baselineRuntimeSha256": "c9285436cbecde3137ba96b5faa99cb508f9f433ba6c18999be7278125ee785c",
+  "availabilitySha256": "7ab67fcdf1446d9ea72b143882275fb0cd916a067853d8a3464cf7db2a65f558",
+  "roles": {
+    "api": {
+      "revision": 71,
+      "digest": "sha256:156b02e9cd6d62ea360c63437a22e0143bd0bf8ccb9632f952015dcb1bb289eb",
+      "configSha256": "11678875d5358b491a25ffdb1a802ffdc288e69f3029f353a7f2439df6b0198d",
+      "inventorySha256": "b6bd65f28489046aa6a450a0b47bbaaa0c687e9147c75db594461d6d5a327a08",
+      "nativeInventorySha256": "76a34f521308d281a45c6c553c2416884ba90cf5afc67dd65c156ea370851b00",
+      "tools": [
+        {
+          "path": "/usr/bin/dpkg",
+          "sha256": "0a20f6015fbb7c011571f3ed227a138b12ce282e46b7fdfc239558bc5a7bc9e5"
+        },
+        {
+          "path": "/usr/bin/dpkg-query",
+          "sha256": "095817337215129933918cacae5fd62e86202fe238591bea207a75b73561e8c5"
+        },
+        {
+          "path": "/usr/bin/dpkg-deb",
+          "sha256": "5346e5fdfdc81d58bbc9d2a3de20ff3738dc479cdb04cc52b91503cbb13440eb"
+        },
+        {
+          "path": "/usr/sbin/ldconfig",
+          "sha256": "3bcf9dc34dff1ba27d8b2f0471bf2445ca83fe25a3623743e5b2206c14c648a1"
+        },
+        {
+          "path": "/usr/local/bin/node",
+          "sha256": "94efd062ed066c1a0b332e18249859c905e920eeada5df55d24c99b919629a90"
+        }
+      ],
+      "image": "051722405355.dkr.ecr.us-east-2.amazonaws.com/vaettir-api@sha256:156b02e9cd6d62ea360c63437a22e0143bd0bf8ccb9632f952015dcb1bb289eb",
+      "nssVersion": "2:3.110-1+deb13u4",
+      "nssLibraries": [
+        {
+          "path": "usr/lib/x86_64-linux-gnu/libnss3.so",
+          "sha256": "b13e6eedabfe3d1cc2aa6d3d75da9cbfe894902d22a8012fff7f1ada25b7d0ed"
+        },
+        {
+          "path": "usr/lib/x86_64-linux-gnu/libsoftokn3.so",
+          "sha256": "7262de7206f68b41c52202bbf6281c42d64453b4c1e17ab41271400965b57896"
+        }
+      ]
+    },
+    "web": {
+      "revision": 79,
+      "digest": "sha256:3f615b8ee455c1a1160c9f20de125e310ca26ac6d754f5a56a4c0801f343b2ef",
+      "configSha256": "94b97129f87bdacb8d3bbf98f564addfb6dbe65e096781e1fc603198f5817dff",
+      "inventorySha256": "920f26f4f10d6d5215d325c0bf3129ae330714022ab3221a3f06acc73087fb7f",
+      "nativeInventorySha256": "f5bb61ca159160a2b1d7bee08c999db90e1a09d4d6b81008ff236c90d7f5c663",
+      "tools": [
+        {
+          "path": "/usr/bin/dpkg",
+          "sha256": "0a20f6015fbb7c011571f3ed227a138b12ce282e46b7fdfc239558bc5a7bc9e5"
+        },
+        {
+          "path": "/usr/bin/dpkg-query",
+          "sha256": "095817337215129933918cacae5fd62e86202fe238591bea207a75b73561e8c5"
+        },
+        {
+          "path": "/usr/bin/dpkg-deb",
+          "sha256": "5346e5fdfdc81d58bbc9d2a3de20ff3738dc479cdb04cc52b91503cbb13440eb"
+        },
+        {
+          "path": "/usr/sbin/ldconfig",
+          "sha256": "3bcf9dc34dff1ba27d8b2f0471bf2445ca83fe25a3623743e5b2206c14c648a1"
+        },
+        {
+          "path": "/usr/local/bin/node",
+          "sha256": "94efd062ed066c1a0b332e18249859c905e920eeada5df55d24c99b919629a90"
+        }
+      ],
+      "image": "051722405355.dkr.ecr.us-east-2.amazonaws.com/vaettir-web@sha256:3f615b8ee455c1a1160c9f20de125e310ca26ac6d754f5a56a4c0801f343b2ef",
+      "nssVersion": null,
+      "nssLibraries": []
+    }
+  },
+  "baselineMigrations": [
+    {
+      "path": "packages/db/prisma/migrations/20260824173227_init/migration.sql",
+      "sha256": "7c5f4c70004ed4e75ef3e0e63e3dbee33f9f17f155a132fdf7482a907b93647e"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260824173627_test_case_child_cascade_deletes/migration.sql",
+      "sha256": "8beef4f30480628f02555c62e71e28fdcdebb3f3c4e718859079a3ddb06d1cc8"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260824174455_invitations/migration.sql",
+      "sha256": "797f81dd6ce97f8f9b74bc4263bea32564cd69da186f47cf584111abe0940ded"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260824184155_test_case_review_workflow/migration.sql",
+      "sha256": "189093d15061c1b246dba06f62bccb40151206cdda41744e2128cbb472b7f2d3"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260824222433_reverse_engineer_job_content/migration.sql",
+      "sha256": "184aa96949d072fd26867ab3d69bdd63e216c5bbc98d734b2d5c166f09018b4a"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260825040707_test_risk_scoring_and_selection/migration.sql",
+      "sha256": "94c0e4015f87e73efd38f56419110f1391a80b501ff073ecdf68ddcbca23e2dc"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260825070019_test_case_suite_path/migration.sql",
+      "sha256": "1c71f9a1334e84a61909185f2941f04f47ccceeb4ed4b011711cd057990e02ac"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260825081754_test_case_archived/migration.sql",
+      "sha256": "f201e3d8d7d7c1db2190dfc29eff4950e7602766f91fd3d43b4af44d205cbbd0"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260825082402_audit_columns/migration.sql",
+      "sha256": "1bcb0fdd7694165fcea1a416ca5cf2c4d47e9488e6746bbbe0691bf2fb0baa88"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260825082849_api_keys/migration.sql",
+      "sha256": "5c9fd953f756c97102846d1e7006a04a2c12c02f33f115529f99e43cef686fea"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260825201408_test_case_source_content_hash/migration.sql",
+      "sha256": "03d63f643cb292f56b73f7b394c2dd2579d9cb34c7e5eb1882c1c0083c51e8e2"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260825204601_project_last_scanned_commit/migration.sql",
+      "sha256": "9fdc9ef408997d8ff3b3bccbfec9ffe27056d15038aea0be8716941eade6be62"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260825205127_test_case_ai_snapshot/migration.sql",
+      "sha256": "75b66c1d9437e49ee05446c802f50526de333c2b855b117192014059bcf57191"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260827001729_audit_log/migration.sql",
+      "sha256": "bebee6953d77072e87e9ff05b0518c43f5b3af0b9c85a1a34a630aa1d9d63b81"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260827013736_test_plan_strategy_link/migration.sql",
+      "sha256": "07b720acd573810b91037bf67452342ab1b4cc4aa7fef300c731b53cfc724f30"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260827014134_test_plan_version/migration.sql",
+      "sha256": "59f4d79b5037eaf2d28e688c49578985248b08abae861e49f624ed4f10acf589"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260827022816_test_case_flaky/migration.sql",
+      "sha256": "097a22dd2e82ec3a0c6f78fe549d25b188cf0a304096d2369bda5ad47bdf1920"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260827023307_coverage_reports/migration.sql",
+      "sha256": "e3910703aa6321acf04391971ca3de460ca4f1c71b222301039e02cf810c12e0"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260827042130_custom_framework_heuristic/migration.sql",
+      "sha256": "d768ff2a9ad86b2c55307f94dc131b1ea2c667cec0d2a93e13bc376146418649"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260827050533_pr_scan_policy/migration.sql",
+      "sha256": "022bee0c64d236d6632ef82c9255d7ff869ef0bded09578f319600b2ba854699"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260827062332_release_gate_policy/migration.sql",
+      "sha256": "f3b32daa44bcaef71cef422171b66ad6d4c1bb953e60c099507e1348417ebd37"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260827071512_org_readiness_digest/migration.sql",
+      "sha256": "2f9d98e65950c17a96305b5e849b88912c1821349707dbb9d23a0de1a96c4938"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260827072236_ai_credit_ledger/migration.sql",
+      "sha256": "1296af84ab99a4bf68d35c953bf177801152ef42f12b99ed1b0b9fd598360ea9"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260827074049_healing_suggestions/migration.sql",
+      "sha256": "17d500f0f6046c0f09e092a008e8f51366793bc60bb40282cd2232a6c90cb704"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260827075705_compliance_evidence_signoff/migration.sql",
+      "sha256": "73d3e98ff7022993695b6a4fa16ed7745ad420c2627a18d829dbc42c7b33160d"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260827081143_plan_tier_feature_flags/migration.sql",
+      "sha256": "86e71416c3eac1f673c2b29668fb68196589ac304ec95b60ac0b31f7657c096b"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260827081548_ai_edit_feedback/migration.sql",
+      "sha256": "9d40bbe8a77d92ba0da46594e963607800ff950f3a2799baeda00e488c2e4d45"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260827185700_add_webhook_endpoints/migration.sql",
+      "sha256": "aeffe94780cdb3f8bd50cbec1f5e76595bad9837ae190e9a549420ff3bc47c0a"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260827222403_manual_test_execution/migration.sql",
+      "sha256": "c1b1c2d58893bc6565d5dba8656109e3222bd81b3ff22aa3038151a2a793f602"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260827223037_test_case_versioning/migration.sql",
+      "sha256": "cb82fe26d857b0186d84cc5fc6eb569d73760273f03f04983d4d4ac04be1da4b"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260827223753_shared_step_groups/migration.sql",
+      "sha256": "7d8897dc44a8632ed62452390689f1870c9cda089e2e93df61c41b9a4aa801f5"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260827224843_test_case_attachments/migration.sql",
+      "sha256": "60797f2b54281b95e32730258786511828a297573a39ed707dedc8e1c7d4bd30"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260827225917_exploratory_sessions/migration.sql",
+      "sha256": "db8a4d698706252c94ad6b6d3ddbba899db1b071625261c5889c79571677507d"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260827230328_test_case_datasets/migration.sql",
+      "sha256": "10841df9bc08bb3ff8e1f81be4a9885a3b8f16035cba99ec2fd8fafdc0206098"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260828020736_test_run_started_by/migration.sql",
+      "sha256": "cb7f90e811a8cb71edd236f6d61c5fbfc5cba15fb9d1860bbcfc73060cd973ae"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260828082109_add_import_job/migration.sql",
+      "sha256": "967e4244fb50d989b651fabaeac0380d947b7ccb5672c066b747b7c337c3b4e8"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260828093835_add_org_suspension/migration.sql",
+      "sha256": "65f53acebc64c5997ddf3e84d14e82dc5085dbebff48207e523d6a2b82e7b0dc"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260828175703_add_org_deletion_log/migration.sql",
+      "sha256": "d32754f465eb1ab11d1287c9844015e783a652b6e8cc0ffdceb3dfb9360829fe"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260904230040_add_slack_event_types/migration.sql",
+      "sha256": "9421d6bf07b4d688ecdbbcb430dd25371cf1f704cda5d5c029adbe845956cfc1"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260905041905_add_signoff_requests_and_push_tokens/migration.sql",
+      "sha256": "3e8b46707ba22211e5b4574a17b001927db449a4e5eb8f471c2211f84cdbd1ab"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260905045506_add_access_review/migration.sql",
+      "sha256": "84498ab6f0dfed9b3a4b1a5ad971b47766ed028faa77f8775ad0767506af2b49"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260905051543_add_import_job_updated_count/migration.sql",
+      "sha256": "c81d1e00836a3f6fc63325fd28fff2ce494d3b6b54fe963a08bcf0313a682a70"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260908235500_private_beta_studio_enrollment/migration.sql",
+      "sha256": "5f01020d2c6410b7a7eec32da4972aad00a164f4a297586190fa1dfa1812a522"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260910210000_ai_credit_transaction_token_usage/migration.sql",
+      "sha256": "4c7dc752d7347ba56b4c84eeca802ce6624ed23648217d8381f54895a700fdc4"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260910223000_release_readiness_snapshot/migration.sql",
+      "sha256": "8a06c486f3ae3174567ee36fa413f151c3f6a6af3ea3cd47334b73fd11e463fa"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260912080920_p12_05_stripe_billing_fields/migration.sql",
+      "sha256": "00fdb7e5d53616058ef5deac971a0d77e638b2ceee9d063bbc88d7b75cdfa5d3"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260912083536_sse181_live_app_generated_origin/migration.sql",
+      "sha256": "b80f183383cca000978f183f230e65994a6dee2e4a8f2621b9c1d76be56c8d2b"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260912091500_sse180_production_signal_linkage/migration.sql",
+      "sha256": "fa9f311af2e1c5d6183ea70b4450c89ec3bb1134a35c7a0ad59fa66e8769ab52"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260912100000_p9_04_incident_linkage/migration.sql",
+      "sha256": "5d58f89c1adcfa088601b5ab44601c79cb913d251510c4aed48d552ad935d207"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260912103000_p9_02_linear_integration/migration.sql",
+      "sha256": "d7e008dcadc42b9d43ebaa82759de987851df2e5fe4cc13a80819da68b2485de"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260912110000_p9_01_jira_integration/migration.sql",
+      "sha256": "60e484e10895075fd058df84db0240449e604152517fe1e192914be2ef7bc4fa"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260912113000_p9_04_datadog_integration/migration.sql",
+      "sha256": "7cc8ba5ff68fd2f285836b8a869c3e2c7f419d3c8b418f103c213cb85eaea742"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260912120000_requirement_share_token/migration.sql",
+      "sha256": "67701176f453e243f671cf33ea886291b95ab70903c0382b89791d3e02ce58b9"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260922000000_mobile_automation_frameworks/migration.sql",
+      "sha256": "d3517063da94d9f6a8c877f286fcc0da0f12a5fcc0dfcc07f797e6102462e746"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260922110000_project_scoped_ci_mapping/migration.sql",
+      "sha256": "6b5f68129aecae6411bbcc6e3fd7e923f46b7b250702f41f1160e0cff6e21c57"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260922120000_expand_automation_frameworks/migration.sql",
+      "sha256": "97492fbf6953a7a1070e463528848379723890e1b3ed1b33272f970f65f73826"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260928173000_transactional_email_delivery/migration.sql",
+      "sha256": "211dae51757edaa68cb57ef5222e855a338d7d8f8baa03d026d1e36d06bb0d5f"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260928190000_physical_validation_domains/migration.sql",
+      "sha256": "a298ca50d6799907f477880a8374ef65f8a45405246796b3901021618194c066"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260929064000_population_drafts/migration.sql",
+      "sha256": "58bdd1639551997f940ea48725ca42ad4af77f60e2e0594a0db4ff33a58505ba"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260929074500_population_documents/migration.sql",
+      "sha256": "e55aaee4d9f21f0552379ff746791465e090c69bf1187968f5add39b25a980e3"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260929081500_population_requirements/migration.sql",
+      "sha256": "af5652695119ddac0ff3b46fca7880f9c9e385be03619a15a6261bbdfdc87b6b"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260929210000_project_repositories/migration.sql",
+      "sha256": "0a6e24cdcb4d0081a8f56ee410bfb05a171b8b41da39b937a45f6bef64500f84"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260929213000_saved_automation_drafts/migration.sql",
+      "sha256": "c7e38ef7d5a14da3ac1ad65b2d567c7c2239940da379f6b526deef98c901f182"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260929230000_invitation_delivery/migration.sql",
+      "sha256": "013417a23e10d5e84cc34c348eda6fafa417141a0ecd47be6406b381d19a0e7c"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260929231000_test_design_reviews/migration.sql",
+      "sha256": "316ef56759aa4493c9fd30909f667317b5379827599aef98134f84105667f809"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260930073000_repository_authorization/migration.sql",
+      "sha256": "d4484718f9609eb8da8d32db7cc1d1249e98e1708eb24202d46a737bb9c852f3"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260930080000_test_case_views/migration.sql",
+      "sha256": "84b4aaa0a36bb8e80a55f6c20acc142be313b840d2997702e78b1f8d67bf4dbf"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260930094500_test_case_placement_prerequisites/migration.sql",
+      "sha256": "e713c3aeeaa4bbd62090950c7ef257e4c07fa256cf730fc6e9bc26ec1f633f36"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260930100000_bulk_case_analysis/migration.sql",
+      "sha256": "81d9bda00ae77199e4b34cf5ca42a83b10da6375f0070874b477651406392f18"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260930101500_import_case_baseline/migration.sql",
+      "sha256": "484491ada651bfcd9c88636f4fa14ba6ab23c1862c68535e1415a2386fcd9cc4"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260930113000_test_case_step_media/migration.sql",
+      "sha256": "e9d54091ec9ca061e14a0dc720170feb9b4f06f5489109a16fb4b50cd69ec8f0"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260930140000_repository_token_connections/migration.sql",
+      "sha256": "b30d10044a183d41ef1da3fae8499216d27533fe6ac7ef2dd3c5bff30a1a6c62"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261001081500_linear_source_connections/migration.sql",
+      "sha256": "ed5602ff2901b15c8b35af0251a85c11d097b343b1b3dfcd7f381866bd3501ed"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261001090000_repository_processing_approval/migration.sql",
+      "sha256": "06f525b82af46711269ca28dbe878398174fdb863efb9494989df30e609b1a15"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261001093000_ticket_source_origin/migration.sql",
+      "sha256": "e04c21a74ed71e8f3122dbad8858f2d11345dc8878cb254a03ceef53c326d46f"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261001103000_jira_issue_intake/migration.sql",
+      "sha256": "0b3328cfa8d36b1f2107c6d87e19ddd9ff0e982c7fd83edec269a6166c4ab2aa"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261001110000_drive_source_connection/migration.sql",
+      "sha256": "940ac6c2ab8dcd7c8e4519743f0be6b12a424b3ab9d816b52950113266364e9c"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261001220000_test_plan_execution_template/migration.sql",
+      "sha256": "df0b854740ba58dfd011f5da742114957125bc58c9b1145bb85c71dcaa42e54b"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261001230000_manual_step_result_revisions/migration.sql",
+      "sha256": "4fc78e640ce7eb43dda736bb56d2728404f5c710d6b2150a8ac74db4ae12d73f"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261002233000_defect_map/migration.sql",
+      "sha256": "6dde64e18592681030845f0541b36a76f1bdabd84d5edb133721545ad1c2963a"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261002235000_case_traceability_reports/migration.sql",
+      "sha256": "2b029c61a5945f333c3ebd10c240691b9b79135c02c0d4fb497cbd350643869f"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261003001500_report_definition_receipts/migration.sql",
+      "sha256": "03671485a34fd0fc3e98bc0d68d29af85983200e4a3a52eb83b8bc3f016e6501"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261003013000_manual_step_write_guards/migration.sql",
+      "sha256": "2a088bc1d0a553d4f482a47d32fc73eebb851229b5b9b1a0f97413f6573e6745"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261003060000_test_case_display_identity/migration.sql",
+      "sha256": "5740b318a4471ce4b60903fe87095e15870eed133746adb427bd1d8220a4e9d6"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261003190000_shared_step_library_history/migration.sql",
+      "sha256": "2d58625bb8818cd213b0f661b493a75aeeec18c07fa3d8828d594678421160f2"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261003210000_case_analysis_queue/migration.sql",
+      "sha256": "2352136c071da59d41edafa50ba9fe6c7c52a186976cb636c6a8d5831676de56"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261004010000_saved_typed_case_queries/migration.sql",
+      "sha256": "812ace8188b085181941bd5be913eb2287117abece8243ccdd20722f76e9ec12"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261004020000_case_folder_lifecycle/migration.sql",
+      "sha256": "76c1145753ef8467407063c3135c0d4c6d62d1c464bff28732a9bda00e06887e"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261004030000_typed_case_fields/migration.sql",
+      "sha256": "036c50e4eb9ff8ea93a40f9a3385a322db231bad081dd8b93bb586de5871ff5b"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261004040000_project_quality_risks/migration.sql",
+      "sha256": "128739b6ddbceb815b45c8ecd568e72b091c390967ff506c088a83d6ba3bb8e7"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261004050000_requirement_baselines/migration.sql",
+      "sha256": "bfb6e452ea7190c574a8a329958fc92fa603ee2eda997711719fd4f0fd685819"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261004060000_case_authoring_presets/migration.sql",
+      "sha256": "80401a91bccd1c48d5da9e1cf9fb11d2da2607b799cdecfe5f1a39de4e155154"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261004070000_report_definition_lifecycle/migration.sql",
+      "sha256": "8789fda8f69d1f2c548a3f7ea51e9aa34dc626b69444d95f9ce022c8c477a8e0"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261004080000_manual_case_result_history/migration.sql",
+      "sha256": "553c874740ae96f7e351a868c01a671f7e7512f667420ff8402d05ade3dab99f"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261004090000_execution_history_fk_indexes/migration.sql",
+      "sha256": "4687c77bd244df56c6847218fcf42e6d707935081fe4f37cfb33764887ad7faa"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261004100000_manual_step_delete_set_guard/migration.sql",
+      "sha256": "6de916186d8d164d0afb8aa41ceb549e2a1d05838effcbd4743a3805bcd7fd5c"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261005220000_case_comments/migration.sql",
+      "sha256": "76e9cfafaeb7b82e541d639357e05493e8b2239cc6fc1279937b9d581ed8aec5"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261012090000_project_case_key_aliases/migration.sql",
+      "sha256": "4bf9422e94fb21186567317301ce515b416b1a1c1df2d0c74c4fa83ac5e287c6"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261016222000_ai_disclosure_grants/migration.sql",
+      "sha256": "63ea19fb5b20867be3a117bba9ffc4804b8feb23c1fbde6be2834e8df549a08c"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261017003000_workspace_domain_claim/migration.sql",
+      "sha256": "3be3bba886a35ebbe57f62276f84bfc5ef1d4f87bebf9eb43d9293b762a78f47"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261023000000_unreal_playtest_bridge/migration.sql",
+      "sha256": "13b550b8fffa3e78ac58714fd6c16e5ab15838ee6324f01c4f78669c0ff64bee"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261028230000_reporting_workflows/migration.sql",
+      "sha256": "bce5b3bf1e37b4ae7435b4b1e6692d58d0f19acf3ed2975717e7b770236b0fc0"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261028233000_reporting_authorization_fences/migration.sql",
+      "sha256": "e9e77d070321be2f44363aa8417917484daaf6c85b09831d4ba98f2a831782b7"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261029000000_report_delivery/migration.sql",
+      "sha256": "5d22450ffb2a1ac16c5bf134389757960ee8d3c2098b0deaae454a434b0adcb3"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261030000000_new_project_keys_letters/migration.sql",
+      "sha256": "bbd1d11f9c03ac2e7ec17194dffda2d02ccd08cbcf6801bc5237d214c35e4ed2"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261030001000_import_mapping_queue/migration.sql",
+      "sha256": "ee94b52f1e02934cf91646447f09047ae44171b5bcaa2e2b44dd47f1c424e5aa"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261030002000_atlassian_oauth/migration.sql",
+      "sha256": "c67b8b235731d6c44fc4eaf1e5c2ad72b9ab1ff8d06c286d20ce273511911d6a"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261030003000_atlassian_privacy_checks/migration.sql",
+      "sha256": "cc4be71a3b59cbaaafa023c56f30fbefaad5291c356e8de68ec9185fcb929c27"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261030004000_atlassian_privacy_cycles/migration.sql",
+      "sha256": "5dae733fa928a563de92136485b99bc7655e6cef70d85b8b45d6702ea2072ac5"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261030200000_compliance_review_workflow/migration.sql",
+      "sha256": "119feee1f398ec02e17279aee7e99a3722676bfd7958732d193e623ebe3e62b8"
+    }
+  ],
+  "candidateMigrations": [
+    {
+      "path": "packages/db/prisma/migrations/20260824173227_init/migration.sql",
+      "sha256": "7c5f4c70004ed4e75ef3e0e63e3dbee33f9f17f155a132fdf7482a907b93647e"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260824173627_test_case_child_cascade_deletes/migration.sql",
+      "sha256": "8beef4f30480628f02555c62e71e28fdcdebb3f3c4e718859079a3ddb06d1cc8"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260824174455_invitations/migration.sql",
+      "sha256": "797f81dd6ce97f8f9b74bc4263bea32564cd69da186f47cf584111abe0940ded"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260824184155_test_case_review_workflow/migration.sql",
+      "sha256": "189093d15061c1b246dba06f62bccb40151206cdda41744e2128cbb472b7f2d3"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260824222433_reverse_engineer_job_content/migration.sql",
+      "sha256": "184aa96949d072fd26867ab3d69bdd63e216c5bbc98d734b2d5c166f09018b4a"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260825040707_test_risk_scoring_and_selection/migration.sql",
+      "sha256": "94c0e4015f87e73efd38f56419110f1391a80b501ff073ecdf68ddcbca23e2dc"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260825070019_test_case_suite_path/migration.sql",
+      "sha256": "1c71f9a1334e84a61909185f2941f04f47ccceeb4ed4b011711cd057990e02ac"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260825081754_test_case_archived/migration.sql",
+      "sha256": "f201e3d8d7d7c1db2190dfc29eff4950e7602766f91fd3d43b4af44d205cbbd0"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260825082402_audit_columns/migration.sql",
+      "sha256": "1bcb0fdd7694165fcea1a416ca5cf2c4d47e9488e6746bbbe0691bf2fb0baa88"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260825082849_api_keys/migration.sql",
+      "sha256": "5c9fd953f756c97102846d1e7006a04a2c12c02f33f115529f99e43cef686fea"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260825201408_test_case_source_content_hash/migration.sql",
+      "sha256": "03d63f643cb292f56b73f7b394c2dd2579d9cb34c7e5eb1882c1c0083c51e8e2"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260825204601_project_last_scanned_commit/migration.sql",
+      "sha256": "9fdc9ef408997d8ff3b3bccbfec9ffe27056d15038aea0be8716941eade6be62"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260825205127_test_case_ai_snapshot/migration.sql",
+      "sha256": "75b66c1d9437e49ee05446c802f50526de333c2b855b117192014059bcf57191"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260827001729_audit_log/migration.sql",
+      "sha256": "bebee6953d77072e87e9ff05b0518c43f5b3af0b9c85a1a34a630aa1d9d63b81"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260827013736_test_plan_strategy_link/migration.sql",
+      "sha256": "07b720acd573810b91037bf67452342ab1b4cc4aa7fef300c731b53cfc724f30"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260827014134_test_plan_version/migration.sql",
+      "sha256": "59f4d79b5037eaf2d28e688c49578985248b08abae861e49f624ed4f10acf589"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260827022816_test_case_flaky/migration.sql",
+      "sha256": "097a22dd2e82ec3a0c6f78fe549d25b188cf0a304096d2369bda5ad47bdf1920"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260827023307_coverage_reports/migration.sql",
+      "sha256": "e3910703aa6321acf04391971ca3de460ca4f1c71b222301039e02cf810c12e0"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260827042130_custom_framework_heuristic/migration.sql",
+      "sha256": "d768ff2a9ad86b2c55307f94dc131b1ea2c667cec0d2a93e13bc376146418649"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260827050533_pr_scan_policy/migration.sql",
+      "sha256": "022bee0c64d236d6632ef82c9255d7ff869ef0bded09578f319600b2ba854699"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260827062332_release_gate_policy/migration.sql",
+      "sha256": "f3b32daa44bcaef71cef422171b66ad6d4c1bb953e60c099507e1348417ebd37"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260827071512_org_readiness_digest/migration.sql",
+      "sha256": "2f9d98e65950c17a96305b5e849b88912c1821349707dbb9d23a0de1a96c4938"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260827072236_ai_credit_ledger/migration.sql",
+      "sha256": "1296af84ab99a4bf68d35c953bf177801152ef42f12b99ed1b0b9fd598360ea9"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260827074049_healing_suggestions/migration.sql",
+      "sha256": "17d500f0f6046c0f09e092a008e8f51366793bc60bb40282cd2232a6c90cb704"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260827075705_compliance_evidence_signoff/migration.sql",
+      "sha256": "73d3e98ff7022993695b6a4fa16ed7745ad420c2627a18d829dbc42c7b33160d"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260827081143_plan_tier_feature_flags/migration.sql",
+      "sha256": "86e71416c3eac1f673c2b29668fb68196589ac304ec95b60ac0b31f7657c096b"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260827081548_ai_edit_feedback/migration.sql",
+      "sha256": "9d40bbe8a77d92ba0da46594e963607800ff950f3a2799baeda00e488c2e4d45"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260827185700_add_webhook_endpoints/migration.sql",
+      "sha256": "aeffe94780cdb3f8bd50cbec1f5e76595bad9837ae190e9a549420ff3bc47c0a"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260827222403_manual_test_execution/migration.sql",
+      "sha256": "c1b1c2d58893bc6565d5dba8656109e3222bd81b3ff22aa3038151a2a793f602"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260827223037_test_case_versioning/migration.sql",
+      "sha256": "cb82fe26d857b0186d84cc5fc6eb569d73760273f03f04983d4d4ac04be1da4b"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260827223753_shared_step_groups/migration.sql",
+      "sha256": "7d8897dc44a8632ed62452390689f1870c9cda089e2e93df61c41b9a4aa801f5"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260827224843_test_case_attachments/migration.sql",
+      "sha256": "60797f2b54281b95e32730258786511828a297573a39ed707dedc8e1c7d4bd30"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260827225917_exploratory_sessions/migration.sql",
+      "sha256": "db8a4d698706252c94ad6b6d3ddbba899db1b071625261c5889c79571677507d"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260827230328_test_case_datasets/migration.sql",
+      "sha256": "10841df9bc08bb3ff8e1f81be4a9885a3b8f16035cba99ec2fd8fafdc0206098"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260828020736_test_run_started_by/migration.sql",
+      "sha256": "cb7f90e811a8cb71edd236f6d61c5fbfc5cba15fb9d1860bbcfc73060cd973ae"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260828082109_add_import_job/migration.sql",
+      "sha256": "967e4244fb50d989b651fabaeac0380d947b7ccb5672c066b747b7c337c3b4e8"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260828093835_add_org_suspension/migration.sql",
+      "sha256": "65f53acebc64c5997ddf3e84d14e82dc5085dbebff48207e523d6a2b82e7b0dc"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260828175703_add_org_deletion_log/migration.sql",
+      "sha256": "d32754f465eb1ab11d1287c9844015e783a652b6e8cc0ffdceb3dfb9360829fe"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260904230040_add_slack_event_types/migration.sql",
+      "sha256": "9421d6bf07b4d688ecdbbcb430dd25371cf1f704cda5d5c029adbe845956cfc1"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260905041905_add_signoff_requests_and_push_tokens/migration.sql",
+      "sha256": "3e8b46707ba22211e5b4574a17b001927db449a4e5eb8f471c2211f84cdbd1ab"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260905045506_add_access_review/migration.sql",
+      "sha256": "84498ab6f0dfed9b3a4b1a5ad971b47766ed028faa77f8775ad0767506af2b49"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260905051543_add_import_job_updated_count/migration.sql",
+      "sha256": "c81d1e00836a3f6fc63325fd28fff2ce494d3b6b54fe963a08bcf0313a682a70"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260908235500_private_beta_studio_enrollment/migration.sql",
+      "sha256": "5f01020d2c6410b7a7eec32da4972aad00a164f4a297586190fa1dfa1812a522"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260910210000_ai_credit_transaction_token_usage/migration.sql",
+      "sha256": "4c7dc752d7347ba56b4c84eeca802ce6624ed23648217d8381f54895a700fdc4"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260910223000_release_readiness_snapshot/migration.sql",
+      "sha256": "8a06c486f3ae3174567ee36fa413f151c3f6a6af3ea3cd47334b73fd11e463fa"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260912080920_p12_05_stripe_billing_fields/migration.sql",
+      "sha256": "00fdb7e5d53616058ef5deac971a0d77e638b2ceee9d063bbc88d7b75cdfa5d3"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260912083536_sse181_live_app_generated_origin/migration.sql",
+      "sha256": "b80f183383cca000978f183f230e65994a6dee2e4a8f2621b9c1d76be56c8d2b"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260912091500_sse180_production_signal_linkage/migration.sql",
+      "sha256": "fa9f311af2e1c5d6183ea70b4450c89ec3bb1134a35c7a0ad59fa66e8769ab52"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260912100000_p9_04_incident_linkage/migration.sql",
+      "sha256": "5d58f89c1adcfa088601b5ab44601c79cb913d251510c4aed48d552ad935d207"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260912103000_p9_02_linear_integration/migration.sql",
+      "sha256": "d7e008dcadc42b9d43ebaa82759de987851df2e5fe4cc13a80819da68b2485de"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260912110000_p9_01_jira_integration/migration.sql",
+      "sha256": "60e484e10895075fd058df84db0240449e604152517fe1e192914be2ef7bc4fa"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260912113000_p9_04_datadog_integration/migration.sql",
+      "sha256": "7cc8ba5ff68fd2f285836b8a869c3e2c7f419d3c8b418f103c213cb85eaea742"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260912120000_requirement_share_token/migration.sql",
+      "sha256": "67701176f453e243f671cf33ea886291b95ab70903c0382b89791d3e02ce58b9"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260922000000_mobile_automation_frameworks/migration.sql",
+      "sha256": "d3517063da94d9f6a8c877f286fcc0da0f12a5fcc0dfcc07f797e6102462e746"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260922110000_project_scoped_ci_mapping/migration.sql",
+      "sha256": "6b5f68129aecae6411bbcc6e3fd7e923f46b7b250702f41f1160e0cff6e21c57"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260922120000_expand_automation_frameworks/migration.sql",
+      "sha256": "97492fbf6953a7a1070e463528848379723890e1b3ed1b33272f970f65f73826"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260928173000_transactional_email_delivery/migration.sql",
+      "sha256": "211dae51757edaa68cb57ef5222e855a338d7d8f8baa03d026d1e36d06bb0d5f"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260928190000_physical_validation_domains/migration.sql",
+      "sha256": "a298ca50d6799907f477880a8374ef65f8a45405246796b3901021618194c066"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260929064000_population_drafts/migration.sql",
+      "sha256": "58bdd1639551997f940ea48725ca42ad4af77f60e2e0594a0db4ff33a58505ba"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260929074500_population_documents/migration.sql",
+      "sha256": "e55aaee4d9f21f0552379ff746791465e090c69bf1187968f5add39b25a980e3"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260929081500_population_requirements/migration.sql",
+      "sha256": "af5652695119ddac0ff3b46fca7880f9c9e385be03619a15a6261bbdfdc87b6b"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260929210000_project_repositories/migration.sql",
+      "sha256": "0a6e24cdcb4d0081a8f56ee410bfb05a171b8b41da39b937a45f6bef64500f84"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260929213000_saved_automation_drafts/migration.sql",
+      "sha256": "c7e38ef7d5a14da3ac1ad65b2d567c7c2239940da379f6b526deef98c901f182"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260929230000_invitation_delivery/migration.sql",
+      "sha256": "013417a23e10d5e84cc34c348eda6fafa417141a0ecd47be6406b381d19a0e7c"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260929231000_test_design_reviews/migration.sql",
+      "sha256": "316ef56759aa4493c9fd30909f667317b5379827599aef98134f84105667f809"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260930073000_repository_authorization/migration.sql",
+      "sha256": "d4484718f9609eb8da8d32db7cc1d1249e98e1708eb24202d46a737bb9c852f3"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260930080000_test_case_views/migration.sql",
+      "sha256": "84b4aaa0a36bb8e80a55f6c20acc142be313b840d2997702e78b1f8d67bf4dbf"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260930094500_test_case_placement_prerequisites/migration.sql",
+      "sha256": "e713c3aeeaa4bbd62090950c7ef257e4c07fa256cf730fc6e9bc26ec1f633f36"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260930100000_bulk_case_analysis/migration.sql",
+      "sha256": "81d9bda00ae77199e4b34cf5ca42a83b10da6375f0070874b477651406392f18"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260930101500_import_case_baseline/migration.sql",
+      "sha256": "484491ada651bfcd9c88636f4fa14ba6ab23c1862c68535e1415a2386fcd9cc4"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260930113000_test_case_step_media/migration.sql",
+      "sha256": "e9d54091ec9ca061e14a0dc720170feb9b4f06f5489109a16fb4b50cd69ec8f0"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20260930140000_repository_token_connections/migration.sql",
+      "sha256": "b30d10044a183d41ef1da3fae8499216d27533fe6ac7ef2dd3c5bff30a1a6c62"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261001081500_linear_source_connections/migration.sql",
+      "sha256": "ed5602ff2901b15c8b35af0251a85c11d097b343b1b3dfcd7f381866bd3501ed"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261001090000_repository_processing_approval/migration.sql",
+      "sha256": "06f525b82af46711269ca28dbe878398174fdb863efb9494989df30e609b1a15"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261001093000_ticket_source_origin/migration.sql",
+      "sha256": "e04c21a74ed71e8f3122dbad8858f2d11345dc8878cb254a03ceef53c326d46f"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261001103000_jira_issue_intake/migration.sql",
+      "sha256": "0b3328cfa8d36b1f2107c6d87e19ddd9ff0e982c7fd83edec269a6166c4ab2aa"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261001110000_drive_source_connection/migration.sql",
+      "sha256": "940ac6c2ab8dcd7c8e4519743f0be6b12a424b3ab9d816b52950113266364e9c"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261001220000_test_plan_execution_template/migration.sql",
+      "sha256": "df0b854740ba58dfd011f5da742114957125bc58c9b1145bb85c71dcaa42e54b"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261001230000_manual_step_result_revisions/migration.sql",
+      "sha256": "4fc78e640ce7eb43dda736bb56d2728404f5c710d6b2150a8ac74db4ae12d73f"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261002233000_defect_map/migration.sql",
+      "sha256": "6dde64e18592681030845f0541b36a76f1bdabd84d5edb133721545ad1c2963a"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261002235000_case_traceability_reports/migration.sql",
+      "sha256": "2b029c61a5945f333c3ebd10c240691b9b79135c02c0d4fb497cbd350643869f"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261003001500_report_definition_receipts/migration.sql",
+      "sha256": "03671485a34fd0fc3e98bc0d68d29af85983200e4a3a52eb83b8bc3f016e6501"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261003013000_manual_step_write_guards/migration.sql",
+      "sha256": "2a088bc1d0a553d4f482a47d32fc73eebb851229b5b9b1a0f97413f6573e6745"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261003060000_test_case_display_identity/migration.sql",
+      "sha256": "5740b318a4471ce4b60903fe87095e15870eed133746adb427bd1d8220a4e9d6"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261003190000_shared_step_library_history/migration.sql",
+      "sha256": "2d58625bb8818cd213b0f661b493a75aeeec18c07fa3d8828d594678421160f2"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261003210000_case_analysis_queue/migration.sql",
+      "sha256": "2352136c071da59d41edafa50ba9fe6c7c52a186976cb636c6a8d5831676de56"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261004010000_saved_typed_case_queries/migration.sql",
+      "sha256": "812ace8188b085181941bd5be913eb2287117abece8243ccdd20722f76e9ec12"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261004020000_case_folder_lifecycle/migration.sql",
+      "sha256": "76c1145753ef8467407063c3135c0d4c6d62d1c464bff28732a9bda00e06887e"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261004030000_typed_case_fields/migration.sql",
+      "sha256": "036c50e4eb9ff8ea93a40f9a3385a322db231bad081dd8b93bb586de5871ff5b"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261004040000_project_quality_risks/migration.sql",
+      "sha256": "128739b6ddbceb815b45c8ecd568e72b091c390967ff506c088a83d6ba3bb8e7"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261004050000_requirement_baselines/migration.sql",
+      "sha256": "bfb6e452ea7190c574a8a329958fc92fa603ee2eda997711719fd4f0fd685819"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261004060000_case_authoring_presets/migration.sql",
+      "sha256": "80401a91bccd1c48d5da9e1cf9fb11d2da2607b799cdecfe5f1a39de4e155154"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261004070000_report_definition_lifecycle/migration.sql",
+      "sha256": "8789fda8f69d1f2c548a3f7ea51e9aa34dc626b69444d95f9ce022c8c477a8e0"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261004080000_manual_case_result_history/migration.sql",
+      "sha256": "553c874740ae96f7e351a868c01a671f7e7512f667420ff8402d05ade3dab99f"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261004090000_execution_history_fk_indexes/migration.sql",
+      "sha256": "4687c77bd244df56c6847218fcf42e6d707935081fe4f37cfb33764887ad7faa"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261004100000_manual_step_delete_set_guard/migration.sql",
+      "sha256": "6de916186d8d164d0afb8aa41ceb549e2a1d05838effcbd4743a3805bcd7fd5c"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261005220000_case_comments/migration.sql",
+      "sha256": "76e9cfafaeb7b82e541d639357e05493e8b2239cc6fc1279937b9d581ed8aec5"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261012090000_project_case_key_aliases/migration.sql",
+      "sha256": "4bf9422e94fb21186567317301ce515b416b1a1c1df2d0c74c4fa83ac5e287c6"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261016222000_ai_disclosure_grants/migration.sql",
+      "sha256": "63ea19fb5b20867be3a117bba9ffc4804b8feb23c1fbde6be2834e8df549a08c"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261017003000_workspace_domain_claim/migration.sql",
+      "sha256": "3be3bba886a35ebbe57f62276f84bfc5ef1d4f87bebf9eb43d9293b762a78f47"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261023000000_unreal_playtest_bridge/migration.sql",
+      "sha256": "13b550b8fffa3e78ac58714fd6c16e5ab15838ee6324f01c4f78669c0ff64bee"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261028230000_reporting_workflows/migration.sql",
+      "sha256": "bce5b3bf1e37b4ae7435b4b1e6692d58d0f19acf3ed2975717e7b770236b0fc0"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261028233000_reporting_authorization_fences/migration.sql",
+      "sha256": "e9e77d070321be2f44363aa8417917484daaf6c85b09831d4ba98f2a831782b7"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261029000000_report_delivery/migration.sql",
+      "sha256": "5d22450ffb2a1ac16c5bf134389757960ee8d3c2098b0deaae454a434b0adcb3"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261030000000_new_project_keys_letters/migration.sql",
+      "sha256": "bbd1d11f9c03ac2e7ec17194dffda2d02ccd08cbcf6801bc5237d214c35e4ed2"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261030001000_import_mapping_queue/migration.sql",
+      "sha256": "ee94b52f1e02934cf91646447f09047ae44171b5bcaa2e2b44dd47f1c424e5aa"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261030002000_atlassian_oauth/migration.sql",
+      "sha256": "c67b8b235731d6c44fc4eaf1e5c2ad72b9ab1ff8d06c286d20ce273511911d6a"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261030003000_atlassian_privacy_checks/migration.sql",
+      "sha256": "cc4be71a3b59cbaaafa023c56f30fbefaad5291c356e8de68ec9185fcb929c27"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261030004000_atlassian_privacy_cycles/migration.sql",
+      "sha256": "5dae733fa928a563de92136485b99bc7655e6cef70d85b8b45d6702ea2072ac5"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261030200000_compliance_review_workflow/migration.sql",
+      "sha256": "119feee1f398ec02e17279aee7e99a3722676bfd7958732d193e623ebe3e62b8"
+    },
+    {
+      "path": "packages/db/prisma/migrations/20261102194500_ai_approved_snapshots/migration.sql",
+      "sha256": "70fef1a6c960876160ec888a862990a67bec0582167b1911ae55099a20a4f30a"
+    }
+  ],
+  "sourceChanges": [
+    {
+      "cohort": "application",
+      "path": ".github/workflows/ci.yml",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "a1ff8d115fbd6cf47aee8cbf5847c41086f237b4f60404b9561dd6d6acff9c35",
+      "bytes": 23918
+    },
+    {
+      "cohort": "application",
+      "path": "apps/api/src/ai-approved-cases.integration.test.ts",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "031f13d65d6387ee1fe99bae899aa92fef067c75814a84dd2cbd60ba8b37e99c",
+      "bytes": 10362
+    },
+    {
+      "cohort": "application",
+      "path": "apps/api/src/android-case-replay.integration.test.ts",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "d01db262d9f12a8410436d39e32539193f598ffe37417cee3f5d82b52addd204",
+      "bytes": 9902
+    },
+    {
+      "cohort": "application",
+      "path": "apps/api/src/routers/aiDisclosure.ts",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "8f312034ce8391758b2e12eeb08f3f5046cb9aa8035a02ac9fc58ea4d475750b",
+      "bytes": 1453
+    },
+    {
+      "cohort": "application",
+      "path": "apps/api/src/routers/liveAppGeneration.ts",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "9345c9bf9603921235fe512c2a5cab99a774b083c4f33cc06a46f8b3b0a30107",
+      "bytes": 18912
+    },
+    {
+      "cohort": "application",
+      "path": "apps/api/src/services/aiCaseDisclosure.test.ts",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "ff5024ef85aa40dac83735893dbd5d356b670422de6c257e3007933dd6800167",
+      "bytes": 5658
+    },
+    {
+      "cohort": "application",
+      "path": "apps/api/src/services/aiCaseDisclosure.ts",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "d4db69b87c90acdb3f4fa93effb1328c96b89e914110ed6c2898a931e43a5c4c",
+      "bytes": 3768
+    },
+    {
+      "cohort": "application",
+      "path": "apps/api/src/services/aiCaseDisclosureAdmin.ts",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "70518523ce3a211ad3ab2035edf34a57e9e802e4ca62b69e2bf819b78011bf76",
+      "bytes": 5377
+    },
+    {
+      "cohort": "application",
+      "path": "apps/api/src/services/aiCaseDisclosureGateway.ts",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "237e31c675e5351e353388fcc2c5f2182d88ee297f1286b0639d1f592e45c856",
+      "bytes": 1958
+    },
+    {
+      "cohort": "application",
+      "path": "apps/api/src/services/aiDisclosureAdmin.ts",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "f608c5a24aeff43a12722bace66d4aaf03e8e2cb6cc47d7b4273b2198121687f",
+      "bytes": 15938
+    },
+    {
+      "cohort": "application",
+      "path": "apps/api/src/services/aiDisclosureGateway.ts",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "9392ef471329e887664b65e98b897c4c05e8918dffacc3eb8c8cd74a0dc09ccd",
+      "bytes": 6171
+    },
+    {
+      "cohort": "application",
+      "path": "apps/api/src/services/aiDisclosureRoute.ts",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "c3ba2a18969c5abd39aa00823d4b7e55019f6afafecc2938d6213e4e11acac3f",
+      "bytes": 2605
+    },
+    {
+      "cohort": "application",
+      "path": "apps/api/src/services/aiDisclosureStore.ts",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "f71a5f80b051ace3184c395420f81d417541fa9e519d1203817c6d53be84e58b",
+      "bytes": 9613
+    },
+    {
+      "cohort": "application",
+      "path": "apps/api/src/services/aiDisclosureTelemetry.test.ts",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "8705379f305a05d45485dca22fb3b3e7004840cce4a3abd29ba40ae88550d4c7",
+      "bytes": 2085
+    },
+    {
+      "cohort": "application",
+      "path": "apps/api/src/services/aiDisclosureTelemetry.ts",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "62474e71d980a189d17e29255ff670c1fa782ff7dee4a69b33a5543f51b3ad2a",
+      "bytes": 1326
+    },
+    {
+      "cohort": "application",
+      "path": "apps/api/src/services/androidCaseReplay.test.ts",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "2987e10ec1ba2ef66edb009cf595d18860dfd9b54a890ae7c035ab06afecbc24",
+      "bytes": 17803
+    },
+    {
+      "cohort": "application",
+      "path": "apps/api/src/services/androidCaseReplay.ts",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "ab04e252e647ebd1948f23e90fcaf55be11c03f04b3bccc0e623c8fbf95188f6",
+      "bytes": 13902
+    },
+    {
+      "cohort": "application",
+      "path": "apps/api/src/services/androidCaseReplaySchema.ts",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "837e7753a7150998d2ffff32f980e522549d443a8f68e12ca9b377dce744b2db",
+      "bytes": 8888
+    },
+    {
+      "cohort": "application",
+      "path": "apps/api/src/services/androidNetworkCorrelation.test.ts",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "6440a707819a6778c5b53447317517a4b8c803a1a025986724e4ee79d5ba9a9d",
+      "bytes": 7176
+    },
+    {
+      "cohort": "application",
+      "path": "apps/api/src/services/androidNetworkCorrelation.ts",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "db64b251d975b3db7e3fbd982bbd23fe755dd66d72275f0068c327b95c1eb6a5",
+      "bytes": 6465
+    },
+    {
+      "cohort": "application",
+      "path": "apps/api/src/services/androidNetworkEvidenceSchema.test.ts",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "6a5bb2fc674398ada8fc2b52faabe61f113a2df404cad140933bf386b4ac017d",
+      "bytes": 2354
+    },
+    {
+      "cohort": "application",
+      "path": "apps/api/src/services/androidNetworkEvidenceSchema.ts",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "05cda9669908d481b76b53900d1036644a94ec975c4b706967ff5e411b879942",
+      "bytes": 7456
+    },
+    {
+      "cohort": "application",
+      "path": "apps/api/src/services/csvFieldMapping.test.ts",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "33bc8451b209fda7c69f4cf4c93e89cd11d28fbcbc89bbf514423e2c74e90401",
+      "bytes": 18263
+    },
+    {
+      "cohort": "application",
+      "path": "apps/api/src/services/csvFieldMapping.ts",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "08427255a6aab71aed9f7c0cc769dc14b91abd766d39d26a1520bd2c7cfd9fbc",
+      "bytes": 23236
+    },
+    {
+      "cohort": "application",
+      "path": "apps/api/src/services/importMappingPlan.test.ts",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "e83a3c2a147698c94de964b619a1942fba85ce8c0c5893c98e55f2fe6ef13374",
+      "bytes": 4978
+    },
+    {
+      "cohort": "application",
+      "path": "apps/web/components/AiCaseDisclosureReview.tsx",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "f63d3d99f1f2a07fe5d398a4c524ae021c0b1e494ef8ade6bebe62874c7e40c5",
+      "bytes": 6156
+    },
+    {
+      "cohort": "application",
+      "path": "apps/web/components/AiDisclosureSettings.tsx",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "e6d82bfb52902a005324bf16dc27e586ce4d9f2eab7e617c143ac61b512c2904",
+      "bytes": 18597
+    },
+    {
+      "cohort": "application",
+      "path": "apps/web/components/AndroidAppExploration.tsx",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "9a38607f637d0f4aa3a9575adc32fc8ab8ec00cf9c1ab131137b474c42337b80",
+      "bytes": 37228
+    },
+    {
+      "cohort": "application",
+      "path": "apps/web/components/AndroidCaseReplay.tsx",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "33111689c8b60ec52d13514763f850f93912a32829e20b8a3272a9734351582d",
+      "bytes": 36650
+    },
+    {
+      "cohort": "application",
+      "path": "apps/web/components/ImportMappingQueue.tsx",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "73e42fa18d1ed4f7ee73e0c7f3aa0656cdddec45b8f1c159591b30740e0a7253",
+      "bytes": 10464
+    },
+    {
+      "cohort": "application",
+      "path": "apps/web/components/MigrationWizard.tsx",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "bbbb965789d1373855018bdb7969132625c455793602dfe0ecc5a3875cea133e",
+      "bytes": 73554
+    },
+    {
+      "cohort": "application",
+      "path": "apps/web/components/SmartCaseSuggestions.tsx",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "1707ae38ec05d1b5c05af6e8102bbe7e1127422ae1c70e94e54946ac77a3ed51",
+      "bytes": 19391
+    },
+    {
+      "cohort": "application",
+      "path": "apps/web/lib/ai-case-disclosure-review.test.ts",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "180dc65834334b1287ac3f3ad8a39a6e4c91d8eb6e0ea75f227c3f671942a057",
+      "bytes": 6933
+    },
+    {
+      "cohort": "application",
+      "path": "apps/web/lib/android-case-replay.test.ts",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "618748b27660f5999798a297df6b3214fe5f516c39e5a416bebee9ae2552936f",
+      "bytes": 21439
+    },
+    {
+      "cohort": "application",
+      "path": "apps/web/lib/import-queue-receipt.test.ts",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "a10f0085f72d174251cf380df9b7bcce42b9ae7ffee0a7cd8cc1327c73ada556",
+      "bytes": 6291
+    },
+    {
+      "cohort": "application",
+      "path": "apps/web/lib/reassign-import-column.test.ts",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "fd2437343e9e038c7442387180eaf7921dc3c1e392e5c6971fc4f5a9e5af80d7",
+      "bytes": 3448
+    },
+    {
+      "cohort": "application",
+      "path": "apps/web/lib/reassign-import-column.ts",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "2f3dc259c957d8b9cfda03b6e9eeda525a8d7f371cdf90b124be79ea93feb402",
+      "bytes": 2136
+    },
+    {
+      "cohort": "application",
+      "path": "apps/web/public/connectors/vaettir-device-connector.mjs",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "02929224c70831ff444760318f807c16c72420b0c444896ecc2a601b165dfc6e",
+      "bytes": 84724
+    },
+    {
+      "cohort": "application",
+      "path": "config/private-beta-service-window.json",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "1df45a4b961c594a19c0ff3721b0bc4c62a0a8b31724f9be55830fb547ab2f86",
+      "bytes": 460
+    },
+    {
+      "cohort": "application",
+      "path": "docs/private-beta/android-app-exploration-20261022.md",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "66e28c3fc07a55ae4cd81638aedada0e88063fec2af4670bf750df19df277d06",
+      "bytes": 26052
+    },
+    {
+      "cohort": "application",
+      "path": "docs/private-beta/service-window-and-release-rollout.md",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "80c30afb602d1ed4bf77445e0a3485ced88bb8f838e9c904e829ed80db7d75de",
+      "bytes": 3931
+    },
+    {
+      "cohort": "application",
+      "path": "integrations/ai/LEGACY-COUNTS.md",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "e38817ade527b0c11b163219f7111eef32fa54c156313a80ad2c05e30d5c3b1e",
+      "bytes": 12784
+    },
+    {
+      "cohort": "application",
+      "path": "integrations/ai/README.md",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "868a72793dd5bfe9547d5e48b7b3774681a5bf7e352acb4d2e7089f2fc059b10",
+      "bytes": 2671
+    },
+    {
+      "cohort": "application",
+      "path": "integrations/ai/RELEASE-REVIEW.md",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "4d23068b7267ce5c4186f4d319d0be0e108797c2028991589bac59460753235c",
+      "bytes": 5396
+    },
+    {
+      "cohort": "application",
+      "path": "integrations/ai/codex-plugin.json",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "2841c0c656a233723af368d77830866c6dfb9cd7c4ad2934cda68fb9abf54c39",
+      "bytes": 1011
+    },
+    {
+      "cohort": "application",
+      "path": "integrations/ai/package-lock.json",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "75a6ede6a00b540c4d6e93eb31cd1c8204952768e625a49b90d9f84d43a40861",
+      "bytes": 57186
+    },
+    {
+      "cohort": "application",
+      "path": "integrations/ai/package.json",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "df1ba59a7f6a3d388d8607c022f8f8d494622d09cd6fb63c6438b4e878ea5f3c",
+      "bytes": 476
+    },
+    {
+      "cohort": "application",
+      "path": "integrations/ai/plugin.json",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "e21da1f83f623d771f04d188001f133cb752c9896e50274f19b2888bb180e41a",
+      "bytes": 1126
+    },
+    {
+      "cohort": "application",
+      "path": "integrations/ai/scripts/prepare-preview.mjs",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "742df48249fd15e80284f0c879861c44dc4b4c6b647e65bced3cbe0240b97a9a",
+      "bytes": 2951
+    },
+    {
+      "cohort": "application",
+      "path": "integrations/ai/server/client.mjs",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "da84c2618c5e7e50abe0ffda02cd5c68dcb078e11ceecf0920cb0a32e295726f",
+      "bytes": 5710
+    },
+    {
+      "cohort": "application",
+      "path": "integrations/ai/server/index.mjs",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "ced1a3fd55308a9b12e954f85227ee5eccb16902aefe98e873a4e64003716449",
+      "bytes": 3181
+    },
+    {
+      "cohort": "application",
+      "path": "integrations/ai/skills/vaettir-quality/SKILL.md",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "26614493930695596243d6b3e6a3c24e3510df34dbcd22033c916972c1416780",
+      "bytes": 1772
+    },
+    {
+      "cohort": "application",
+      "path": "integrations/ai/test/approved-cases.test.mjs",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "4a53f3dfe76c8ad6ab2a35a6a8195e896b7eb88de57501ee82b0871ecc0f76a6",
+      "bytes": 1879
+    },
+    {
+      "cohort": "application",
+      "path": "integrations/ai/test/mcp.test.mjs",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "1404b322745ec94834a3f75dd6f9cd643bcc070bad00ebf4e1759470d9778f6c",
+      "bytes": 1966
+    },
+    {
+      "cohort": "application",
+      "path": "package.json",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "9b8fb6ad75d3ccbafc71e9db844a510bc284f90114e85f67dfa6df1c94b74067",
+      "bytes": 4633
+    },
+    {
+      "cohort": "application",
+      "path": "packages/db/prisma/migrations/20261102194500_ai_approved_snapshots/migration.sql",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "70fef1a6c960876160ec888a862990a67bec0582167b1911ae55099a20a4f30a",
+      "bytes": 1153
+    },
+    {
+      "cohort": "application",
+      "path": "packages/db/prisma/schema.prisma",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "1d5c808060eb73254226891d05f95ac60689b826bf4dfd01970dfc9d44b73aae",
+      "bytes": 138613
+    },
+    {
+      "cohort": "application",
+      "path": "scripts/android-case-replay-lib.mjs",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "d7b4f77e6c9465c556a3797e21162e697660c36bd517f98b54cb96e5b7cbaba8",
+      "bytes": 15989
+    },
+    {
+      "cohort": "application",
+      "path": "scripts/android-case-replay.test.mjs",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "53326a8ae98523c2110eb16465d59735b76449eae94149ddf255817a1d8a5f1d",
+      "bytes": 18636
+    },
+    {
+      "cohort": "application",
+      "path": "scripts/android-network-evidence-debug.mjs",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "7d123865436dff191ba0b482cd08ced9b06d21d8fae68d2d6ddc07b138607f45",
+      "bytes": 10809
+    },
+    {
+      "cohort": "application",
+      "path": "scripts/android-network-evidence-native.mjs",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "94fe7376b2c31f8a60701f464ace7a53c06556fd8aef3646114a5266a96e1746",
+      "bytes": 11038
+    },
+    {
+      "cohort": "application",
+      "path": "scripts/android-network-evidence-native.test.mjs",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "c145f0507a3d0fde218d6cf0dceb0342c501a8a6ce9214a54c4d46bb6e150420",
+      "bytes": 11703
+    },
+    {
+      "cohort": "application",
+      "path": "scripts/embed-android-exploration.mjs",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "59707ef29505fb64532a9fcc55688056900ae16a4cd9a2b4afadbc88965a2994",
+      "bytes": 2335
+    },
+    {
+      "cohort": "application",
+      "path": "scripts/private-beta-service-window.mjs",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "3efa919b0e399b873da0cf1b6683d920585c53a9bacc4b44437462e658c4b197",
+      "bytes": 4834
+    },
+    {
+      "cohort": "application",
+      "path": "scripts/private-beta-service-window.test.mjs",
+      "source": "1d7e10188176ddb03bbc3b084d774fd2dfdb5615",
+      "sha256": "c1066fe9ecd5ec38e70f2d13e2b055d4ce4dd063c4d836e76f259a6b15aec530",
+      "bytes": 3242
+    },
+    {
+      "cohort": "sqlite",
+      "path": "Dockerfile.api",
+      "source": "2b721d3d9a3397d0e14da859ab517e71b4c0c48b",
+      "sha256": "450e99bfc2599f642f4bb6fd247db60f5f67c4beed6f99fbea9d8f614ef837e9",
+      "bytes": 22240
+    },
+    {
+      "cohort": "sqlite",
+      "path": "Dockerfile.sqlite-security",
+      "source": "2b721d3d9a3397d0e14da859ab517e71b4c0c48b",
+      "sha256": "ed8cfffd06717b8a3a1b650874d2b8e808a079eadd06a4a966e31514ee710c81",
+      "bytes": 1590
+    },
+    {
+      "cohort": "sqlite",
+      "path": "Dockerfile.web",
+      "source": "2b721d3d9a3397d0e14da859ab517e71b4c0c48b",
+      "sha256": "3ef10df06706d0f45e4d0b1946a727b24faa38e27f861c99dc9541932dd9265b",
+      "bytes": 12577
+    },
+    {
+      "cohort": "sqlite",
+      "path": "docs/private-beta/sqlite-runtime-security-20261102.md",
+      "source": "2b721d3d9a3397d0e14da859ab517e71b4c0c48b",
+      "sha256": "7cbe08520a4f9ac4d7d7b495d082aef4163979325ae4ddd48f99e4f0f6f898ce",
+      "bytes": 12753
+    },
+    {
+      "cohort": "sqlite",
+      "path": "scripts/build-sqlite-runtime.sh",
+      "source": "2b721d3d9a3397d0e14da859ab517e71b4c0c48b",
+      "sha256": "aec40d872bb86bda9193099be198be63673c4dbcc1479a5cb0c4e0ade03c4ead",
+      "bytes": 9754
+    },
+    {
+      "cohort": "sqlite",
+      "path": "scripts/check-sqlite-runtime.mjs",
+      "source": "2b721d3d9a3397d0e14da859ab517e71b4c0c48b",
+      "sha256": "d6e67e635e0c2b022eb38e1d77d5276d9b76a48dbfcfca8e624726634c8918a1",
+      "bytes": 13882
+    },
+    {
+      "cohort": "sqlite",
+      "path": "scripts/fetch-sqlite-runtime-sources.mjs",
+      "source": "2b721d3d9a3397d0e14da859ab517e71b4c0c48b",
+      "sha256": "958a9b93482691e6cc9d5a0ef086a9855647305edd949ecfbba6bbbba6dda5b9",
+      "bytes": 3348
+    },
+    {
+      "cohort": "sqlite",
+      "path": "scripts/historical-runtime-dockerfile-test-fixture.mjs",
+      "source": "2b721d3d9a3397d0e14da859ab517e71b4c0c48b",
+      "sha256": "a620ae6f0c23cc092f94c4c4b5b3a984be865381eb1d4dbc3623e34f3d5675e0",
+      "bytes": 2869
+    },
+    {
+      "cohort": "sqlite",
+      "path": "scripts/sqlite-dockerfile-inverse-fixture.mjs",
+      "source": "2b721d3d9a3397d0e14da859ab517e71b4c0c48b",
+      "sha256": "c499621705c86cf0add33a07d7c29e68a305eb24d081d87b77ce4b299d0dcb63",
+      "bytes": 3319
+    },
+    {
+      "cohort": "sqlite",
+      "path": "scripts/sqlite-runtime-regression.c",
+      "source": "2b721d3d9a3397d0e14da859ab517e71b4c0c48b",
+      "sha256": "ccf67fa1ca89aeb1586c21fa64ad94bd4d26baf79cbf5c32d1dc6fa331090446",
+      "bytes": 4327
+    },
+    {
+      "cohort": "sqlite",
+      "path": "scripts/sqlite-runtime-security.test.mjs",
+      "source": "2b721d3d9a3397d0e14da859ab517e71b4c0c48b",
+      "sha256": "f25279e0bb8a9a5e7cce82f7196d3a6afebcbbd52de21715034c8da3441e23cb",
+      "bytes": 14516
+    },
+    {
+      "cohort": "sqlite",
+      "path": "scripts/sqlite-runtime-sources.json",
+      "source": "2b721d3d9a3397d0e14da859ab517e71b4c0c48b",
+      "sha256": "c787352f4b57d1490e51308a9b7364bb68ad759c6cea28f2709915f12a775e4a",
+      "bytes": 108843
+    }
+  ],
+  "sqlitePayloadPaths": [
+    "/usr/lib/x86_64-linux-gnu/libsqlite3.so.0.8.6",
+    "/usr/lib/x86_64-linux-gnu/libsqlite3.so.0",
+    "/usr/share/doc/libsqlite3-0/copyright"
+  ],
+  "sqliteProofPaths": [
+    "/usr/share/vaettir/sqlite-security/sqlite-runtime-proof.json",
+    "/usr/share/vaettir/sqlite-security/sqlite-runtime-regression",
+    "/app/scripts/sqlite-runtime-sources.json",
+    "/app/scripts/fetch-sqlite-runtime-sources.mjs",
+    "/app/scripts/check-sqlite-runtime.mjs"
+  ],
+  "frozenLegacyOperatorsExecutable": false,
+  "sqliteAccepted": {
+    "source": "2b721d3d9a3397d0e14da859ab517e71b4c0c48b",
+    "buildId": "vaettir-api-build:e01d0c21-314b-4864-bb45-dc75bd91b29d",
+    "artifactImage": "051722405355.dkr.ecr.us-east-2.amazonaws.com/vaettir-api@sha256:1b6c7f8f1862e39f6f0d5ee7a3182aa02d7d4a634c914a05401bd3e5d0fc348b",
+    "configDigest": "sha256:3da9cac4f1f557c4b7541f293503054fd46f61e13d5c6ab59be217f01d70e777",
+    "proofSha256": "2173c92813786733b7115b552c9335835ff460c850fc9e70f26e9f48d09e65ca",
+    "librarySha256": "222a0487f6d62ff522bcf69663c64685fb00bd4434953e30be73126d57b5c43d",
+    "packageSha256": "e8621e3109bd33ee9f454ecb97d05c758c201b2adc5da4d69c856a1ea112b67f",
+    "probeSha256": "d1900198b70edab1326531cd2315ae9c43ffe2518fd49929a57884d115dfff4d",
+    "manifestSha256": "c787352f4b57d1490e51308a9b7364bb68ad759c6cea28f2709915f12a775e4a",
+    "acceptanceSha256": "8dac2cb6c66f28d3822554378c6c9406b86089ac124a742b6d575c0b9f546147"
+  },
+  "sqliteScriptPins": {
+    "check-sqlite-runtime.mjs": "d6e67e635e0c2b022eb38e1d77d5276d9b76a48dbfcfca8e624726634c8918a1",
+    "fetch-sqlite-runtime-sources.mjs": "958a9b93482691e6cc9d5a0ef086a9855647305edd949ecfbba6bbbba6dda5b9",
+    "sqlite-runtime-sources.json": "c787352f4b57d1490e51308a9b7364bb68ad759c6cea28f2709915f12a775e4a"
+  },
+  "nssTool": {
+    "pinsSha256": "ae962899d94270e6f6e3a84a8768f0fc0e31f68cce57d52fd95d617363719b37",
+    "certutilSha256": "815d8be06440a4dea3735ac102c7fedbcdb3b72d6ec32349431ac2cba55c19da",
+    "packageSha256": "6504101943837ed2ee0089c9d4d72d69b96db0c51aa21249e0757855905af82e",
+    "signatureVerified": false,
+    "provenance": "Main official HTTPS index/hash acquisition; InRelease signature not verified"
+  },
+  "sqliteConsumers": [
+    {
+      "path": "/usr/lib/x86_64-linux-gnu/liblastlog2.so.2.0.0",
+      "sha256": "fe1fcd313c8a8366b16bb22f4c15980b604c465bae8957c26ae2cb2b0dd9a960",
+      "undefinedSQLiteSymbols": [
+        "sqlite3_bind_int64",
+        "sqlite3_bind_text",
+        "sqlite3_busy_timeout",
+        "sqlite3_close",
+        "sqlite3_column_int64",
+        "sqlite3_column_text",
+        "sqlite3_errmsg",
+        "sqlite3_exec",
+        "sqlite3_finalize",
+        "sqlite3_free",
+        "sqlite3_open",
+        "sqlite3_open_v2",
+        "sqlite3_prepare_v2",
+        "sqlite3_step"
+      ],
+      "images": [
+        "api",
+        "web"
+      ]
+    },
+    {
+      "path": "/usr/lib/x86_64-linux-gnu/libsoftokn3.so",
+      "sha256": "7262de7206f68b41c52202bbf6281c42d64453b4c1e17ab41271400965b57896",
+      "undefinedSQLiteSymbols": [
+        "sqlite3_bind_blob",
+        "sqlite3_bind_int",
+        "sqlite3_bind_text",
+        "sqlite3_busy_timeout",
+        "sqlite3_close",
+        "sqlite3_column_blob",
+        "sqlite3_column_bytes",
+        "sqlite3_column_int",
+        "sqlite3_column_text",
+        "sqlite3_exec",
+        "sqlite3_file_control",
+        "sqlite3_finalize",
+        "sqlite3_free",
+        "sqlite3_mprintf",
+        "sqlite3_open_v2",
+        "sqlite3_prepare_v2",
+        "sqlite3_reset",
+        "sqlite3_step",
+        "sqlite3_temp_directory"
+      ],
+      "images": [
+        "api"
+      ]
+    }
+  ],
+  "sqliteCandidateExports": [
+    "sqlite3_aggregate_context",
+    "sqlite3_aggregate_count",
+    "sqlite3_auto_extension",
+    "sqlite3_autovacuum_pages",
+    "sqlite3_backup_finish",
+    "sqlite3_backup_init",
+    "sqlite3_backup_pagecount",
+    "sqlite3_backup_remaining",
+    "sqlite3_backup_step",
+    "sqlite3_bind_blob",
+    "sqlite3_bind_blob64",
+    "sqlite3_bind_double",
+    "sqlite3_bind_int",
+    "sqlite3_bind_int64",
+    "sqlite3_bind_null",
+    "sqlite3_bind_parameter_count",
+    "sqlite3_bind_parameter_index",
+    "sqlite3_bind_parameter_name",
+    "sqlite3_bind_pointer",
+    "sqlite3_bind_text",
+    "sqlite3_bind_text16",
+    "sqlite3_bind_text64",
+    "sqlite3_bind_value",
+    "sqlite3_bind_zeroblob",
+    "sqlite3_bind_zeroblob64",
+    "sqlite3_blob_bytes",
+    "sqlite3_blob_close",
+    "sqlite3_blob_open",
+    "sqlite3_blob_read",
+    "sqlite3_blob_reopen",
+    "sqlite3_blob_write",
+    "sqlite3_busy_handler",
+    "sqlite3_busy_timeout",
+    "sqlite3_cancel_auto_extension",
+    "sqlite3_changes",
+    "sqlite3_changes64",
+    "sqlite3_clear_bindings",
+    "sqlite3_close",
+    "sqlite3_close_v2",
+    "sqlite3_collation_needed",
+    "sqlite3_collation_needed16",
+    "sqlite3_column_blob",
+    "sqlite3_column_bytes",
+    "sqlite3_column_bytes16",
+    "sqlite3_column_count",
+    "sqlite3_column_database_name",
+    "sqlite3_column_database_name16",
+    "sqlite3_column_decltype",
+    "sqlite3_column_decltype16",
+    "sqlite3_column_double",
+    "sqlite3_column_int",
+    "sqlite3_column_int64",
+    "sqlite3_column_name",
+    "sqlite3_column_name16",
+    "sqlite3_column_origin_name",
+    "sqlite3_column_origin_name16",
+    "sqlite3_column_table_name",
+    "sqlite3_column_table_name16",
+    "sqlite3_column_text",
+    "sqlite3_column_text16",
+    "sqlite3_column_type",
+    "sqlite3_column_value",
+    "sqlite3_commit_hook",
+    "sqlite3_compileoption_get",
+    "sqlite3_compileoption_used",
+    "sqlite3_complete",
+    "sqlite3_complete16",
+    "sqlite3_config",
+    "sqlite3_context_db_handle",
+    "sqlite3_create_collation",
+    "sqlite3_create_collation16",
+    "sqlite3_create_collation_v2",
+    "sqlite3_create_filename",
+    "sqlite3_create_function",
+    "sqlite3_create_function16",
+    "sqlite3_create_function_v2",
+    "sqlite3_create_module",
+    "sqlite3_create_module_v2",
+    "sqlite3_create_window_function",
+    "sqlite3_data_count",
+    "sqlite3_data_directory",
+    "sqlite3_database_file_object",
+    "sqlite3_db_cacheflush",
+    "sqlite3_db_config",
+    "sqlite3_db_filename",
+    "sqlite3_db_handle",
+    "sqlite3_db_mutex",
+    "sqlite3_db_name",
+    "sqlite3_db_readonly",
+    "sqlite3_db_release_memory",
+    "sqlite3_db_status",
+    "sqlite3_db_status64",
+    "sqlite3_declare_vtab",
+    "sqlite3_deserialize",
+    "sqlite3_drop_modules",
+    "sqlite3_enable_load_extension",
+    "sqlite3_enable_shared_cache",
+    "sqlite3_errcode",
+    "sqlite3_errmsg",
+    "sqlite3_errmsg16",
+    "sqlite3_error_offset",
+    "sqlite3_errstr",
+    "sqlite3_exec",
+    "sqlite3_expanded_sql",
+    "sqlite3_expired",
+    "sqlite3_extended_errcode",
+    "sqlite3_extended_result_codes",
+    "sqlite3_file_control",
+    "sqlite3_filename_database",
+    "sqlite3_filename_journal",
+    "sqlite3_filename_wal",
+    "sqlite3_finalize",
+    "sqlite3_free",
+    "sqlite3_free_filename",
+    "sqlite3_free_table",
+    "sqlite3_get_autocommit",
+    "sqlite3_get_auxdata",
+    "sqlite3_get_clientdata",
+    "sqlite3_get_table",
+    "sqlite3_global_recover",
+    "sqlite3_hard_heap_limit64",
+    "sqlite3_incomplete",
+    "sqlite3_initialize",
+    "sqlite3_interrupt",
+    "sqlite3_is_interrupted",
+    "sqlite3_keyword_check",
+    "sqlite3_keyword_count",
+    "sqlite3_keyword_name",
+    "sqlite3_last_insert_rowid",
+    "sqlite3_libversion",
+    "sqlite3_libversion_number",
+    "sqlite3_limit",
+    "sqlite3_load_extension",
+    "sqlite3_log",
+    "sqlite3_malloc",
+    "sqlite3_malloc64",
+    "sqlite3_memory_alarm",
+    "sqlite3_memory_highwater",
+    "sqlite3_memory_used",
+    "sqlite3_mprintf",
+    "sqlite3_msize",
+    "sqlite3_mutex_alloc",
+    "sqlite3_mutex_enter",
+    "sqlite3_mutex_free",
+    "sqlite3_mutex_leave",
+    "sqlite3_mutex_try",
+    "sqlite3_next_stmt",
+    "sqlite3_open",
+    "sqlite3_open16",
+    "sqlite3_open_v2",
+    "sqlite3_os_end",
+    "sqlite3_os_init",
+    "sqlite3_overload_function",
+    "sqlite3_prepare",
+    "sqlite3_prepare16",
+    "sqlite3_prepare16_v2",
+    "sqlite3_prepare16_v3",
+    "sqlite3_prepare_v2",
+    "sqlite3_prepare_v3",
+    "sqlite3_preupdate_blobwrite",
+    "sqlite3_preupdate_count",
+    "sqlite3_preupdate_depth",
+    "sqlite3_preupdate_hook",
+    "sqlite3_preupdate_new",
+    "sqlite3_preupdate_old",
+    "sqlite3_profile",
+    "sqlite3_progress_handler",
+    "sqlite3_randomness",
+    "sqlite3_realloc",
+    "sqlite3_realloc64",
+    "sqlite3_release_memory",
+    "sqlite3_reset",
+    "sqlite3_reset_auto_extension",
+    "sqlite3_result_blob",
+    "sqlite3_result_blob64",
+    "sqlite3_result_double",
+    "sqlite3_result_error",
+    "sqlite3_result_error16",
+    "sqlite3_result_error_code",
+    "sqlite3_result_error_nomem",
+    "sqlite3_result_error_toobig",
+    "sqlite3_result_int",
+    "sqlite3_result_int64",
+    "sqlite3_result_null",
+    "sqlite3_result_pointer",
+    "sqlite3_result_str",
+    "sqlite3_result_subtype",
+    "sqlite3_result_text",
+    "sqlite3_result_text16",
+    "sqlite3_result_text16be",
+    "sqlite3_result_text16le",
+    "sqlite3_result_text64",
+    "sqlite3_result_value",
+    "sqlite3_result_zeroblob",
+    "sqlite3_result_zeroblob64",
+    "sqlite3_rollback_hook",
+    "sqlite3_rtree_geometry_callback",
+    "sqlite3_rtree_query_callback",
+    "sqlite3_serialize",
+    "sqlite3_set_authorizer",
+    "sqlite3_set_auxdata",
+    "sqlite3_set_clientdata",
+    "sqlite3_set_errmsg",
+    "sqlite3_set_last_insert_rowid",
+    "sqlite3_setlk_timeout",
+    "sqlite3_shutdown",
+    "sqlite3_sleep",
+    "sqlite3_snprintf",
+    "sqlite3_soft_heap_limit",
+    "sqlite3_soft_heap_limit64",
+    "sqlite3_sourceid",
+    "sqlite3_sql",
+    "sqlite3_status",
+    "sqlite3_status64",
+    "sqlite3_step",
+    "sqlite3_stmt_busy",
+    "sqlite3_stmt_explain",
+    "sqlite3_stmt_isexplain",
+    "sqlite3_stmt_readonly",
+    "sqlite3_stmt_status",
+    "sqlite3_str_append",
+    "sqlite3_str_appendall",
+    "sqlite3_str_appendchar",
+    "sqlite3_str_appendf",
+    "sqlite3_str_errcode",
+    "sqlite3_str_finish",
+    "sqlite3_str_free",
+    "sqlite3_str_length",
+    "sqlite3_str_new",
+    "sqlite3_str_reset",
+    "sqlite3_str_truncate",
+    "sqlite3_str_value",
+    "sqlite3_str_vappendf",
+    "sqlite3_strglob",
+    "sqlite3_stricmp",
+    "sqlite3_strlike",
+    "sqlite3_strnicmp",
+    "sqlite3_system_errno",
+    "sqlite3_table_column_metadata",
+    "sqlite3_temp_directory",
+    "sqlite3_test_control",
+    "sqlite3_thread_cleanup",
+    "sqlite3_threadsafe",
+    "sqlite3_total_changes",
+    "sqlite3_total_changes64",
+    "sqlite3_trace",
+    "sqlite3_trace_v2",
+    "sqlite3_transfer_bindings",
+    "sqlite3_txn_state",
+    "sqlite3_unlock_notify",
+    "sqlite3_update_hook",
+    "sqlite3_uri_boolean",
+    "sqlite3_uri_int64",
+    "sqlite3_uri_key",
+    "sqlite3_uri_parameter",
+    "sqlite3_user_data",
+    "sqlite3_value_blob",
+    "sqlite3_value_bytes",
+    "sqlite3_value_bytes16",
+    "sqlite3_value_double",
+    "sqlite3_value_dup",
+    "sqlite3_value_encoding",
+    "sqlite3_value_free",
+    "sqlite3_value_frombind",
+    "sqlite3_value_int",
+    "sqlite3_value_int64",
+    "sqlite3_value_nochange",
+    "sqlite3_value_numeric_type",
+    "sqlite3_value_pointer",
+    "sqlite3_value_subtype",
+    "sqlite3_value_text",
+    "sqlite3_value_text16",
+    "sqlite3_value_text16be",
+    "sqlite3_value_text16le",
+    "sqlite3_value_type",
+    "sqlite3_version",
+    "sqlite3_vfs_find",
+    "sqlite3_vfs_register",
+    "sqlite3_vfs_unregister",
+    "sqlite3_vmprintf",
+    "sqlite3_vsnprintf",
+    "sqlite3_vtab_collation",
+    "sqlite3_vtab_config",
+    "sqlite3_vtab_distinct",
+    "sqlite3_vtab_in",
+    "sqlite3_vtab_in_first",
+    "sqlite3_vtab_in_next",
+    "sqlite3_vtab_nochange",
+    "sqlite3_vtab_on_conflict",
+    "sqlite3_vtab_rhs_value",
+    "sqlite3_wal_autocheckpoint",
+    "sqlite3_wal_checkpoint",
+    "sqlite3_wal_checkpoint_v2",
+    "sqlite3_wal_hook",
+    "sqlite3changegroup_add",
+    "sqlite3changegroup_add_change",
+    "sqlite3changegroup_add_strm",
+    "sqlite3changegroup_change_begin",
+    "sqlite3changegroup_change_blob",
+    "sqlite3changegroup_change_double",
+    "sqlite3changegroup_change_finish",
+    "sqlite3changegroup_change_int64",
+    "sqlite3changegroup_change_null",
+    "sqlite3changegroup_change_text",
+    "sqlite3changegroup_config",
+    "sqlite3changegroup_delete",
+    "sqlite3changegroup_new",
+    "sqlite3changegroup_output",
+    "sqlite3changegroup_output_strm",
+    "sqlite3changegroup_schema",
+    "sqlite3changeset_apply",
+    "sqlite3changeset_apply_strm",
+    "sqlite3changeset_apply_v2",
+    "sqlite3changeset_apply_v2_strm",
+    "sqlite3changeset_apply_v3",
+    "sqlite3changeset_apply_v3_strm",
+    "sqlite3changeset_concat",
+    "sqlite3changeset_concat_strm",
+    "sqlite3changeset_conflict",
+    "sqlite3changeset_finalize",
+    "sqlite3changeset_fk_conflicts",
+    "sqlite3changeset_invert",
+    "sqlite3changeset_invert_strm",
+    "sqlite3changeset_new",
+    "sqlite3changeset_next",
+    "sqlite3changeset_old",
+    "sqlite3changeset_op",
+    "sqlite3changeset_pk",
+    "sqlite3changeset_start",
+    "sqlite3changeset_start_strm",
+    "sqlite3changeset_start_v2",
+    "sqlite3changeset_start_v2_strm",
+    "sqlite3rebaser_configure",
+    "sqlite3rebaser_create",
+    "sqlite3rebaser_delete",
+    "sqlite3rebaser_rebase",
+    "sqlite3rebaser_rebase_strm",
+    "sqlite3session_attach",
+    "sqlite3session_changeset",
+    "sqlite3session_changeset_size",
+    "sqlite3session_changeset_strm",
+    "sqlite3session_config",
+    "sqlite3session_create",
+    "sqlite3session_delete",
+    "sqlite3session_diff",
+    "sqlite3session_enable",
+    "sqlite3session_indirect",
+    "sqlite3session_isempty",
+    "sqlite3session_memory_used",
+    "sqlite3session_object_config",
+    "sqlite3session_patchset",
+    "sqlite3session_patchset_strm",
+    "sqlite3session_table_filter"
+  ]
+}
