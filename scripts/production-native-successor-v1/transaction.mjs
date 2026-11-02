@@ -10,7 +10,6 @@ import {
   fstatSync,
   mkdirSync,
   writeFileSync,
-  chmodSync,
   existsSync,
 } from "node:fs";
 import { createHash } from "node:crypto";
@@ -416,8 +415,12 @@ function actualMain() {
       "Stage artifact changed",
     );
   }
-  // The probe is the exact accepted file, made executable only in disposable staging.
-  chmodSync(STAGE + "/sqlite-runtime-regression", 0o755);
+  // Transport must establish this exact executable mode before observation.
+  // Refuse a malformed context instead of repairing permissions at runtime.
+  requireThat(
+    (lstatSync(STAGE + "/sqlite-runtime-regression").mode & 0o7777) === 0o555,
+    "SQLite probe transport mode must be exactly 0555",
+  );
   mkdirSync(OUTPUT, { mode: 0o700 });
   writeFileSync(
     OUTPUT + "/intent.json",

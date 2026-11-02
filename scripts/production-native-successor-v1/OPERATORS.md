@@ -105,6 +105,10 @@ The generated recipe uses the exact immutable parent FROM. It copies only the
 enumerated collector, package, checker/manifest/probe and input files into the
 previously absent `/tmp/vaettir-sqlite-overlay-v1`. It does not copy the standalone
 builder filesystem, NSS libraries, package database or package-manager binaries.
+The probe has its own exact `COPY --chmod=0555`; it is excluded from the generic
+COPY. Thus host context files may remain 0600 without making the probe unusable.
+The collector verifies mode 0555 before observation and does not repair it with
+chmod. No other runtime payload receives executable permission through this rule.
 
 Main executes the reviewed context on its approved isolated Linux daemon/build
 system. Network is disabled for every RUN. Record the context digest, exact
@@ -235,6 +239,11 @@ acceptance is recorded, including Mapping Details, mobile picker, both themes an
 aTwist reload. Case19 stays pending and no eight-case import, Apply or decision is
 replayed. The URL-confidence boundary prohibits alternate controller/CDP/cookie/
 identity/API workarounds. This package does not activate aTwist or grant projects.
+Owner clarification: aTwist's QA repository and app-specific debug setup are
+end-user setup, not launch blockers. Do not request that source or credentials.
+Validate the product's available integration/functionality with applicable
+device, approval, visual and security gates. Directory activation remains pending
+review; this clarification does not activate it or waive those product gates.
 
 ## Source-only verification
 

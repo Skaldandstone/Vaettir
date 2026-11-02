@@ -489,6 +489,32 @@ test("runtime NSS role refuses a missing separately reviewed fixture", () => {
   f.policy.roles.api.nssVersion = "2:3.110-1+deb13u4";
   assert.throws(() => prepareContext(f.bindings, f.policy, "api", f.io));
 });
+test("both runtime recipes transport only the pinned probe with executable mode", () => {
+  for (const role of ["api", "web"]) {
+    const text = recipe(
+      role,
+      fixture().policy.roles[role].image,
+      role === "web" ? "nextjs" : undefined,
+    );
+    const lines = text.split("\n"),
+      copies = lines.filter((line) => line.startsWith("COPY --chmod="));
+    assert.deepEqual(copies, [
+      `COPY --chmod=0555 ["sqlite-runtime-regression", "${STAGE}/sqlite-runtime-regression"]`,
+    ]);
+    assert.ok(
+      lines.indexOf(copies[0]) <
+        lines.findIndex((line) => line.startsWith("RUN ")),
+    );
+    const generic = JSON.parse(
+      lines.find((line) => line.startsWith('COPY ["transaction.mjs"')).slice(5),
+    );
+    assert.ok(!generic.includes("sqlite-runtime-regression"));
+    assert.ok(
+      generic.includes("sqlite.deb") &&
+        generic.includes("sqlite-runtime-proof.json"),
+    );
+  }
+});
 test("reviewed NSS input is bound without copying its tool into the runtime stage", () => {
   const f = fixture(),
     binary = f.put("certutil", Buffer.from("synthetic NSS tool")),
@@ -524,6 +550,14 @@ test("reviewed NSS input is bound without copying its tool into the runtime stag
     .find((r) => r.startsWith('COPY ["transaction.mjs"'));
   const paths = JSON.parse(copy.slice(5));
   paths.pop();
+  const probeCopy = files.Dockerfile.toString()
+    .split("\n")
+    .find((r) =>
+      r.startsWith('COPY --chmod=0555 ["sqlite-runtime-regression"'),
+    );
+  paths.push(
+    ...JSON.parse(probeCopy.slice("COPY --chmod=0555 ".length)).slice(0, -1),
+  );
   assert.deepEqual(
     paths.sort(),
     [...input.files.map((r) => r.path), "transaction-input.json"].sort(),

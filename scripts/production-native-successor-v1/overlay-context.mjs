@@ -44,7 +44,6 @@ export function recipe(role, image, user, nss = false) {
     "inventory.mjs",
     "sqlite.deb",
     "sqlite-runtime-proof.json",
-    "sqlite-runtime-regression",
     "check-sqlite-runtime.mjs",
     "fetch-sqlite-runtime-sources.mjs",
     "sqlite-runtime-sources.json",
@@ -58,7 +57,7 @@ export function recipe(role, image, user, nss = false) {
   const nssRun = nss
     ? `RUN --network=none --mount=type=bind,from=nss_test_tool,source=/,target=/run/vaettir-nss,ro ["/usr/local/bin/node", "${stageRoot}/transaction.mjs", "--nss"]\n`
     : "";
-  return `${toolStage}FROM ${image} AS sqlite_observation\n${elevate}COPY ${JSON.stringify([...members, stageRoot + "/"])}\nRUN --network=none ["/usr/local/bin/node", "${stageRoot}/transaction.mjs", "--observe"]\n${nssRun}${restore}FROM scratch AS evidence_only\nCOPY --from=sqlite_observation ${observationRoot}/ /\n`;
+  return `${toolStage}FROM ${image} AS sqlite_observation\n${elevate}COPY ${JSON.stringify([...members, stageRoot + "/"])}\nCOPY --chmod=0555 ["sqlite-runtime-regression", "${stageRoot}/sqlite-runtime-regression"]\nRUN --network=none ["/usr/local/bin/node", "${stageRoot}/transaction.mjs", "--observe"]\n${nssRun}${restore}FROM scratch AS evidence_only\nCOPY --from=sqlite_observation ${observationRoot}/ /\n`;
 }
 
 export function prepareContext(bindings, policy, role, io) {
