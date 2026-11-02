@@ -6,7 +6,7 @@ export function isAiDisclosureRequest(url: string) {
   } catch {
     return true;
   }
-  return url.includes("/integrations/ai/") || url.includes("aiDisclosure.");
+  return url.includes("/integrations/ai/") || url.includes("aiDisclosure.") || url.includes("liveAppGeneration.replay") || url.includes("liveAppGeneration.patchReplayCase");
 }
 
 export function registerAiDisclosureResponsePrivacy(server: FastifyInstance) {
@@ -23,12 +23,15 @@ export function registerAiDisclosureResponsePrivacy(server: FastifyInstance) {
  * including query parameters, headers, body, cookies, or nearby breadcrumbs. */
 export function redactAiDisclosureEvent<
   T extends { request?: { url?: string }; breadcrumbs?: unknown[] },
->(event: T): T {
+>(event: T) {
   const url = event.request?.url ?? "";
   if (!isAiDisclosureRequest(url)) return event;
   return {
-    ...event,
-    request: { url: "/api/integrations/ai/[redacted]" },
+    // Positive projection also removes sensitive driver errors and context.
+    message: "Private quality request failed.",
+    type: undefined,
+    level: "error" as const,
+    request: { url: "/api/quality/[redacted]" },
     breadcrumbs: [],
   };
 }

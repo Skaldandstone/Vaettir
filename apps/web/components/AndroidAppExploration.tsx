@@ -21,6 +21,7 @@ import {
 import { downloadFile } from "@/lib/download";
 import { trpcReact } from "@/lib/trpcReact";
 import { deviceCaptureAccessOutput } from "../../api/src/services/deviceCaptureAccessSchema";
+import { AndroidCaseReplay } from "./AndroidCaseReplay";
 
 type Scope = typeof androidExplorationScope._output;
 type State = typeof androidExplorerState._output;
@@ -610,6 +611,15 @@ export function AndroidAppExploration(props: Props) {
       }}
     >
       <h2>Connect an app. Explore. Review the tests.</h2>
+      <AndroidCaseReplay
+        serial={serial}
+        connectionKey={props.pairingCode}
+        accessAvailable={visible}
+        available={visible && !busy && !["ACTIVE", "PAUSED"].includes(state?.status ?? "")}
+        currentScope={props.currentScope}
+        nativeActorId={() => ownership.nativeActorId}
+        request={request}
+      />
       <p>
         Explore an Android test app on this computer. Review journeys and
         proposed navigation checks before adding any cases. Local suggestions

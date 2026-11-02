@@ -1,8 +1,8 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "vaettir",
-  "version": "0.1.6",
-  "description": "Review approved synthetic-project quality counts from Vaettir. Customer test content is unavailable in this preview.",
+  "version": "0.2.0",
+  "description": "Read only customer-approved quality counts or selected case fields from Vaettir.",
   "author": {
     "name": "Skald and Stone LLC",
     "url": "https://skaldandstone.com"
@@ -13,12 +13,13 @@
       "requires_local_executor": true,
       "interface": {
         "displayName": "Vaettir",
-        "shortDescription": "Approved quality counts",
-        "longDescription": "Local Codex preview for explicitly approved synthetic projects. Reads aggregate counts through Vaettir's dedicated disclosure gateway. No test titles, procedures, source, artifacts, or failure messages are exposed. Access requires separate deployment scope and current customer approval.",
+        "shortDescription": "Approved quality access",
+        "longDescription": "Local Codex package for separately approved synthetic counts or exact selected test case fields. Each read checks current tenant access, classification, expiry and revocation. Changed selected content needs new review. Regulated and unclassified projects are denied. No writes, artifacts, logs or source access.",
         "developerName": "Skald and Stone LLC",
         "category": "Developer Tools",
         "capabilities": [
-          "Read approved synthetic quality counts"
+          "Read approved synthetic quality counts",
+          "Read individually approved case fields"
         ]
       }
     }

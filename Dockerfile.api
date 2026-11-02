@@ -1,3 +1,18 @@
+# Pinned upstream SQLite, preserving NSS and libsqlite3.so.0 consumers.
+FROM public.ecr.aws/docker/library/node:22-trixie-slim@sha256:b26b04c123d9ff8ab646ceb18b9d75a1173acf64b9a401094b906d27b29338d4 AS sqlite-security
+RUN test "$(dpkg --print-architecture)" = amd64 \
+    && apt-get update --error-on=any \
+    && apt-get install -y --no-install-recommends openssl ca-certificates perl-base libpcre2-8-0 build-essential binutils python3 tcl8.6-dev libnss3-tools libsqlite3-0=3.46.1-7+deb13u2 \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' perl-base)" ge '5.40.1-6+deb13u1' \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libpcre2-8-0)" ge '10.46-1~deb13u3' \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /build
+COPY scripts/sqlite-runtime-sources.json scripts/fetch-sqlite-runtime-sources.mjs scripts/build-sqlite-runtime.sh scripts/check-sqlite-runtime.mjs scripts/sqlite-runtime-regression.c /build/scripts/
+RUN node /build/scripts/fetch-sqlite-runtime-sources.mjs /build/sqlite-inputs
+ARG VAETTIR_RELEASE_COMMIT
+ENV VAETTIR_SQLITE_SOURCE_COMMIT=$VAETTIR_RELEASE_COMMIT
+RUN --network=none sh /build/scripts/build-sqlite-runtime.sh /build/sqlite-inputs /build/sqlite-native /build/scripts
+
 # Docker Official Image via ECR Public avoids shared CodeBuild Docker Hub pull limits.
 # Trixie carries Debian fixes unavailable in Bookworm for the release-blocking
 # Perl CVEs. Keep the package floor below and rescan each final image digest.
@@ -223,6 +238,15 @@ RUN --network=none timeout 60 dpkg --install /tmp/vaettir-brotli-security.deb \
     && test -z "$(dpkg --audit)" \
     && rm /tmp/vaettir-brotli-security.deb \
     && timeout 10 /usr/share/vaettir/node-brotli-security/check-brotli-block-switch
+# Install the tested SQLite package after all apt/browser dependency changes.
+COPY --from=sqlite-security /build/sqlite-native/libsqlite3-0_3.54.1-0+vaettir1_amd64.deb /tmp/vaettir-sqlite.deb
+COPY --from=sqlite-security /build/sqlite-native/sqlite-runtime-proof.json /build/sqlite-native/sqlite-runtime-regression /usr/share/vaettir/sqlite-security/
+COPY scripts/sqlite-runtime-sources.json scripts/fetch-sqlite-runtime-sources.mjs scripts/check-sqlite-runtime.mjs /app/scripts/
+RUN --network=none timeout 60 dpkg --install /tmp/vaettir-sqlite.deb \
+    && test -z "$(dpkg --audit)" \
+    && rm /tmp/vaettir-sqlite.deb \
+    && node /app/scripts/check-sqlite-runtime.mjs --installed /usr/share/vaettir/sqlite-security
+
 RUN --network=none node scripts/check-browser-runtime.mjs
 RUN --network=none node scripts/check-browser-graphics.mjs
 RUN --network=none node scripts/check-prisma-runtime.mjs

@@ -3431,9 +3431,20 @@ model AiDisclosureGrant {
   lastUsedAt DateTime?
   readWindowStartedAt DateTime?
   readWindowCount Int @default(0)
+  caseSnapshot AiDisclosureCaseSnapshot?
 
   @@index([organizationId, projectId, createdAt])
   @@index([approvedByUserId, organizationId])
+}
+
+// Immutable approval metadata only. Customer text stays in the original cases;
+// changed/deleted source projections cannot pass the reviewed digest check.
+model AiDisclosureCaseSnapshot {
+  grantId String @id
+  grant AiDisclosureGrant @relation(fields: [grantId], references: [id], onDelete: Restrict)
+  digest String
+  selection Json
+  createdAt DateTime @default(now())
 }
 
 model AiDisclosureAudit {

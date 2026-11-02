@@ -1125,7 +1125,910 @@ function observeAndroidExplorerWindow(serial, expectedPackage) {
   if (!controls.length) throw captureRefusal();
   return {id:hash(JSON.stringify(semantics)), label, controls, blocked, scroll};
 }
+// BEGIN EMBEDDED ANDROID CASE REPLAY
+// Embedded in the paired connector. No imports, process startup or background loop.
+function createAndroidCaseReplay(native, { hash, nonce, now }) {
+  const clockId = nonce();
+  const tickets = new Map(),
+    runs = new Map(),
+    uncertainDevices = new Set();
+  const unsafe =
+    /\b(?:sign[ -]?in|log[ -]?in|sign[ -]?out|log[ -]?out|password|pay|buy|purchase|order|checkout|subscribe|delete|remove|erase|send|submit|save|confirm|accept|agree|install|uninstall|grant|allow|deny|enable|disable|reset|transfer|upload|download)\b/i;
+  const deny = () => {
+    throw Error("The original reviewed replay could not be admitted.");
+  };
+  const plain = (v, keys) => {
+    if (
+      !v ||
+      Object.getPrototypeOf(v) !== Object.prototype ||
+      Object.keys(v).length !== keys.length ||
+      keys.some((k) => !Object.hasOwn(v, k))
+    )
+      deny();
+  };
+  const text = (v, max = 200) => {
+    if (
+      typeof v !== "string" ||
+      !v.length ||
+      v.length > max ||
+      [...v].some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127)
+    )
+      deny();
+    return v;
+  };
+  const digest = (v) => {
+    if (!/^[a-f0-9]{64}$/.test(text(v, 64))) deny();
+    return v;
+  };
+  const scopeKey = (s) => {
+    const keys = ["projectId", "organizationId", "actorId", "sessionId"];
+    plain(s, keys);
+    return JSON.stringify(keys.map((k) => text(s[k])));
+  };
+  const selectorKey = (t) =>
+    JSON.stringify([
+      t.selector.kind,
+      t.selector.value,
+      t.selector.kind === "TEXT_CLASS" ? t.className : null,
+    ]);
+  const checkLocator = (t) => {
+    plain(t, ["kind", "value", "className"]);
+    text(t.value, 500);
+    if (
+      !["RESOURCE_ID", "ACCESSIBILITY_ID", "TEXT_CLASS"].includes(t.kind) ||
+      (t.className !== null && typeof t.className !== "string") ||
+      (t.kind === "TEXT_CLASS" && !t.className)
+    )
+      deny();
+    if (t.className !== null) text(t.className, 200);
+  };
+  const locatorKey = (t) =>
+    JSON.stringify([
+      t.kind,
+      t.value,
+      t.kind === "TEXT_CLASS" ? t.className : null,
+    ]);
+  const checkPlan = (p) => {
+    plain(p, ["caseId", "revision", "packageName", "steps"]);
+    text(p.caseId);
+    digest(p.revision);
+    if (!/^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+$/.test(text(p.packageName))) deny();
+    if (
+      !Array.isArray(p.steps) ||
+      !p.steps.length ||
+      p.steps.length > 12 ||
+      new Set(p.steps.map((s) => s.stepId)).size !== p.steps.length
+    )
+      deny();
+    for (const s of p.steps) {
+      plain(s, ["stepId", "label", "expectedResult", "locator", "assertion"]);
+      text(s.stepId);
+      text(s.label);
+      text(s.expectedResult, 10000);
+      checkLocator(s.locator);
+      plain(s.assertion, ["kind", "value", "relationReviewed"]);
+      if (
+        s.assertion.kind !== "VISIBLE_LABEL" ||
+        s.assertion.relationReviewed !== true ||
+        unsafe.test(s.label)
+      )
+        deny();
+      text(s.assertion.value);
+    }
+  };
+  const copy = (v) => JSON.parse(JSON.stringify(v));
+  const view = (r) =>
+    copy({
+      version: 1,
+      id: r.id,
+      scope: r.scope,
+      plan: r.plan,
+      planHash: r.planHash,
+      status: r.status,
+      reason: r.reason,
+      sequence: r.sequence,
+      index: r.index,
+      expiresAt: r.expiresAt,
+      screen: r.screen,
+      receipts: r.receipts,
+      candidates: r.candidates,
+      lastRequestId: r.lastRequestId,
+      ...(r.networkApproval ? { networkCapture: r.networkCapture } : {}),
+      nativeExecutionIndependentlyVerified: false,
+    });
+  const networkContext = (r) => ({
+    serial: r.serial,
+    packageName: r.plan.packageName,
+    runId: r.id,
+    origin: r.origin,
+    scopeKey: r.scopeKey,
+    clockId,
+    expiresAt: r.expiresAt,
+    approval: r.networkApproval,
+  });
+  const capture = (r, operation) => {
+    try {
+      if (!native.network) throw Error();
+      const result =
+        operation === "START"
+          ? native.network.start(networkContext(r))
+          : native.network.sample(networkContext(r), operation);
+      r.networkCapture = { status: "CAPTURED", ...result };
+      return true;
+    } catch {
+      r.networkCapture = {
+        status: "UNAVAILABLE",
+        metadata: null,
+        selection: null,
+      };
+      return false;
+    }
+  };
+  const screen = (observed) => {
+    if (observed.blocked) throw Error("PROTECTED_SCREEN");
+    digest(observed.id);
+    text(observed.label);
+    if (!Array.isArray(observed.controls) || observed.controls.length > 150)
+      deny();
+    return copy({
+      id: observed.id,
+      label: observed.label,
+      controls: observed.controls.map((c) => ({
+        id: c.id,
+        label: c.name,
+        navigable: c.navigable,
+        target: c.target,
+      })),
+    });
+  };
+  const get = (input, origin) => {
+    const r = runs.get(text(input.id, 64));
+    if (!r || r.origin !== origin || r.scopeKey !== scopeKey(input.scope))
+      deny();
+    if (
+      r.expiresAt <= now() &&
+      !["COMPLETED", "UNCERTAIN", "STOPPED", "ASSERTION_FAILED"].includes(
+        r.status,
+      )
+    ) {
+      r.status = "STOPPED";
+      r.reason = "EXPIRED";
+      r.candidates = [];
+    }
+    return r;
+  };
+  const candidateList = (r, observed, step) => {
+    // Native targets already encode uniqueness across the complete hierarchy,
+    // including disabled/unnamed objects. Bounds-only targets never qualify.
+    const words = (value) =>
+      new Set(value.toLowerCase().match(/[a-z0-9]+/g) ?? []);
+    const originalWords = words(step.label);
+    return observed.controls
+      .filter(
+        (c) =>
+          c.navigable &&
+          c.target &&
+          c.target.packageName === r.plan.packageName &&
+          c.target.selector.kind !== "BOUNDS_ONLY" &&
+          !unsafe.test(c.name) &&
+          (c.name === step.label ||
+            [...words(c.name)].filter((w) => originalWords.has(w)).length >=
+              2) &&
+          observed.controls.filter(
+            (o) => o.target && selectorKey(o.target) === selectorKey(c.target),
+          ).length === 1,
+      )
+      .map((c) => ({
+        id: c.id,
+        label: c.name,
+        target: c.target,
+        reasons:
+          c.name === step.label ? ["SAME_LABEL"] : ["SHARED_LABEL_WORDS"],
+      }));
+  };
+  return {
+    active() {
+      return [...runs.values()].some(
+        (r) =>
+          !["COMPLETED", "STOPPED", "ASSERTION_FAILED"].includes(r.status) &&
+          (r.status === "UNCERTAIN" || r.expiresAt > now()),
+      );
+    },
+    handle(command, input, origin) {
+      text(origin, 512);
+      if (command === "inspect") {
+        plain(input, ["serial", "scope"]);
+        const serial = text(input.serial);
+        const key = scopeKey(input.scope);
+        if (
+          !/^[A-Za-z0-9._:-]+$/.test(serial) ||
+          tickets.size >= 20 ||
+          uncertainDevices.has(serial)
+        )
+          deny();
+        const packageName = native.inspect(serial),
+          ticket = nonce();
+        tickets.set(ticket, {
+          serial,
+          packageName,
+          scope: key,
+          origin,
+          expiresAt: now() + 120000,
+        });
+        return { ticket, packageName, expiresAt: now() + 120000 };
+      }
+      if (command === "start") {
+        plain(input, [
+          "ticket",
+          "scope",
+          "plan",
+          "consent",
+          ...(Object.hasOwn(input, "networkApproval")
+            ? ["networkApproval"]
+            : []),
+        ]);
+        checkPlan(input.plan);
+        plain(input.consent, [
+          "localObservation",
+          "oneRun",
+          "testAccount",
+          "assertionsReviewed",
+        ]);
+        if (Object.values(input.consent).some((v) => v !== true)) deny();
+        const t = tickets.get(text(input.ticket, 64)),
+          key = scopeKey(input.scope);
+        if (
+          !t ||
+          t.origin !== origin ||
+          t.scope !== key ||
+          t.expiresAt <= now() ||
+          t.packageName !== input.plan.packageName ||
+          runs.size >= 5 ||
+          uncertainDevices.has(t.serial) ||
+          this.active()
+        )
+          deny();
+        tickets.delete(input.ticket); // consumed before any native observation
+        if (native.inspect(t.serial) !== t.packageName) deny();
+        const r = {
+          id: nonce(),
+          origin,
+          scope: copy(input.scope),
+          scopeKey: key,
+          serial: t.serial,
+          plan: copy(input.plan),
+          planHash: hash(JSON.stringify(input.plan)),
+          status: "ACTIVE",
+          reason: null,
+          sequence: 0,
+          index: 0,
+          expiresAt: now() + 300000,
+          screen: null,
+          receipts: [],
+          candidates: [],
+          lastRequestId: null,
+          retryUsed: false,
+          networkApproval: Object.hasOwn(input, "networkApproval")
+            ? copy(input.networkApproval)
+            : null,
+          networkCapture: {
+            status: "UNAVAILABLE",
+            metadata: null,
+            selection: null,
+          },
+        };
+        runs.set(r.id, r);
+        try {
+          r.screen = screen(native.observe(t.serial, t.packageName));
+          if (
+            Object.hasOwn(input, "networkApproval") &&
+            (!r.networkApproval || !capture(r, "START"))
+          ) {
+            r.status = "STOPPED";
+            r.reason = "DEBUG_METADATA_UNAVAILABLE";
+          }
+        } catch {
+          r.status = "STOPPED";
+          r.reason = "TARGET_UNAVAILABLE";
+        }
+        return view(r);
+      }
+      if (command === "read" || command === "stop") {
+        plain(input, ["id", "scope"]);
+        const r = get(input, origin);
+        if (command === "stop" && r.status !== "UNCERTAIN") {
+          if (
+            r.networkApproval &&
+            ["ACTIVE", "REPAIR_REVIEW"].includes(r.status) &&
+            r.networkCapture.status === "CAPTURED"
+          )
+            capture(r, "STOP");
+          r.status = "STOPPED";
+          r.reason = "STOPPED_BY_USER";
+          r.candidates = [];
+        }
+        return view(r);
+      }
+      plain(
+        input,
+        command === "retry"
+          ? [
+              "id",
+              "scope",
+              "revision",
+              "sequence",
+              "requestId",
+              "screenId",
+              "candidateId",
+              "retryApproved",
+            ]
+          : ["id", "scope", "revision", "sequence", "requestId", "screenId"],
+      );
+      const r = get(input, origin),
+        retry = command === "retry";
+      if (
+        !["next", "retry"].includes(command) ||
+        input.revision !== r.plan.revision ||
+        input.sequence !== r.sequence ||
+        !/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(
+          text(input.requestId, 36),
+        ) ||
+        input.screenId !== r.screen?.id ||
+        (retry
+          ? r.status !== "REPAIR_REVIEW" ||
+            r.retryUsed ||
+            input.retryApproved !== true
+          : r.status !== "ACTIVE")
+      )
+        deny();
+      const selected = retry
+        ? r.candidates.find((c) => c.id === input.candidateId)
+        : null;
+      if (retry && !selected) deny();
+      r.sequence++;
+      r.lastRequestId = input.requestId;
+      if (retry) r.retryUsed = true;
+      let attempted = false;
+      try {
+        const before = native.observe(r.serial, r.plan.packageName);
+        if (before.blocked || before.id !== r.screen.id) {
+          r.status = "STOPPED";
+          r.reason = "SCREEN_CHANGED";
+          r.candidates = [];
+          return view(r);
+        }
+        const step = r.plan.steps[r.index];
+        const wanted = retry
+          ? selectorKey(selected.target)
+          : locatorKey(step.locator);
+        const matches = before.controls.filter(
+          (c) => c.target && selectorKey(c.target) === wanted,
+        );
+        if (
+          matches.length !== 1 ||
+          !matches[0].navigable ||
+          matches[0].target.packageName !== r.plan.packageName ||
+          matches[0].target.selector.kind === "BOUNDS_ONLY" ||
+          unsafe.test(matches[0].name)
+        ) {
+          r.status = retry ? "STOPPED" : "REPAIR_REVIEW";
+          r.reason = matches.length
+            ? "TARGET_AMBIGUOUS_OR_UNSUPPORTED"
+            : "TARGET_NOT_FOUND";
+          r.candidates =
+            matches.length || retry ? [] : candidateList(r, before, step);
+          return view(r);
+        }
+        const target = matches[0],
+          b = target.bounds;
+        if (
+          retry &&
+          (target.id !== selected.id ||
+            JSON.stringify(target.target) !== JSON.stringify(selected.target))
+        )
+          throw Error();
+        if (
+          !Array.isArray(b) ||
+          b.length !== 4 ||
+          b.some((v) => !Number.isInteger(v) || v < 0 || v > 20000) ||
+          b[2] <= b[0] ||
+          b[3] <= b[1] ||
+          JSON.stringify(b) !== JSON.stringify(target.target.bounds)
+        )
+          throw Error();
+        if (
+          now() >= r.expiresAt ||
+          native.inspect(r.serial) !== r.plan.packageName
+        )
+          throw Error();
+        const expected = [
+          "shell",
+          "input",
+          "tap",
+          String(Math.floor((b[0] + b[2]) / 2)),
+          String(Math.floor((b[1] + b[3]) / 2)),
+        ];
+        const startedAt = now();
+        attempted = true;
+        const commandArgs = native.tap(r.serial, b);
+        if (JSON.stringify(commandArgs) !== JSON.stringify(expected))
+          throw Error();
+        const after = screen(native.observe(r.serial, r.plan.packageName));
+        const actual = after.controls.filter(
+          (c) => c.label === step.assertion.value,
+        ).length;
+        const assertion = {
+          kind: "VISIBLE_LABEL",
+          value: step.assertion.value,
+          relationReviewed: true,
+          matches: actual,
+          passed: actual === 1,
+        };
+        const endedAt = now();
+        if (
+          !Number.isSafeInteger(startedAt) ||
+          !Number.isSafeInteger(endedAt) ||
+          endedAt < startedAt ||
+          endedAt - startedAt > 300000
+        )
+          throw Error();
+        r.receipts.push({
+          stepId: step.stepId,
+          expectedResult: step.expectedResult,
+          requestId: input.requestId,
+          sequence: r.sequence,
+          from: before.id,
+          to: after.id,
+          observedAt: endedAt,
+          timing: { clockId, startedAt, endedAt },
+          originalLocator: step.locator,
+          target: target.target,
+          commandArgs,
+          assertion,
+          repaired: retry,
+          repairApproval: retry
+            ? {
+                candidateId: selected.id,
+                screenId: before.id,
+                reasons: selected.reasons,
+                retryApproved: true,
+              }
+            : null,
+        });
+        r.screen = after;
+        r.candidates = [];
+        if (!assertion.passed) {
+          r.status = "ASSERTION_FAILED";
+          r.reason = "REVIEW_EXPECTATION_OR_APP_DEFECT";
+        } else {
+          r.index++;
+          r.retryUsed = false;
+          r.status = r.index === r.plan.steps.length ? "COMPLETED" : "ACTIVE";
+          r.reason = null;
+        }
+      } catch {
+        r.status = attempted ? "UNCERTAIN" : "STOPPED";
+        r.reason = attempted
+          ? "ACTION_OUTCOME_UNCERTAIN_NO_RETRY"
+          : "TARGET_UNAVAILABLE";
+        r.candidates = [];
+        if (attempted) uncertainDevices.add(r.serial);
+      }
+      if (
+        r.networkApproval &&
+        r.networkCapture.status === "CAPTURED" &&
+        ["ACTIVE", "COMPLETED", "ASSERTION_FAILED"].includes(r.status)
+      ) {
+        if (!capture(r, r.status === "ACTIVE" ? "SAMPLE" : "FINISH")) {
+          // The native receipt is already complete. Metadata failure does not
+          // turn a known action into an unknown action, but stops further taps.
+          r.status = "STOPPED";
+          r.reason = "DEBUG_METADATA_UNAVAILABLE";
+        }
+      }
+      return view(r);
+    },
+  };
+}
+
+// END EMBEDDED ANDROID CASE REPLAY
 function performAndroidExplorerCommand(serial,args) { run("adb",["-s",serial,...args]); return args; }
+// BEGIN EMBEDDED ANDROID NETWORK EVIDENCE
+// Embedded into the paired connector. No standalone execution or background
+// polling. execute() is the fixed ADB boundary, never a general shell command.
+function createAndroidNetworkEvidenceAdapter({
+  execute,
+  inspect,
+  parse,
+  now,
+  nonce,
+  sleep,
+}) {
+  const sessions = new Map();
+  const copy = (v) => JSON.parse(JSON.stringify(v));
+  const fail = () => {
+    throw Error("DEBUG_METADATA_UNAVAILABLE");
+  };
+  const plain = (v, keys) =>
+    v &&
+    Object.getPrototypeOf(v) === Object.prototype &&
+    Object.keys(v).length === keys.length &&
+    keys.every((k) => Object.hasOwn(v, k));
+  const key = (v) => typeof v === "string" && /^[a-z][a-z0-9_-]{0,63}$/.test(v);
+  const id = (v) => typeof v === "string" && /^[a-f0-9]{48}$/.test(v);
+  const methods = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
+  const stamp = (v) =>
+    Number.isSafeInteger(v) && v >= 0 && v < Number.MAX_SAFE_INTEGER - 300000;
+  function catalog(raw) {
+    const template =
+      /^\/(?:v[1-9][0-9]?\/)?(?:[a-z][a-z_-]{0,31}|\{[a-z][a-z0-9_]{0,31}\})(?:\/(?:[a-z][a-z_-]{0,31}|\{[a-z][a-z0-9_]{0,31}\})){0,7}$/;
+    if (
+      !plain(raw, ["id", "revision", "routes"]) ||
+      !key(raw.id) ||
+      !Number.isInteger(raw.revision) ||
+      raw.revision < 1 ||
+      raw.revision > 1000000 ||
+      !Array.isArray(raw.routes) ||
+      !raw.routes.length ||
+      raw.routes.length > 32 ||
+      new Set(raw.routes.map((r) => r?.routeKey)).size !== raw.routes.length ||
+      raw.routes.some(
+        (r) =>
+          !plain(r, ["routeKey", "method", "template"]) ||
+          !key(r.routeKey) ||
+          !methods.includes(r.method) ||
+          typeof r.template !== "string" ||
+          r.template.length > 180 ||
+          !template.test(r.template),
+      )
+    )
+      fail();
+    return {
+      id: raw.id,
+      revision: raw.revision,
+      routes: raw.routes.map((r) => ({
+        routeKey: r.routeKey,
+        method: r.method,
+        template: r.template,
+      })),
+    };
+  }
+  function checkContext(c) {
+    const observedNow = now();
+    if (!stamp(observedNow)) fail();
+    if (
+      !plain(c, [
+        "serial",
+        "packageName",
+        "runId",
+        "origin",
+        "scopeKey",
+        "clockId",
+        "expiresAt",
+        "approval",
+      ]) ||
+      typeof c.serial !== "string" ||
+      !/^[A-Za-z0-9._:-]{1,200}$/.test(c.serial) ||
+      typeof c.packageName !== "string" ||
+      c.packageName.length > 200 ||
+      !/^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+$/.test(c.packageName) ||
+      !id(c.runId) ||
+      !id(c.clockId) ||
+      typeof c.scopeKey !== "string" ||
+      !c.scopeKey ||
+      c.scopeKey.length > 2048 ||
+      typeof c.origin !== "string" ||
+      c.origin.length > 512 ||
+      new URL(c.origin).origin !== c.origin ||
+      !stamp(c.expiresAt) ||
+      c.expiresAt <= observedNow ||
+      c.expiresAt > observedNow + 300000 ||
+      !plain(c.approval, [
+        "sourceId",
+        "catalog",
+        "debugMetadata",
+        "sourceReviewed",
+        "catalogReviewed",
+        "temporalOnlyReviewed",
+      ]) ||
+      !key(c.approval.sourceId) ||
+      c.approval.debugMetadata !== true ||
+      c.approval.sourceReviewed !== true ||
+      c.approval.catalogReviewed !== true ||
+      c.approval.temporalOnlyReviewed !== true
+    )
+      fail();
+    catalog(c.approval.catalog);
+  }
+  function guard(s, c) {
+    try {
+      checkContext(c);
+      if (
+        s.failed ||
+        JSON.stringify(c) !== s.context ||
+        inspect(c.serial) !== c.packageName
+      )
+        fail();
+    } catch {
+      s.failed = true;
+      fail();
+    }
+  }
+  function metadata(raw, c, knownClock) {
+    if (
+      !plain(raw, [
+        "version",
+        "capability",
+        "debugBuild",
+        "metadataOnly",
+        "packageName",
+        "runId",
+        "sourceId",
+        "approvedRouteKeys",
+        "events",
+        "catalog",
+        "clockId",
+        "pendingRequests",
+      ]) ||
+      raw.version !== 2 ||
+      raw.capability !== "DEBUG_APP_HTTP_CALLBACKS" ||
+      raw.debugBuild !== true ||
+      raw.metadataOnly !== true ||
+      raw.packageName !== c.packageName ||
+      raw.runId !== c.runId ||
+      raw.sourceId !== c.approval.sourceId ||
+      !id(raw.clockId) ||
+      (knownClock && raw.clockId !== knownClock) ||
+      JSON.stringify(catalog(raw.catalog)) !==
+        JSON.stringify(catalog(c.approval.catalog)) ||
+      JSON.stringify(raw.approvedRouteKeys) !==
+        JSON.stringify(c.approval.catalog.routes.map((r) => r.routeKey)) ||
+      !Number.isInteger(raw.pendingRequests) ||
+      raw.pendingRequests < 0 ||
+      raw.pendingRequests > 100 ||
+      !Array.isArray(raw.events) ||
+      raw.events.length > 100
+    )
+      fail();
+    for (const e of raw.events) {
+      if (
+        !plain(e, [
+          "routeKey",
+          "method",
+          "status",
+          "startedAt",
+          "durationMs",
+          "outcome",
+        ]) ||
+        !raw.catalog.routes.some(
+          (r) => r.routeKey === e.routeKey && r.method === e.method,
+        ) ||
+        !stamp(e.startedAt) ||
+        !Number.isInteger(e.durationMs) ||
+        e.durationMs < 0 ||
+        e.durationMs > 300000 ||
+        !["RESPONSE", "TRANSPORT_ERROR"].includes(e.outcome) ||
+        (e.outcome === "RESPONSE"
+          ? !Number.isInteger(e.status) || e.status < 100 || e.status > 599
+          : e.status !== null)
+      )
+        fail();
+    }
+    return copy(raw);
+  }
+  function exchange(s, c, operation) {
+    guard(s, c);
+    if (s.samples.length >= 32 || s.closed) fail();
+    const challengeId = nonce();
+    if (!id(challengeId) || s.challenges.has(challengeId)) fail();
+    s.challenges.add(challengeId);
+    const control = {
+      version: 1,
+      operation,
+      challengeId,
+      runId: c.runId,
+      packageName: c.packageName,
+      sourceId: c.approval.sourceId,
+      catalog: catalog(c.approval.catalog),
+      origin: c.origin,
+    };
+    const input = JSON.stringify(control) + "\n";
+    if (new TextEncoder().encode(input).length > 16384) fail();
+    if (s.samples.length && now() <= s.samples.at(-1).receivedAt) sleep(2);
+    const sentAt = now();
+    if (!stamp(sentAt)) fail();
+    if (s.samples.length && sentAt <= s.samples.at(-1).receivedAt) fail();
+    try {
+      // Exactly one write. An ambiguous tee result is terminal, never retried.
+      execute(
+        [
+          "-s",
+          c.serial,
+          "exec-out",
+          "run-as",
+          c.packageName,
+          "tee",
+          "files/vaettir-debug-http/control.json",
+        ],
+        { input, timeout: 500, maxBuffer: 16385 },
+      );
+      for (let poll = 0; poll < 4; poll++) {
+        guard(s, c);
+        if (now() - sentAt > 2500) fail();
+        const text = execute(
+          [
+            "-s",
+            c.serial,
+            "exec-out",
+            "run-as",
+            c.packageName,
+            "cat",
+            "files/vaettir-debug-http/response.json",
+          ],
+          { timeout: 400, maxBuffer: 65537 },
+        );
+        const receivedAt = now();
+        if (
+          typeof text !== "string" ||
+          new TextEncoder().encode(text).length > 65536
+        )
+          fail();
+        if (text === "") {
+          sleep(50);
+          continue;
+        }
+        const response = parse(text, 65536);
+        if (
+          !plain(response, [
+            "version",
+            "challengeId",
+            "runId",
+            "operation",
+            "clock",
+            "metadata",
+          ]) ||
+          response.version !== 1 ||
+          !id(response.challengeId) ||
+          response.runId !== c.runId ||
+          !["START", "SAMPLE", "FINISH", "STOP"].includes(response.operation)
+        )
+          fail();
+        if (response.challengeId !== challengeId) {
+          if (!s.challenges.has(response.challengeId)) fail();
+          sleep(50);
+          continue;
+        }
+        if (
+          response.operation !== operation ||
+          !plain(response.clock, ["clockId", "observedAt"]) ||
+          !id(response.clock.clockId) ||
+          !stamp(response.clock.observedAt) ||
+          !stamp(sentAt) ||
+          !stamp(receivedAt) ||
+          receivedAt < sentAt ||
+          receivedAt - sentAt > 1000
+        )
+          fail();
+        guard(s, c);
+        const admitted = metadata(response.metadata, c, s.appClockId);
+        if (admitted.clockId !== response.clock.clockId) fail();
+        if (
+          s.samples.length &&
+          response.clock.observedAt <= s.samples.at(-1).appObservedAt
+        )
+          fail();
+        if (s.samples.length && sentAt <= s.samples.at(-1).receivedAt) fail();
+        s.appClockId = admitted.clockId;
+        s.samples.push({
+          challengeId,
+          sentAt,
+          appObservedAt: response.clock.observedAt,
+          receivedAt,
+        });
+        s.metadata = admitted;
+        if (operation === "FINISH" || operation === "STOP") s.closed = true;
+        return snapshot(s, c);
+      }
+      fail();
+    } catch {
+      s.failed = true;
+      fail();
+    }
+  }
+  function snapshot(s, c) {
+    if (!s.metadata) return null;
+    const times = [
+      ...s.samples.map((x) => x.appObservedAt),
+      ...s.metadata.events.flatMap((e) => [
+        e.startedAt,
+        e.startedAt + e.durationMs,
+      ]),
+    ];
+    const startedAt = Math.min(...times),
+      endedAt = Math.max(...times);
+    if (endedAt - startedAt > 300000) fail();
+    return {
+      metadata: copy(s.metadata),
+      selection: {
+        sourceId: c.approval.sourceId,
+        approvedRouteKeys: c.approval.catalog.routes.map((r) => r.routeKey),
+        startedAt,
+        endedAt,
+        correlation: {
+          captureClock: { domain: "APP_REPORTED", clockId: s.appClockId },
+          catalog: catalog(c.approval.catalog),
+          sourceReviewed: true,
+          catalogReviewed: true,
+          temporalOnlyReviewed: true,
+          clockCalibration:
+            s.samples.length < 2
+              ? null
+              : {
+                  appClockId: s.appClockId,
+                  connectorClockId: c.clockId,
+                  method: "REPORTED_ROUND_TRIP_CALLBACK",
+                  samples: copy(s.samples),
+                },
+        },
+      },
+    };
+  }
+  return {
+    start(c) {
+      checkContext(c);
+      if (sessions.size >= 5 || sessions.has(c.runId)) fail();
+      const s = {
+        context: JSON.stringify(c),
+        samples: [],
+        challenges: new Set(),
+        metadata: null,
+        appClockId: null,
+        failed: false,
+        closed: false,
+      };
+      sessions.set(c.runId, s);
+      try {
+        return exchange(s, c, "START");
+      } catch {
+        s.failed = true;
+        fail();
+      }
+    },
+    sample(c, operation = "SAMPLE") {
+      const s = sessions.get(c?.runId);
+      if (!s) fail();
+      try {
+        if (!["SAMPLE", "FINISH", "STOP"].includes(operation)) fail();
+        return exchange(s, c, operation);
+      } catch {
+        s.failed = true;
+        fail();
+      }
+    },
+  };
+}
+
+// END EMBEDDED ANDROID NETWORK EVIDENCE
+const androidNetworkEvidenceAdapter = createAndroidNetworkEvidenceAdapter({
+  execute: (args, options) => {
+    // Defense in depth: only the two exact pre-created app-private files.
+    const write=args[5]==="tee";
+    if(args.length!==7 || args[0]!=="-s" || !/^[A-Za-z0-9._:-]{1,200}$/.test(args[1]) ||
+       args[2]!=="exec-out" || args[3]!=="run-as" || !/^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+$/.test(args[4]) ||
+       (write ? args[6]!=="files/vaettir-debug-http/control.json" : args[5]!=="cat" || args[6]!=="files/vaettir-debug-http/response.json")) throw captureRefusal();
+    try {return execFileSync(resolveAdb(),args,{...options,encoding:"utf8",windowsHide:true,stdio:["pipe","pipe","pipe"]});}
+    catch {throw captureRefusal();} // Never print private stdout/stderr.
+  },
+  inspect:inspectAndroidExplorerTarget,parse:parseAndroidWindowJson,now:Date.now,
+  nonce:()=>randomBytes(24).toString("hex"),
+  sleep:ms=>Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,ms),
+});
+const androidCaseReplay = createAndroidCaseReplay({
+  network:androidNetworkEvidenceAdapter,
+  inspect: inspectAndroidExplorerTarget, observe: observeAndroidExplorerWindow,
+  tap: (serial,b) => performAndroidExplorerCommand(serial,["shell","input","tap",String(Math.floor((b[0]+b[2])/2)),String(Math.floor((b[1]+b[3])/2))]),
+}, {hash:value=>createHash("sha256").update(value).digest("hex"),nonce:()=>randomBytes(24).toString("hex"),now:Date.now});
+const explorationLeases = new Map();
 const androidExplorer = createAndroidExplorer({
   inspect: inspectAndroidExplorerTarget,
   observe: observeAndroidExplorerWindow,
@@ -1133,7 +2036,7 @@ const androidExplorer = createAndroidExplorer({
   back: serial => performAndroidExplorerCommand(serial,["shell", "input", "keyevent", "4"]),
   scroll: (serial, b) => { const x=String(Math.floor((b[0]+b[2])/2)), height=b[3]-b[1]; return performAndroidExplorerCommand(serial,["shell", "input", "swipe", x, String(Math.floor(b[1]+height*0.8)), x, String(Math.floor(b[1]+height*0.3)), "300"]); },
 }, {hash: value => createHash("sha256").update(value).digest("hex"), nonce: () => randomBytes(24).toString("hex"), now: Date.now});
-async function handleAndroidExploration(request, response, cors, origin, command) {
+async function handleAndroidExploration(request, response, cors, origin, command, replay = false) {
   let timer, iterator;
   try {
     const chunks = []; let size = 0, done = false;
@@ -1144,11 +2047,19 @@ async function handleAndroidExploration(request, response, cors, origin, command
       const part=await Promise.race([iterator.next(),timeout]);
       if(part.done){done=true;break;}
       if(!(part.value instanceof Uint8Array))throw captureRefusal();
-      size+=part.value.length;if(size>8192)throw captureRefusal();chunks.push(part.value);
+      size+=part.value.length;if(size>(replay?262144:8192))throw captureRefusal();chunks.push(part.value);
     }
     if(!done)throw captureRefusal();
     const raw = new TextDecoder("utf-8", {fatal:true}).decode(Buffer.concat(chunks));
-    return send(response, 200, androidExplorer.handle(command, parseAndroidWindowJson(raw, 8192), origin), {...cors,"cache-control":"no-store"});
+    const input=parseAndroidWindowJson(raw,replay?262144:8192);
+    if(replay && [...explorationLeases.values()].some(expiresAt=>expiresAt>Date.now()))throw captureRefusal();
+    if(!replay && androidCaseReplay.active() && !["read","stop"].includes(command))throw captureRefusal();
+    const result=(replay?androidCaseReplay:androidExplorer).handle(command,input,origin);
+    if(!replay && result.id) {
+      if(["ACTIVE","PAUSED"].includes(result.status))explorationLeases.set(result.id,result.expiresAt);
+      else explorationLeases.delete(result.id);
+    }
+    return send(response, 200, result, {...cors,"cache-control":"no-store"});
   } catch { return send(response, 400, {error:"Exploration could not continue in its original scope. No automatic action retry was performed."}, {...cors,"cache-control":"no-store"}); }
   finally {clearTimeout(timer);if(iterator?.return){try{void Promise.resolve(iterator.return()).catch(()=>undefined);}catch{/* No private diagnostic body. */}}}
 }
@@ -1187,6 +2098,9 @@ const server = createServer(async (request, response) => {
   if (request.method === "GET" && request.url === "/exploration/v1/capabilities") {
     return send(response, 200, {version:1, platform:"ANDROID", localNavigation:true, aiProcessing:false, maxActions:24, maxScreens:12, maxSeconds:300}, {...cors,"cache-control":"no-store"});
   }
+  if(request.method === "GET" && request.url === "/case-replay/v1/capabilities")return send(response,200,{version:1,platform:"ANDROID",supportedActions:["TAP"],assertions:["VISIBLE_LABEL"],appNetwork:"DEBUG_APP_EXPORT_ONLY",appNetworkCapture:{version:2,transport:"APP_PRIVATE_FILES"},backgroundNavigation:false},{...cors,"cache-control":"no-store"});
+  const replayCommand=/^\/case-replay\/v1\/(inspect|start|next|retry|read|stop)$/.exec(request.url??"")?.[1];
+  if(request.method === "POST" && replayCommand)return handleAndroidExploration(request,response,cors,origin,replayCommand,true);
   const explorationCommand = /^\/exploration\/v1\/(inspect|start|next|pause|resume|stop|read)$/.exec(request.url ?? "")?.[1];
   if (request.method === "POST" && explorationCommand) return handleAndroidExploration(request, response, cors, origin, explorationCommand);
   if (request.method === "GET" && request.url === "/devices?source=android") {
