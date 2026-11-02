@@ -13,6 +13,27 @@ test ! -e "$root"
 node -e 'if(!/^[a-f0-9]{40}$/.test(process.env.VAETTIR_SQLITE_SOURCE_COMMIT||""))process.exit(1)'
 mkdir -m 700 "$root"
 mkdir "$root/logs" "$root/baseline"
+# Only synthetic native-build logs exist here. Keep a bounded diagnostic tail
+# when a real build gate fails; preserve the nonzero exit status.
+sqlite_failure_logs() {
+  status=$?
+  trap - EXIT
+  if test "$status" != 0 && test -d "$root/logs"; then
+    python3 - "$root/logs" <<'DIAGNOSTICS' || true
+import pathlib,sys
+root=pathlib.Path(sys.argv[1])
+for f in sorted(root.iterdir())[:48]:
+    if f.is_file() and not f.is_symlink():
+        with f.open('rb') as source:
+            source.seek(max(0,f.stat().st_size-8192))
+            tail=source.read(8192)
+        print('SQLITE_BUILD_DIAGNOSTIC '+f.name)
+        print(tail.decode('utf-8','replace'))
+DIAGNOSTICS
+  fi
+  exit "$status"
+}
+trap sqlite_failure_logs EXIT
 test "$(dpkg --print-architecture)" = amd64
 test "$(dpkg-query -W -f='${Version}' libsqlite3-0)" = '3.46.1-7+deb13u2'
 cp /usr/lib/x86_64-linux-gnu/libsqlite3.so.0.8.6 "$root/baseline/libsqlite3.so.0"

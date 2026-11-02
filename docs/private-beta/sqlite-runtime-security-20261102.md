@@ -143,3 +143,17 @@ SQLite proof is accepted. No overlay operator is implemented by this change.
    package versions, or API-only/Web-only dependency assumptions. Only Main
    can accept the new release root and conduct the existing rollout and
    retirement sequence. Hosted and full-production gates remain open.
+
+## Observed proof corrections
+
+The first isolated proof stopped before compilation because two pinned fuzz
+fixtures exceed the original individual member bound. Their measured maximum
+is 17021952 bytes; the separate 150000000-byte total, count, digest and path
+limits remain unchanged. The next proof compiled and reached the final
+compatibility checker, which rejected a real configuration difference:
+Debian's maximum default page size is 32768, while upstream defaults to 8192.
+The manifest now explicitly preserves 32768. The resource-limit comparison
+remains mandatory and its regression rejects 8192 against that baseline.
+Failed attempts are retained and do not authorize a runtime image. Failed
+builds also emit bounded tails of synthetic native logs for diagnosis while
+preserving their nonzero exit status.

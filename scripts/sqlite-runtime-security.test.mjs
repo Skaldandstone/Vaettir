@@ -17,6 +17,13 @@ test('archive member bounds admit the measured pinned fuzz fixtures without wide
   assert.ok(builder.includes('stat.S_IFREG'));
 });
 
+test('retains the measured Debian maximum default page-size capability', () => {
+  assert.ok(manifest.defines.includes('SQLITE_MAX_DEFAULT_PAGE_SIZE=32768'));
+  checkOptions([...options, 'MAX_DEFAULT_PAGE_SIZE=32768'], [...options, 'MAX_DEFAULT_PAGE_SIZE=32768']);
+  assert.throws(() => checkOptions([...options, 'MAX_DEFAULT_PAGE_SIZE=8192'],
+    [...options, 'MAX_DEFAULT_PAGE_SIZE=32768']), /reduced/);
+});
+
 test('source bytes require both independent digests and exact length', () => {
   const bytes = Buffer.from('synthetic source');
   const pin = {size:bytes.length,sha256:digest(bytes),sha3_256:digest(bytes,'sha3-256')};
