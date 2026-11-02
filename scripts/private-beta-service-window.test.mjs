@@ -7,11 +7,12 @@ import {
   validateServiceWindow,
 } from "./private-beta-service-window.mjs";
 
-test("canonical private-beta window drives public copy and all AWS schedules", () => {
+test("production availability disables all six retained start and stop schedules", () => {
   const window = validateServiceWindow(loadServiceWindow());
   const schedules = renderDesiredSchedules(window);
 
-  assert.equal(window.publicCopy, "Awake 8:00am – 1:00am Pacific");
+  assert.equal(window.publicCopy, "Available 24/7");
+  assert.ok(schedules.every((item) => item.state === "DISABLED"));
   assert.equal(schedules.length, 6);
   assert.deepEqual(
     new Set(schedules.map((item) => item.timezone)),
@@ -61,6 +62,7 @@ test("read-only AWS schedule evidence reports exact production drift", () => {
     Name: item.name,
     GroupName: item.groupName,
     ScheduleExpressionTimezone: item.timezone,
+    State: item.state,
     ScheduleExpression: item.name.includes("-start-")
       ? "cron(0 9 * * ? *)"
       : "cron(0 0 * * ? *)",
@@ -69,4 +71,23 @@ test("read-only AWS schedule evidence reports exact production drift", () => {
     compareActualSchedules(window, actual),
     actual.map((item) => ({ name: item.Name, issue: "scheduleExpression" })),
   );
+});
+
+test("enabled shutdown, duplicate schedules and other project targets refuse production acceptance", () => {
+  const window = loadServiceWindow();
+  const actual = renderDesiredSchedules(window);
+  assert.deepEqual(compareActualSchedules(window, actual), []);
+  const enabled = actual.map((item) => ({ ...item }));
+  enabled.find((item) => item.name === "rds-stop-vaettir-postgres").state = "ENABLED";
+  assert.deepEqual(compareActualSchedules(window, enabled), [
+    { name: "rds-stop-vaettir-postgres", issue: "state" },
+  ]);
+  assert.notDeepEqual(compareActualSchedules(window, [...actual, actual[0]]), []);
+  assert.throws(() => validateServiceWindow({ ...window, targets: [...window.targets.slice(1), "ecs-stop-kall-api"] }));
+  assert.throws(() => validateServiceWindow({ ...window, mode: "unknown" }));
+});
+
+test("scheduled rollback remains explicit and preserves its original window", () => {
+  const window = { ...loadServiceWindow(), mode: "scheduled", publicCopy: "Awake 8:00am – 1:00am Pacific" };
+  assert.ok(renderDesiredSchedules(window).every((item) => item.state === "ENABLED"));
 });
