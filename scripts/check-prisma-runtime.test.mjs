@@ -200,6 +200,7 @@ test("all image stages pin the same Trixie base and install patched Perl/OpenSSL
     [
       api,
       [
+        "sqlite-security",
         "vendor-build",
         "node-brotli-security",
         "llvm-build-inputs",
@@ -212,7 +213,7 @@ test("all image stages pin the same Trixie base and install patched Perl/OpenSSL
         "runtime",
       ],
     ],
-    [web, ["node-brotli-security", "native-build", "builder", "runtime"]],
+    [web, ["sqlite-security", "node-brotli-security", "native-build", "builder", "runtime"]],
   ]) {
     assertPatchedPinnedStages(source, names, base);
   }
@@ -239,10 +240,11 @@ test("derived LLVM stages reject unpinned, unrelated, forward and incompletely g
   const source = readFileSync(
     new URL("../Dockerfile.api", import.meta.url),
     "utf8",
-  );
+  ).replaceAll("\r\n", "\n");
   const base =
     "public.ecr.aws/docker/library/node:22-trixie-slim@sha256:b26b04c123d9ff8ab646ceb18b9d75a1173acf64b9a401094b906d27b29338d4";
   const names = [
+    "sqlite-security",
     "vendor-build",
     "node-brotli-security",
     "llvm-build-inputs",

@@ -22,6 +22,7 @@
     "test:native-source-observer": "node --test scripts/native-source-inventory-observer.test.mjs",
     "test:native-source-transport": "node --test scripts/native-source-diagnostic-transport.test.mjs",
     "test:native-source-diagnostic-plan": "node --test scripts/native-source-diagnostic-plan.test.mjs",
+    "test:sqlite-security": "node --test scripts/sqlite-runtime-security.test.mjs",
     "test:restore": "node --test scripts/local-restore-drill.test.mjs",
     "test:device-capture": "node --experimental-strip-types --test scripts/device-capture.test.mjs scripts/device-connector.test.mjs scripts/device-connector-launcher.test.mjs scripts/device-capture-guidance.test.mjs scripts/android-exploration.test.mjs scripts/android-exploration-native.test.mjs",
     "test:invitation-email": "node --test scripts/clerk-invitation-template.test.mjs",

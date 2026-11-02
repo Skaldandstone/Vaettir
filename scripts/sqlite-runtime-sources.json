@@ -1,0 +1,233 @@
+{
+  "schemaVersion": 1,
+  "version": "3.54.1",
+  "packageVersion": "3.54.1-0+vaettir1",
+  "sourceId": "2026-10-16 14:45:20 555e07ef33f69a0957d24d8e555b702464a131d6f1607f4c3c1e4551e8e6ca76",
+  "baselinePackageVersion": "3.46.1-7+deb13u2",
+  "baselineLibrarySha256": "317d80bf5d592f98a71e14d2330591d6a339f631f37c5977835af748a1f26715",
+  "libraryPath": "/usr/lib/x86_64-linux-gnu/libsqlite3.so.0.8.6",
+  "soname": "libsqlite3.so.0",
+  "defines": [
+    "SQLITE_SECURE_DELETE",
+    "SQLITE_ENABLE_COLUMN_METADATA",
+    "SQLITE_ENABLE_FTS3",
+    "SQLITE_ENABLE_FTS3_PARENTHESIS",
+    "SQLITE_ENABLE_FTS4",
+    "SQLITE_ENABLE_FTS5",
+    "SQLITE_ENABLE_RTREE=1",
+    "SQLITE_SOUNDEX=1",
+    "SQLITE_ENABLE_UNLOCK_NOTIFY",
+    "SQLITE_ENABLE_DBSTAT_VTAB",
+    "SQLITE_ENABLE_DBPAGE_VTAB",
+    "SQLITE_ALLOW_ROWID_IN_VIEW",
+    "SQLITE_ENABLE_UPDATE_DELETE_LIMIT=1",
+    "SQLITE_ENABLE_LOAD_EXTENSION",
+    "SQLITE_ENABLE_JSON1",
+    "SQLITE_ENABLE_MATH_FUNCTIONS",
+    "SQLITE_LIKE_DOESNT_MATCH_BLOBS",
+    "SQLITE_THREADSAFE=1",
+    "SQLITE_ENABLE_FTS3_TOKENIZER=1",
+    "SQLITE_USE_URI=1",
+    "SQLITE_MAX_SCHEMA_RETRY=25",
+    "SQLITE_ENABLE_PREUPDATE_HOOK",
+    "SQLITE_ENABLE_SESSION",
+    "SQLITE_ENABLE_STMTVTAB",
+    "SQLITE_STRICT_SUBTYPE=1",
+    "SQLITE_MAX_VARIABLE_NUMBER=250000"
+  ],
+  "sources": [
+    {
+      "role": "candidate",
+      "file": "sqlite-src-3540100.zip",
+      "url": "https://sqlite.org/2026/sqlite-src-3540100.zip",
+      "size": 14899528,
+      "sha256": "387e7f6cad4797b17848c07d453dc6606917bb356a6cfe5a3abafd38c240c71b",
+      "sha3_256": "877c6f4996ce7adb368686bce21638de9e3d91534832ad3d9d119037d1bc22ad",
+      "prefix": "sqlite-src-3540100",
+      "maxMembers": 4000,
+      "maxExpandedBytes": 150000000
+    },
+    {
+      "role": "negative-control",
+      "file": "sqlite-autoconf-3530400.tar.gz",
+      "url": "https://sqlite.org/2026/sqlite-autoconf-3530400.tar.gz",
+      "size": 3283177,
+      "sha256": "0e9483900e92cd5de8fd48d16bf9200145a61f7fd5be542a5ac81d8a9516eb9c",
+      "sha3_256": "454e45f61c6bd75b7420e7190732dea03ce6639c63ada47bbc592f67fc340338",
+      "prefix": "sqlite-autoconf-3530400",
+      "maxMembers": 128,
+      "maxExpandedBytes": 20000000
+    }
+  ],
+  "upstreamFixes": [
+    {
+      "cve": "CVE-2026-119371",
+      "commit": "e6ff280c839fdfc7418fd5add12e8f32702a17fb",
+      "patchSha256": "1c85c5d7019e6de2ea7fc9c082ed73d86c51903da3a73bec6f09b26796269afb",
+      "paths": [
+        "manifest",
+        "manifest.uuid",
+        "src/select.c",
+        "test/with2.test"
+      ]
+    },
+    {
+      "cve": "CVE-2026-119372",
+      "commit": "a87bd2471a9c0606e78d3c3678bcd9cecaa0e731",
+      "patchSha256": "d9b038a9ef0d93ef0947d27ea509e74937bff7c3693a637b50d2e86c78905914",
+      "paths": [
+        "ext/fts3/fts3_snippet.c",
+        "manifest",
+        "manifest.uuid",
+        "test/fts3snippet2.test"
+      ]
+    },
+    {
+      "cve": "CVE-2026-119373",
+      "commit": "e1c9934f9f11a499029abb020ea715a08970da80",
+      "patchSha256": "4e79bd367bf1411e66d15fe4bfca410d5ca9f29d462855e7c5c07987967bb42e",
+      "paths": [
+        "ext/fts5/fts5_index.c",
+        "ext/fts5/test/fts5prefix2.test",
+        "manifest",
+        "manifest.uuid"
+      ]
+    },
+    {
+      "cve": "CVE-2026-119374",
+      "commit": "d9de6eedbe918c074c7556400fa21df5960704d9",
+      "patchSha256": "abc7c5fe0d639fbaf3270b67297c653c726cf0efeb4fb6cee56fc44915965ae0",
+      "paths": [
+        "ext/fts5/fts5_index.c",
+        "ext/fts5/test/fts5corruptB.test",
+        "manifest",
+        "manifest.uuid"
+      ]
+    },
+    {
+      "cve": "CVE-2026-119375",
+      "commit": "e5bf119821f25be1d7f10ef0a2edbe175289166e",
+      "patchSha256": "91ea262dede60c5fd9fa3a290e8011ae9618262d59ec501f22770c73c677f032",
+      "paths": [
+        "manifest",
+        "manifest.uuid",
+        "src/wal.c"
+      ]
+    },
+    {
+      "cve": "CVE-2026-119376",
+      "commit": "d54522a5b832422ab893a1e9fa7a99ab314ea4e2",
+      "patchSha256": "91db8a5afa1466621db75a8af77585954da6a6cb34bb2c58d41592624de45b0b",
+      "paths": [
+        "manifest",
+        "manifest.uuid",
+        "src/expr.c",
+        "src/sqliteInt.h",
+        "test/sqllimits1.test"
+      ]
+    },
+    {
+      "cve": "CVE-2026-119377",
+      "commit": "7ff247c5b9ead3ad8a69c26d3fd264878e127237",
+      "patchSha256": "f2bea05bfa77e0f26c59b138358a15971ddc36bc0f16909b9060ea649906cc6b",
+      "paths": [
+        "manifest",
+        "manifest.uuid",
+        "src/resolve.c",
+        "test/auth.test"
+      ]
+    },
+    {
+      "cve": "CVE-2026-119378",
+      "commit": "d21bd37c7cfc1b85b17a6703555f0926b6236e04",
+      "patchSha256": "4294c2941dead832bada858adb3292ddc81864bdf7baf0c77e4ca773ba89078c",
+      "paths": [
+        "ext/rtree/rtree.c",
+        "ext/rtree/rtreeI.test",
+        "manifest",
+        "manifest.uuid"
+      ]
+    },
+    {
+      "cve": "CVE-2026-119379",
+      "commit": "64459c87cc702d600704fb77ee40ca1782398a52",
+      "patchSha256": "d27f37e223efe4f066f0f7d66cf8dbc8bc4f2a995ca9adcb6cbe928bf8e52c42",
+      "paths": [
+        "ext/session/sessioncorrupt.test",
+        "ext/session/sqlite3session.c",
+        "manifest",
+        "manifest.uuid"
+      ]
+    },
+    {
+      "cve": "CVE-2026-119591",
+      "commit": "eff50a067c55f972909e7780e506e91382d08de2",
+      "patchSha256": "4f695f9972463bd936fd16c02099a2077d64b55a9f20f7fa765ad0a1f9f50840",
+      "paths": [
+        "manifest",
+        "manifest.uuid",
+        "src/select.c"
+      ]
+    }
+  ],
+  "upstreamTests": [
+    {
+      "path": "test/with2.test",
+      "sha256": "29055ecaecd5ea28dd5d9701ad826259925037c1e3227c852ada36b8ba3cd44c",
+      "requiredMarkers": [
+        "with2-14.1",
+        "with2-14.2"
+      ]
+    },
+    {
+      "path": "test/fts3snippet2.test",
+      "sha256": "22bdf84d472c2fda83e856045108f0b7ac3efe355fa4d7ce58e222f841598aa5",
+      "requiredMarkers": [
+        "fts3snippet-4.1"
+      ]
+    },
+    {
+      "path": "ext/fts5/test/fts5prefix2.test",
+      "sha256": "17f44604f2305103f5d587c4b5adf580ad0c288598f8be77ca628597816e750d",
+      "requiredMarkers": [
+        "fts5prefix2-4-none-2"
+      ]
+    },
+    {
+      "path": "ext/fts5/test/fts5corruptB.test",
+      "sha256": "4b2a6b7131a74be5796b582206ca646752b47ace5369d0632fc1ba1fc17061b8",
+      "requiredMarkers": [
+        "fts5corruptB-4.1"
+      ]
+    },
+    {
+      "path": "test/sqllimits1.test",
+      "sha256": "a0ff3fb993540998fb02324cafae5b81b6469d805bd8e48b10f754b58d234553",
+      "requiredMarkers": [
+        "sqllimits1-9.1b"
+      ]
+    },
+    {
+      "path": "test/auth.test",
+      "sha256": "e683632c4604d506f93e6ad5e6b74e999df263322b697c9fd3bb7b6ac727291a",
+      "requiredMarkers": [
+        "auth-9.3"
+      ]
+    },
+    {
+      "path": "ext/rtree/rtreeI.test",
+      "sha256": "8c5f0f4e9a7f4f67287923410034962802479c22666a76256cc5d7c268e81419",
+      "requiredMarkers": [
+        "rtreeI-2.2",
+        "rtreeI-2.3"
+      ]
+    },
+    {
+      "path": "ext/session/sessioncorrupt.test",
+      "sha256": "f7171fd8609e09ecba95b1672b32192fe3d4dda90079f3a7ac978f8b33a50415",
+      "requiredMarkers": [
+        "sessioncorrupt-1.2"
+      ]
+    }
+  ]
+}
