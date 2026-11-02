@@ -49,7 +49,7 @@ for row in m['sources']:
             assert entry.isfile() or directory
             size=entry.size
         total+=size
-        assert total<=row['maxExpandedBytes'] and size<=15000000
+        assert total<=row['maxExpandedBytes'] and size<=row['maxMemberBytes']
         admitted.append((entry,path,directory))
     for entry,path,directory in admitted:
         target=root.joinpath(*path.parts)

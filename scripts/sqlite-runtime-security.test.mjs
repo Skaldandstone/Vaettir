@@ -7,6 +7,16 @@ import {manifest, digest, verifySourceBytes, downloadSource, fetchSources} from 
 import {checkUpstreamLog, checkNegativeControl, checkExports, checkElfHeader, checkOptions, parseIdentity} from './check-sqlite-runtime.mjs';
 import {restorePreSqliteDockerfileFixture, PRE_SQLITE_DOCKERFILE_SHA256} from './sqlite-dockerfile-inverse-fixture.mjs';
 
+test('archive member bounds admit the measured pinned fuzz fixtures without widening total or path admission', () => {
+  assert.equal(manifest.sources[0].maxMemberBytes, 17021952);
+  assert.equal(manifest.sources[0].maxExpandedBytes, 150000000);
+  assert.equal(manifest.sources[1].maxMemberBytes, 9515341);
+  const builder = readFileSync(new URL('./build-sqlite-runtime.sh', import.meta.url), 'utf8');
+  assert.ok(builder.includes("size<=row['maxMemberBytes']"));
+  assert.ok(builder.includes("'..' not in path.parts"));
+  assert.ok(builder.includes('stat.S_IFREG'));
+});
+
 test('source bytes require both independent digests and exact length', () => {
   const bytes = Buffer.from('synthetic source');
   const pin = {size:bytes.length,sha256:digest(bytes),sha3_256:digest(bytes,'sha3-256')};
