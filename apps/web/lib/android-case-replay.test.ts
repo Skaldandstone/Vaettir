@@ -9,6 +9,7 @@ import { controllerTranspile } from "./controller-transpile.fixture";
 import { it, expect } from "vitest";
 import * as schemas from "../../api/src/services/androidCaseReplaySchema";
 import * as network from "../../api/src/services/androidNetworkEvidenceSchema";
+import * as correlation from "../../api/src/services/androidNetworkCorrelation";
 const source = readFileSync(
   new URL("../components/AndroidCaseReplay.tsx", import.meta.url),
   "utf8",
@@ -37,7 +38,8 @@ const label = (v: unknown): string =>
       : Array.isArray(v)
         ? v.map(label).join("")
         : "";
-function fixture(stepCount = 1) {
+type CaptureMode = "approved" | "unapproved" | "unsolicited" | "wrongSource" | "unavailable" | "missing";
+function fixture(stepCount = 1, captureMode?: CaptureMode) {
   let cursor = 0,
     epoch = "original",
     serial = "synthetic",
@@ -78,6 +80,25 @@ function fixture(stepCount = 1) {
     ],
   };
   for (let i = 1; i < stepCount; i++) tc.steps.push({ ...structuredClone(tc.steps[0]!), id: `step${i + 1}`, order: i });
+  const catalog = { id: "qa_routes", revision: 1, routes: [{ routeKey: "catalog", method: "GET" as const, template: "/catalog" }] };
+  let captureChanged = false;
+  const capture = () => {
+    const timestamp = Date.now();
+    const sourceId = captureMode === "wrongSource" ? "other_source" : "qa_debug";
+    const clockId = "e".repeat(48);
+    return {
+      status: "CAPTURED" as const,
+      metadata: { version: 2 as const, capability: "DEBUG_APP_HTTP_CALLBACKS" as const, debugBuild: true as const,
+        metadataOnly: true as const, packageName: tc.packageName!, runId: "b".repeat(48), sourceId,
+        approvedRouteKeys: ["catalog"], catalog, clockId, pendingRequests: 0,
+        events: captureChanged ? [{ routeKey: "catalog", method: "GET" as const, status: 200,
+          startedAt: timestamp, durationMs: 0, outcome: "RESPONSE" as const }] : [] },
+      selection: { sourceId, approvedRouteKeys: ["catalog"], startedAt: timestamp, endedAt: timestamp,
+        correlation: { catalog, sourceReviewed: true as const, catalogReviewed: true as const,
+          temporalOnlyReviewed: true as const, clockCalibration: null,
+          captureClock: { domain: "APP_REPORTED" as const, clockId } } },
+    };
+  };
   const currentScope = () => ({
     scope: {
       projectId: "project",
@@ -103,6 +124,7 @@ function fixture(stepCount = 1) {
           supportedActions: ["TAP"],
           assertions: ["VISIBLE_LABEL"],
           appNetwork: "DEBUG_APP_EXPORT_ONLY",
+          appNetworkCapture: { version: 2, transport: "APP_PRIVATE_FILES" },
           backgroundNavigation: false,
         };
       if (path.endsWith("inspect"))
@@ -132,6 +154,11 @@ function fixture(stepCount = 1) {
           lastRequestId: null,
           nativeExecutionIndependentlyVerified: false,
         };
+        if (captureMode && !["unapproved", "missing"].includes(captureMode)) {
+          local.networkCapture = captureMode === "unavailable"
+            ? { status: "UNAVAILABLE", metadata: null, selection: null } : capture();
+          if (captureMode === "unavailable") local.status = "STOPPED";
+        }
         return structuredClone(local);
       }
       if (path.endsWith("next")) {
@@ -173,6 +200,7 @@ function fixture(stepCount = 1) {
       }
       if (path.endsWith("read")) {
         const result = structuredClone(local!);
+        if (captureChanged && result.networkCapture?.status === "CAPTURED") result.networkCapture = capture();
         if (changedPlan)
           result.plan.steps[0]!.assertion.value = "Changed assertion";
         if (staleRead) {
@@ -257,6 +285,7 @@ function fixture(stepCount = 1) {
         return { trpcReact: { useUtils: () => ({ client }) } };
       if (name.endsWith("androidCaseReplaySchema")) return schemas;
       if (name.endsWith("androidNetworkEvidenceSchema")) return network;
+      if (name.endsWith("androidNetworkCorrelation")) return correlation;
       throw Error("Unexpected dependency: " + name);
     },
     exports,
@@ -316,6 +345,14 @@ function fixture(stepCount = 1) {
     for (const step of plan.steps) step.assertion.value = "Catalog";
     change(area, JSON.stringify(plan));
     if (!automatic) checkbox("Step by step");
+    if (captureMode && captureMode !== "unsolicited") {
+      const input = find("input", "App request setup");
+      (input.props.onChange as (e: unknown) => void)({ target: {
+        files: [{ size: 500, text: async () => JSON.stringify({ sourceId: "qa_debug", catalog }) }], value: "setup.json",
+      } });
+      await settle();
+      if (captureMode !== "unapproved") checkbox("Include this debug source");
+    }
     await click("Check selected device’s open app");
     checkbox("I approve this app");
     await click("Start reviewed run");
@@ -329,6 +366,7 @@ function fixture(stepCount = 1) {
     find,
     checkbox,
     settle,
+    captureChanged: () => { captureChanged = true; },
     holdNext: () => { heldNext = new Promise<void>(resolve => { releaseNext = resolve; }); },
     releaseNext: () => { releaseNext?.(); heldNext = null; },
     failNext: () => { failedNext = true; },
@@ -485,4 +523,47 @@ it("retained recovery refuses changed assertions and unacknowledged command sequ
     expect(h.render()).toContain("Result unconfirmed");
     expect(h.calls.filter((c) => c.path.endsWith("next"))).toHaveLength(1);
   }
+});
+
+it("request tracing stays absent without separate one-run source and route approval", async () => {
+  for (const captureMode of [undefined, "unapproved"] as const) {
+    const h = fixture(1, captureMode); await h.start(true);
+    const input = h.calls.find(c => c.path.endsWith("start"))!.body as Record<string, unknown>;
+    expect(input).not.toHaveProperty("networkApproval");
+    expect(h.writes).toHaveLength(0);
+  }
+});
+it("approved request setup is pinned before run and retained unchanged for reviewed saving", async () => {
+  const h = fixture(1, "approved"); await h.start(true);
+  const input = h.calls.find(c => c.path.endsWith("start"))!.body as Record<string, unknown>;
+  expect(input.networkApproval).toMatchObject({ sourceId: "qa_debug", debugMetadata: true,
+    sourceReviewed: true, catalogReviewed: true, temporalOnlyReviewed: true });
+  expect(h.render()).toContain("COMPLETED");
+  expect(h.writes).toHaveLength(0);
+  h.checkbox("Approve disclosure"); h.checkbox("I reviewed the separate");
+  await h.click("Save reviewed technical case patch");
+  expect(h.writes).toHaveLength(1);
+  expect(h.writes[0]).toMatchObject({ network: { version: 2, sourceId: "qa_debug" },
+    networkSelection: { correlation: { captureClock: { domain: "APP_REPORTED" } } } });
+});
+it("unsolicited, missing or changed-source capture stops before a navigation action", async () => {
+  for (const mode of ["unsolicited", "missing", "wrongSource"] as const) {
+    const h = fixture(2, mode); await h.start(true);
+    expect(h.calls.filter(c => c.path.endsWith("next"))).toHaveLength(0);
+    expect(h.writes).toHaveLength(0);
+    expect(h.render()).toContain("Result unconfirmed");
+  }
+});
+it("unavailable debug integration is visible and performs no subsequent navigation", async () => {
+  const h = fixture(2, "unavailable"); await h.start(true);
+  expect(h.calls.filter(c => c.path.endsWith("next"))).toHaveLength(0);
+  expect(h.render()).toContain("App requests unavailable");
+  expect(h.writes).toHaveLength(0);
+});
+it("new returned request metadata clears both disclosure and patch review", async () => {
+  const h = fixture(1, "approved"); await h.start(true);
+  h.checkbox("Approve disclosure"); h.checkbox("I reviewed the separate");
+  h.captureChanged(); await h.click("Read retained result without acting");
+  expect(h.find("button", "Save reviewed technical case patch").props.disabled).toBe(true);
+  expect(h.writes).toHaveLength(0);
 });

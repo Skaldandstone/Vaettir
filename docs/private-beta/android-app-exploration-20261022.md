@@ -407,3 +407,17 @@ app-provider, hosted or production acceptance. Those Main-owned checks remain
 required before release acceptance. No real existing case has been replayed,
 healed or changed by this source work; the prior eight-case import is untouched.
 aTwist activation remains pending review.
+
+### Reviewing app-request capture in Vaettir
+
+Before Run, open App requests and choose the developer-provided request setup:
+`{"sourceId":"qa_debug","catalog":{"id":"qa_routes","revision":1,"routes":[{"routeKey":"catalog","method":"GET","template":"/catalog"}]}}`.
+Vaettir lists the methods and templates for approval. This approval is separate
+from navigation and is consumed by one run. Loading or changing setup clears
+previous approval. The developer must first integrate the debug file responder
+and request wrapper described above; selecting a file does not instrument an app.
+The current connector advertises APP_PRIVATE_FILES version 2. A missing,
+unsolicited or changed source is refused before further navigation. Returned
+clock observations are forwarded as observed; there is no timestamp editor.
+Completed evidence and exact proposed case changes are reviewed before saving.
+Legacy exports stay available separately and remain uncorrelated.

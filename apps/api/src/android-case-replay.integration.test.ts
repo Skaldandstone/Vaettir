@@ -35,6 +35,37 @@ describe.skipIf(!enabled)("reviewed Android case patch on isolated PostgreSQL", 
     expect(await prisma.auditLog.count({ where: { projectId: f.project.id, entityType: "AndroidCaseReplayPatch" } })).toBe(1);
     expect(first.nativeExecutionIndependentlyVerified).toBe(false);
   }, 20_000);
+  it("stores reviewed app-clock correlation and unmatched evidence atomically with the exact case patch", async () => {
+    const f = await fixture();
+    const host = Date.now() - 2000, clockId = "d".repeat(48), connectorClockId = "e".repeat(48);
+    const catalog = { id: "qa_routes", revision: 1, routes: [{ routeKey: "catalog", method: "GET" as const, template: "/catalog" }] };
+    f.input.receipts[0]!.observedAt = host + 1200;
+    f.input.receipts[0]!.timing = { clockId: connectorClockId, startedAt: host + 1100, endedAt: host + 1200 };
+    f.input.network = { version: 2, capability: "DEBUG_APP_HTTP_CALLBACKS", debugBuild: true, metadataOnly: true,
+      packageName: f.input.plan.packageName, runId: f.input.runId, sourceId: "qa_debug", approvedRouteKeys: ["catalog"],
+      catalog, clockId, pendingRequests: 1, events: [620, 500].map(startedAt => ({ routeKey: "catalog", method: "GET" as const,
+        status: 200, startedAt, durationMs: 10, outcome: "RESPONSE" as const })) };
+    f.input.networkSelection = { sourceId: "qa_debug", approvedRouteKeys: ["catalog"], startedAt: 500, endedAt: 1000,
+      correlation: { catalog, captureClock: { domain: "APP_REPORTED", clockId }, sourceReviewed: true, catalogReviewed: true,
+        temporalOnlyReviewed: true, clockCalibration: { appClockId: clockId, connectorClockId,
+          method: "REPORTED_ROUND_TRIP_CALLBACK", samples: [
+            { challengeId: "f".repeat(48), sentAt: host + 999, appObservedAt: 500, receivedAt: host + 1001 },
+            { challengeId: "a".repeat(48), sentAt: host + 1499, appObservedAt: 1000, receivedAt: host + 1501 },
+          ] } } };
+    await patchAndroidReplayCase(prisma, f.input, f.authority);
+    const tc = await prisma.testCase.findUniqueOrThrow({ where: { id: f.tc.id }, include: { steps: true, versions: true } });
+    expect(tc.steps[0]!.action).toContain("GET /catalog 200");
+    expect(tc.steps[0]!.action).toContain("Temporal correlation only");
+    expect(tc.steps[0]!.expectedResult).toBe("Catalog appears");
+    expect(tc.versions).toHaveLength(1);
+    const audit = await prisma.auditLog.findFirstOrThrow({ where: { projectId: f.project.id, entityType: "AndroidCaseReplayPatch" } });
+    const metadata = audit.metadata as unknown as { networkCorrelation: { matched: unknown[]; unassigned: unknown[]; pendingRequests: number }; evidence: { network: unknown; networkSelection: unknown } };
+    expect(metadata.networkCorrelation.matched).toHaveLength(1);
+    expect(metadata.networkCorrelation.unassigned).toHaveLength(1);
+    expect(metadata.networkCorrelation.pendingRequests).toBe(1);
+    expect(metadata.evidence.network).toEqual(f.input.network);
+    expect(metadata.evidence.networkSelection).toEqual(f.input.networkSelection);
+  }, 20_000);
   it("serializes concurrent duplicate requests without duplicate versions or replaying device actions", async () => {
     const f = await fixture();
     const outcomes = await Promise.allSettled([patchAndroidReplayCase(prisma, f.input, f.authority), patchAndroidReplayCase(prisma, f.input, f.authority)]);

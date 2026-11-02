@@ -3,7 +3,8 @@ import { useEffect, useRef, useState } from "react";
 import { trpcReact } from "@/lib/trpcReact";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { androidReplayCase, androidReplayPlan, androidReplayState, androidReplayPatchInput, androidReplayPatchReceipt, androidReplayPatchedAction, type AndroidReplayCase, type AndroidReplayState, } from "../../api/src/services/androidCaseReplaySchema";
-import { admitAndroidNetworkEvidence, androidNetworkEvidence, } from "../../api/src/services/androidNetworkEvidenceSchema";
+import { admitAndroidNetworkEvidence, androidNetworkEvidence, androidNetworkCatalog, } from "../../api/src/services/androidNetworkEvidenceSchema";
+import { correlateAndroidNetwork } from "../../api/src/services/androidNetworkCorrelation";
 import type { androidExplorationScope } from "../../api/src/services/androidExplorationSchema";
 type Props = {
     serial: string;
@@ -85,6 +86,11 @@ export function AndroidCaseReplay(props: Props) {
     const pending = useRef<typeof androidReplayPatchInput._output | null>(null);
     const [sourceId, setSourceId] = useState(""), [routeKeys, setRouteKeys] = useState(""), [networkApproved, setNetworkApproved] = useState(false);
     const [network, setNetwork] = useState<typeof androidNetworkEvidence._output | null>(null), [networkSelection, setNetworkSelection] = useState<typeof androidReplayPatchInput._output.networkSelection>(null);
+    type RequestSetup = { sourceId: string; catalog: typeof androidNetworkCatalog._output };
+    const [requestSetup, setRequestSetup] = useState<RequestSetup | null>(null);
+    const [captureApproved, setCaptureApproved] = useState(false);
+    const approvedCapture = useRef<RequestSetup | null>(null);
+    const receivedCapture = useRef("");
     const startedAt = useRef(0), endedAt = useRef(0), retained = useRef<AndroidReplayState | null>(null);
     const stopRequested = useRef(false);
     const [stepByStep, setStepByStep] = useState(false);
@@ -173,6 +179,7 @@ export function AndroidCaseReplay(props: Props) {
                 supportedActions: ["TAP"],
                 assertions: ["VISIBLE_LABEL"],
                 appNetwork: "DEBUG_APP_EXPORT_ONLY",
+                appNetworkCapture: { version: 2, transport: "APP_PRIVATE_FILES" },
                 backgroundNavigation: false,
             }))
             throw Error("Download the current connector before replay.");
@@ -200,6 +207,8 @@ export function AndroidCaseReplay(props: Props) {
             throw Error("Original case access or supported procedure could not be verified.");
         }
         setSelected(value);
+        setRequestSetup(null);
+        setCaptureApproved(false);
         setConsent(false);
         setTicket(null);
         setPlanText(JSON.stringify({
@@ -274,6 +283,34 @@ export function AndroidCaseReplay(props: Props) {
                 (value.receipts.length !== value.plan.steps.length ||
                     value.receipts.some((r) => !r.assertion.passed))))
             throw Error("The complete original assertion receipt is unavailable.");
+        const capture = value.networkCapture;
+        if (!approvedCapture.current && capture)
+            throw Error("Unapproved app request evidence was refused.");
+        if (approvedCapture.current && !capture)
+            throw Error("Requested app evidence is missing. This run stopped.");
+        if (capture?.status === "CAPTURED") {
+            const expected = approvedCapture.current!;
+            if (capture.metadata.version !== 2 || capture.selection.sourceId !== expected.sourceId ||
+                JSON.stringify(capture.metadata.catalog) !== JSON.stringify(expected.catalog) ||
+                JSON.stringify(capture.selection.correlation?.catalog) !== JSON.stringify(expected.catalog))
+                throw Error("The approved debug source or request routes changed.");
+            const metadata = admitAndroidNetworkEvidence(capture.metadata, {
+                ...capture.selection, packageName: value.plan.packageName, runId: value.id,
+            });
+            const snapshot = JSON.stringify(capture);
+            if (snapshot !== receivedCapture.current) {
+                setNetwork(metadata);
+                setNetworkSelection(capture.selection);
+                setDisclose(false);
+                setPatchReviewed(false);
+                receivedCapture.current = snapshot;
+            }
+        } else if (capture?.status === "UNAVAILABLE") {
+            setNetwork(null);
+            setNetworkSelection(null);
+            setDisclose(false);
+            setPatchReviewed(false);
+        }
         retained.current = value;
         setRun(value);
         if (!endedAt.current &&
@@ -290,6 +327,8 @@ export function AndroidCaseReplay(props: Props) {
             throw Error("Review this exact plan and selected app first.");
         await checkedCase();
         originalPlan.current = plan;
+        approvedCapture.current = captureApproved && requestSetup ? structuredClone(requestSetup) : null;
+        setCaptureApproved(false);
         startedAt.current = Date.now();
         setConsent(false);
         setUncertain(true);
@@ -298,6 +337,10 @@ export function AndroidCaseReplay(props: Props) {
             ticket: ticket.ticket,
             scope: owner.pin().scope,
             plan,
+            ...(approvedCapture.current ? { networkApproval: {
+                ...approvedCapture.current, debugMetadata: true, sourceReviewed: true,
+                catalogReviewed: true, temporalOnlyReviewed: true,
+            } } : {}),
             consent: {
                 localObservation: true,
                 oneRun: true,
@@ -370,6 +413,21 @@ export function AndroidCaseReplay(props: Props) {
         }), current.id);
         setUncertain(false);
     }
+    async function loadRequestSetup(file: File) {
+        if (run || uncertain || file.size > 32768)
+            throw Error("Choose a bounded debug request setup before the run.");
+        await checkedCase();
+        const raw = JSON.parse(await file.text());
+        owner.pin();
+        if (!raw || typeof raw !== "object" || Array.isArray(raw) ||
+            Object.keys(raw).sort().join(",") !== "catalog,sourceId" ||
+            typeof raw.sourceId !== "string" || !/^[a-z][a-z0-9_-]{0,63}$/.test(raw.sourceId))
+            throw Error("Use the app developer’s request setup file.");
+        const catalog = androidNetworkCatalog.parse(raw.catalog);
+        setRequestSetup({ sourceId: raw.sourceId, catalog });
+        setCaptureApproved(false);
+        setConsent(false);
+    }
     async function intake(file: File) {
         if (!networkApproved ||
             !run ||
@@ -428,6 +486,8 @@ export function AndroidCaseReplay(props: Props) {
             throw Error("The saved patch receipt could not be verified.");
         setReceipt(result);
     }
+    const networkCorrelation = run && network && networkSelection
+        ? correlateAndroidNetwork(network, networkSelection, run.receipts) : null;
     const disabled = busy || !props.available || owner.halted || !visible;
     let draft: typeof androidReplayPlan._input | null = null;
     try {
@@ -447,6 +507,7 @@ export function AndroidCaseReplay(props: Props) {
         change(next);
         setPlanText(JSON.stringify(next, null, 2));
         setConsent(false);
+        setCaptureApproved(false);
         setTicket(null);
     }
     return (<section className="panel" aria-label="Replay an existing Android case" data-sentry-mask="true" data-private="true" style={{ display: "grid", gap: 12, overflowWrap: "anywhere" }}>
@@ -462,6 +523,8 @@ export function AndroidCaseReplay(props: Props) {
                 <select value={caseId} disabled={disabled} onChange={(e) => {
                     setCaseId(e.target.value);
                     setSelected(null);
+                    setRequestSetup(null);
+                    setCaptureApproved(false);
                     setTicket(null);
                     setConsent(false);
                 }}>
@@ -507,6 +570,29 @@ export function AndroidCaseReplay(props: Props) {
                     label, not every business rule in the case.
                   </p>
                   </details>
+                  <details>
+                    <summary>App requests</summary>
+                    <p>Optional. Requires request tracing in the app’s debug build.</p>
+                    <label title="Choose the app developer’s setup containing its source ID and symbolic routes. No credentials or request contents.">Request setup
+                      <input aria-label="App request setup" type="file" accept="application/json,.json" disabled={disabled} onChange={e => {
+                          const file = e.target.files?.[0];
+                          setCaptureApproved(false);
+                          setRequestSetup(null);
+                          setConsent(false);
+                          if (file) void work(() => loadRequestSetup(file));
+                          e.target.value = "";
+                      }}/>
+                    </label>
+                    {requestSetup && <>
+                      <p>Source: {requestSetup.sourceId}</p>
+                      <table><caption>Approved routes</caption><thead><tr><th>Method</th><th>Route</th></tr></thead><tbody>
+                        {requestSetup.catalog.routes.map(route => <tr key={route.routeKey}><td>{route.method}</td><td>{route.template}</td></tr>)}
+                      </tbody></table>
+                      <label><input type="checkbox" checked={captureApproved} disabled={disabled} onChange={e => {
+                          setCaptureApproved(e.target.checked); setConsent(false);
+                      }}/> Include this debug source and these routes for one run. Matches use timing and do not verify API behavior.</label>
+                    </>}
+                  </details>
                   <ActionButton type="button" disabled={disabled} onClick={() => void work(inspect)} tooltip="Check selected device’s open app">Check app</ActionButton>
                   {ticket && <p>Open app: {ticket.packageName}</p>}
                   <label>
@@ -540,6 +626,7 @@ export function AndroidCaseReplay(props: Props) {
                       <ActionButton type="button" disabled={disabled || uncertain} onClick={() => void work(async () => { stopRequested.current = false; const value = await step(c.id); await runAll(value); })} tooltip="Approve this candidate and retry once">Use target</ActionButton>
                     </div>))}
                 </>)}
+              {run.networkCapture?.status === "UNAVAILABLE" && <p role="alert">App requests unavailable. Check the app’s debug integration.</p>}
               <details>
                 <summary>
                   Run details
@@ -551,14 +638,10 @@ export function AndroidCaseReplay(props: Props) {
               {run.status === "COMPLETED" && !receipt && (<>
                   <details>
                     <summary>
-                      App requests
+                      Legacy export
                     </summary>
                     <p>
-                      ADB does not capture app HTTP traffic. Integrate the debug
-                      instrumentation example into the selected app. Configure
-                      this run ID before the run’s actions, then export only its
-                      approved route metadata. No TLS interception, rooting,
-                      global logs, URLs, headers or bodies are accepted.
+                      Import a legacy metadata export. These events remain unassigned to steps.
                     </p>
                     <label>
                       Approved source ID
@@ -618,7 +701,7 @@ export function AndroidCaseReplay(props: Props) {
                     </p>
                     <pre style={{ whiteSpace: "pre-wrap" }}>
                       {JSON.stringify({
-                        actions: run.receipts.map((r, i) => androidReplayPatchedAction(selected!.steps[i]!.action, run.id, r, network, patchRequestId)),
+                        actions: run.receipts.map((r, i) => androidReplayPatchedAction(selected!.steps[i]!.action, run.id, r, network, patchRequestId, networkCorrelation)),
                         plan: run.plan,
                         receipts: run.receipts,
                         network,
