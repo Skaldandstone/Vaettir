@@ -217,6 +217,10 @@ function mustBeSynthetic(
     });
 }
 
+// Shared command machinery preserves one-use credential delivery and durable
+// withdrawal triggers for the separately reviewed selected-case capability.
+export { policy as lockAiPolicy, replay as replayAiCommand, receipt as saveAiCommandReceipt, credential as createAiCredential };
+
 export async function readAiSettings(actor: Actor, input: Scope) {
   const scope = aiAdminScope.parse(input);
   return actor.prisma.$transaction(async (tx) => {
@@ -268,6 +272,7 @@ export async function readAiSettings(actor: Actor, input: Scope) {
       ),
       version: row?.version ?? 0,
       enabled: aiDisclosureDeployment()(scope.organizationId, scope.projectId),
+      caseSharingEnabled: process.env.VAETTIR_AI_CASE_DISCLOSURE_ENABLED === "1" && aiDisclosureDeployment()(scope.organizationId, scope.projectId),
       grants: grants.slice(0, 100),
       grantLimitReached:
         grants.filter(
@@ -440,6 +445,8 @@ export async function changeAiGrant(
     const now = new Date();
     let token: string | null = null;
     if (rotate) {
+      if (grant.scope !== "aggregate_counts")
+        throw new TRPCError({ code: "CONFLICT", message: "Preview and approve selected cases again to renew this connection." });
       const approved = aiRotateInput.parse(input);
       mustBeSynthetic(row, approved.expectedPolicyVersion);
       if (
