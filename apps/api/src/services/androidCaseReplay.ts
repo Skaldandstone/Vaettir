@@ -1,3 +1,4 @@
+import { correlateAndroidNetwork } from "./androidNetworkCorrelation.js";
 import { createHash } from "node:crypto";
 import { Prisma, type PrismaClient } from "@vaettir/db";
 import { TRPCError } from "@trpc/server";
@@ -235,6 +236,7 @@ export function validateAndroidReplayEvidence(
       runId: input.runId,
     });
     if (
+      input.network.version === 1 &&
       input.receipts.some(
         (r) =>
           r.observedAt < input.networkSelection!.startedAt ||
@@ -275,6 +277,14 @@ export async function patchAndroidReplayCase(
       }
       const tc = await loadCase(tx, input, input.plan.caseId);
       validateAndroidReplayEvidence(input, tc);
+      const networkCorrelation =
+        input.network && input.networkSelection
+          ? correlateAndroidNetwork(
+              input.network,
+              input.networkSelection,
+              input.receipts,
+            )
+          : null;
       const steps = tc.steps.map((s, i) => {
         const r = input.receipts[i]!;
         return {
@@ -285,6 +295,7 @@ export async function patchAndroidReplayCase(
             r,
             input.network,
             input.requestId,
+            networkCorrelation,
           ),
         };
       });
@@ -348,6 +359,8 @@ export async function patchAndroidReplayCase(
           metadata: {
             receipt,
             evidence: input as unknown as Prisma.InputJsonObject,
+            networkCorrelation:
+              networkCorrelation as unknown as Prisma.InputJsonValue,
             automationSuggestion: {
               framework: "UI_AUTOMATOR",
               caseId: tc.id,

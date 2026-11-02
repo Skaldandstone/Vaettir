@@ -240,6 +240,132 @@ function fixture() {
     fail: () => (failAudit = true),
   };
 }
+function correlatedFixture() {
+  const f = fixture(),
+    catalog = {
+      id: "qa",
+      revision: 1,
+      routes: [
+        {
+          routeKey: "catalog",
+          method: "GET" as const,
+          template: "/catalog/{item_id}",
+        },
+      ],
+    };
+  f.input.receipts[0]!.timing = {
+    clockId: "c".repeat(48),
+    startedAt: 1100,
+    endedAt: 1200,
+  };
+  f.input.network = {
+    version: 2,
+    capability: "DEBUG_APP_HTTP_CALLBACKS",
+    debugBuild: true,
+    metadataOnly: true,
+    packageName: f.input.plan.packageName,
+    runId: f.input.runId,
+    sourceId: "qa",
+    approvedRouteKeys: ["catalog"],
+    catalog,
+    clockId: "b".repeat(48),
+    pendingRequests: 0,
+    events: [
+      {
+        routeKey: "catalog",
+        method: "GET",
+        status: 200,
+        startedAt: 620,
+        durationMs: 10,
+        outcome: "RESPONSE",
+      },
+    ],
+  };
+  f.input.networkSelection = {
+    sourceId: "qa",
+    approvedRouteKeys: ["catalog"],
+    startedAt: 500,
+    endedAt: 1000,
+    correlation: {
+      captureClock: { domain: "APP_REPORTED", clockId: "b".repeat(48) },
+      catalog,
+      sourceReviewed: true,
+      catalogReviewed: true,
+      temporalOnlyReviewed: true,
+      clockCalibration: {
+        appClockId: "b".repeat(48),
+        connectorClockId: "c".repeat(48),
+        method: "REPORTED_ROUND_TRIP_CALLBACK",
+        samples: [
+          {
+            challengeId: "d".repeat(48),
+            sentAt: 999,
+            appObservedAt: 500,
+            receivedAt: 1001,
+          },
+          {
+            challengeId: "e".repeat(48),
+            sentAt: 1499,
+            appObservedAt: 1000,
+            receivedAt: 1501,
+          },
+        ],
+      },
+    },
+  };
+  return f;
+}
+it("persists reported HTTP association with reviewed version and audit without raw clock equality", async () => {
+  const f = correlatedFixture();
+  const result = await patchAndroidReplayCase(f.db, f.input, authority);
+  expect(result.nativeExecutionIndependentlyVerified).toBe(false);
+  expect(f.versions).toHaveLength(1);
+  expect(f.tc.steps[0]!.action).toContain("GET /catalog/{item_id} 200");
+  expect(f.tc.steps[0]!.action).toContain("no causality");
+  expect(f.tc.steps[0]!.expectedResult).toBe(
+    f.initial.steps[0]!.expectedResult,
+  );
+  expect(f.audits[0]!.metadata).toMatchObject({
+    networkCorrelation: {
+      trust: "LOCAL_REPORTED_TEMPORAL_ONLY",
+      matched: [{ stepId: "step", eventIndex: 0 }],
+      unassigned: [],
+    },
+  });
+});
+it("catalog refusal creates no version; clock ambiguity is retained unassigned", async () => {
+  const f = correlatedFixture();
+  f.input.networkSelection!.correlation!.catalog = structuredClone(
+    f.input.networkSelection!.correlation!.catalog,
+  );
+  f.input.networkSelection!.correlation!.catalog.revision++;
+  await expect(
+    patchAndroidReplayCase(f.db, f.input, authority),
+  ).rejects.toThrow();
+  expect(f.versions).toHaveLength(0);
+  expect(f.tc).toEqual(f.initial);
+  const g = correlatedFixture();
+  g.input.networkSelection!.correlation!.clockCalibration!.connectorClockId =
+    "f".repeat(48);
+  await patchAndroidReplayCase(g.db, g.input, authority);
+  expect(g.tc.steps[0]!.action).toContain("No HTTP event correlated");
+  expect(g.tc.steps[0]!.action).not.toContain("GET /catalog");
+  expect(g.audits[0]!.metadata).toMatchObject({
+    networkCorrelation: { matched: [], unassigned: [{ eventIndex: 0 }] },
+  });
+});
+it.each(["suspended", "role", "seat", "tenant", "actor"])(
+  "HTTP metadata does not bypass current %s authority",
+  async (key) => {
+    const f = correlatedFixture();
+    f.deny(key);
+    await expect(
+      patchAndroidReplayCase(f.db, f.input, authority),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(f.reads).toBe(0);
+    expect(f.versions).toHaveLength(0);
+  },
+);
 describe("APP-NAV-02 actual service with synthetic transaction delegates, no database or device", () => {
   it("reads original supported case revision and a bounded list under current locked authority", async () => {
     const f = fixture();

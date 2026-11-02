@@ -1,5 +1,6 @@
 // Embedded in the paired connector. No imports, process startup or background loop.
 export function createAndroidCaseReplay(native, { hash, nonce, now }) {
+  const clockId = nonce();
   const tickets = new Map(),
     runs = new Map(),
     uncertainDevices = new Set();
@@ -104,8 +105,37 @@ export function createAndroidCaseReplay(native, { hash, nonce, now }) {
       receipts: r.receipts,
       candidates: r.candidates,
       lastRequestId: r.lastRequestId,
+      ...(r.networkApproval ? { networkCapture: r.networkCapture } : {}),
       nativeExecutionIndependentlyVerified: false,
     });
+  const networkContext = (r) => ({
+    serial: r.serial,
+    packageName: r.plan.packageName,
+    runId: r.id,
+    origin: r.origin,
+    scopeKey: r.scopeKey,
+    clockId,
+    expiresAt: r.expiresAt,
+    approval: r.networkApproval,
+  });
+  const capture = (r, operation) => {
+    try {
+      if (!native.network) throw Error();
+      const result =
+        operation === "START"
+          ? native.network.start(networkContext(r))
+          : native.network.sample(networkContext(r), operation);
+      r.networkCapture = { status: "CAPTURED", ...result };
+      return true;
+    } catch {
+      r.networkCapture = {
+        status: "UNAVAILABLE",
+        metadata: null,
+        selection: null,
+      };
+      return false;
+    }
+  };
   const screen = (observed) => {
     if (observed.blocked) throw Error("PROTECTED_SCREEN");
     digest(observed.id);
@@ -200,7 +230,15 @@ export function createAndroidCaseReplay(native, { hash, nonce, now }) {
         return { ticket, packageName, expiresAt: now() + 120000 };
       }
       if (command === "start") {
-        plain(input, ["ticket", "scope", "plan", "consent"]);
+        plain(input, [
+          "ticket",
+          "scope",
+          "plan",
+          "consent",
+          ...(Object.hasOwn(input, "networkApproval")
+            ? ["networkApproval"]
+            : []),
+        ]);
         checkPlan(input.plan);
         plain(input.consent, [
           "localObservation",
@@ -242,10 +280,25 @@ export function createAndroidCaseReplay(native, { hash, nonce, now }) {
           candidates: [],
           lastRequestId: null,
           retryUsed: false,
+          networkApproval: Object.hasOwn(input, "networkApproval")
+            ? copy(input.networkApproval)
+            : null,
+          networkCapture: {
+            status: "UNAVAILABLE",
+            metadata: null,
+            selection: null,
+          },
         };
         runs.set(r.id, r);
         try {
           r.screen = screen(native.observe(t.serial, t.packageName));
+          if (
+            Object.hasOwn(input, "networkApproval") &&
+            (!r.networkApproval || !capture(r, "START"))
+          ) {
+            r.status = "STOPPED";
+            r.reason = "DEBUG_METADATA_UNAVAILABLE";
+          }
         } catch {
           r.status = "STOPPED";
           r.reason = "TARGET_UNAVAILABLE";
@@ -256,6 +309,12 @@ export function createAndroidCaseReplay(native, { hash, nonce, now }) {
         plain(input, ["id", "scope"]);
         const r = get(input, origin);
         if (command === "stop" && r.status !== "UNCERTAIN") {
+          if (
+            r.networkApproval &&
+            ["ACTIVE", "REPAIR_REVIEW"].includes(r.status) &&
+            r.networkCapture.status === "CAPTURED"
+          )
+            capture(r, "STOP");
           r.status = "STOPPED";
           r.reason = "STOPPED_BY_USER";
           r.candidates = [];
@@ -361,6 +420,7 @@ export function createAndroidCaseReplay(native, { hash, nonce, now }) {
           String(Math.floor((b[0] + b[2]) / 2)),
           String(Math.floor((b[1] + b[3]) / 2)),
         ];
+        const startedAt = now();
         attempted = true;
         const commandArgs = native.tap(r.serial, b);
         if (JSON.stringify(commandArgs) !== JSON.stringify(expected))
@@ -376,6 +436,14 @@ export function createAndroidCaseReplay(native, { hash, nonce, now }) {
           matches: actual,
           passed: actual === 1,
         };
+        const endedAt = now();
+        if (
+          !Number.isSafeInteger(startedAt) ||
+          !Number.isSafeInteger(endedAt) ||
+          endedAt < startedAt ||
+          endedAt - startedAt > 300000
+        )
+          throw Error();
         r.receipts.push({
           stepId: step.stepId,
           expectedResult: step.expectedResult,
@@ -383,7 +451,8 @@ export function createAndroidCaseReplay(native, { hash, nonce, now }) {
           sequence: r.sequence,
           from: before.id,
           to: after.id,
-          observedAt: now(),
+          observedAt: endedAt,
+          timing: { clockId, startedAt, endedAt },
           originalLocator: step.locator,
           target: target.target,
           commandArgs,
@@ -416,6 +485,18 @@ export function createAndroidCaseReplay(native, { hash, nonce, now }) {
           : "TARGET_UNAVAILABLE";
         r.candidates = [];
         if (attempted) uncertainDevices.add(r.serial);
+      }
+      if (
+        r.networkApproval &&
+        r.networkCapture.status === "CAPTURED" &&
+        ["ACTIVE", "COMPLETED", "ASSERTION_FAILED"].includes(r.status)
+      ) {
+        if (!capture(r, r.status === "ACTIVE" ? "SAMPLE" : "FINISH")) {
+          // The native receipt is already complete. Metadata failure does not
+          // turn a known action into an unknown action, but stops further taps.
+          r.status = "STOPPED";
+          r.reason = "DEBUG_METADATA_UNAVAILABLE";
+        }
       }
       return view(r);
     },
