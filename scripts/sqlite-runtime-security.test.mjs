@@ -4,7 +4,7 @@ import {readFileSync, mkdtempSync, rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {manifest, digest, verifySourceBytes, downloadSource, fetchSources} from './fetch-sqlite-runtime-sources.mjs';
-import {checkUpstreamLog, checkNegativeControl, checkExports, checkElfHeader, checkOptions, parseIdentity} from './check-sqlite-runtime.mjs';
+import {checkUpstreamLog, checkNegativeControl, checkExports, checkElfHeader, checkOptions, parseIdentity, checkConsumerInventory} from './check-sqlite-runtime.mjs';
 import {restorePreSqliteDockerfileFixture, PRE_SQLITE_DOCKERFILE_SHA256} from './sqlite-dockerfile-inverse-fixture.mjs';
 
 test('archive member bounds admit the measured pinned fuzz fixtures without widening total or path admission', () => {
@@ -101,12 +101,44 @@ test('negative control accepts only the exact observed defect, never a crash or 
   assert.throws(()=>checkNegativeControl(42,'WAL_TAIL_ZEROED:3584\n',''));
   assert.throws(()=>checkNegativeControl(42,'WAL_TAIL_UNINITIALIZED:3584\n','unexpected diagnostic'));
 });
-test('ABI cannot shrink or substitute an export with the same symbol count', () => {
-  const baseline=Array.from({length:120},(_,i)=>`sqlite3_export_${i}`);
-  checkExports([...baseline,'sqlite3_new'],baseline);
-  assert.throws(()=>checkExports([...baseline.slice(1),'sqlite3_replacement'],baseline),/lost/);
-  assert.throws(()=>checkExports(['sqlite3_open'],['sqlite3_open']),/Incomplete/);
+function abiFixture() {
+  const publicSymbols = Array.from({length:120},(_,i)=>`sqlite3_export_${i}`);
+  const privateSymbols = ['sqlite3PrivateUnused','sqlite3PrivateConsumer'];
+  const baseline = [...publicSymbols,...privateSymbols];
+  const contract = {schemaVersion:1,baselineExports:baseline,headerDeclaredSymbols:publicSymbols,
+    requiredPublicExports:publicSymbols,explicitlyPrivateExports:privateSymbols,
+    consumers:[{path:'/usr/lib/test-consumer.so',sha256:'a'.repeat(64),undefinedSQLiteSymbols:['sqlite3PrivateConsumer']}]};
+  return {publicSymbols,privateSymbols,baseline,contract};
+}
+test('ABI retains all baseline-header public exports and any consumer-used private symbol', () => {
+  const {publicSymbols,baseline,contract} = abiFixture();
+  checkExports([...baseline,'sqlite3_new'],baseline,contract);
+  assert.throws(()=>checkExports([...baseline.slice(1),'sqlite3_replacement'],baseline,contract),/lost/);
+  assert.throws(()=>checkExports(publicSymbols,baseline,contract),/sqlite3PrivateConsumer/);
+  const delta = checkExports([...publicSymbols,'sqlite3PrivateConsumer'],baseline,contract);
+  assert.deepEqual(delta.removedPrivateExports,['sqlite3PrivateUnused']);
+  assert.throws(()=>checkExports(['sqlite3_open'],['sqlite3_open'],contract),/Incomplete/);
 });
+test('ABI never accepts an unreviewed baseline, ambiguous classification or changed consumer closure', () => {
+  const {baseline,contract} = abiFixture();
+  assert.throws(()=>checkExports(baseline,[...baseline.slice(1),'sqlite3_other'],contract),/Unreviewed/);
+  assert.throws(()=>checkExports(baseline,baseline,{...contract,explicitlyPrivateExports:[]}),/Unclassified/);
+  assert.throws(()=>checkExports(baseline,baseline,{...contract,requiredPublicExports:contract.requiredPublicExports.slice(1)}),/Unclassified/);
+  assert.throws(()=>checkExports(baseline,baseline,{...contract,consumers:[{...contract.consumers[0],undefinedSQLiteSymbols:['sqlite3UnknownPrivate']}]}),/Unresolved/);
+  assert.throws(()=>checkExports(baseline,baseline,{...contract,consumers:[{...contract.consumers[0],sha256:'unknown'}]}),/Invalid/);
+});
+test('production ABI contract pins matching baseline core, session and Rtree headers plus exact consumers', () => {
+  const c = manifest.abiContract;
+  assert.equal(c.baselineLibrarySha256,manifest.baselineLibrarySha256);
+  assert.deepEqual(c.baselineHeaders.map(row=>row.path),['src/sqlite.h.in','ext/session/sqlite3session.h','ext/rtree/sqlite3rtree.h']);
+  assert.equal(c.baselineExports.length,1427);assert.equal(c.requiredPublicExports.length,336);
+  assert.equal(c.explicitlyPrivateExports.length,1091);
+  assert.ok(c.requiredPublicExports.includes('sqlite3session_create'));
+  assert.ok(c.requiredPublicExports.includes('sqlite3_rtree_query_callback'));
+  assert.deepEqual(c.consumers.map(row=>row.undefinedSQLiteSymbols.length),[14,19]);
+  checkExports(c.baselineExports,c.baselineExports);
+});
+
 test('ELF admission rejects another architecture, class, type and invalid header', () => {
   const bytes=Buffer.alloc(64); Buffer.from([127,69,76,70,2,1]).copy(bytes);bytes.writeUInt16LE(3,16);bytes.writeUInt16LE(62,18);
   checkElfHeader(bytes);
@@ -165,4 +197,16 @@ test('production checker and builder never import historical inverse fixtures', 
   for(const path of ['check-sqlite-runtime.mjs','fetch-sqlite-runtime-sources.mjs','build-sqlite-runtime.sh']) {
     assert.doesNotMatch(readFileSync(new URL(`./${path}`,import.meta.url),'utf8'),/dockerfile-inverse-fixture|historicalRuntimeDockerfileFixture/);
   }
+});
+
+test('complete consumer inventory rejects missing, extra, changed and role-crossed native users', () => {
+  const api = manifest.abiContract.consumers.map(row=>structuredClone(row));
+  const web = api.filter(row=>row.images.includes('web'));
+  checkConsumerInventory(api,'api');checkConsumerInventory(web,'web');
+  assert.throws(()=>checkConsumerInventory(web,'api'),/path set changed/);
+  assert.throws(()=>checkConsumerInventory(api,'web'),/path set changed/);
+  assert.throws(()=>checkConsumerInventory([...api,{...api[0],path:'/usr/lib/new-user.so'}],'api'),/path set changed/);
+  assert.throws(()=>checkConsumerInventory([{...api[0],sha256:'b'.repeat(64)},api[1]],'api'),/bytes or closure changed/);
+  assert.throws(()=>checkConsumerInventory([{...api[0],undefinedSQLiteSymbols:[]},api[1]],'api'),/bytes or closure changed/);
+  assert.throws(()=>checkConsumerInventory(api,'unknown'),/role required/);
 });

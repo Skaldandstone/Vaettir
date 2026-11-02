@@ -48,9 +48,57 @@ export function checkUpstreamLog(text, markers) {
   return Number(summaries[0][2]);
 }
 
-export function checkExports(candidate, baseline) {
-  assert(baseline.length > 100 && candidate.length >= baseline.length, 'Incomplete SQLite symbol inventory');
-  for (const symbol of baseline) assert(candidate.includes(symbol), `SQLite ABI export lost: ${symbol}`);
+export function checkExports(candidate, baseline, contract = manifest.abiContract) {
+  const unique = values => Array.isArray(values) && values.every(value => typeof value === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(value)) && new Set(values).size === values.length;
+  const same = (left, right) => JSON.stringify([...left].sort()) === JSON.stringify([...right].sort());
+  assert(unique(baseline) && unique(candidate) && baseline.length > 100 && candidate.length > 100, 'Incomplete SQLite symbol inventory');
+  assert(contract?.schemaVersion === 1 && unique(contract.baselineExports) &&
+    same(baseline, contract.baselineExports), 'Unreviewed SQLite baseline export inventory');
+  assert(unique(contract.headerDeclaredSymbols) && unique(contract.requiredPublicExports) &&
+    unique(contract.explicitlyPrivateExports), 'Unclassified SQLite export inventory');
+  const declared = new Set(contract.headerDeclaredSymbols);
+  const publicSymbols = baseline.filter(symbol => declared.has(symbol));
+  const privateSymbols = baseline.filter(symbol => !declared.has(symbol));
+  assert(publicSymbols.length > 100 && same(publicSymbols, contract.requiredPublicExports) &&
+    same(privateSymbols, contract.explicitlyPrivateExports), 'Unclassified SQLite export removal');
+  assert(Array.isArray(contract.consumers), 'Missing SQLite consumer inventory');
+  const needed = new Set(publicSymbols);
+  for (const consumer of contract.consumers) {
+    assert(typeof consumer.path === 'string' && consumer.path.startsWith('/usr/lib/') &&
+      /^[a-f0-9]{64}$/.test(consumer.sha256) && unique(consumer.undefinedSQLiteSymbols) &&
+      consumer.undefinedSQLiteSymbols.length > 0, 'Invalid SQLite consumer inventory');
+    for (const symbol of consumer.undefinedSQLiteSymbols) {
+      assert(baseline.includes(symbol), `Unresolved baseline consumer symbol: ${symbol}`);
+      needed.add(symbol);
+    }
+  }
+  for (const symbol of needed) assert(candidate.includes(symbol), `SQLite ABI export lost: ${symbol}`);
+  const removed = baseline.filter(symbol => !candidate.includes(symbol)).sort();
+  assert(removed.every(symbol => privateSymbols.includes(symbol) && !needed.has(symbol)), 'Unreviewed SQLite export removal');
+  return {requiredPublicExports:publicSymbols.length, requiredConsumerSymbols:[...needed].filter(symbol=>!publicSymbols.includes(symbol)).sort(),
+    removedPrivateExports:removed, addedExports:candidate.filter(symbol=>!baseline.includes(symbol)).sort()};
+}
+
+// The caller must supply the COMPLETE direct-consumer inventory from the final
+// image's native scan. This is separate from the standalone builder's NSS test.
+export function checkConsumerInventory(actual, role, contract = manifest.abiContract) {
+  assert(['api','web'].includes(role) && Array.isArray(actual), 'Exact SQLite runtime role required');
+  const expected = contract.consumers.filter(row=>row.images.includes(role));
+  assert(expected.length > 0 && new Set(actual.map(row=>row.path)).size === actual.length &&
+    JSON.stringify(actual.map(row=>row.path).sort()) === JSON.stringify(expected.map(row=>row.path).sort()), 'SQLite consumer path set changed');
+  for (const row of expected) {
+    const found = actual.find(item=>item.path===row.path);
+    assert(found.sha256===row.sha256 && JSON.stringify([...found.undefinedSQLiteSymbols].sort()) ===
+      JSON.stringify([...row.undefinedSQLiteSymbols].sort()), `SQLite consumer bytes or closure changed: ${row.path}`);
+  }
+  return {role, consumers:expected.map(row=>({path:row.path,sha256:row.sha256}))};
+}
+function installedConsumers(role) {
+  assert(['api','web'].includes(role), 'Exact SQLite runtime role required');
+  const expected = manifest.abiContract.consumers.filter(row=>row.images.includes(role));
+  for (const row of expected) assert(hashFile(row.path)===row.sha256, `SQLite runtime consumer changed: ${row.path}`);
+  console.log(JSON.stringify({role, pinnedConsumerBytesVerified:expected.length,
+    completeNativeConsumerInventoryStillRequired:true}));
 }
 
 export function checkElfHeader(bytes) {
@@ -72,7 +120,7 @@ function candidateIdentity(text, baseline) {
 
 function record(root) {
   const baselinePath = join(root,'baseline','libsqlite3.so.0');
-  assert(hashFile(baselinePath) === manifest.baselineLibrarySha256, 'Unreviewed baseline SQLite bytes');
+  assert(hashFile(baselinePath) === manifest.baselineLibrarySha256 && manifest.abiContract.baselineLibrarySha256 === manifest.baselineLibrarySha256, 'Unreviewed baseline SQLite bytes');
   const library = join(root,'libsqlite3.so.0.8.6');
   checkElfHeader(readFileSync(library));
   const baseline = parseIdentity(readFileSync(join(root,'baseline-identity.txt'),'utf8'));
@@ -83,7 +131,7 @@ function record(root) {
   assert(identityText.includes('COUNT_VALUES_REJECTED:400000\nSQLITE_FUNCTIONAL_OK'), 'Missing functional regressions');
   const exportsOf = path => run('nm',['-D','--defined-only','--format=posix',path]).trim().split('\n').map(line=>line.split(/\s/)[0]).sort();
   const baselineExports = exportsOf(baselinePath), candidateExports = exportsOf(library);
-  checkExports(candidateExports, baselineExports);
+  const exportDelta = checkExports(candidateExports, baselineExports);
   const dynamic = run('readelf',['--dynamic','--wide',library]);
   assert(dynamic.includes('Library soname: [libsqlite3.so.0]') && !/\((?:RPATH|RUNPATH)\)/.test(dynamic), 'SQLite SONAME or loader path mismatch');
   const tests = [];
@@ -108,7 +156,8 @@ function record(root) {
     librarySha256:hashFile(library), probeSha256:hashFile(join(root,'sqlite-runtime-regression')),
     packageSha256:hashFile(join(root,'libsqlite3-0_3.54.1-0+vaettir1_amd64.deb')),
     generatedSourceSha256:hashFile(join(root,'release','sqlite3.c')),
-    baselineLibrarySha256:hashFile(baselinePath),baseline,candidate,baselineExports,candidateExports,tests};
+    baselineLibrarySha256:hashFile(baselinePath),baseline,candidate,baselineExports,candidateExports,tests,exportDelta,
+    abiContractSha256:digest(Buffer.from(JSON.stringify(manifest.abiContract)))};
   writeFileSync(join(root,'sqlite-runtime-proof.json'), `${JSON.stringify(proof,null,2)}\n`, {flag:'wx'});
 }
 
@@ -117,7 +166,8 @@ function installed(directory) {
   assert(proof.schemaVersion === 1 && proof.manifestSha256 === hashFile(new URL('./sqlite-runtime-sources.json',import.meta.url)) &&
     proof.baselineLibrarySha256 === manifest.baselineLibrarySha256, 'SQLite proof identity mismatch');
   assert(proof.tests.length === 16 && proof.tests.every(row=>row.count>0 && /^[a-f0-9]{64}$/.test(row.sha256)), 'Incomplete upstream proof');
-  checkExports(proof.candidateExports, proof.baselineExports);
+  assert(proof.abiContractSha256 === digest(Buffer.from(JSON.stringify(manifest.abiContract))), 'SQLite ABI contract identity mismatch');
+  assert(JSON.stringify(checkExports(proof.candidateExports, proof.baselineExports)) === JSON.stringify(proof.exportDelta), 'SQLite ABI delta changed');
   checkElfHeader(readFileSync(manifest.libraryPath));
   assert(hashFile(manifest.libraryPath) === proof.librarySha256, 'Installed SQLite differs from tested artifact');
   const probe = join(directory,'sqlite-runtime-regression');
@@ -134,5 +184,6 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   assert(process.argv.length === 4, 'Use --record BUILD_ROOT or --installed PROOF_DIRECTORY');
   if (process.argv[2] === '--record') record(process.argv[3]);
   else if (process.argv[2] === '--installed') installed(process.argv[3]);
+  else if (process.argv[2] === '--consumers') installedConsumers(process.argv[3]);
   else throw Error('Unknown SQLite checker mode');
 }

@@ -31,8 +31,8 @@ The canonical source is used to regenerate the parser with UPDATE/DELETE LIMIT
 enabled. The runtime keeps Debian's feature macros, including FTS3/4/5, Rtree,
 session/preupdate, column metadata and extension loading. The generated
 amalgamation's actual hash is recorded; it is not falsely identified as the
-generic upstream amalgamation. The checker compares baseline exported symbols,
-feature options and resource limits, verifies the SONAME, and executes a real
+generic upstream amalgamation. The checker preserves matching-baseline-header public exports and actual
+consumer-required symbols, plus feature options and resource limits, verifies the SONAME, and executes a real
 shared-library probe. The package owns the actual compiled library and reports
 `3.54.1-0+vaettir1` in dpkg. The filename `libsqlite3.so.0.8.6` is the retained
 ABI filename, not a forged upstream version.
@@ -128,8 +128,8 @@ SQLite proof is accepted. No overlay operator is implemented by this change.
    SQLite can resolve to new bytes. Root must inspect and pin this observed
    ledger before release; an unexpected path or paragraph is a rejection,
    not an automatically expanded allowlist. Retain before/after evidence.
-5. Require the candidate's exact ELF machine/type, SONAME, baseline export
-   superset, compile capabilities and limits, loaded source ID and library
+5. Require the candidate's exact ELF machine/type, SONAME, baseline public/consumer
+   export compatibility, compile capabilities and limits, loaded source ID and library
    hash. Run actual NSS initialization/listing and existing Chromium,
    graphics, Prisma and web startup checks in the derived environments.
    Preserve runtime configuration and all unrelated native bytes. Do not
@@ -157,3 +157,33 @@ remains mandatory and its regression rejects 8192 against that baseline.
 Failed attempts are retained and do not authorize a runtime image. Failed
 builds also emit bounded tails of synthetic native logs for diagnosis while
 preserving their nonzero exit status.
+
+### Reviewed ABI boundary after the actual native proof
+
+Proof v3 reached the export checker and was rejected: Debian exports 1427
+symbols, including 1091 implementation symbols that the upstream amalgamation
+makes private. This is retained as a failed attempt. The successor contract
+pins the exact Debian 3.46.1-7+deb13u2 core, session and Rtree public headers,
+then intersects their declarations with the actual baseline dynamic exports.
+All 336 resulting public exports remain required. A name prefix alone is not
+the public API definition. The full 1427-symbol baseline, all declared names
+and every explicitly classified private symbol are pinned in the manifest.
+
+The actual API71/Web79 SQLite consumers are also pinned by full file hash:
+liblastlog2 (14 SQLite imports) and API NSS libsoftokn3 (19). Any consumer-used
+private symbol remains required. Every removed export must be explicitly
+classified as private and unused by those consumers; unknown symbols fail.
+The proof retains full candidate/baseline inventories and exact added/removed
+deltas. Installed verification repeats the contract and delta checks against
+the exact tested library. No aliases or fake implementations are supplied.
+Final image inventory must confirm these exact consumers remain unchanged;
+a new or changed consumer requires a newly reviewed closure. Real NSS,
+browser, Prisma, options, limits, SONAME and fresh security gates still apply.
+
+Final runtime admission additionally runs `check-sqlite-runtime.mjs --consumers
+api` (or `web`) to rehash the exact role-pinned consumer files. The complete
+native-image auditor must pass every direct SQLite consumer and its actual
+undefined-symbol inventory to `checkConsumerInventory`; new, missing or changed
+consumers fail. This complete inventory gate remains separate from the narrow
+installed path rehash. The isolated compiler image's newer NSS package is a
+synthetic functional check and is not proof of the final API71 consumer bytes.
