@@ -153,7 +153,7 @@ a mismatched command receipt after acting is uncertain and is never replayed.
 
 The exact selected evidence is visible before hosted disclosure and retained in
 the pending-review case's steps and provenance. The backend column explicitly
-records missing app traffic. There is no app network adapter in this slice:
+records missing app traffic. The original exploration slice has no app network adapter:
 `NOT_CAPTURED` cannot be represented as a captured endpoint or response.
 The earlier physical pilot predates this schema and does not prove collection
 of these additional technical fields. A fresh bounded native test is required.
@@ -196,10 +196,104 @@ The intended sequence is:
 5. Review a separate versioned case patch with original evidence and audit trail.
    Feed approved evidence and unresolved blockers into automation suggestions.
 
-The pure recommendation module and draft guidance are implemented foundations.
-The existing-case selection/replay UI, assertion evaluator, native retry admission
-and durable reviewed patch operation are not implemented in this slice. No
-hosted endpoint exposes the module and it grants neither execution nor update
-authority. No existing case has been replayed, healed or updated by this work.
-App-request capture, a fresh technical native run and authenticated sandbox
-addition/replay remain acceptance gates. aTwist activation stays pending review.
+The November 2 source adds the existing-case selection, reviewed replay,
+assertion evaluation and separate versioned patch flow. It reuses the actual
+native observation/tap adapter through `/case-replay/v1`, with its own
+single-use device/app/origin/scope ticket and five-minute, twelve-step limit.
+Each action is an explicit request. Exploration and replay cannot navigate
+concurrently. A missing locator offers same-label or shared-word candidates;
+the chosen candidate must still match the freshly observed original screen,
+unique selector and complete native target before one approved retry. The
+receipt retains the candidate, screen, reasons and explicit retry approval.
+
+Only TAP with resource-id, accessibility-id or text/class locators is supported.
+An assertion requires exactly one matching visible label after the action. The
+reviewer explicitly relates that assertion to the original expected result;
+it does not prove other business rules, response bodies or API correctness.
+Uncertain native execution quarantines that device in the connector process,
+including after Stop. Reading retained results never issues a native command;
+a missing or mismatched command receipt cannot enable another action. Reload
+and connector restart recovery are not provided. Do not restart to evade an
+uncertain action; reconcile it under a separate operator review.
+
+The case picker exposes a bounded first 100 cases with their own structured
+steps. Shared-step and unstructured cases remain manual. The selected case's
+complete revision, step IDs, update identity and source provenance are pinned.
+Every operation rechecks original current full-editor authority and revision.
+Changing account, project, session, device or pairing hides retained evidence
+and consumes component authority; restoring access cannot revive that run.
+The local connector's scope pins do not independently attest hosted permission.
+
+Completed assertions produce an exact patch preview, followed by separate
+project-disclosure and patch approval. The server locks current organization,
+membership, project, native actor, case, steps and source, and verifies the
+bounded original plan and all receipts. It appends technical evidence to action
+text only, creates an existing-model case version and audit receipt, and returns
+ordinary review to pending. Expected results, responses, media, other case fields
+and original source are preserved. Exact uncertain-write recovery uses the same
+request and receipt, preserving later human edits. No automatic write retry or
+new request is made. The existing UI Automator draft operation can use the saved
+step evidence; generation and AI disclosure remain separate and are not invoked.
+
+### Optional app-owned HTTP metadata
+
+ADB hierarchy and tap receipts are never represented as app network traffic.
+`scripts/android-network-evidence-debug.mjs` is an opt-in JavaScript debug-app
+integration for an app-owned fetch client, including React Native. It has no
+production installation, TLS interception, rooting, global fetch patch, log
+reader or automatic transmission. The app developer must exclude it from the
+production build and select a permitted test account, source ID and symbolic
+route allowlist before capture. The debug flag and package label are assertions
+by that app source, not cryptographic proof of its build or identity.
+
+For an authorized debug build, instantiate it with the displayed replay run ID
+before pressing **Run next reviewed step**, then explicitly route selected app
+calls through it:
+
+```js
+const evidence = createDebugAppNetworkEvidence({
+  debugBuild: __DEV__,
+  packageName: approvedPackageName,
+  runId: displayedReplayRunId,
+  sourceId: "qa_catalog",
+  approvedRouteKeys: ["catalog_list"],
+  fetchImpl: appOwnedFetch,
+});
+const response = await evidence.request("catalog_list", catalogUrl, {
+  method: "GET",
+  headers: existingAppHeaders,
+});
+// Export locally only after those requests have settled.
+const metadata = evidence.exportMetadata();
+```
+
+Only the symbolic route, actual response status or transport-error outcome,
+method and timings are retained, up to 100 events. Raw URLs, headers, request
+and response bodies, credentials and exception text are not exported. Request
+objects are refused because their implicit method could differ from the
+recorded method. The wrapper refuses unapproved routes and exhausted budgets
+before dispatch; use it only for those explicitly selected debug calls.
+
+After a completed replay, the reviewer selects that source and exact route
+allowlist, imports its bounded metadata file, and reviews the combined disclosure.
+Strict schemas reject extra raw-data fields and wrong app/run/source/routes or
+out-of-run timestamps. Changing the selection invalidates the previous evidence
+and disclosure approvals. Without this explicit import the patch says
+`NOT_CAPTURED`. Even admitted metadata is app-reported, not independently
+verified traffic or an API assertion. An installed app with no approved debug
+integration remains unsupported for request capture.
+
+### APP-NAV-02 validation boundary
+
+Focused tests execute the actual replay engine, native adapter and helper HTTP
+admission with synthetic native runners; actual service transactions with
+synthetic delegates; and the actual React component event handlers and SSR with
+synthetic hooks/RPC. They cover scope/revision changes, denied access, exact
+single-action receipts, missing/stale/ambiguous targets, explicit repair,
+assertion failures, uncertain-command refusal, bounded HTTP metadata, reviewed
+patches, version/audit rollback behavior and exact receipt recovery. They do not
+establish PostgreSQL locking/concurrency, browser geometry, physical-device,
+app-provider, hosted or production acceptance. Those Main-owned checks remain
+required before release acceptance. No real existing case has been replayed,
+healed or changed by this source work; the prior eight-case import is untouched.
+aTwist activation remains pending review.

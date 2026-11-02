@@ -17,6 +17,18 @@ import {
 import { importAndroidExploration } from "../services/androidExplorationImport.js";
 import { readDeviceCaptureAccess } from "../services/deviceCaptureAccess.js";
 import { deviceCaptureAccessOutput } from "../services/deviceCaptureAccessSchema.js";
+import {
+  listAndroidReplayCases,
+  readAndroidReplayCase,
+  patchAndroidReplayCase,
+} from "../services/androidCaseReplay.js";
+import {
+  androidReplayScopeInput,
+  androidReplayCaseInput,
+  androidReplayCase,
+  androidReplayPatchInput,
+  androidReplayPatchReceipt,
+} from "../services/androidCaseReplaySchema.js";
 
 // SSE-181: live-app test generation. Deliberately its own router, its own
 // review surface (see the web page), and its own origin tag
@@ -180,6 +192,42 @@ function technicalTarget(
 }
 
 export const liveAppGenerationRouter = router({
+  replayCases: liveAppScanProcedure
+    .input(androidReplayScopeInput)
+    .output(z.array(z.object({ id: z.string(), title: z.string() })).max(100))
+    .query(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      if (!ctx.authenticatedClerkSubject)
+        throw new TRPCError({ code: "FORBIDDEN" });
+      return listAndroidReplayCases(ctx.prisma, input, {
+        nativeActorId: ctx.user.id,
+        clerkActorId: ctx.authenticatedClerkSubject,
+      });
+    }),
+  replayCase: liveAppScanProcedure
+    .input(androidReplayCaseInput)
+    .output(androidReplayCase)
+    .query(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      if (!ctx.authenticatedClerkSubject)
+        throw new TRPCError({ code: "FORBIDDEN" });
+      return readAndroidReplayCase(ctx.prisma, input, {
+        nativeActorId: ctx.user.id,
+        clerkActorId: ctx.authenticatedClerkSubject,
+      });
+    }),
+  patchReplayCase: liveAppScanProcedure
+    .input(androidReplayPatchInput)
+    .output(androidReplayPatchReceipt)
+    .mutation(async ({ ctx, input }) => {
+      await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      if (!ctx.authenticatedClerkSubject)
+        throw new TRPCError({ code: "FORBIDDEN" });
+      return patchAndroidReplayCase(ctx.prisma, input, {
+        nativeActorId: ctx.user.id,
+        clerkActorId: ctx.authenticatedClerkSubject,
+      });
+    }),
   explorationAccess: liveAppScanProcedure
     .input(
       z
