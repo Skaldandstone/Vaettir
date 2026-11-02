@@ -71,7 +71,7 @@ function QueueEditor({ projectId, batchId, access, onCommitted }: { projectId: s
     {query.error && <p role="alert">{query.error.message}</p>}
     <ActionButton type="button" tooltip="Refresh saved mapping rows" className="btn-secondary" disabled={pending || query.isFetching || Boolean(request && !receipt)} onClick={() => void refresh()}>Refresh rows</ActionButton>
     {receipt && <p role="status">{receipt.createdCount} created · {receipt.updatedCount} updated · {receipt.pendingCount} queued. Refresh to continue.</p>}
-    {data && <>
+    {data && !receipt && <>
       <p>{data.pendingCount} need mapping · {data.contextCount} context rows · {data.historyCount} historical rows</p>
       {data.state === "DRAFT" ? <><p>{data.readyCount} cases are ready. Confirm once to import them and keep uncertain rows here.</p>
         <button disabled={pending || Boolean(receipt)} onClick={() => void apply()}>{pending ? "Saving…" : request ? "Retry" : "Import"}</button></> : <>

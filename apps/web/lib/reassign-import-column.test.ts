@@ -2,6 +2,12 @@ import { describe, expect, it } from "vitest";
 import { reassignImportColumn, remainingNonCaseRows, editedImportOverrides, suggestedImportMapping } from "./reassign-import-column";
 
 describe("editable smart import mappings", () => {
+  it("preserves a suite column through unrelated smart choices and supports deliberate reassignment", () => {
+    const original = { title: "Title", suitePath: "SuitePath", given: "Preconditions" };
+    expect(suggestedImportMapping(original, [{ field: "when", column: "Actions" }])).toEqual({ ...original, when: "Actions" });
+    expect(reassignImportColumn(original, "tags", "SuitePath")).toEqual({ title: "Title", given: "Preconditions", tags: "SuitePath" });
+    expect(reassignImportColumn({ title: "Title", tags: "Folder" }, "suitePath", "Folder")).toEqual({ title: "Title", suitePath: "Folder" });
+  });
   it("moves a guessed column to the human-corrected role without duplicate assignments", () => {
     const original = { title: "Scenario", when: "Steps", tags: "Module" };
     expect(reassignImportColumn(original, "title", "Module")).toEqual({ title: "Module", when: "Steps" });

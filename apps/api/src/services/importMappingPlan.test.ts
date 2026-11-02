@@ -3,6 +3,16 @@ import { planMappingSheets } from "./importMappingPlan.js";
 import { suggestCsvMapping } from "./csvFieldMapping.js";
 const sheet = (csvText: string) => ({ name: "Cases", csvText, mapping: suggestCsvMapping(csvText.split("\n")[0]!.split(",")), overrides: [] });
 describe("ready cases and independent mapping work", () => {
+  it.each(["CSV", "XLSX", "SHEETS"] as const)("retains mapped suite and Preconditions in %s ready and queued candidates", format => {
+    const input = { ...sheet("Title,ID,SuitePath,Preconditions,Steps,Expected\nReady,1,Parent / Child,Account exists,Open,Shown\n,2,Pending / Child,Session exists,Close,Hidden"),
+      source: format === "SHEETS" ? { spreadsheetId: "synthetic", sheetId: 4 } : undefined };
+    const result = planMappingSheets([input], format);
+    expect(result).toMatchObject({ readyCount: 1, pendingCount: 1 });
+    const prefix = format === "CSV" ? "" : "Cases / ";
+    expect(result.rows[0]?.candidate).toMatchObject({ suitePath: prefix + "Parent / Child", given: ["Account exists"] });
+    expect(result.rows[1]?.candidate).toMatchObject({ suitePath: prefix + "Pending / Child", given: ["Session exists"] });
+    expect(result.rows[0]?.original.cells).toEqual(["Ready", "1", "Parent / Child", "Account exists", "Open", "Shown"]);
+  });
   it("recognizes ordinary plural headers without fuzzy guessing or ambiguous ties", () => {
     expect(suggestCsvMapping(["Test Case Summary", "Test Step(s)", "Expected Result(s)", "Pre-condition(s)"])).toEqual({ title: "Test Case Summary", given: "Pre-condition(s)", when: "Test Step(s)", then: "Expected Result(s)" });
     expect(suggestCsvMapping(["Summary", "Title", "Steps", "Actual Results"]).title).toBeUndefined();

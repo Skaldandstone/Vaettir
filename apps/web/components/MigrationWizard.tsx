@@ -39,6 +39,7 @@ const TARGET_FIELDS = [
   "testType",
   "automationStatus",
   "externalId",
+  "suitePath",
 ] as const;
 type TargetField = (typeof TARGET_FIELDS)[number];
 const FIELD_LABELS: Record<TargetField, string> = {
@@ -51,6 +52,7 @@ const FIELD_LABELS: Record<TargetField, string> = {
   testType: "Test type",
   automationStatus: "Automation status",
   externalId: "External ID (for re-import)",
+  suitePath: "Suite / subsuite path",
 };
 
 const SOURCE_INFO: Record<
