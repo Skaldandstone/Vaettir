@@ -1,7 +1,8 @@
 "use client";
 
 import { ActionButton } from "@/components/ui/ActionButton";
-import type { CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
+import { trpcReact } from "@/lib/trpcReact";
 import { useCiRunDetail } from "../lib/use-ci-run-detail";
 import type { CiRunDetailPage } from "../lib/ci-run-detail-reader";
 import { DistributionBar } from "./MetricVisuals";
@@ -60,6 +61,61 @@ function CiOutcomeBadge({ status }: { status: string }) {
     </span>
   );
 }
+function CiArtifactViewer({ id, type }: { id: string; type: string }) {
+  const utils = trpcReact.useUtils();
+  const [url, setUrl] = useState<string>();
+  const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  if (type !== "SCREENSHOT" && type !== "VIDEO") return null;
+  const label = type === "SCREENSHOT" ? "Screenshot" : "Video";
+
+  async function open() {
+    setLoading(true);
+    setFailed(false);
+    try {
+      const result = await utils.client.testRuns.getArtifactViewUrl.query({ artifactId: id });
+      setUrl(result.viewUrl);
+    } catch {
+      setFailed(true);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function unavailable() {
+    setUrl(undefined);
+    setFailed(true);
+  }
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      <ActionButton
+        type="button"
+        disabled={loading}
+        aria-expanded={Boolean(url)}
+        tooltip={url ? "Hide evidence" : "View captured " + label.toLowerCase()}
+        onClick={() => url ? setUrl(undefined) : void open()}
+      >
+        {loading ? "Loading…" : url ? "Hide" : label}
+      </ActionButton>
+      {failed && <p role="status">Evidence unavailable. Try again.</p>}
+      {url && (
+        <div style={{ marginTop: 8 }}>
+          {type === "SCREENSHOT" ? (
+            // eslint-disable-next-line @next/next/no-img-element -- private signed URL must stay out of the image optimizer.
+            <img src={url} alt="Captured failure screenshot" referrerPolicy="no-referrer"
+              style={{ display: "block", maxWidth: "100%" }} onError={unavailable} />
+          ) : (
+            <video src={url} controls preload="metadata" aria-label="Captured failure video"
+              style={{ display: "block", maxWidth: "100%" }} onError={unavailable} />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CiResultCard({ row }: { row: CiRunDetailPage["rows"][number] }) {
   const linked = row.linkedCase;
   return (
@@ -174,15 +230,11 @@ function CiResultCard({ row }: { row: CiRunDetailPage["rows"][number] }) {
       )}
       <details style={{ marginTop: 10 }}>
         <summary>
-          {row.artifacts.length} artifact metadata reference
+          {row.artifacts.length} evidence file
           {row.artifacts.length === 1 ? "" : "s"} on this result
         </summary>
-        <p className="small muted">
-          References only. Files, availability, contents and immutable versions
-          have not been verified. No file is retrieved.
-        </p>
         {row.artifacts.length === 0 ? (
-          <p>No artifact metadata references on this result.</p>
+          <p>No evidence captured.</p>
         ) : (
           <ul>
             {row.artifacts.map((artifact) => (
@@ -195,6 +247,7 @@ function CiResultCard({ row }: { row: CiRunDetailPage["rows"][number] }) {
                 {artifact.durationMs === null
                   ? "not recorded (NULL)"
                   : `${artifact.durationMs} ms`}
+                <CiArtifactViewer id={artifact.id} type={artifact.type} />
               </li>
             ))}
           </ul>
