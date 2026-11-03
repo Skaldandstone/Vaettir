@@ -16,7 +16,7 @@ export default function ProjectIntegrationsPage() {
   const tabId = useId();
   const [tab, setTab] = useState<"Repositories" | "Jira & Confluence" | "AI sharing">("Repositories");
   useEffect(() => {
-    const readHash = () => { if (location.hash === "#atlassian-quality") setTab("Jira & Confluence"); };
+    const readHash = () => { if (location.hash === "#atlassian-quality") setTab("Jira & Confluence"); else if (location.hash === "#ai-sharing") setTab("AI sharing"); };
     readHash(); window.addEventListener("hashchange", readHash);
     return () => window.removeEventListener("hashchange", readHash);
   }, []);

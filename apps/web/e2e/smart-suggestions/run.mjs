@@ -76,6 +76,24 @@ try {
   await page.getByText(/server refused this save before committing/).waitFor();
   check("definitive refusal permits a fresh review", await page.getByRole("button", { name: actionName("Discard suggestions"), exact: true }).isEnabled());
   check("refused save writes nothing", await page.evaluate(() => window.smartFixture.writes === 0));
+  await page.goto(origin + "/?blocked");
+  const mappingPanel = page.locator("details").filter({ has: page.locator("summary", { hasText: "Suggest column mappings from the content" }) });
+  await mappingPanel.getByText("Review the project's classification in AI sharing first.", { exact: true }).waitFor();
+  await mappingPanel.getByLabel(/I approve sending the column names/).check();
+  check("classification blocks analysis even with consent", await mappingPanel.getByRole("button", { name: "Suggest mappings", exact: true }).isDisabled());
+  check("blocked access links directly to AI sharing", await mappingPanel.getByRole("link", { name: "AI sharing", exact: true }).getAttribute("href") === "/projects/synthetic-project/settings/integrations#ai-sharing");
+  for (const theme of ["dark", "light"]) for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 960 }); await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
+    check(`blocked ${theme}/${width} wraps`, await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
+    await page.screenshot({ path: path.join(output, `blocked-${theme}-${width}.png`), fullPage: true });
+  }
+  await page.evaluate(() => { window.smartFixture.canAnalyze = true; window.smartFixture.policyVersion = 2; });
+  await mappingPanel.getByRole("button", { name: actionName("Check the current project classification and your AI access"), exact: true }).click();
+  await mappingPanel.getByText("Approve AI analysis below to continue.", { exact: true }).waitFor();
+  check("access refresh clears prior consent", !await mappingPanel.getByLabel(/I approve sending the column names/).isChecked());
+  check("refresh sends no source content", await page.evaluate(() => window.smartFixture.mappingCalls.length === 0 && window.smartFixture.analyses.length === 0));
+  await mappingPanel.getByLabel(/I approve sending the column names/).check();
+  check("current access plus renewed consent enables mapping", await mappingPanel.getByRole("button", { name: "Suggest mappings", exact: true }).isEnabled());
   check("no runtime errors", errors.length === 0);
   await writeFile(path.join(output, "review.json"), JSON.stringify({ checks, errors, provider: "synthetic transport", actualComponents: true, hostedAcceptance: false }, null, 2));
   console.log(JSON.stringify({ passed: checks.length, output }));

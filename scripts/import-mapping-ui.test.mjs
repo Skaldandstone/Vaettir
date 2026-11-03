@@ -44,7 +44,7 @@ test("full import page confirms ready rows once, retains mappings, and hides sta
     const page = await browser.newPage({ viewport: { width: 1100, height: 900 } });
     page.setDefaultTimeout(10000);
     const origin = `http://127.0.0.1:${server.address().port}`, requests = [], errors = [];
-    let batch = null, imported = false, resolved = false, loseConfirm = true, deny = false, organizationId = "synthetic-org", holdResolve = false, releaseResolve;
+    let batch = null, imported = false, resolved = false, loseConfirm = true, rejectPrepare = true, deny = false, organizationId = "synthetic-org", holdResolve = false, releaseResolve;
     let signalResolveStarted; const resolveStarted = new Promise(r => { signalResolveStarted = r; });
     const digest = () => (imported ? "b" : "a").repeat(64);
     const summary = () => ({ id: batch, sourceLabel: "synthetic.csv", state: imported ? "CONFIRMED" : "DRAFT", readyCount: imported ? 0 : 1,
@@ -78,7 +78,9 @@ test("full import page confirms ready rows once, retains mappings, and hides sta
       const inputs = JSON.parse(route.request().method() === "POST" ? route.request().postData() ?? "{}" : url.searchParams.get("input") ?? "{}");
       paths.forEach((path, i) => requests.push({ path, input: inputs[i] }));
       if (paths.includes("importJobs.resolveMapping") && holdResolve) await new Promise(resolve => { releaseResolve = resolve; signalResolveStarted(); });
-      const result = paths.map((path, i) => deny && ["caseFields.get", "importJobs.mappingQueue"].includes(path)
+      const result = paths.map((path, i) => path === "importJobs.prepareMapping" && rejectPrepare
+        ? { error: { message: 'The "title" field must be mapped to a CSV column', code: -32600, data: { code: "BAD_REQUEST", httpStatus: 400, path } } }
+        : deny && ["caseFields.get", "importJobs.mappingQueue"].includes(path)
         ? { error: { message: "Synthetic access denied", code: -32003, data: { code: "FORBIDDEN", httpStatus: 403, path } } }
         : { result: { data: reply(path, inputs[i]) } });
       if (paths.includes("importJobs.confirmMapping") && loseConfirm) { loseConfirm = false; return route.abort("failed"); }
@@ -90,6 +92,16 @@ test("full import page confirms ready rows once, retains mappings, and hides sta
     await page.locator('input[type="file"]').first().setInputFiles({ name: "synthetic.csv", mimeType: "text/csv", buffer: Buffer.from(sourceCsv) });
     await page.getByRole("button", { name: actionName("Review"), exact: true }).click();
     const review = page.getByRole("region", { name: "Import summary" });
+    await review.getByRole("alert").filter({ hasText: 'The "title" field must be mapped' }).waitFor();
+    const out = (process.env.VAETTIR_E2E_OUTPUT_DIR ?? (root + ".local/import-mapping-queue-20261029")); mkdirSync(out, { recursive: true });
+    for (const theme of ["dark", "light"]) {
+      await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
+      await page.screenshot({ path: `${out}/review-error-${theme}.png`, fullPage: true });
+    }
+    assert.equal(requests.filter(r => /confirmMapping|cancelMapping/.test(r.path)).length, 0);
+    await review.getByRole("button", { name: "Back", exact: true }).click();
+    rejectPrepare = false;
+    await page.getByRole("button", { name: actionName("Review"), exact: true }).click();
     await review.getByText("1 ready · 1 need mapping · 0 context rows", { exact: true }).waitFor();
     assert.equal(requests.filter(r => r.path === "importJobs.confirmMapping").length, 0);
     await review.getByRole("button", { name: actionName("Import"), exact: true }).click();
@@ -108,7 +120,6 @@ test("full import page confirms ready rows once, retains mappings, and hides sta
     await queue.getByLabel("Title", { exact: true }).fill("Repaired settings");
     await queue.getByLabel("Include row").check();
     assert.equal(requests.filter(r => r.path === "importJobs.resolveMapping").length, 0);
-    const out = (process.env.VAETTIR_E2E_OUTPUT_DIR ?? (root + ".local/import-mapping-queue-20261029")); mkdirSync(out, { recursive: true });
     for (const [theme, width] of [["light",1100],["dark",1100],["dark",390]]) {
       await page.setViewportSize({ width, height: 900 });
       await page.evaluate(async t => {

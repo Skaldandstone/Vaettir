@@ -357,6 +357,9 @@ export function mapCsvRows(
   mapping: Partial<Record<TargetField, string>>,
   limit?: number,
   overrides: MappedRowOverride[] = [],
+  // Only the mapping-queue planner may retain an unresolved title column.
+  // Preview/direct imports continue to require a confirmed title mapping.
+  options: { retainUnmappedTitleRows?: boolean } = {},
 ): MapCsvResult {
   const rows = splitCsvRows(text);
   if (rows.length < 2) return { rows: [], skipped: [], incompleteRows: [] };
@@ -398,7 +401,7 @@ export function mapCsvRows(
     // confirmed correction. Existence and one-column/one-field checks remain
     // binding, and preview/commit still use this exact same reviewed mapping.
   }
-  if (idx.title === -1) {
+  if (idx.title === -1 && !options.retainUnmappedTitleRows) {
     throw new Error('The "title" field must be mapped to a CSV column');
   }
 
@@ -457,7 +460,7 @@ export function mapCsvRows(
     // Adding a heading/note as a case must not silently regroup later cases
     // whose displayed preview has not changed. Per-case path/note edits below
     // still win over this proposal, and column remapping re-runs the analysis.
-    const sourceIdentityOnly = !(r[idx.title] ?? "").trim() &&
+    const sourceIdentityOnly = idx.title >= 0 && !(r[idx.title] ?? "").trim() &&
       (tags.length > 0 || Boolean(externalId)) && !given.length && !when.length && !then.length &&
       r.every((cell, index) => !cell.trim() || index === idx.tags || index === idx.externalId);
     const sourceLabel = sourceIdentityOnly ? (r[idx.tags]?.trim() || r[idx.externalId]?.trim() || "") : "";
@@ -501,7 +504,7 @@ export function mapCsvRows(
       // column, and unused ID-only placeholders. Classify only when there is
       // NO definition content in any other source column, including unmapped
       // columns. Keep genuine missing-title procedures in the repair workflow.
-      const identityOnly = (candidate.tags.length > 0 || Boolean(candidate.externalId)) &&
+      const identityOnly = idx.title >= 0 && (candidate.tags.length > 0 || Boolean(candidate.externalId)) &&
         candidate.given.length === 0 && candidate.when.length === 0 && candidate.then.length === 0 &&
         r.every((cell, index) => !cell.trim() || index === idx.tags || index === idx.externalId);
       if (identityOnly) {

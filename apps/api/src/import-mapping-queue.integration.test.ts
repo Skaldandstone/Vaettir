@@ -43,6 +43,31 @@ async function fixture(csv = "ID,Title,Steps,Expected Result\na,Ready,Open,Works
 }
 
 describe("durable mapping queue on real PostgreSQL", () => {
+  it.each(["ID,Unknown,Steps\na,Original,Open\nb,,", "ID,Title,Title,Steps\na,First,Second,Open\nb,,,"])("retains unresolved title columns through the actual review and repair routes: %s", async csvText => {
+    const project = await prisma.project.create({ data: { organizationId: orgId, name: "Synthetic unresolved columns", slug: `${tag}-${randomUUID()}` } });
+    const user = await prisma.user.findUniqueOrThrow({ where: { id: actor.id }, include: { memberships: { include: { organization: true } } } });
+    const caller = importJobsRouter.createCaller({ prisma, user, authenticatedClerkSubject: tag, workspaceOrganizationId: orgId });
+    const scope = { projectId: project.id, originalOrganizationId: orgId, expectedClerkActorId: tag };
+    const request = { ...scope, requestId: randomUUID(), sourceLabel: "Synthetic unresolved source", source: { format: "CSV" as const,
+      sheets: [{ name: "", csvText, mapping: { title: "Title", when: "Steps", externalId: "ID" }, overrides: [] }] } };
+    const staged = await caller.prepareMapping(request);
+    expect(staged).toMatchObject({ readyCount: 0, pendingCount: 2, contextCount: 0 });
+    expect(await caller.prepareMapping(request)).toEqual(staged);
+    const input = { ...scope, batchId: staged.id };
+    const confirmed = await caller.confirmMapping({ ...input, requestId: randomUUID(), expectedDigest: staged.digest });
+    expect(confirmed).toMatchObject({ createdCount: 0, pendingCount: 2 });
+    expect(await prisma.testCase.count({ where: { projectId: project.id } })).toBe(0);
+    const queue = await caller.mappingQueue(input);
+    expect(queue.rows).toHaveLength(2);
+    expect(queue.rows.every(row => row.state === "MAPPING" && row.candidate?.title === "")).toBe(true);
+    const first = queue.rows.find(row => row.originalRowNumber === 2)!;
+    expect(first.original.cells).toEqual(csvText.split("\n")[1]!.split(","));
+    const repair = { ...input, requestId: randomUUID(), expectedDigest: queue.digest, rows: [{ id: first.id, candidate: { ...first.candidate!, title: "Reviewed original" } }] };
+    expect(await caller.resolveMapping(repair)).toMatchObject({ createdCount: 1, pendingCount: 1 });
+    expect(await caller.resolveMapping(repair)).toMatchObject({ createdCount: 1, pendingCount: 1 });
+    expect(await prisma.testCase.count({ where: { projectId: project.id } })).toBe(1);
+    expect((await caller.mappingQueue(input)).rows).toHaveLength(1);
+  });
   it.each(["XLSX", "SHEETS"] as const)("stages actual %s route input with original coordinates and resolves saved rows without another upload", async format => {
     const project = await prisma.project.create({ data: { organizationId: orgId, name: "Synthetic source format", slug: `${tag}-${randomUUID()}` } });
     const user = await prisma.user.findUniqueOrThrow({ where: { id: actor.id }, include: { memberships: { include: { organization: true } } } });
