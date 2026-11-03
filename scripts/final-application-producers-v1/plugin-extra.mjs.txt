@@ -1,0 +1,26 @@
+it('uses the compiled approved-case HTTP route and denies the revoked credential', async () => {
+  const f=await fixture(), grant=await issueAiCaseGrant(f.actor,f.input), app=Fastify({logger:false});
+  try {
+    await app.register(async server=>registerAiDisclosureRoute(server,f.store),{prefix:'/api'});
+    const request={method:'GET',url:'/api/integrations/ai/v1/approved-cases?projectId='+f.project.id,headers:{authorization:'Bearer '+grant.token}};
+    const allowed=await app.inject(request); assert.equal(allowed.statusCode,200);
+    assert.deepEqual(allowed.json().snapshot.cases,[{id:f.testCase.id,title:f.testCase.title,when:f.testCase.when}]);
+    assert.doesNotMatch(allowed.body,/UNSELECTED_PRIVATE_GIVEN|vai_|tokenHash/);
+    await changeAiGrant(f.actor,{...f.scope,requestId:randomUUID(),grantId:grant.grantId,expectedVersion:grant.grantVersion},false);
+    const denied=await app.inject(request); assert.equal(denied.statusCode,403);
+    assert.doesNotMatch(denied.body,/SYNTHETIC_APPROVED_TITLE|PRIVATE_GIVEN|vai_|tokenHash/);
+  } finally { await app.close(); }
+});
+it('reads only aggregate counts through the compiled store and permanently denies revocation', async () => {
+  const f=await fixture();
+  await classifyAiProject(f.actor,{...f.scope,requestId:randomUUID(),expectedVersion:1,classification:'SYNTHETIC',attestSynthetic:true});
+  const grant=await issueAiGrant(f.actor,{...f.scope,requestId:randomUUID(),expectedPolicyVersion:2,recipient:'codex',scope:'aggregate_counts',lifetimeDays:1,approveDisclosure:true});
+  const small=await readAiProjectSummary(f.store,grant.token,f.project.id);
+  assert.equal(small.suppressed,true); assert.equal(small.counts,null);
+  await prisma.testCase.createMany({data:Array.from({length:9},(_,i)=>({projectId:f.project.id,title:'SYNTHETIC_AGGREGATE_'+i,given:[],when:[],then:[],tags:[],testType:'FUNCTIONAL'}))});
+  const allowed=await readAiProjectSummary(f.store,grant.token,f.project.id);
+  assert.equal(allowed.suppressed,false); assert.deepEqual(allowed.counts,{testCases:10,testPlans:0,testRuns:0});
+  assert.doesNotMatch(JSON.stringify(allowed),/SYNTHETIC_APPROVED_TITLE|UNSELECTED_PRIVATE_GIVEN|vai_|tokenHash/);
+  await changeAiGrant(f.actor,{...f.scope,requestId:randomUUID(),grantId:grant.grantId,expectedVersion:grant.grantVersion},false);
+  await assert.rejects(readAiProjectSummary(f.store,grant.token,f.project.id));
+});

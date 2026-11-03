@@ -1,0 +1,274 @@
+{
+  "version": 1,
+  "fixtureSource": "94cde34624bcc910c5f8c1a19214302ffa04c2bf",
+  "testSources": {
+    "plugin": {
+      "gitPath": "apps/api/src/ai-approved-cases.integration.test.ts",
+      "file": "plugin-integration.ts.txt",
+      "path": "apps/api/src/ai-approved-cases.integration.test.ts",
+      "sha256": "031f13d65d6387ee1fe99bae899aa92fef067c75814a84dd2cbd60ba8b37e99c",
+      "bytes": 10362
+    },
+    "android": {
+      "gitPath": "apps/api/src/android-case-replay.integration.test.ts",
+      "file": "android-integration.ts.txt",
+      "path": "apps/api/src/android-case-replay.integration.test.ts",
+      "sha256": "d01db262d9f12a8410436d39e32539193f598ffe37417cee3f5d82b52addd204",
+      "bytes": 9902
+    },
+    "import": {
+      "gitPath": "apps/api/src/import-mapping-queue.integration.test.ts",
+      "file": "import-integration.ts.txt",
+      "path": "apps/api/src/import-mapping-queue.integration.test.ts",
+      "sha256": "1e45c6e5f42028ee39cf1432e49194a2a69221f3e0a897c55506371199a5c90c",
+      "bytes": 22559
+    }
+  },
+  "webController": {
+    "path": "web-controller.original.mjs.txt",
+    "sha256": "a35ecf0a0937dbdee382a296ed0d007b656864d443d975b53df91c39748196e7",
+    "bytes": 9190
+  },
+  "frozenFiles": [
+    {
+      "path": "scripts/final-application-release-v1/.gitattributes",
+      "sha256": "e7214b6f3c655949f8629dfa70af69e427d99493051fbdd9ffefef15e9c9a648",
+      "bytes": 84
+    },
+    {
+      "path": "scripts/final-application-release-v1/.gitignore",
+      "sha256": "862263fa1f46c20f0d1e4dac5ffcc75abd55c08211b2c3864c5f8764b9d87793",
+      "bytes": 19
+    },
+    {
+      "path": "scripts/final-application-release-v1/admission.mjs",
+      "sha256": "2c4ff5c8be0e4add1f0b71b535b96459907ac0f1102d6a0f8fd1f453a2ef64f2",
+      "bytes": 19120
+    },
+    {
+      "path": "scripts/final-application-release-v1/apply-application.mjs",
+      "sha256": "35361d446cc3d441230830385cb2eda87fa5d0f44b5864c361a51ca8195cb028",
+      "bytes": 6860
+    },
+    {
+      "path": "scripts/final-application-release-v1/bindings.template.json",
+      "sha256": "e93f3d6252ca0e08fc6fde5dfa438fafbb1e4862ba4ca258486496bd62701b99",
+      "bytes": 12164
+    },
+    {
+      "path": "scripts/final-application-release-v1/build-context.mjs",
+      "sha256": "b5e2afce7f99e7c21ef2e78ea6d4ca9b32813a34705e8332eb1652ef5cd60b52",
+      "bytes": 8430
+    },
+    {
+      "path": "scripts/final-application-release-v1/context.mjs",
+      "sha256": "4a124bdb04e50dff61c9e63cc90714e522b0a118a8ee21a738cfb00b8c89bf91",
+      "bytes": 6554
+    },
+    {
+      "path": "scripts/final-application-release-v1/derivation_test.py",
+      "sha256": "b06d644ff91e5d3231518a1144473c710b30bf9e2809ee3a74e9ddedc3fa334e",
+      "bytes": 5262
+    },
+    {
+      "path": "scripts/final-application-release-v1/derive_operators.py",
+      "sha256": "06b64ef0b21941174b8783b886b354a403de6dc14d888904bb3ab104f39d9357",
+      "bytes": 11457
+    },
+    {
+      "path": "scripts/final-application-release-v1/inherited/materialization-successor-v1/archive_contract.py",
+      "sha256": "d499d53672e6e4bee31b19258457eb9aa0aa85973115b56ad28725229df44a40",
+      "bytes": 7956
+    },
+    {
+      "path": "scripts/final-application-release-v1/inherited/materialization-successor-v1/materialize-local.py",
+      "sha256": "c5aa831e3a09e8f1e7fac761d0d9bd735b466350447a952922285a41afe0f4ba",
+      "bytes": 8171
+    },
+    {
+      "path": "scripts/final-application-release-v1/inherited/materialization-successor-v1/prepare-archive.py",
+      "sha256": "cc0ad0b1837120092cd8fd7c09ef1523bbd1adb846481f89e1ef87f900b5e224",
+      "bytes": 2699
+    },
+    {
+      "path": "scripts/final-application-release-v1/inherited/materialization-successor-v1/verify-archive.py",
+      "sha256": "2a211fb8398bca6561454367b582517a0ed12544813386b2f560da9d91b0ca7e",
+      "bytes": 7554
+    },
+    {
+      "path": "scripts/final-application-release-v1/inherited/runtime-successor-v1/compiled-compliance-review-suite.mjs",
+      "sha256": "e28d94d6c2faf85d3f6a96991d7007bb4bd9a08782858ef17036f267e11f3e2e",
+      "bytes": 41388
+    },
+    {
+      "path": "scripts/final-application-release-v1/inherited/runtime-successor-v1/compiled-privacy-fixture.mjs",
+      "sha256": "a2e90d80c3fc8df679098099a7954a2eb530e40e3955dd71632c66b14493a326",
+      "bytes": 5452
+    },
+    {
+      "path": "scripts/final-application-release-v1/inherited/runtime-successor-v1/compiled-recovery-fixture.mjs",
+      "sha256": "4df4894c0b4ab1afdf53fd36083de019ae21cf9e6dc2eb78a904de06217ec3e1",
+      "bytes": 3730
+    },
+    {
+      "path": "scripts/final-application-release-v1/inherited/runtime-successor-v1/image_admission.py",
+      "sha256": "35bf8e543a64ba82e0bc0401fc9df56a4017c57dfc51fd65502f7e769e571b5d",
+      "bytes": 5803
+    },
+    {
+      "path": "scripts/final-application-release-v1/inherited/runtime-successor-v1/isolated_image_fixture.py",
+      "sha256": "766a63d36bcb9c292f1aa38f4cc97b0bea5030757cec3445ab55f246a3a94d8e",
+      "bytes": 3658
+    },
+    {
+      "path": "scripts/final-application-release-v1/inherited/runtime-successor-v1/prepare-image-isolated-fixture.py",
+      "sha256": "8010e21e3b1122d7e73edd9498ea5ef30b054fd28bec1e1b5052cb0cdd78165b",
+      "bytes": 3615
+    },
+    {
+      "path": "scripts/final-application-release-v1/inherited/runtime-successor-v1/probe-normal-recovery-runtime.py",
+      "sha256": "445668900e0e098f34f488456744129b604c4e5375d7adc24f2a15207435ecd6",
+      "bytes": 11038
+    },
+    {
+      "path": "scripts/final-application-release-v1/inherited/runtime-successor-v1/probe-web-image.py",
+      "sha256": "c2ece8573ee1a064e28c504d4ef2d079c2edf803c7ac0ba64244d18e6419a547",
+      "bytes": 12662
+    },
+    {
+      "path": "scripts/final-application-release-v1/inherited/successor-helpers-v1/cloud.mjs",
+      "sha256": "1136bb9d3b8c71774e54ebb85d4bfccc4ec132398ca736f844c9e0a166beae38",
+      "bytes": 4994
+    },
+    {
+      "path": "scripts/final-application-release-v1/inherited/successor-helpers-v1/collect-build.mjs",
+      "sha256": "d1fed7f15c7b55ddcc2e20ef09a3cb7d1af7e3c769d799084ec47a0ca38255ed",
+      "bytes": 5620
+    },
+    {
+      "path": "scripts/final-application-release-v1/inherited/successor-helpers-v1/contracts.py",
+      "sha256": "c01775a4a01f5d486309673ead7f6599fadd27a40c06ea4f40122abf9156e160",
+      "bytes": 11677
+    },
+    {
+      "path": "scripts/final-application-release-v1/inherited/successor-helpers-v1/prepare-inputs.py",
+      "sha256": "ce580045c94cc480c338534d7c85b66523c1e5adb17ad807953355a1d939ecb2",
+      "bytes": 6424
+    },
+    {
+      "path": "scripts/final-application-release-v1/inherited/successor-helpers-v1/review-inputs.py",
+      "sha256": "ea58c8f855ac0a7fd0bb559c9719b3db0b571402050d726f406c74c3708a9a7f",
+      "bytes": 4422
+    },
+    {
+      "path": "scripts/final-application-release-v1/migrate_fixture.py",
+      "sha256": "fafab1dfd83576e9ba156a42db6619b2dd062cd773d968c4a2a615836f463882",
+      "bytes": 3558
+    },
+    {
+      "path": "scripts/final-application-release-v1/native-probe-context.mjs",
+      "sha256": "b1fa8a9d139363c211733db8f4f50bf7edb37143bf3977efd376ca0d2c53b265",
+      "bytes": 4387
+    },
+    {
+      "path": "scripts/final-application-release-v1/operator-configuration.template.json",
+      "sha256": "5bf986ac14d73cbf6c112a587d54b8c1c6005619f10415717c2eb8d2bfaf41db",
+      "bytes": 220
+    },
+    {
+      "path": "scripts/final-application-release-v1/operator_contracts.py",
+      "sha256": "208a9738ec0e1a828a86b4364a26d3666d7eabd72db775818d2b78c5b6222803",
+      "bytes": 6567
+    },
+    {
+      "path": "scripts/final-application-release-v1/OPERATORS.md",
+      "sha256": "9fefcaf18584067403bc86a82660b47e07c6e07ebdfd48a4cea3c87d5c2481fc",
+      "bytes": 13470
+    },
+    {
+      "path": "scripts/final-application-release-v1/policy.json",
+      "sha256": "4fa236d9f1fd8b3e8a95f11e6aa600521ebc60fc96fb6cecd9709ab7fa632491",
+      "bytes": 7185
+    },
+    {
+      "path": "scripts/final-application-release-v1/prepare_release.py",
+      "sha256": "efa46f8f42a2dc74c6ae618c29389ac6eb24ede0bdfe3a3856f1386d290fe504",
+      "bytes": 3587
+    },
+    {
+      "path": "scripts/final-application-release-v1/release.test.mjs",
+      "sha256": "bb652f652a55cde66e90255343d34094982a1759ea8cdc756f2e9b5f3394b6f8",
+      "bytes": 12219
+    },
+    {
+      "path": "scripts/final-application-release-v1/run-native.cjs",
+      "sha256": "c8f3d0d2fb0537db8b78dc2f8d79dcdf17d709af363f4aebc6e7a9014b50ae8e",
+      "bytes": 3401
+    },
+    {
+      "path": "scripts/final-application-release-v1/seal-runtime.mjs",
+      "sha256": "95140bdb0492e1243def3247913c49cecb43d14ee5f0c04f345ea7a07aaa63e6",
+      "bytes": 5643
+    },
+    {
+      "path": "scripts/final-application-release-v1/test-fixtures.mjs",
+      "sha256": "9962a5fa26401506756856bebc935f41694c7ca0cd66e8fb19552adc31e2cd68",
+      "bytes": 6747
+    },
+    {
+      "path": "scripts/production-native-successor-v1/bindings.template.json",
+      "sha256": "02bb366af67645667725e0caf2e492ea1c95528a8141f6d998824b5d03d2e36e",
+      "bytes": 15859
+    },
+    {
+      "path": "scripts/production-native-successor-v1/contracts.mjs",
+      "sha256": "3910a86465403fbbc90ed8d553ec4fb145dbdf0a191afd45ae5df74c21c93ab5",
+      "bytes": 12467
+    },
+    {
+      "path": "scripts/production-native-successor-v1/inventory.mjs",
+      "sha256": "6960aa36cfa70a08d5a2a84f2aa83a1fbb7442b6a36547eb724f2507f3571b04",
+      "bytes": 6218
+    },
+    {
+      "path": "scripts/production-native-successor-v1/offline-io.mjs",
+      "sha256": "2a058318ffb3d048565f2f35d520be46262dea1a7ac130536342cbb9cbacfe8f",
+      "bytes": 7589
+    },
+    {
+      "path": "scripts/production-native-successor-v1/OPERATORS.md",
+      "sha256": "f648bc8ba1a7ec5a9e47ce528e5e40508f15bcaf32e617d4c444b7f6e2bc03f1",
+      "bytes": 17582
+    },
+    {
+      "path": "scripts/production-native-successor-v1/overlay-context.mjs",
+      "sha256": "42abb8116add4b0dd9c12545082bc25a5756aa95b7b234e29b8cead963f5e650",
+      "bytes": 7318
+    },
+    {
+      "path": "scripts/production-native-successor-v1/policy.json",
+      "sha256": "06702d5d85069b61b7d4b676346ba91105f2c0f3c32487d7f0945d770f8ef787",
+      "bytes": 83301
+    },
+    {
+      "path": "scripts/production-native-successor-v1/release-gates.mjs",
+      "sha256": "a868fe1efd6c39a2eb992eae81dd5dd2343ec16d7d5279712fbd2611a4a5d2d7",
+      "bytes": 9733
+    },
+    {
+      "path": "scripts/production-native-successor-v1/successor.test.mjs",
+      "sha256": "4a1a3dcd9f1345cf0d5f9a0278b5d6ec6a189271ef06a0a5368522b9a6302fdf",
+      "bytes": 30531
+    },
+    {
+      "path": "scripts/production-native-successor-v1/transaction.mjs",
+      "sha256": "20e11d80e359b02100153ad1757111ac95c8ccae4db6a6e0b6cd404686dfc511",
+      "bytes": 15142
+    }
+  ],
+  "typescript": {
+    "version": "6.0.3",
+    "sha256": "569177652966bd528c319171c7dd22860dbf72bde116cbc4f644f1d02bb12e39",
+    "bytes": 9144216
+  }
+}

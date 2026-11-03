@@ -1,0 +1,54 @@
+{
+  "producers": { "manifest": null, "approval": null },
+  "builders": {
+    "api": {
+      "cacheSourceRole": "api",
+      "imageAcceptance": null,
+      "cacheReview": null,
+      "cacheInventory": null
+    },
+    "web": {
+      "cacheSourceRole": "api",
+      "imageAcceptance": null,
+      "cacheReview": null,
+      "cacheInventory": null
+    }
+  },
+  "producerInputs": {
+    "stages": {
+      "api": { "imageAcceptance": null, "custody": null, "buildLog": null },
+      "web": { "imageAcceptance": null, "custody": null, "buildLog": null }
+    },
+    "application": {
+      "api": {
+        "compiled": {
+          "imageAcceptance": null,
+          "buildReview": null,
+          "sourceArchive": null,
+          "buildLog": null,
+          "buildContextManifest": null,
+          "filesPrefix": null
+        },
+        "nativeInventory": null,
+        "nativeReview": null,
+        "ownership": { "path": null, "uid": null, "gid": null },
+        "normalizerSource": null
+      },
+      "web": {
+        "compiled": {
+          "imageAcceptance": null,
+          "buildReview": null,
+          "sourceArchive": null,
+          "buildLog": null,
+          "buildContextManifest": null,
+          "filesPrefix": null
+        },
+        "nativeInventory": null,
+        "nativeReview": null,
+        "ownership": { "path": null, "uid": null, "gid": null },
+        "normalizerSource": null,
+        "parentStaticManifest": null
+      }
+    }
+  }
+}
