@@ -220,6 +220,7 @@ describe.skipIf(process.platform !== "linux" || (process.env.CI !== "true" && pr
       for (const file of files.slice(0, 97)) { mkdirSync(join(staged, "migrations", file.name)); writeFileSync(join(staged, "migrations", file.name, "migration.sql"), file.sql); }
       const cliEnv = { ...process.env, DATABASE_URL: urls[0]!, PRISMA_GENERATE_SKIP_AUTOINSTALL: "1", NODE_PATH: join(ROOT, "packages/db/node_modules") };
       const dbRequire = createRequire(join(ROOT, "packages/db/package.json"));
+      const prismaCli = dbRequire.resolve("prisma");
       const installedPackageJson = realpathSync(dbRequire.resolve("@prisma/client/package.json"));
       const installedPackageDirectory = admitInstalledClient(realpathSync(join(ROOT, "node_modules/.pnpm")), dirname(installedPackageJson));
       const installedRequire = createRequire(installedPackageJson);
@@ -236,7 +237,7 @@ describe.skipIf(process.platform !== "linux" || (process.env.CI !== "true" && pr
       symlinkSync(installedPackageDirectory, stagedClient, "dir");
       assert.equal(realpathSync(stagedClient), installedPackageDirectory);
       assert.equal(realpathSync(createRequire(join(staged, "schema.prisma")).resolve("@prisma/client/package.json")), installedPackageJson);
-      run("pnpm", ["exec", "prisma", "generate", "--schema", join(staged, "schema.prisma")], cliEnv);
+      run(process.execPath, [prismaCli, "generate", "--schema", join(staged, "schema.prisma")], cliEnv);
       assert.deepEqual(workspaceClientFiles.map(name => ({ name, sha256: sha(readFileSync(join(installedDirectory, name))) })), workspaceClientPins);
       assert.equal(sha(oldSchema), OLD_SCHEMA_SHA);
       assertSchemaFormattingOnly(readFileSync(join(oldOutput, "schema.prisma"), "utf8"), generatedSchema);
@@ -244,7 +245,7 @@ describe.skipIf(process.platform !== "linux" || (process.env.CI !== "true" && pr
       assert.ok(oldIndex.includes("./runtime/library.js")); assert.ok(!/caseKeyRevision|ProjectCaseKeyAlias|ProjectCaseKeyWrite/.test(oldIndex));
       const oldRuntime = readFileSync(join(oldOutput, "runtime/library.js"));
       assert.equal(sha(oldRuntime), sha(readFileSync(dbRequire.resolve("@prisma/client/runtime/library.js"))));
-      run("pnpm", ["exec", "prisma", "migrate", "deploy", "--schema", join(staged, "schema.prisma")], cliEnv);
+      run(process.execPath, [prismaCli, "migrate", "deploy", "--schema", join(staged, "schema.prisma")], cliEnv);
       const require = createRequire(import.meta.url);
       const oldModule = require(join(oldOutput, "index.js")) as { PrismaClient: typeof PrismaClient };
       const oldClient = new oldModule.PrismaClient({ datasources: { db: { url: urls[0]! } } }); clients.push(oldClient);
@@ -266,7 +267,7 @@ describe.skipIf(process.platform !== "linux" || (process.env.CI !== "true" && pr
       const dump97 = run(tools[1]!, [...pgArgs(databases[0]!), "--format=custom", "--no-owner", "--no-privileges"], pgEnv, true) as Buffer;
       writeFileSync(join(work, "backup97.dump"), dump97);
       mkdirSync(join(staged, "migrations", NEW_MIGRATION)); writeFileSync(join(staged, "migrations", NEW_MIGRATION, "migration.sql"), files[97]!.sql);
-      run("pnpm", ["exec", "prisma", "migrate", "deploy", "--schema", join(staged, "schema.prisma")], cliEnv);
+      run(process.execPath, [prismaCli, "migrate", "deploy", "--schema", join(staged, "schema.prisma")], cliEnv);
       const current = client(0), after = await inventory(current, true), afterLedger = await ledger(current);
       assert.equal(afterLedger.length, 98); assert.deepEqual(afterLedger.slice(0, 97), beforeLedger);
       const newLedger = afterLedger[97]!; assert.equal(newLedger.checksum, NEW_MIGRATION_SHA); assert.ok(newLedger.finished_at && !newLedger.rolled_back_at && newLedger.applied_steps_count === 1);
