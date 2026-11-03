@@ -1,0 +1,13 @@
+{
+  "sourceRepo": null,
+  "evidenceRoot": null,
+  "receipts": null,
+  "releaseRoot": null,
+  "historicalRoot": null,
+  "sourcePackage": null,
+  "bindings": {
+    "path": null,
+    "sha256": null,
+    "bytes": null
+  }
+}

@@ -1,0 +1,595 @@
+{
+  "schemaVersion": 1,
+  "purpose": "final-application-release/v1",
+  "nativeBindings": null,
+  "repairAcceptance": {
+    "path": null,
+    "sha256": null,
+    "bytes": null
+  },
+  "operatorApproval": {
+    "path": null,
+    "sha256": null,
+    "bytes": null
+  },
+  "operatorManifest": {
+    "path": null,
+    "sha256": null,
+    "bytes": null
+  },
+  "builders": {
+    "api": {
+      "imageAcceptance": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "cacheReview": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "cacheInventory": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      }
+    },
+    "web": {
+      "imageAcceptance": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "cacheReview": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "cacheInventory": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      }
+    }
+  },
+  "transactions": {
+    "api": {
+      "observation": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "review": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "imageAcceptance": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "imageLink": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "normalizedSnapshot": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      }
+    },
+    "web": {
+      "observation": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "review": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "imageAcceptance": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "imageLink": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "normalizedSnapshot": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      }
+    }
+  },
+  "application": {
+    "api": {
+      "acceptance": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "ledger": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "before": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "after": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "sourceArchive": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "buildLog": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "nativeInventory": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "payloadManifest": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "staticRetention": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      }
+    },
+    "web": {
+      "acceptance": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "ledger": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "before": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "after": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "sourceArchive": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "buildLog": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "nativeInventory": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "payloadManifest": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "staticRetention": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      }
+    }
+  },
+  "final": {
+    "api": {
+      "acceptance": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "inventory": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "scanReview": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "rawFindings": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "nativeStructure": {
+        "audit": {
+          "path": null,
+          "sha256": null,
+          "bytes": null
+        },
+        "acceptance": {
+          "path": null,
+          "sha256": null,
+          "bytes": null
+        },
+        "nativeBefore": {
+          "path": null,
+          "sha256": null,
+          "bytes": null
+        },
+        "nativeAfter": {
+          "path": null,
+          "sha256": null,
+          "bytes": null
+        },
+        "packagesBefore": {
+          "path": null,
+          "sha256": null,
+          "bytes": null
+        },
+        "packagesAfter": {
+          "path": null,
+          "sha256": null,
+          "bytes": null
+        },
+        "consumerInventory": {
+          "path": null,
+          "sha256": null,
+          "bytes": null
+        },
+        "expectedConsumers": {
+          "path": null,
+          "sha256": null,
+          "bytes": null
+        }
+      },
+      "nativeRuntime": null
+    },
+    "web": {
+      "acceptance": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "inventory": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "scanReview": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "rawFindings": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "nativeStructure": {
+        "audit": {
+          "path": null,
+          "sha256": null,
+          "bytes": null
+        },
+        "acceptance": {
+          "path": null,
+          "sha256": null,
+          "bytes": null
+        },
+        "nativeBefore": {
+          "path": null,
+          "sha256": null,
+          "bytes": null
+        },
+        "nativeAfter": {
+          "path": null,
+          "sha256": null,
+          "bytes": null
+        },
+        "packagesBefore": {
+          "path": null,
+          "sha256": null,
+          "bytes": null
+        },
+        "packagesAfter": {
+          "path": null,
+          "sha256": null,
+          "bytes": null
+        },
+        "consumerInventory": {
+          "path": null,
+          "sha256": null,
+          "bytes": null
+        },
+        "expectedConsumers": {
+          "path": null,
+          "sha256": null,
+          "bytes": null
+        }
+      },
+      "nativeRuntime": null
+    }
+  },
+  "runtime": {
+    "synthetic110Dump": {
+      "path": null,
+      "sha256": null,
+      "bytes": null
+    },
+    "synthetic110Acceptance": {
+      "path": null,
+      "sha256": null,
+      "bytes": null
+    },
+    "additionalCompiledProbes": [
+      {
+        "name": "plugin",
+        "source": null,
+        "tests": null,
+        "script": {
+          "path": null,
+          "sha256": null,
+          "bytes": null
+        },
+        "review": {
+          "path": null,
+          "sha256": null,
+          "bytes": null
+        }
+      },
+      {
+        "name": "android",
+        "source": null,
+        "tests": null,
+        "script": {
+          "path": null,
+          "sha256": null,
+          "bytes": null
+        },
+        "review": {
+          "path": null,
+          "sha256": null,
+          "bytes": null
+        }
+      },
+      {
+        "name": "import",
+        "source": null,
+        "tests": null,
+        "script": {
+          "path": null,
+          "sha256": null,
+          "bytes": null
+        },
+        "review": {
+          "path": null,
+          "sha256": null,
+          "bytes": null
+        }
+      }
+    ],
+    "nativeChecks": {
+      "api": [
+        {
+          "name": "sqlite-installed",
+          "source": null,
+          "argv": [
+            "/usr/local/bin/node",
+            "/run/vaettir-native/sqlite-installed.mjs"
+          ],
+          "script": {
+            "path": null,
+            "sha256": null,
+            "bytes": null
+          },
+          "review": {
+            "path": null,
+            "sha256": null,
+            "bytes": null
+          }
+        },
+        {
+          "name": "sqlite-consumers",
+          "source": null,
+          "argv": [
+            "/usr/local/bin/node",
+            "/run/vaettir-native/sqlite-consumers.mjs"
+          ],
+          "script": {
+            "path": null,
+            "sha256": null,
+            "bytes": null
+          },
+          "review": {
+            "path": null,
+            "sha256": null,
+            "bytes": null
+          }
+        },
+        {
+          "name": "browser",
+          "source": null,
+          "argv": [
+            "/usr/local/bin/node",
+            "/run/vaettir-native/browser.mjs"
+          ],
+          "script": {
+            "path": null,
+            "sha256": null,
+            "bytes": null
+          },
+          "review": {
+            "path": null,
+            "sha256": null,
+            "bytes": null
+          }
+        },
+        {
+          "name": "prisma",
+          "source": null,
+          "argv": [
+            "/usr/local/bin/node",
+            "/run/vaettir-native/prisma.mjs"
+          ],
+          "script": {
+            "path": null,
+            "sha256": null,
+            "bytes": null
+          },
+          "review": {
+            "path": null,
+            "sha256": null,
+            "bytes": null
+          }
+        }
+      ],
+      "web": [
+        {
+          "name": "sqlite-installed",
+          "source": null,
+          "argv": [
+            "/usr/local/bin/node",
+            "/run/vaettir-native/sqlite-installed.mjs"
+          ],
+          "script": {
+            "path": null,
+            "sha256": null,
+            "bytes": null
+          },
+          "review": {
+            "path": null,
+            "sha256": null,
+            "bytes": null
+          }
+        },
+        {
+          "name": "sqlite-consumers",
+          "source": null,
+          "argv": [
+            "/usr/local/bin/node",
+            "/run/vaettir-native/sqlite-consumers.mjs"
+          ],
+          "script": {
+            "path": null,
+            "sha256": null,
+            "bytes": null
+          },
+          "review": {
+            "path": null,
+            "sha256": null,
+            "bytes": null
+          }
+        },
+        {
+          "name": "prisma",
+          "source": null,
+          "argv": [
+            "/usr/local/bin/node",
+            "/run/vaettir-native/prisma.mjs"
+          ],
+          "script": {
+            "path": null,
+            "sha256": null,
+            "bytes": null
+          },
+          "review": {
+            "path": null,
+            "sha256": null,
+            "bytes": null
+          }
+        }
+      ]
+    },
+    "results": {
+      "apiImage": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "webImage": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "api": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "web": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "additional": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "proofTree": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "api42Log": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "webLog": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "recovery": {
+        "path": null,
+        "sha256": null,
+        "bytes": null
+      },
+      "additionalLogs": {
+        "plugin": {
+          "path": null,
+          "sha256": null,
+          "bytes": null
+        },
+        "android": {
+          "path": null,
+          "sha256": null,
+          "bytes": null
+        },
+        "import": {
+          "path": null,
+          "sha256": null,
+          "bytes": null
+        }
+      }
+    }
+  }
+}
