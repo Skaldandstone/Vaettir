@@ -3,7 +3,7 @@ import ast,copy,gzip,hashlib,io,json,sys,tarfile,tempfile,unittest
 from pathlib import Path
 sys.dont_write_bytecode=True
 from stage_metadata import inspect_tar,merge_layer,ordinary,compare_observation,safe
-from stage_support import validate_stage,confined,file_pin
+from stage_support import validate_stage,confined,file_pin,verify_tree
 HERE=Path(__file__).resolve().parent
 
 def row(path,typ='0',**extra):
@@ -61,6 +61,14 @@ class Metadata(unittest.TestCase):
             p=Path(d)/'a';p.write_bytes(b'a')
             with self.assertRaises(AssertionError):file_pin(p,{'sha256':'0'*64,'bytes':1})
             with self.assertRaises(AssertionError):confined(d,'../a')
+    def test_same_proof_tree_reference_contract_as_final_admission(self):
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d);raw=b'proof';(p/'proof').write_bytes(raw)
+            tree=json.dumps({'files':[{'path':'proof','sha256':hashlib.sha256(raw).hexdigest(),'bytes':len(raw)}]}).encode();(p/'tree.json').write_bytes(tree)
+            ref={'path':'tree.json','sha256':hashlib.sha256(tree).hexdigest(),'bytes':len(tree)}
+            verify_tree(p,ref)
+            (p/'proof').write_bytes(b'wrong')
+            with self.assertRaises(AssertionError):verify_tree(p,ref)
 
 class Contract(unittest.TestCase):
     def fixture(self,d):

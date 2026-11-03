@@ -2,7 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { here } from "./admission.mjs";
+import { here, admitProducerSource } from "./admission.mjs";
+import { packageRows } from "../final-application-release-v1/context.mjs";
+import { sha } from "../production-native-successor-v1/contracts.mjs";
 import { deriveStageOperators, prepareStage } from "./stage-bootstrap.mjs";
 import { normalizeInventory } from "./normalize.mjs";
 const old = resolve(
@@ -10,6 +12,30 @@ const old = resolve(
   "../final-application-release-v1/inherited/materialization-successor-v1",
 );
 const files = deriveStageOperators();
+test("producer source admission accepts correctly named independently pinned package files", () => {
+  const blobs = new Map();
+  const ref = (path, value) => {
+    const raw = Buffer.from(JSON.stringify(value));
+    blobs.set(path, raw);
+    return { path, sha256: sha(raw), bytes: raw.length };
+  };
+  const rows = packageRows(resolve(here));
+  assert.equal(rows[0].path, ".gitattributes");
+  const manifest = ref("manifest.json", { files: rows });
+  const proof = ref("proof.json", { synthetic: true });
+  const proofTree = ref("tree.json", { files: [proof] });
+  const approval = ref("approval.json", {
+    accepted: true,
+    independentReview: true,
+    scope: "FINAL_APPLICATION_PRODUCERS_SOURCE",
+    manifestSha256: manifest.sha256,
+    proofTree,
+  });
+  assert.equal(
+    admitProducerSource({ manifest, approval }, (p) => blobs.get(p)).accepted,
+    true,
+  );
+});
 test("stage assembler and independent archive verifier are byte-identical frozen inputs", () => {
   for (const name of ["prepare-archive.py", "verify-archive.py"])
     assert.deepEqual(files[name], readFileSync(resolve(old, name)));

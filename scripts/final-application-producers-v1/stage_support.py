@@ -20,6 +20,15 @@ def confined(root,name):
     assert p.resolve().is_relative_to(root) and p.resolve()!=root
     return p
 
+def verify_tree(root,ref):
+    path=confined(root,ref['path']);file_pin(path,ref,64*1024**2)
+    tree=json.loads(path.read_bytes());assert isinstance(tree['files'],list) and tree['files']
+    total=0;seen=set()
+    for row in tree['files']:
+        assert row['path'] not in seen;seen.add(row['path'])
+        total+=row['bytes'];assert total<=32*1024**3
+        file_pin(confined(root,row['path']),row)
+
 def source_gate(here,c):
     assert c['purpose']=='transaction-stage-custody/v1'
     manifest_path=here/'source-manifest.json';manifest=json.loads(manifest_path.read_bytes())
@@ -29,8 +38,7 @@ def source_gate(here,c):
     assert review['source']==c['source'] and review['role']==c['role']
     assert review['stageDigest']==c['manifestDigest']
     assert review['sourceManifestSha256']==hashlib.sha256(manifest_path.read_bytes()).hexdigest()
-    assert review['proofTree'] and isinstance(review['proofTree'],list)
-    for row in review['proofTree']:file_pin(confined(c['evidenceRoot'],row['path']),row)
+    verify_tree(c['evidenceRoot'],review['proofTree'])
     names=set()
     for row in manifest['files']:
         assert row['name'] not in names;names.add(row['name'])
@@ -42,8 +50,7 @@ def source_gate(here,c):
     assert intent['accepted'] is True and intent['independentReview'] is True
     assert intent['scope']=='TRANSACTION_STAGE_BYTE_VERIFICATION_INTENT'
     assert intent['binding']==c['intentBinding']
-    assert intent['proofTree']
-    for row in intent['proofTree']:file_pin(confined(c['evidenceRoot'],row['path']),row)
+    verify_tree(c['evidenceRoot'],intent['proofTree'])
 
 def validate_stage(here,c):
     assert c['role'] in ('api','web') and re.fullmatch('[0-9a-f]{40}',c['source'])

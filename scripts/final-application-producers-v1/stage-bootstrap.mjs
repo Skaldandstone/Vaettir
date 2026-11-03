@@ -189,9 +189,18 @@ export function prepareStage(b, source, role, io) {
   collect(b.repairAcceptance);
   collect(input);
   collect(review.proofTree);
+  collect(jsonRef(review.proofTree, io.read));
   // Approval proof trees are also rehashed when the generated contract is used.
-  for (const r of [b.producers.approval, b.operatorApproval, b.repairAcceptance])
-    if (r) collect(jsonRef(r, io.read));
+  for (const r of [
+    b.producers.approval,
+    b.operatorApproval,
+    b.repairAcceptance,
+  ])
+    if (r) {
+      const approval = jsonRef(r, io.read);
+      collect(approval);
+      collect(jsonRef(approval.proofTree, io.read));
+    }
   const files = deriveStageOperators();
   Object.assign(files, {
     "original-manifest.json": manifestRaw,
@@ -237,7 +246,7 @@ export function prepareStage(b, source, role, io) {
     role,
     stageDigest: c.manifestDigest,
     sourceManifestSha256: sha(files["source-manifest.json"]),
-    proofTree: [],
+    proofTree: null,
     completeOciAcceptance: false,
     extendedMetadataAccepted: false,
     runtimeAccepted: false,

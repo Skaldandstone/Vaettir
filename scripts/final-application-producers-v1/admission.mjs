@@ -36,7 +36,7 @@ export function admitProducerSource(binding, read) {
     "Unbound producer source",
   );
   ok(
-    same(jsonRef(binding.manifest, read).files, packageRows(here)),
+    same(jsonRef(binding.manifest, read).files, packageRows(resolve(here))),
     "Producer source changed",
   );
   return review;

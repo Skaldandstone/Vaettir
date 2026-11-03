@@ -204,11 +204,16 @@ def main():
     for proof in available['proofs']:
         actual=ref(proof['path']);assert actual['sha256']==proof['sha256'];retained.append(actual)
     retained.extend(ref(output/r['path'],{k:r[k] for k in ('sha256','bytes')}) for r in produced)
+    by={}
+    for r in retained:
+        assert r['path'] not in by or by[r['path']]==r
+        by[r['path']]=r
+    write('complete-stage-proof-tree.json',{'files':list(by.values())})
     write('complete-stage-image.proposed.json',{'scope':'COMPLETE_IMMUTABLE_IMAGE','accepted':False,'independentReview':False,
           'image':available['image'],'source':SETTINGS['source'],'artifactPurpose':'sqlite-transaction-stage','runtimeEligible':False,
           'manifest':ref(HERE/'original-manifest.json'),'config':ref(HERE/'original-config.json'),'layers':layers,
           'archive':archive_ref,'verification':ref(receipt_path),'inventory':ref(output/'stage-inventory.proposed.json'),
-          'layerOrder':ref(output/'layer-order.json'),'observations':None,'filesystemReview':None,'proofTree':retained,
+          'layerOrder':ref(output/'layer-order.json'),'observations':None,'filesystemReview':None,'proofTree':ref(output/'complete-stage-proof-tree.json'),
           'completeOciAcceptance':False,'extendedMetadataAccepted':False,'runtimeAccepted':False,'releaseAccepted':False})
 
 if __name__=='__main__':main()
