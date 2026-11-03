@@ -38,6 +38,11 @@ export function ImportMappingReview({ projectId, sourceLabel, source, onBack, on
     catch (e) { if (mounted.current) setError(e instanceof Error ? e.message : "Could not prepare this import."); }
     finally { busy.current = false; if (mounted.current) setWorking(false); }
   }
+  function backBeforeSummary() {
+    const origin = access.origin;
+    if (busy.current || summary || receipt || write.current || !origin || !access.owns(origin, "edit")) return;
+    onBack();
+  }
   useEffect(() => {
     if (access.canEdit && !request.current) void stage();
     // A newly settled original access read starts this mounted review once.
@@ -84,7 +89,10 @@ export function ImportMappingReview({ projectId, sourceLabel, source, onBack, on
           <button className="btn-secondary" disabled={working || Boolean(pendingKind && pendingKind !== "cancel")} onClick={() => void submit("cancel")}>
             {pendingKind === "cancel" ? "Retry back" : "Back"}</button>
         </div></> : <p role="status">{working ? "Preparing summary…" : "Summary unavailable."}</p>}
-      {!summary && error && <button disabled={working} onClick={() => void stage()}>Retry</button>}
+      {!summary && <div className="button-row">
+        {error && <button disabled={working} onClick={() => void stage()}>Retry</button>}
+        <button className="btn-secondary" disabled={working} onClick={backBeforeSummary}>Back</button>
+      </div>}
     </>}
     {error && <p role="alert">{error}{pendingKind && " Retry uses the same request; no second import is started."}</p>}
   </section>;

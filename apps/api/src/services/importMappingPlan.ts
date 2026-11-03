@@ -57,7 +57,7 @@ export function planMappingSheets(raw: MappingSheet[], format: "CSV" | "XLSX" | 
         delete safeMapping[field]; mappingProblems.push(`Choose an unambiguous ${field} column.`);
       }
     }
-    const rows = mapCsvRows(sheet.csvText, safeMapping, undefined, sheet.overrides);
+    const rows = mapCsvRows(sheet.csvText, safeMapping, undefined, sheet.overrides, { retainUnmappedTitleRows: true });
     const incomplete = new Set(rows.incompleteRows.map(r => r.rowNumber));
     const context = new Set(rows.nonCaseRows?.map(r => r.rowNumber));
     const alternate = new Set(rows.rowMappingSuggestions?.map(r => r.proposed.rowNumber));
@@ -69,7 +69,7 @@ export function planMappingSheets(raw: MappingSheet[], format: "CSV" | "XLSX" | 
       const source = nonempty[row.rowNumber - 1];
       if (!source) throw new Error("Source row could not be retained.");
       const reasons: string[] = [...mappingProblems];
-      if (incomplete.has(row.rowNumber) || !sheet.mapping.title) reasons.push("Map a case title.");
+      if (incomplete.has(row.rowNumber) || !safeMapping.title) reasons.push("Map a case title.");
       if (alternate.has(row.rowNumber)) reasons.push("Confirm the proposed row layout.");
       if ((row.externalId && (counts.get(row.externalId) ?? 0) > 1)) reasons.push("Resolve duplicate source IDs.");
       if (format === "SHEETS" && (!sheet.mapping.externalId || !row.externalId)) reasons.push("Map a stable case ID.");

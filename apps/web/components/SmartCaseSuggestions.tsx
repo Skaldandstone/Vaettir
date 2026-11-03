@@ -18,17 +18,21 @@ const label = { suitePath: "Suite / subsuite", priority: "Priority", testType: "
 function useAvailability(projectId: string, organizationId: string | undefined) {
   const auth = useAuth(), utils = trpcReact.useUtils();
   const identity = JSON.stringify([projectId, organizationId, auth.userId, auth.sessionId]);
-  const [state, setState] = useState<{ identity: string; configuration: RouterOutputs["caseSuggestions"]["configuration"] } | null>(null);
+  const [revision, setRevision] = useState(0);
+  const [state, setState] = useState<{ identity: string; revision: number; configuration: RouterOutputs["caseSuggestions"]["configuration"] | null; error: string | null } | null>(null);
   useEffect(() => {
     let cancelled = false;
     if (auth.isLoaded && auth.isSignedIn && auth.userId && organizationId) {
       void Promise.resolve().then(() => utils.client.caseSuggestions.configuration.query({ projectId, originalOrganizationId: organizationId, expectedClerkActorId: auth.userId! }))
-        .then(result => { if (!cancelled) setState({ identity, configuration: result }); })
-        .catch(() => { if (!cancelled) setState(null); });
+        .then(result => { if (!cancelled) setState({ identity, revision, configuration: result, error: null }); })
+        .catch(() => { if (!cancelled) setState(previous => ({ identity, revision, configuration: previous?.identity === identity ? previous.configuration : null, error: "Could not verify AI access. Try Refresh." })); });
     }
     return () => { cancelled = true; };
-  }, [auth.isLoaded, auth.isSignedIn, auth.userId, organizationId, projectId, identity, utils.client]);
-  return state?.identity === identity ? state.configuration : null;
+  }, [auth.isLoaded, auth.isSignedIn, auth.userId, organizationId, projectId, identity, utils.client, revision]);
+  return { configuration: state?.identity === identity ? state.configuration : null,
+    checking: state?.identity !== identity || state.revision !== revision,
+    error: state?.identity === identity ? state.error : null,
+    refresh: () => setRevision(value => value + 1) };
 }
 function changes(review: Review): Selection[] {
   return review.suggestions.flatMap(s => {
@@ -43,7 +47,7 @@ export function SmartCaseSuggestions({ projectId, cases, caseIds, onApplyImport,
 }) {
   const auth = useAuth(), utils = trpcReact.useUtils();
   const project = trpcReact.project.byId.useQuery({ id: projectId }, { retry: false, staleTime: 0 });
-  const availability = useAvailability(projectId, project.data?.organizationId);
+  const access = useAvailability(projectId, project.data?.organizationId), availability = access.configuration;
   const available = availability?.enabled;
   const key = JSON.stringify([projectId, auth.userId, auth.sessionId, cases, caseIds, availability?.policyVersion]);
   const latest = useRef(key);
@@ -62,7 +66,10 @@ export function SmartCaseSuggestions({ projectId, cases, caseIds, onApplyImport,
   const consent = consentKey === key;
   const maximum = cases ? 2500 : 200;
   const analysisKey = useRef<string | null>(null);
-  const ready = available && auth.isLoaded && auth.isSignedIn && Boolean(project.data) && !project.error && !project.isFetching && !project.isPaused;
+  const ready = available && !access.checking && !access.error && auth.isLoaded && auth.isSignedIn && Boolean(project.data) && !project.error && !project.isFetching && !project.isPaused;
+  const blocked = busy ? `Reviewing ${progress} of ${count}…` : access.checking ? "Checking AI access…" : access.error ||
+    (!availability?.canAnalyze ? availability?.reason || "AI access is unavailable." : !ready ? "Refresh project access before continuing." :
+      !count ? "Select cases first." : count > maximum ? `Select up to ${maximum.toLocaleString()} cases.` : !consent ? "Approve AI analysis below to continue." : null);
   const visible = draft?.key === key && ready;
   async function analyze() {
     if (!consent || !availability?.canAnalyze || !ready || !auth.userId || !project.data || count === 0 || count > maximum || pending.current) return;
@@ -123,15 +130,17 @@ export function SmartCaseSuggestions({ projectId, cases, caseIds, onApplyImport,
     finally { setBusy(false); }
   }
   if (draft && !visible) return <section className="panel"><p role="status">Restore the original signed-in account, workspace and source selection to review the retained suggestions. No changes will be sent from this view.</p></section>;
-  if (!available) return null;
+  if (!available && !access.error) return null;
   return <details className="panel smart-case-suggestions" open>
     <summary>Suggest suites, subsuites, priorities and test types</summary>
     {notice?.identity === identity && <p role="status">{notice.text}</p>}
     <p>Vaettir proposes placement based on each case’s complete procedure and expected outcome, using existing suites first. Review the explanations and select changes before applying. Suggestions do not verify the tests.</p>
     {!draft && <>
-      <p>{availability?.reason}</p><p>{count > maximum ? `Choose at most ${maximum} cases for one review, using the case selection or filters. ` : ""}{count} selected cases. Suggestions are included without deducting AI credits. Work runs in batches of 20, up to {maximum.toLocaleString()} selected cases.</p>
+      {blocked && <p role="status">{blocked}</p>}
+      {(!availability?.canAnalyze || access.error) && <p><a href={`/projects/${encodeURIComponent(projectId)}/settings/integrations#ai-sharing`} target="_blank" rel="noopener noreferrer">AI sharing</a>{" · "}<ActionButton type="button" disabled={busy || access.checking} onClick={() => { setConsentKey(null); access.refresh(); }} tooltip="Check the current project classification and your AI access">Refresh</ActionButton></p>}
+      <p>{count} selected · No AI credits</p>
       <label><input type="checkbox" checked={consent} disabled={busy} onChange={e => { setConsentKey(e.target.checked ? key : null); analysis.current = null; setHasAnalysis(false); }} /> I approve sending these selected case definitions, tags, current placement and project suite names to Vaettir’s configured Anthropic AI provider for suggestions. This approval does not grant plugin access or apply changes.</label>
-      <p><ActionButton type="button" className="btn-primary" disabled={!consent || !availability?.canAnalyze || !ready || busy || !count || count > maximum} onClick={() => void analyze()} tooltip={<> {busy ? `Reviewing ${progress} of ${count}…` : hasAnalysis ? "Retry suggestion review" : "Generate suggestions"} </>}>{busy ? "Reviewing…" : hasAnalysis ? "Retry" : "Generate suggestions"}</ActionButton></p>
+      <p><ActionButton type="button" className="btn-primary" aria-label={hasAnalysis ? "Retry suggestion review" : "Generate suggestions"} disabled={Boolean(blocked)} onClick={() => void analyze()} tooltip={blocked || (hasAnalysis ? "Retry suggestion review" : "Generate suggestions")}>{busy ? "Reviewing…" : hasAnalysis ? "Retry" : "Generate suggestions"}</ActionButton></p>
       {busy && <button type="button" className="btn-secondary" onClick={() => { analysisController.current?.abort(); analysis.current = null; setHasAnalysis(false); setConsentKey(null); }}>Stop analysis</button>}
     </>}
     {visible && draft && <>
@@ -158,7 +167,7 @@ export function SmartColumnMapping({ projectId, csvText, fileBase64, sheetName, 
   onApply: (mapping: typeof currentMapping) => Promise<void>;
 }) {
   const auth = useAuth(), utils = trpcReact.useUtils(), project = trpcReact.project.byId.useQuery({ id: projectId }, { retry: false, staleTime: 0 });
-  const availability = useAvailability(projectId, project.data?.organizationId);
+  const access = useAvailability(projectId, project.data?.organizationId), availability = access.configuration;
   const available = availability?.enabled;
   const signature = JSON.stringify([projectId, auth.userId, auth.sessionId, csvText, fileBase64, sheetName, currentMapping, availability?.policyVersion]), latest = useRef(signature);
   useLayoutEffect(() => { latest.current = signature; }, [signature]);
@@ -168,7 +177,9 @@ export function SmartColumnMapping({ projectId, csvText, fileBase64, sheetName, 
   const [chosen, setChosen] = useState<Set<string>>(new Set());
   const reviewedMapping = suggestedImportMapping(currentMapping, (result?.signature === signature ? result.mappings : []).filter(m => chosen.has(m.field)));
   const consent = consentSignature === signature;
-  const ready = available && auth.isLoaded && auth.isSignedIn && project.data && !project.error && !project.isFetching && !project.isPaused;
+  const ready = available && !access.checking && !access.error && auth.isLoaded && auth.isSignedIn && project.data && !project.error && !project.isFetching && !project.isPaused;
+  const blocked = busy ? "Reading column meanings…" : access.checking ? "Checking AI access…" : access.error ||
+    (!availability?.canAnalyze ? availability?.reason || "AI access is unavailable." : !ready ? "Refresh project access before continuing." : !consent ? "Approve AI analysis below to continue." : null);
   async function analyze() {
     if (!consent || !availability?.canAnalyze || !ready || !project.data || !auth.userId) return;
     if (request.current?.signature !== signature) request.current = { signature, input: { projectId, originalOrganizationId: project.data.organizationId, expectedClerkActorId: auth.userId, requestId: crypto.randomUUID(), approved: true, expectedPolicyVersion: availability.policyVersion, ...(csvText ? { csvText } : { fileBase64, sheetName }) } };
@@ -180,11 +191,13 @@ export function SmartColumnMapping({ projectId, csvText, fileBase64, sheetName, 
     } catch (cause) { if (latest.current === signature) setError(cause instanceof Error ? cause.message : "Column analysis could not finish."); }
     finally { setBusy(false); }
   }
-  if (!available) return null;
+  if (!available && !access.error) return null;
   return <details className="panel" open><summary>Suggest column mappings from the content</summary>
-    <p>{availability?.reason}</p><p>Use this when column names or layout are unfamiliar. Expected behavior and historical pass/fail results remain separate.</p>
+    {blocked && <p role="status">{blocked}</p>}
+    {(!availability?.canAnalyze || access.error) && <p><a href={`/projects/${encodeURIComponent(projectId)}/settings/integrations#ai-sharing`} target="_blank" rel="noopener noreferrer">AI sharing</a>{" · "}<ActionButton type="button" disabled={busy || access.checking} onClick={() => { setConsentSignature(null); access.refresh(); }} tooltip="Check the current project classification and your AI access">Refresh</ActionButton></p>}
+    <p>Suggest mappings from column names and sample rows.</p>
     <label><input type="checkbox" checked={consent} disabled={busy} onChange={e => setConsentSignature(e.target.checked ? signature : null)} /> I approve sending the column names and first 25 data rows to Vaettir’s Anthropic AI provider to propose mappings. No source is changed or imported.</label>
-    <p><ActionButton type="button" className="btn-primary" disabled={!consent || !availability?.canAnalyze || !ready || busy} onClick={() => void analyze()} tooltip={<> {busy ? "Reading column meanings…" : "Suggest mappings"} </>}>{busy ? "Reading…" : "Suggest mappings"}</ActionButton></p>
+    <p><ActionButton type="button" className="btn-primary" aria-label="Suggest mappings" disabled={Boolean(blocked)} onClick={() => void analyze()} tooltip={blocked || "Suggest mappings"}>{busy ? "Reading…" : "Suggest mappings"}</ActionButton></p>
     {result?.signature === signature && ready && <>
       {result.mappings.length === 0 && <p>No defensible mapping was found. Existing mappings are unchanged.</p>}
       {result.mappings.map(m => <label key={m.field} className="smart-suggestion-choice"><input type="checkbox" checked={chosen.has(m.field)} disabled={busy} onChange={e => setChosen(previous => { const next = new Set(previous); if (e.target.checked) next.add(m.field); else next.delete(m.field); return next; })} /><span><strong>{m.field}</strong>: {currentMapping[m.field] || "Unmapped"} → {m.column}<br />{m.confidence.toLowerCase()} confidence. {m.reason}{m.evidence.map((q, i) => <blockquote key={i}>{q}</blockquote>)}</span></label>)}

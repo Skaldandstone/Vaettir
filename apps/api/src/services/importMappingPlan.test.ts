@@ -1,8 +1,39 @@
 import { describe, it, expect } from "vitest";
 import { planMappingSheets } from "./importMappingPlan.js";
-import { suggestCsvMapping } from "./csvFieldMapping.js";
+import { mapCsvRows, suggestCsvMapping } from "./csvFieldMapping.js";
 const sheet = (csvText: string) => ({ name: "Cases", csvText, mapping: suggestCsvMapping(csvText.split("\n")[0]!.split(",")), overrides: [] });
 describe("ready cases and independent mapping work", () => {
+  it.each(["CSV", "XLSX", "SHEETS"] as const)("queues every unresolved title row in %s without inferring a title or context from IDs", format => {
+    const input = { ...sheet("Unknown,Case ID,Steps,Result\nOriginal name,X,Open,Passed\n,Y,,Failed\n,Verify settings,,"),
+      source: format === "SHEETS" ? { spreadsheetId: "synthetic", sheetId: 4 } : undefined };
+    const result = planMappingSheets([input], format);
+    expect(result).toMatchObject({ readyCount: 0, pendingCount: 3, contextCount: 0 });
+    expect(result.rows.map(row => row.candidate.title)).toEqual(["", "", ""]);
+    expect(result.rows.map(row => row.original.cells)).toEqual([
+      ["Original name", "X", "Open", "Passed"], ["", "Y", "", "Failed"], ["", "Verify settings", "", ""],
+    ]);
+    for (const row of result.rows) {
+      expect(row.status).toBe("MAPPING"); expect(row.reasons).toContain("Map a case title.");
+      expect(row.hasHistoricalColumns).toBe(true);
+    }
+  });
+  it.each(["Title,Title,Steps\nFirst,Second,Open", "Unknown,Steps\nOriginal,Open"])("queues a missing or ambiguous mapped title column: %s", csvText => {
+    const result = planMappingSheets([{ name: "Cases", csvText, mapping: { title: "Title", when: "Steps" }, overrides: [] }], "CSV");
+    expect(result).toMatchObject({ readyCount: 0, pendingCount: 1, contextCount: 0 });
+    expect(result.rows[0]?.candidate).toMatchObject({ title: "", when: ["Open"] });
+    expect(result.rows[0]?.reasons).toEqual(["Choose an unambiguous title column.", "Map a case title."]);
+  });
+  it("keeps direct preview/import strict and retains reviewed row edits while a column is unresolved", () => {
+    const csvText = "Unknown,Steps\nOriginal,Open";
+    expect(() => mapCsvRows(csvText, { when: "Steps" })).toThrow('The "title" field must be mapped');
+    const input = { name: "Cases", csvText, mapping: { when: "Steps" }, overrides: [{ rowNumber: 2, title: "Reviewed title", when: ["  Exact\n action "] }] };
+    const result = planMappingSheets([input], "CSV");
+    expect(result).toMatchObject({ readyCount: 0, pendingCount: 1 });
+    expect(result.rows[0]?.candidate).toMatchObject({ title: "Reviewed title", when: ["  Exact\n action "] });
+    expect(result.rows[0]?.original.cells).toEqual(["Original", "Open"]);
+    const repaired = planMappingSheets([{ ...input, mapping: { ...input.mapping, title: "Unknown" } }], "CSV");
+    expect(repaired).toMatchObject({ readyCount: 1, pendingCount: 0 });
+  });
   it.each(["CSV", "XLSX", "SHEETS"] as const)("retains mapped suite and Preconditions in %s ready and queued candidates", format => {
     const input = { ...sheet("Title,ID,SuitePath,Preconditions,Steps,Expected\nReady,1,Parent / Child,Account exists,Open,Shown\n,2,Pending / Child,Session exists,Close,Hidden"),
       source: format === "SHEETS" ? { spreadsheetId: "synthetic", sheetId: 4 } : undefined };
