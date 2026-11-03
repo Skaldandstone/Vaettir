@@ -1,0 +1,99 @@
+{
+  "parentFiles": [
+    {
+      "path": "scripts/final-application-minimal-delta-v1/.gitattributes",
+      "sha256": "705fd4d6451a31d36b3df7de96f83f30ac976c9b4a6d1e51671d8e2f33e2d0da",
+      "bytes": 8
+    },
+    {
+      "path": "scripts/final-application-minimal-delta-v1/.gitignore",
+      "sha256": "862263fa1f46c20f0d1e4dac5ffcc75abd55c08211b2c3864c5f8764b9d87793",
+      "bytes": 19
+    },
+    {
+      "path": "scripts/final-application-minimal-delta-v1/OPERATORS.md",
+      "sha256": "e9dcd5874d9d5adf2f7c356fe08923366fca6ad76a2df717154816cdd96a83dc",
+      "bytes": 2630
+    },
+    {
+      "path": "scripts/final-application-minimal-delta-v1/admission.mjs",
+      "sha256": "7bd443180c6acec21dd1f32e33effb6ee6e6276066ef6fbedfd6c45381acf032",
+      "bytes": 1695
+    },
+    {
+      "path": "scripts/final-application-minimal-delta-v1/derivation_test.py",
+      "sha256": "3d33d156a34755340ed339a4db4c484a9e5b9c5e6b72522354a63dcc92921bdf",
+      "bytes": 1892
+    },
+    {
+      "path": "scripts/final-application-minimal-delta-v1/derivations.json",
+      "sha256": "63afa80c2224cf6ee56ea4a37b0547f2127c7434a2074b0938b5fefd1e003761",
+      "bytes": 3306
+    },
+    {
+      "path": "scripts/final-application-minimal-delta-v1/derive-operators.derived.py",
+      "sha256": "4969c5db47f3ca6e96e735c99ae035a223b281179ef940169420e4befb5f59b4",
+      "bytes": 12102
+    },
+    {
+      "path": "scripts/final-application-minimal-delta-v1/derive.mjs",
+      "sha256": "e1269d4b4d9bd5ebfdf08f6a26fee3baa95e56be1c8dbc092617f2313d7980f5",
+      "bytes": 7197
+    },
+    {
+      "path": "scripts/final-application-minimal-delta-v1/minimal.test.mjs",
+      "sha256": "5360b1545002b6e3f071201601c558d297fed79ea0bb92b161cb4a41263c0aca",
+      "bytes": 7513
+    },
+    {
+      "path": "scripts/final-application-minimal-delta-v1/native-probe-context.derived.mjs",
+      "sha256": "7dc31ecfe046965e445053617105c8cf3c85ccfb4ca07d2f18b0321b0fbb48c0",
+      "bytes": 4403
+    },
+    {
+      "path": "scripts/final-application-minimal-delta-v1/normalize.derived.mjs",
+      "sha256": "e24b3e536994a7ff1f8d47663dfa653362ca6ffe48ad3154d4c6eddbf474fde0",
+      "bytes": 12220
+    },
+    {
+      "path": "scripts/final-application-minimal-delta-v1/normalizer-regression.test.mjs",
+      "sha256": "bab540c22ea79dbc433cd9ee7b84f66fc48135c782b248bc2bbfe70dc565bc4f",
+      "bytes": 15219
+    },
+    {
+      "path": "scripts/final-application-minimal-delta-v1/operator-contracts.derived.py",
+      "sha256": "be48126539b7b23efeea90ee03f008eed1f2a070dd2b7623e80cf5a24d66abbb",
+      "bytes": 9462
+    },
+    {
+      "path": "scripts/final-application-minimal-delta-v1/output-producer.mjs",
+      "sha256": "fa41726fdcc29740688391618f2eafcb9a8679fff08a10e8b420291959837fbc",
+      "bytes": 7902
+    },
+    {
+      "path": "scripts/final-application-minimal-delta-v1/policy.json",
+      "sha256": "da19640999971a5e13461f87eb9fcd0c530753e4be8d8469889b2b6ef22cb6e5",
+      "bytes": 4088
+    },
+    {
+      "path": "scripts/final-application-minimal-delta-v1/produce.mjs",
+      "sha256": "1e57884bec64ef6f406888f27eb03b7d1816176d921a4488d7b85f698343ce62",
+      "bytes": 7303
+    },
+    {
+      "path": "scripts/final-application-minimal-delta-v1/release-admission.derived.mjs",
+      "sha256": "6e04aa69e22043ed153f9d71249ec73f3f71502b0dcd02c6a677ca352265b251",
+      "bytes": 19880
+    },
+    {
+      "path": "scripts/final-application-minimal-delta-v1/release-context.derived.mjs",
+      "sha256": "e31ab39e44cd40f891f28d3c642af598e6693d980b9f53f23aa3b32fabb1c929",
+      "bytes": 6644
+    },
+    {
+      "path": "scripts/final-application-minimal-delta-v1/seal-runtime.derived.mjs",
+      "sha256": "59d2f07920f4d26b1cc2f12f003dd8e5e2c13492a2e79eb63d32e31a8adaae4f",
+      "bytes": 5675
+    }
+  ]
+}

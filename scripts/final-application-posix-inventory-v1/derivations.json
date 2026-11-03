@@ -1,0 +1,79 @@
+[
+  {
+    "name": "normalize.derived.mjs",
+    "original": "final-application-minimal-delta-v1/normalize.derived.mjs",
+    "parentSha256": "e24b3e536994a7ff1f8d47663dfa653362ca6ffe48ad3154d4c6eddbf474fde0",
+    "candidateSha256": "98101b29d051ff357561a25975daeca55ed0bc8be1962ba2eb8e9d57b93fa3dd",
+    "changed": true
+  },
+  {
+    "name": "normalizer-regression.test.mjs",
+    "original": "final-application-minimal-delta-v1/normalizer-regression.test.mjs",
+    "parentSha256": "bab540c22ea79dbc433cd9ee7b84f66fc48135c782b248bc2bbfe70dc565bc4f",
+    "candidateSha256": "bab540c22ea79dbc433cd9ee7b84f66fc48135c782b248bc2bbfe70dc565bc4f",
+    "changed": false
+  },
+  {
+    "name": "minimal.test.mjs",
+    "original": "final-application-minimal-delta-v1/minimal.test.mjs",
+    "parentSha256": "5360b1545002b6e3f071201601c558d297fed79ea0bb92b161cb4a41263c0aca",
+    "candidateSha256": "a662d5375683ba8a8738cc630d169203f15a8c8b4fb0a7804db97e11e79e946b",
+    "changed": true
+  },
+  {
+    "name": "release-admission.derived.mjs",
+    "original": "final-application-minimal-delta-v1/release-admission.derived.mjs",
+    "parentSha256": "6e04aa69e22043ed153f9d71249ec73f3f71502b0dcd02c6a677ca352265b251",
+    "candidateSha256": "e9f9b002851145ccabb87bf1193976c56c9e938f6b91cd0990622756c396dae2",
+    "changed": true
+  },
+  {
+    "name": "release-context.derived.mjs",
+    "original": "final-application-minimal-delta-v1/release-context.derived.mjs",
+    "parentSha256": "e31ab39e44cd40f891f28d3c642af598e6693d980b9f53f23aa3b32fabb1c929",
+    "candidateSha256": "e31ab39e44cd40f891f28d3c642af598e6693d980b9f53f23aa3b32fabb1c929",
+    "changed": false
+  },
+  {
+    "name": "native-probe-context.derived.mjs",
+    "original": "final-application-minimal-delta-v1/native-probe-context.derived.mjs",
+    "parentSha256": "7dc31ecfe046965e445053617105c8cf3c85ccfb4ca07d2f18b0321b0fbb48c0",
+    "candidateSha256": "7dc31ecfe046965e445053617105c8cf3c85ccfb4ca07d2f18b0321b0fbb48c0",
+    "changed": false
+  },
+  {
+    "name": "seal-runtime.derived.mjs",
+    "original": "final-application-minimal-delta-v1/seal-runtime.derived.mjs",
+    "parentSha256": "59d2f07920f4d26b1cc2f12f003dd8e5e2c13492a2e79eb63d32e31a8adaae4f",
+    "candidateSha256": "59d2f07920f4d26b1cc2f12f003dd8e5e2c13492a2e79eb63d32e31a8adaae4f",
+    "changed": false
+  },
+  {
+    "name": "operator-contracts.derived.py",
+    "original": "final-application-minimal-delta-v1/operator-contracts.derived.py",
+    "parentSha256": "be48126539b7b23efeea90ee03f008eed1f2a070dd2b7623e80cf5a24d66abbb",
+    "candidateSha256": "f149b46e531d27960ed3c509af6e04db8360297c5a53d9e19e2b78940bd331d0",
+    "changed": true
+  },
+  {
+    "name": "derive-operators.derived.py",
+    "original": "final-application-minimal-delta-v1/derive-operators.derived.py",
+    "parentSha256": "4969c5db47f3ca6e96e735c99ae035a223b281179ef940169420e4befb5f59b4",
+    "candidateSha256": "a97b6e7aac4bd1a282eb046ed69f29eaec7fdea5cbd552eee2466d5ac2c3b762",
+    "changed": true
+  },
+  {
+    "name": "output-producer.mjs",
+    "original": "final-application-minimal-delta-v1/output-producer.mjs",
+    "parentSha256": "fa41726fdcc29740688391618f2eafcb9a8679fff08a10e8b420291959837fbc",
+    "candidateSha256": "fa41726fdcc29740688391618f2eafcb9a8679fff08a10e8b420291959837fbc",
+    "changed": false
+  },
+  {
+    "name": "produce.mjs",
+    "original": "final-application-minimal-delta-v1/produce.mjs",
+    "parentSha256": "1e57884bec64ef6f406888f27eb03b7d1816176d921a4488d7b85f698343ce62",
+    "candidateSha256": "1e57884bec64ef6f406888f27eb03b7d1816176d921a4488d7b85f698343ce62",
+    "changed": false
+  }
+]
