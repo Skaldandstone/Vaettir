@@ -1,0 +1,62 @@
+[
+  {
+    "name": "transaction-inventory.derived.mjs",
+    "parentSha256": "afdb79650e974ad19cb3245f81afa93917c5eb6ebdbbb57ada43cec7fa1627e0",
+    "candidateSha256": "992cb0dc6f809a111fa39770bf784aa248b01bf6d053dc0fc3f7fb9550c2c6f1",
+    "changed": true
+  },
+  {
+    "name": "native-release-gates.derived.mjs",
+    "parentSha256": "42a6fbb51be2a65a929a2a9b04bb664730ddefb4b466bf7fdb5a45214d5f0745",
+    "candidateSha256": "348f712291b22ebcb851bdeedf7a16cbe86574e178556ab2ac853743a4a3fe5b",
+    "changed": true
+  },
+  {
+    "name": "release-admission.derived.mjs",
+    "parentSha256": "208ac514fbeed5e010e08db2a0eb2b50d983687da2270caaf48484720a9bb127",
+    "candidateSha256": "45045fbc6f7a4836377e8efaab1cf15ddc1766a77c6c4447dfdb9099af8068e2",
+    "changed": true
+  },
+  {
+    "name": "release-context.derived.mjs",
+    "parentSha256": "54c681f07d9f127d886df4a0e4c90e4f8c973a59f39c58dd78f1582a8c915e1e",
+    "candidateSha256": "e31ab39e44cd40f891f28d3c642af598e6693d980b9f53f23aa3b32fabb1c929",
+    "changed": true
+  },
+  {
+    "name": "native-probe-context.derived.mjs",
+    "parentSha256": "7dc31ecfe046965e445053617105c8cf3c85ccfb4ca07d2f18b0321b0fbb48c0",
+    "candidateSha256": "7dc31ecfe046965e445053617105c8cf3c85ccfb4ca07d2f18b0321b0fbb48c0",
+    "changed": false
+  },
+  {
+    "name": "seal-runtime.derived.mjs",
+    "parentSha256": "59d2f07920f4d26b1cc2f12f003dd8e5e2c13492a2e79eb63d32e31a8adaae4f",
+    "candidateSha256": "59d2f07920f4d26b1cc2f12f003dd8e5e2c13492a2e79eb63d32e31a8adaae4f",
+    "changed": false
+  },
+  {
+    "name": "operator-contracts.derived.py",
+    "parentSha256": "5116d39fc8eb831316fa7902e388ec6f447224f0ce74034dfee5abd2a2610c3a",
+    "candidateSha256": "c58f5ba9d69b735e65cf11891b92fabaccc8148d2df9b2095cf7f9e56a165308",
+    "changed": true
+  },
+  {
+    "name": "derive-operators.derived.py",
+    "parentSha256": "17d17f8a7a463938c75262e8ccff4ee0888eb8dbe15534e2b3a42950f2e6ddb6",
+    "candidateSha256": "84404707363f61f9276043686d50d5311a26984d7f5d32c6bbabb1ff4ea45d69",
+    "changed": true
+  },
+  {
+    "name": "output-producer.mjs",
+    "parentSha256": "6961abc6bbe053070f374f26b3c0c51e246c74218a13f74440d05555b2465140",
+    "candidateSha256": "6961abc6bbe053070f374f26b3c0c51e246c74218a13f74440d05555b2465140",
+    "changed": false
+  },
+  {
+    "name": "produce.mjs",
+    "parentSha256": "b5846588d1384a236eb3a539845e1fbf156d8eb5c6db81811d7ac0d52cbaff7d",
+    "candidateSha256": "d036e64834c7158c2870ea484c44c5230396aeed0876ccf9ddd6df4917883529",
+    "changed": true
+  }
+]
