@@ -7,7 +7,7 @@ import {
   encode,
   gate,
   prepareApplication,
-} from "../final-application-release-v1/context.mjs";
+} from "./release-context.derived.mjs";
 import {
   accepted,
   completeImage,

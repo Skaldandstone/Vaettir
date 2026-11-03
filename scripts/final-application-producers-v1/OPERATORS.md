@@ -180,3 +180,47 @@ source AST derivation only. Generated files receive syntax checks, not execution
 No native/container/DB/build/provider/device/browser operation is part of this
 lane's validation. Main retains all original failures, frozen source and actual
 receipts. No test, label, generated ledger or source receipt closes launch HOLD.
+
+## Measured auxiliary-cache validator successor
+
+Main's actual API native transaction exposed one omitted `ldconfig` trigger
+leaf. This lane read/hash-matched the original 252,820,299-byte observation
+`47f5247cbc51085e4fcfad17a05ada98e5d04313760235795e690770db2c94e9`.
+`aux-cache-review.mjs` pins only `/var/cache/ldconfig/aux-cache`, its exact
+mode0600/root ownership/single-link/8263-byte before and after rows and content
+hashes. It does not admit a prefix, another observation or a future Web delta.
+The original frozen validator did not pass this transaction and is unchanged.
+
+Main's independent `SQLITE_TRANSACTION_ONLY` review must additionally include
+`auxCacheLeaf: {path,before,after}` equal to the exact pinned row. The original
+reviewed full change list/categories and observed transaction hash remain
+mandatory. Adjacent paths, changed hashes/size/mode/owner/link count, missing
+review, other observations, extra exceptions and every original native/library,
+SONAME, package/loader/consumer gate remain refused or unchanged as applicable.
+No transaction is rerun. The older transaction reader uses the same bounded
+512MiB already present in8a because this measured observation exceeds64MiB.
+
+`derive-validator.mjs` deterministically produces the eight `*.derived` source
+files; `validator-derivations.json` binds every original/candidate hash. Copies
+preserve original checks; changes are the one leaf predicate, measured reader
+bound, explicit source-review gate and call-path wiring. Source tests compare
+every derived byte. Do not format or edit these derived copies independently.
+
+Use the new `release-context.derived.mjs`, `native-probe-context.derived.mjs`,
+and `seal-runtime.derived.mjs` with their inherited CLI arguments for the
+corresponding final-image gates. `produce.mjs` already uses this call chain.
+Frozen `sourcePackage` continues pointing at8a. Add `producerPackage` pointing
+at this independently reviewed package to the operator configuration and use:
+
+```
+python scripts/final-application-producers-v1/derive-operators.derived.py CONFIG.json NEW_OPERATOR_DIRECTORY
+```
+
+This generator keeps original source/materialization/runtime mechanisms and
+actual probe handling. Its generated `contracts.py` rehashes both packages and
+calls the derived context gate; producer manifest/approval identity cannot
+change across phases. Root must independently review the newly generated exact
+operators before any execution. Old operators remain frozen and must not be
+used to imply that the old validator admitted the new auxiliary-cache leaf.
+The cache-role adapter still uses original source-only admissions; it never
+consumes a transaction or changes runtime identity.

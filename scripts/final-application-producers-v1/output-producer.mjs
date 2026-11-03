@@ -10,7 +10,7 @@ import {
   accepted,
   completeImage,
   transactionAdmission,
-} from "../final-application-release-v1/admission.mjs";
+} from "./release-admission.derived.mjs";
 import {
   normalizeInventory,
   applicationPlan,

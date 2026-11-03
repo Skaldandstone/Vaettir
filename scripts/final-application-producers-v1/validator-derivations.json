@@ -1,0 +1,50 @@
+[
+  {
+    "name": "transaction-inventory.derived.mjs",
+    "origin": "production-native-successor-v1/inventory.mjs",
+    "parentSha256": "6960aa36cfa70a08d5a2a84f2aa83a1fbb7442b6a36547eb724f2507f3571b04",
+    "candidateSha256": "afdb79650e974ad19cb3245f81afa93917c5eb6ebdbbb57ada43cec7fa1627e0"
+  },
+  {
+    "name": "native-release-gates.derived.mjs",
+    "origin": "production-native-successor-v1/release-gates.mjs",
+    "parentSha256": "a868fe1efd6c39a2eb992eae81dd5dd2343ec16d7d5279712fbd2611a4a5d2d7",
+    "candidateSha256": "42a6fbb51be2a65a929a2a9b04bb664730ddefb4b466bf7fdb5a45214d5f0745"
+  },
+  {
+    "name": "release-admission.derived.mjs",
+    "origin": "final-application-release-v1/admission.mjs",
+    "parentSha256": "2c4ff5c8be0e4add1f0b71b535b96459907ac0f1102d6a0f8fd1f453a2ef64f2",
+    "candidateSha256": "cb4bedd2784651d9efc998d87780450e830023256d38eccbc28c3f41519e888e"
+  },
+  {
+    "name": "release-context.derived.mjs",
+    "origin": "final-application-release-v1/context.mjs",
+    "parentSha256": "4a124bdb04e50dff61c9e63cc90714e522b0a118a8ee21a738cfb00b8c89bf91",
+    "candidateSha256": "54c681f07d9f127d886df4a0e4c90e4f8c973a59f39c58dd78f1582a8c915e1e"
+  },
+  {
+    "name": "native-probe-context.derived.mjs",
+    "origin": "final-application-release-v1/native-probe-context.mjs",
+    "parentSha256": "b1fa8a9d139363c211733db8f4f50bf7edb37143bf3977efd376ca0d2c53b265",
+    "candidateSha256": "7dc31ecfe046965e445053617105c8cf3c85ccfb4ca07d2f18b0321b0fbb48c0"
+  },
+  {
+    "name": "seal-runtime.derived.mjs",
+    "origin": "final-application-release-v1/seal-runtime.mjs",
+    "parentSha256": "95140bdb0492e1243def3247913c49cecb43d14ee5f0c04f345ea7a07aaa63e6",
+    "candidateSha256": "59d2f07920f4d26b1cc2f12f003dd8e5e2c13492a2e79eb63d32e31a8adaae4f"
+  },
+  {
+    "name": "operator-contracts.derived.py",
+    "origin": "final-application-release-v1/operator_contracts.py",
+    "parentSha256": "208a9738ec0e1a828a86b4364a26d3666d7eabd72db775818d2b78c5b6222803",
+    "candidateSha256": "90ce783a7c47b84fe4990d1b460235697e947e4bd3f6da203c4c5a04ea18f726"
+  },
+  {
+    "name": "derive-operators.derived.py",
+    "origin": "final-application-release-v1/derive_operators.py",
+    "parentSha256": "06b64ef0b21941174b8783b886b354a403de6dc14d888904bb3ab104f39d9357",
+    "candidateSha256": "70b11e3a2cbdd498fcb3058d77e216d2380726252d86e6de6b208087c754d5c1"
+  }
+]
