@@ -1,0 +1,101 @@
+{
+  "source": "94cde34624bcc910c5f8c1a19214302ffa04c2bf",
+  "parents": [
+    {
+      "path": "scripts/final-application-package-dependency-v1/native-release-gates.derived.mjs",
+      "sha256": "348f712291b22ebcb851bdeedf7a16cbe86574e178556ab2ac853743a4a3fe5b",
+      "bytes": 9950
+    },
+    {
+      "path": "scripts/final-application-posix-inventory-v1/release-admission.derived.mjs",
+      "sha256": "e9f9b002851145ccabb87bf1193976c56c9e938f6b91cd0990622756c396dae2",
+      "bytes": 20031
+    },
+    {
+      "path": "scripts/final-application-posix-inventory-v1/release-context.derived.mjs",
+      "sha256": "e31ab39e44cd40f891f28d3c642af598e6693d980b9f53f23aa3b32fabb1c929",
+      "bytes": 6644
+    },
+    {
+      "path": "scripts/final-application-posix-inventory-v1/native-probe-context.derived.mjs",
+      "sha256": "7dc31ecfe046965e445053617105c8cf3c85ccfb4ca07d2f18b0321b0fbb48c0",
+      "bytes": 4403
+    },
+    {
+      "path": "scripts/final-application-posix-inventory-v1/seal-runtime.derived.mjs",
+      "sha256": "59d2f07920f4d26b1cc2f12f003dd8e5e2c13492a2e79eb63d32e31a8adaae4f",
+      "bytes": 5675
+    },
+    {
+      "path": "scripts/final-application-posix-inventory-v1/operator-contracts.derived.py",
+      "sha256": "f149b46e531d27960ed3c509af6e04db8360297c5a53d9e19e2b78940bd331d0",
+      "bytes": 10213
+    },
+    {
+      "path": "scripts/final-application-posix-inventory-v1/derive-operators.derived.py",
+      "sha256": "a97b6e7aac4bd1a282eb046ed69f29eaec7fdea5cbd552eee2466d5ac2c3b762",
+      "bytes": 12245
+    }
+  ],
+  "roles": {
+    "api": {
+      "inventory": {
+        "path": "C:/Users/James/.codex/worktrees/vaettir-pr-integration/Vaettir/.local/complete-stage-native-inventory-20261102-v1/api/native-inventory.json",
+        "sha256": "b4b4158924f6a478bef57e2103f830d066e2a2fee845ead3344d3a228abb991a",
+        "bytes": 320775
+      },
+      "acceptance": {
+        "path": "C:/Users/James/.codex/worktrees/vaettir-pr-integration/Vaettir/.local/complete-stage-native-inventory-review-20261102-v1/api/native-inventory-accepted.json",
+        "sha256": "c9b51e4666307a476f16c8c0777c2b492e7b3a18601e92630580def78fb5459d",
+        "bytes": 913
+      },
+      "stageDigest": "sha256:163e94d4564d232b3277122a07a6a489cc015740bc901c2c7267de63e809b41c",
+      "count": 914
+    },
+    "web": {
+      "inventory": {
+        "path": "C:/Users/James/.codex/worktrees/vaettir-pr-integration/Vaettir/.local/complete-stage-native-inventory-20261102-v2/web/native-inventory.json",
+        "sha256": "080e66706a96d1f2295134bf0f5b476791cab94a7414d54defabcae4646aed64",
+        "bytes": 213433
+      },
+      "acceptance": {
+        "path": "C:/Users/James/.codex/worktrees/vaettir-pr-integration/Vaettir/.local/complete-stage-native-inventory-review-20261102-v1/web/native-inventory-accepted.json",
+        "sha256": "6f2bd06b906d3ec1231851aa6e20074c230603ce3c99fc2424de57f7ba8eb78f",
+        "bytes": 913
+      },
+      "stageDigest": "sha256:ca98179cba75414d2b3d6b711e65e13a32bec32d1c3f573313a55264a1e10caa",
+      "count": 643
+    }
+  },
+  "sqlite": {
+    "proof": {
+      "path": "C:/Users/James/.codex/worktrees/vaettir-pr-integration/Vaettir/.local/sqlite-proof-20261102-v4/artifact-v2/files/sqlite-native/sqlite-runtime-proof.json",
+      "sha256": "2173c92813786733b7115b552c9335835ff460c850fc9e70f26e9f48d09e65ca",
+      "bytes": 97501
+    },
+    "manifest": {
+      "path": "C:/Users/James/.codex/worktrees/vaettir-pr-integration/Vaettir/.local/sqlite-proof-20261102-v4/artifact-v2/files/scripts/sqlite-runtime-sources.json",
+      "sha256": "c787352f4b57d1490e51308a9b7364bb68ad759c6cea28f2709915f12a775e4a",
+      "bytes": 108843
+    },
+    "acceptance": {
+      "path": "C:/Users/James/.codex/worktrees/vaettir-pr-integration/Vaettir/.local/sqlite-proof-20261102-v4/standalone-native-accepted.json",
+      "sha256": "8dac2cb6c66f28d3822554378c6c9406b86089ac124a742b6d575c0b9f546147",
+      "bytes": 1958
+    },
+    "probe": {
+      "path": "C:/Users/James/.codex/worktrees/vaettir-pr-integration/Vaettir/.local/sqlite-proof-20261102-v4/artifact-v2/files/sqlite-native/sqlite-runtime-regression",
+      "sha256": "d1900198b70edab1326531cd2315ae9c43ffe2518fd49929a57884d115dfff4d",
+      "bytes": 16912
+    },
+    "control": {
+      "path": "C:/Users/James/.codex/worktrees/vaettir-pr-integration/Vaettir/.local/sqlite-proof-20261102-v4/artifact-v2/files/sqlite-native/package/DEBIAN/control",
+      "sha256": "e792872ca42a4771f90d2a4f9f0c6eaed4f3a3bbbe6e6c086d41be9f36bdb17c",
+      "bytes": 409
+    },
+    "librarySha256": "222a0487f6d62ff522bcf69663c64685fb00bd4434953e30be73126d57b5c43d"
+  },
+  "apiQueryPath": "/app/node_modules/.pnpm/@prisma+engines@5.22.0/node_modules/@prisma/engines/libquery_engine-debian-openssl-3.0.x.so.node",
+  "apiSchemaPath": "/app/node_modules/.pnpm/@prisma+engines@5.22.0/node_modules/@prisma/engines/schema-engine-debian-openssl-3.0.x",
+  "apiBrowserPath": "/root/.cache/ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-linux64/chrome-headless-shell"
+}
