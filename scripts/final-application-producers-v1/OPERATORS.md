@@ -224,3 +224,80 @@ operators before any execution. Old operators remain frozen and must not be
 used to imply that the old validator admitted the new auxiliary-cache leaf.
 The cache-role adapter still uses original source-only admissions; it never
 consumes a transaction or changes runtime identity.
+
+## Transaction-stage custody bootstrap
+
+Use `stage-bootstrap` before `stage-extract` or final application preparation.
+It requires the normal final-source/main-CI/privacy/producer source admissions,
+but does not require a complete final component or a complete transaction-stage
+receipt. That removes the stage/materializer dependency cycle. The existing
+final component materializer is unchanged.
+
+Fill `producerInputs.stageBootstrap[api|web]` with actual raw manifest, config,
+complete ordered layer list, parent manifest, build request/result/log/context,
+observation and an independent `TRANSACTION_STAGE_BYTE_VERIFICATION_INTENT`.
+Its `binding` must exactly match the object built in `prepareStage`: final
+validation source/tree, role, `sqlite_observation` target, stage-only purpose,
+runtimeEligible false, exact stage/parent digests, ordered layer-list hash and
+count, and the five actual build/observation refs. This is permission to verify
+those retained bytes, not native or runtime acceptance. No stage digest or layer
+count is hard-coded from Main's report. API requires the exact 98-layer parent
+prefix; Web requires its 56-layer prefix. The full count is independently bound
+and bounded to124 (original outer archive bound128 remains). The stage must
+retain the parent's actual runtime configuration and labels. The frozen recipe
+does not add purpose/source labels, so those come from actual reviewed build
+custody, never fabricated image metadata.
+
+```
+node scripts/final-application-producers-v1/produce.mjs stage-bootstrap BINDINGS.json EVIDENCE_ROOT SOURCE_REPO api NEW_STAGE_CONTEXT
+```
+
+Main independently reviews the emitted exact source manifest and all generated
+code, then supplies `paired-stage-materialization-source-acceptance.json` in that
+context. Start from `stage-review-required.json`, retain actual proofTree refs,
+and record accepted/independentReview only after review. The contract rehashes
+the entire generated source/data set, input proof pins and independent intent
+before use. Its model preserves the original descriptor/media/config/ordered
+hash/size/DiffID/cache checks and limits. `prepare-archive.py` and
+`verify-archive.py` are exact original bytes. The driver preserves original
+once-only explicit Linux daemon, temporary0600 registry auth/disposal, pull,
+load, fresh inspect, complete export and same-daemon verification. Only stage
+admission, proof paths and the stage-only availability envelope differ. Main is
+the only operator; never execute these entrypoints in this source lane:
+
+```
+python NEW_STAGE_CONTEXT/materialize-local.py api
+python NEW_STAGE_CONTEXT/stage_metadata.py api
+```
+
+Failure/ambiguous writes retain their original output; no automatic retry,
+overwrite, cleanup, tag or container launch. Stage availability explicitly has
+runtimeEligible/runtimeAccepted/releaseAccepted/extendedMetadataAccepted false.
+This disposable stage still has the old application and is never a final app.
+
+The metadata helper first reuses the complete cached-byte/DiffID checks. It
+retains every uncompressed TAR exclusively while hashing its actual bytes,
+then reads metadata without extracting any path. The standard-library TAR
+parser implementation/hash/Python version, raw TAR header byte ranges/hashes,
+UID/GID/mode, raw PAX values and ordered aliases/whiteouts/root headers are
+recorded. Sparse/unsupported inodes, unsafe paths, forward/nonregular hardlinks,
+ambiguous hardlink metadata and writes through symlink parents fail closed.
+All output is a review proposal. The parser uses actual TAR metadata; old
+`path/type/size/mode/link/layerEntry/sha` rows never supply inferred UID/GID/PAX.
+Extended metadata interpretation (including xattrs, ACLs and capabilities),
+alias/whiteout semantics, root metadata and every observation discrepancy need
+explicit independent review. The proposed ordinary comparison contains no
+automatic exclusion, even for observer paths or root-directory differences.
+
+The helper emits parent/stage full metadata inventories and ordinary snapshots,
+the exact layer order and `complete-stage-image.proposed.json` after requiring
+actual successful stage materialization/export evidence. The proposal includes
+compressed/uncompressed refs and retained archive proofs, but leaves
+`observations` and `filesystemReview` null and accepted false. Main binds actual
+per-operation stdin/timeouts/daemon capture and independent
+`COMPLETE_FILESYSTEM_AND_EXTENDED_METADATA` review. Only an independently
+accepted envelope passing existing `completeImage` may be used as
+`transaction.imageAcceptance`; ordinary transaction reconciliation/custody
+remains separate. `normalizeInventory` recognizes actual parser inode groups
+and rejects inconsistent/mixed aliases. It still refuses old rows without
+ownership and does not itself confer extended metadata acceptance.

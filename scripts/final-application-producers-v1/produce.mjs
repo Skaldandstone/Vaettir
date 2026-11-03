@@ -26,9 +26,11 @@ import {
   classifyApplicationCandidate,
 } from "./adapters.mjs";
 import { produceOutput } from "./output-producer.mjs";
+import { prepareStage } from "./stage-bootstrap.mjs";
 export function prepare(command, b, oldPolicy, role, io, prefix) {
   const source = admit(b, oldPolicy, io),
     files = {};
+  if (command === "stage-bootstrap") return prepareStage(b, source, role, io);
   if (command === "probes") {
     ok(
       io.source.contains(source.source, policy.fixtureSource),
@@ -185,6 +187,7 @@ if (
     ),
     io = actualIo(evidence, sourceRepo);
   io.normalizerSha256 = sha(readFileSync(join(here, "normalize.mjs")));
+  io.evidenceRoot = resolve(evidence);
   const files = prepare(command, b, oldPolicy, role, io, prefix);
   files["producer-generation.json"] = encode({
     command,

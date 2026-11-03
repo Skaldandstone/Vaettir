@@ -1,5 +1,8 @@
 {
-  "producers": { "manifest": null, "approval": null },
+  "producers": {
+    "manifest": null,
+    "approval": null
+  },
   "builders": {
     "api": {
       "cacheSourceRole": "api",
@@ -16,8 +19,16 @@
   },
   "producerInputs": {
     "stages": {
-      "api": { "imageAcceptance": null, "custody": null, "buildLog": null },
-      "web": { "imageAcceptance": null, "custody": null, "buildLog": null }
+      "api": {
+        "imageAcceptance": null,
+        "custody": null,
+        "buildLog": null
+      },
+      "web": {
+        "imageAcceptance": null,
+        "custody": null,
+        "buildLog": null
+      }
     },
     "application": {
       "api": {
@@ -31,7 +42,11 @@
         },
         "nativeInventory": null,
         "nativeReview": null,
-        "ownership": { "path": null, "uid": null, "gid": null },
+        "ownership": {
+          "path": null,
+          "uid": null,
+          "gid": null
+        },
         "normalizerSource": null
       },
       "web": {
@@ -45,9 +60,39 @@
         },
         "nativeInventory": null,
         "nativeReview": null,
-        "ownership": { "path": null, "uid": null, "gid": null },
+        "ownership": {
+          "path": null,
+          "uid": null,
+          "gid": null
+        },
         "normalizerSource": null,
         "parentStaticManifest": null
+      }
+    },
+    "stageBootstrap": {
+      "api": {
+        "manifest": null,
+        "config": null,
+        "layers": null,
+        "parentManifest": null,
+        "buildRequest": null,
+        "buildLog": null,
+        "buildContext": null,
+        "buildResult": null,
+        "observation": null,
+        "metadataIntent": null
+      },
+      "web": {
+        "manifest": null,
+        "config": null,
+        "layers": null,
+        "parentManifest": null,
+        "buildRequest": null,
+        "buildLog": null,
+        "buildContext": null,
+        "buildResult": null,
+        "observation": null,
+        "metadataIntent": null
       }
     }
   }

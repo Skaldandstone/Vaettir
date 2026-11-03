@@ -1,0 +1,37 @@
+"""Stage-only custody contract; all external operations remain in Main's retained driver."""
+from pathlib import Path, PurePosixPath
+import gzip, hashlib, json, re, sys
+from stage_support import source_gate as reviewed_source_gate, validate_stage
+
+HERE=Path(__file__).resolve().parent
+assert len(sys.argv)>1 and sys.argv[1] in ('api','web')
+KIND=sys.argv.pop(1)
+SETTINGS=json.loads((HERE/'stage-config.json').read_bytes())
+assert SETTINGS['role']==KIND
+D=O=A=HERE
+R=Path(SETTINGS['evidenceRoot'])
+OUT=HERE/('local-oci-'+KIND+'-stage-v1')
+SOURCE=SETTINGS['source']
+MANIFEST=SETTINGS['manifestDigest'];CONFIG=SETTINGS['configDigest']
+IMAGE='051722405355.dkr.ecr.us-east-2.amazonaws.com/vaettir-'+KIND+'@'+MANIFEST
+HOST='npipe:////./pipe/dockerDesktopLinuxEngine'
+LAYER_COUNT=SETTINGS['layerCount']
+MAX_COMPRESSED=3_000_000_000
+MAX_EXPANDED=12_000_000_000
+MAX_LAYER=1_250_000_000
+MAX_LAYER_EXPANDED=8_000_000_000
+MAX_MEMBERS=128
+CHUNK=1024*1024
+
+# RETAINED_HASH_FUNCTIONS
+
+def source_gate():
+    reviewed_source_gate(HERE,SETTINGS)
+
+def model():
+    source_gate()
+    validate_stage(HERE,SETTINGS)
+    audit={'compressedBytes':SETTINGS['compressedBytes'],'expandedBytes':SETTINGS['expandedBytes']}
+    # RETAINED_MODEL_BODY
+
+# RETAINED_CACHE_AND_PATH_FUNCTIONS

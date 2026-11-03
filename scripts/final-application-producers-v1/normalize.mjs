@@ -33,12 +33,32 @@ export function normalizeInventory(raw) {
   }
   const roots = new Map(),
     groups = new Map();
+  const inodePaths = new Map();
+  const regular = raw.filter((r) => ["0", "1"].includes(r.type));
+  const modeled = regular.some((r) => r.inode !== undefined);
+  if (modeled)
+    for (const r of regular) {
+      ok(
+        r.type === "0" &&
+          typeof r.inode === "string" &&
+          /^\d+:\d+$/.test(r.inode),
+        "Mixed or missing layer inode evidence",
+      );
+      const prior = inodePaths.get(r.inode);
+      if (prior) {
+        const p = by.get(prior);
+        ok(
+          ["size", "sha256", "mode", "uid", "gid"].every((k) => r[k] === p[k]),
+          "Inconsistent observed alias inode",
+        );
+      } else inodePaths.set(r.inode, r.path);
+    }
   function root(p, visited = new Set()) {
     ok(!visited.has(p), "Hardlink cycle");
     visited.add(p);
     const r = by.get(p);
     ok(r && ["0", "1"].includes(r.type), "Missing/nonregular hardlink target");
-    if (r.type === "0") return p;
+    if (r.type === "0") return modeled ? inodePaths.get(r.inode) : p;
     ok(relative(r.link), "Unsafe hardlink target");
     return root(r.link, visited);
   }
