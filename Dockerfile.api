@@ -279,4 +279,6 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
 # on the first deploy attempt of the RDS-managed-secret fix, P1012 instead
 # of the P1000 this was meant to fix). See resolveDatabaseUrl.ts and
 # printDatabaseUrl.ts.
-CMD ["sh", "-c", "export DATABASE_URL=$(node apps/api/dist/printDatabaseUrl.js) && pnpm --filter @vaettir/db exec prisma migrate deploy && node apps/api/dist/server.js"]
+# Keep assignment separate from export so resolver failures stop startup.
+# Invoke the packaged CLI directly: pnpm exec can run install before the command.
+CMD ["sh", "-c", "DATABASE_URL=$(node apps/api/dist/printDatabaseUrl.js) && test -n \"$DATABASE_URL\" && export DATABASE_URL && node packages/db/node_modules/prisma/build/index.js migrate deploy --schema packages/db/prisma/schema.prisma && exec node apps/api/dist/server.js"]

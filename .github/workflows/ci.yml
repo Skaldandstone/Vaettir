@@ -91,7 +91,7 @@ jobs:
       # `prisma migrate dev` runs -- CI's blank postgres service container
       # needs both applied explicitly before `pnpm test` runs.
       - name: Apply database migrations
-        run: pnpm --filter @vaettir/db exec prisma migrate deploy
+        run: node packages/db/node_modules/prisma/build/index.js migrate deploy --schema packages/db/prisma/schema.prisma
 
       - name: Seed reference data
         run: pnpm --filter @vaettir/db run seed
