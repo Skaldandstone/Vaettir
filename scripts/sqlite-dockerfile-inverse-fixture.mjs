@@ -1,6 +1,7 @@
 // TEST FIXTURE ONLY. Never use this inverse for runtime/source admission.
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
+import {API_DIRECT_PRISMA_DOCKERFILE_SHA256, restorePreApiDirectPrismaDockerfileFixture} from './api-startup-dockerfile-inverse-fixture.mjs';
 export const SQLITE_DOCKERFILE_SHA256 = "450e99bfc2599f642f4bb6fd247db60f5f67c4beed6f99fbea9d8f614ef837e9";
 export const PRE_SQLITE_DOCKERFILE_SHA256 = "3053480495dd451d4297717aadea4ad0f61e1923c1359c69ccd40b9f0e1aadda";
 const hunks = [
@@ -17,6 +18,7 @@ const sha = value => createHash('sha256').update(value).digest('hex');
 export function restorePreSqliteDockerfileFixture(raw) {
   assert.equal(arguments.length, 1);
   assert.ok(Buffer.isBuffer(raw));
+  if (sha(raw) === API_DIRECT_PRISMA_DOCKERFILE_SHA256) raw = restorePreApiDirectPrismaDockerfileFixture(raw);
   const text = raw.toString('utf8');
   assert.deepEqual(Buffer.from(text), raw);
   assert.equal(text.includes('\r'), false);

@@ -6,6 +6,7 @@ import { GIT_OPENSSL_DOCKERFILE_SHA256, restorePreGitOpensslDockerfileFixture } 
 import { EXPAT_290_DOCKERFILE_SHA256, restorePreExpat290DockerfileFixture } from "./expat-dockerfile-inverse-fixture.mjs";
 import { NODE_BROTLI_DOCKERFILE_SHA256, restorePreNodeBrotliDockerfileFixture } from "./node-brotli-dockerfile-inverse-fixture.mjs";
 import {SQLITE_DOCKERFILE_SHA256, restorePreSqliteDockerfileFixture} from "./sqlite-dockerfile-inverse-fixture.mjs";
+import {API_DIRECT_PRISMA_DOCKERFILE_SHA256, restorePreApiDirectPrismaDockerfileFixture} from "./api-startup-dockerfile-inverse-fixture.mjs";
 export const HISTORICAL_DOCKERFILE_SHA256 =
   "06624ebd0b0fcc95a2c91c7501d7037eb11b830d4d273cb98c9f76dd0d2a9f34";
 export const ABSENCE_FIXED_DOCKERFILE_SHA256 =
@@ -23,7 +24,8 @@ export function historicalRuntimeDockerfileFixture(raw) {
   assert.equal(arguments.length, 1);
   assert.ok(Buffer.isBuffer(raw));
   const currentSourceHash = sha(raw);
-  if (currentSourceHash === SQLITE_DOCKERFILE_SHA256) raw = restorePreSqliteDockerfileFixture(raw);
+  if (sha(raw) === API_DIRECT_PRISMA_DOCKERFILE_SHA256) raw = restorePreApiDirectPrismaDockerfileFixture(raw);
+  if (sha(raw) === SQLITE_DOCKERFILE_SHA256) raw = restorePreSqliteDockerfileFixture(raw);
   if (sha(raw) === NODE_BROTLI_DOCKERFILE_SHA256)
     raw = restorePreNodeBrotliDockerfileFixture(raw);
   if (sha(raw) === EXPAT_290_DOCKERFILE_SHA256)
