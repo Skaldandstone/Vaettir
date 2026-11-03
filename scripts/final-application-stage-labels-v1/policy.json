@@ -1,0 +1,294 @@
+{
+  "parentCommit": "b40d510255f4d49756f7de8cffe1635510247cd2",
+  "parentFiles": [
+    {
+      "path": "scripts/final-application-producers-v1/.gitattributes",
+      "sha256": "705fd4d6451a31d36b3df7de96f83f30ac976c9b4a6d1e51671d8e2f33e2d0da",
+      "bytes": 8
+    },
+    {
+      "path": "scripts/final-application-producers-v1/.gitignore",
+      "sha256": "862263fa1f46c20f0d1e4dac5ffcc75abd55c08211b2c3864c5f8764b9d87793",
+      "bytes": 19
+    },
+    {
+      "path": "scripts/final-application-producers-v1/OPERATORS.md",
+      "sha256": "c0a8461b5879d94364ebcea0e08bd439a7c3735eef302f912d2f78b4ae542143",
+      "bytes": 18674
+    },
+    {
+      "path": "scripts/final-application-producers-v1/adapters.mjs",
+      "sha256": "5c1a15959e68f2a662b24af852c42fcd730548218c137fe4d60236aa3cb3be80",
+      "bytes": 5037
+    },
+    {
+      "path": "scripts/final-application-producers-v1/admission.mjs",
+      "sha256": "308f561bb2d40d7d8a33c39e058fe4262264cf71bd495ea7e1bfc51f6846fea6",
+      "bytes": 1394
+    },
+    {
+      "path": "scripts/final-application-producers-v1/android-integration.ts.txt",
+      "sha256": "d01db262d9f12a8410436d39e32539193f598ffe37417cee3f5d82b52addd204",
+      "bytes": 9902
+    },
+    {
+      "path": "scripts/final-application-producers-v1/aux-cache-review.mjs",
+      "sha256": "7d71210e357005b4cbd830099f829803c16e0850d88dfb0af860836c7b7c9075",
+      "bytes": 1437
+    },
+    {
+      "path": "scripts/final-application-producers-v1/bindings-extension.template.json",
+      "sha256": "a7268a4c3fddf05316b74e0b3742bb5f91f6c4b47bbbca707a33de13e2541f44",
+      "bytes": 2239
+    },
+    {
+      "path": "scripts/final-application-producers-v1/derive-operators.derived.py",
+      "sha256": "70b11e3a2cbdd498fcb3058d77e216d2380726252d86e6de6b208087c754d5c1",
+      "bytes": 11643
+    },
+    {
+      "path": "scripts/final-application-producers-v1/derive-probes.mjs",
+      "sha256": "ae2fb04877bddbdb4bddd2c550508ea1dfbc42ceae54ce361cc72c4162d330fc",
+      "bytes": 9387
+    },
+    {
+      "path": "scripts/final-application-producers-v1/derive-validator.mjs",
+      "sha256": "2f9f1f5c3084263938c984207e5387ea74614595e6a84405cefb19073ab0e641",
+      "bytes": 5871
+    },
+    {
+      "path": "scripts/final-application-producers-v1/import-integration.ts.txt",
+      "sha256": "1e45c6e5f42028ee39cf1432e49194a2a69221f3e0a897c55506371199a5c90c",
+      "bytes": 22559
+    },
+    {
+      "path": "scripts/final-application-producers-v1/native-probe-context.derived.mjs",
+      "sha256": "7dc31ecfe046965e445053617105c8cf3c85ccfb4ca07d2f18b0321b0fbb48c0",
+      "bytes": 4403
+    },
+    {
+      "path": "scripts/final-application-producers-v1/native-release-gates.derived.mjs",
+      "sha256": "42a6fbb51be2a65a929a2a9b04bb664730ddefb4b466bf7fdb5a45214d5f0745",
+      "bytes": 9802
+    },
+    {
+      "path": "scripts/final-application-producers-v1/normalize.mjs",
+      "sha256": "edbf764b3acd6f34d700dd75175a731616b8a9d57fdcdf124faf2605da569cb4",
+      "bytes": 10983
+    },
+    {
+      "path": "scripts/final-application-producers-v1/operator-contracts.derived.py",
+      "sha256": "90ce783a7c47b84fe4990d1b460235697e947e4bd3f6da203c4c5a04ea18f726",
+      "bytes": 7278
+    },
+    {
+      "path": "scripts/final-application-producers-v1/output-producer.mjs",
+      "sha256": "b68180913b1c8c5aa5d0a2068be43cac3f91256f5b8ab6f2e1b2ff23f02d4429",
+      "bytes": 7894
+    },
+    {
+      "path": "scripts/final-application-producers-v1/plugin-extra.mjs.txt",
+      "sha256": "9e6b28d7ec73f6a03db33d18ba5b27b446eb2b2306fcf756659761132051edb0",
+      "bytes": 2398
+    },
+    {
+      "path": "scripts/final-application-producers-v1/plugin-integration.ts.txt",
+      "sha256": "031f13d65d6387ee1fe99bae899aa92fef067c75814a84dd2cbd60ba8b37e99c",
+      "bytes": 10362
+    },
+    {
+      "path": "scripts/final-application-producers-v1/policy.json",
+      "sha256": "efe1679c4a7523d05303884d1a901578305cb133be4d37d7344161996c7f8b17",
+      "bytes": 10931
+    },
+    {
+      "path": "scripts/final-application-producers-v1/probe-guard.mjs",
+      "sha256": "4fccdee32b21a4d6aada5bcba5316f930be17af4a121e3acbd04e48fc44af0e4",
+      "bytes": 1546
+    },
+    {
+      "path": "scripts/final-application-producers-v1/produce.mjs",
+      "sha256": "c439c27f0b831bb9f51e964ae04b3c31f89521be489132fa457eebf649e96dfb",
+      "bytes": 7164
+    },
+    {
+      "path": "scripts/final-application-producers-v1/producer_derivation_test.py",
+      "sha256": "3708e6a29157da4ca4683a750e92a44b8cd27b6b0addd7484e5fa84aba65ae11",
+      "bytes": 2196
+    },
+    {
+      "path": "scripts/final-application-producers-v1/producers.test.mjs",
+      "sha256": "e44e5a9f4bed79145682f3dc1c8b78c38a06f675ba1cb5c621210d7e268d8036",
+      "bytes": 15083
+    },
+    {
+      "path": "scripts/final-application-producers-v1/release-admission.derived.mjs",
+      "sha256": "cb4bedd2784651d9efc998d87780450e830023256d38eccbc28c3f41519e888e",
+      "bytes": 19189
+    },
+    {
+      "path": "scripts/final-application-producers-v1/release-context.derived.mjs",
+      "sha256": "54c681f07d9f127d886df4a0e4c90e4f8c973a59f39c58dd78f1582a8c915e1e",
+      "bytes": 6614
+    },
+    {
+      "path": "scripts/final-application-producers-v1/seal-runtime.derived.mjs",
+      "sha256": "59d2f07920f4d26b1cc2f12f003dd8e5e2c13492a2e79eb63d32e31a8adaae4f",
+      "bytes": 5675
+    },
+    {
+      "path": "scripts/final-application-producers-v1/stage-bootstrap.mjs",
+      "sha256": "58dd80227d8ca67271b2497807bd460cdcc1df811c97503a5d6e3fffcfd95f0f",
+      "bytes": 9150
+    },
+    {
+      "path": "scripts/final-application-producers-v1/stage-bootstrap.test.mjs",
+      "sha256": "e42280457a04a6eeef7f183c6d121d998a87735a921d6a2d2178750e732e142a",
+      "bytes": 4903
+    },
+    {
+      "path": "scripts/final-application-producers-v1/stage-contract.py.txt",
+      "sha256": "0eed25d4132c0bc31bb32fba004aaeccdb1c352f35bc06fc712409f5decdf782",
+      "bytes": 1258
+    },
+    {
+      "path": "scripts/final-application-producers-v1/stage_metadata.py",
+      "sha256": "aec21400c8f4daa44ae4a0a9ddbc07555912ab733192d8b952467e4220603a6d",
+      "bytes": 14660
+    },
+    {
+      "path": "scripts/final-application-producers-v1/stage_metadata_test.py",
+      "sha256": "8ec449ab7c71acb3d4dda89e78e987c9e9301b2497882c0451277234f4300f7d",
+      "bytes": 9240
+    },
+    {
+      "path": "scripts/final-application-producers-v1/stage_support.py",
+      "sha256": "8d76ad04405352bf77287d808c4931ae10060db1725de19b314417fcdb695b8f",
+      "bytes": 5005
+    },
+    {
+      "path": "scripts/final-application-producers-v1/transaction-inventory.derived.mjs",
+      "sha256": "afdb79650e974ad19cb3245f81afa93917c5eb6ebdbbb57ada43cec7fa1627e0",
+      "bytes": 6342
+    },
+    {
+      "path": "scripts/final-application-producers-v1/validator-derivations.json",
+      "sha256": "d5af3df0438ba6c21c8c65d48c60e562674205ba1a4fdba387d0f599c6e01cb3",
+      "bytes": 2374
+    },
+    {
+      "path": "scripts/final-application-producers-v1/validator.test.mjs",
+      "sha256": "ae5710e48cea2bcc6ad07e8f2cd1a56aa0151c745bca4516d99d28e2427c4626",
+      "bytes": 4746
+    },
+    {
+      "path": "scripts/final-application-producers-v1/web-controller.original.mjs.txt",
+      "sha256": "a35ecf0a0937dbdee382a296ed0d007b656864d443d975b53df91c39748196e7",
+      "bytes": 9190
+    },
+    {
+      "path": "scripts/final-application-web-leaf-v1/.gitattributes",
+      "sha256": "705fd4d6451a31d36b3df7de96f83f30ac976c9b4a6d1e51671d8e2f33e2d0da",
+      "bytes": 8
+    },
+    {
+      "path": "scripts/final-application-web-leaf-v1/.gitignore",
+      "sha256": "862263fa1f46c20f0d1e4dac5ffcc75abd55c08211b2c3864c5f8764b9d87793",
+      "bytes": 19
+    },
+    {
+      "path": "scripts/final-application-web-leaf-v1/OPERATORS.md",
+      "sha256": "d056a61b22cb25644131459bb1ee919a3abe22c36e04b0c2007361d285393ddd",
+      "bytes": 3174
+    },
+    {
+      "path": "scripts/final-application-web-leaf-v1/admission.mjs",
+      "sha256": "6c7bb7c1e3459a356adcb0d12f2377fd100777117abc137d1628d9a003a7be62",
+      "bytes": 1637
+    },
+    {
+      "path": "scripts/final-application-web-leaf-v1/aux-cache-review.mjs",
+      "sha256": "adefcca18bb286d002070e760423b089a7a992e61601c6848677b0248a9672e6",
+      "bytes": 1579
+    },
+    {
+      "path": "scripts/final-application-web-leaf-v1/derivation_test.py",
+      "sha256": "dc612469726791c647d07d1c306feda9fa95df97935e8cbf22f86ec283c26461",
+      "bytes": 1660
+    },
+    {
+      "path": "scripts/final-application-web-leaf-v1/derivations.json",
+      "sha256": "b8e7e51c1e51dcd7f5c31541b39e20c7be41996d5933600123604b7b137d3ce0",
+      "bytes": 2511
+    },
+    {
+      "path": "scripts/final-application-web-leaf-v1/derive-operators.derived.py",
+      "sha256": "17d17f8a7a463938c75262e8ccff4ee0888eb8dbe15534e2b3a42950f2e6ddb6",
+      "bytes": 11788
+    },
+    {
+      "path": "scripts/final-application-web-leaf-v1/derive.mjs",
+      "sha256": "6132ccfbea07fcc6accb6466bd6fa2ec6975a6156aacf5ea7c3157ee6cd6b020",
+      "bytes": 4354
+    },
+    {
+      "path": "scripts/final-application-web-leaf-v1/native-probe-context.derived.mjs",
+      "sha256": "7dc31ecfe046965e445053617105c8cf3c85ccfb4ca07d2f18b0321b0fbb48c0",
+      "bytes": 4403
+    },
+    {
+      "path": "scripts/final-application-web-leaf-v1/native-release-gates.derived.mjs",
+      "sha256": "42a6fbb51be2a65a929a2a9b04bb664730ddefb4b466bf7fdb5a45214d5f0745",
+      "bytes": 9802
+    },
+    {
+      "path": "scripts/final-application-web-leaf-v1/operator-contracts.derived.py",
+      "sha256": "5116d39fc8eb831316fa7902e388ec6f447224f0ce74034dfee5abd2a2610c3a",
+      "bytes": 7939
+    },
+    {
+      "path": "scripts/final-application-web-leaf-v1/output-producer.mjs",
+      "sha256": "6961abc6bbe053070f374f26b3c0c51e246c74218a13f74440d05555b2465140",
+      "bytes": 7926
+    },
+    {
+      "path": "scripts/final-application-web-leaf-v1/policy.json",
+      "sha256": "376f0922b9f253243aab22181c1d65abdc99a83f622cdcddf174ad50ee9ce977",
+      "bytes": 7317
+    },
+    {
+      "path": "scripts/final-application-web-leaf-v1/produce.mjs",
+      "sha256": "b5846588d1384a236eb3a539845e1fbf156d8eb5c6db81811d7ac0d52cbaff7d",
+      "bytes": 7260
+    },
+    {
+      "path": "scripts/final-application-web-leaf-v1/release-admission.derived.mjs",
+      "sha256": "208ac514fbeed5e010e08db2a0eb2b50d983687da2270caaf48484720a9bb127",
+      "bytes": 19315
+    },
+    {
+      "path": "scripts/final-application-web-leaf-v1/release-context.derived.mjs",
+      "sha256": "54c681f07d9f127d886df4a0e4c90e4f8c973a59f39c58dd78f1582a8c915e1e",
+      "bytes": 6614
+    },
+    {
+      "path": "scripts/final-application-web-leaf-v1/seal-runtime.derived.mjs",
+      "sha256": "59d2f07920f4d26b1cc2f12f003dd8e5e2c13492a2e79eb63d32e31a8adaae4f",
+      "bytes": 5675
+    },
+    {
+      "path": "scripts/final-application-web-leaf-v1/transaction-inventory.derived.mjs",
+      "sha256": "afdb79650e974ad19cb3245f81afa93917c5eb6ebdbbb57ada43cec7fa1627e0",
+      "bytes": 6342
+    },
+    {
+      "path": "scripts/final-application-web-leaf-v1/web-leaf.test.mjs",
+      "sha256": "2060c1293d102dded375eb627bcea784a5565b3d701a9a8150bad37872bcdacd",
+      "bytes": 6272
+    }
+  ],
+  "driver": {
+    "sha256": "066073d8b90b3c220d582fa5494a0d6dbf257553f5efce7df7a67516ae967ad6",
+    "bytes": 3955
+  }
+}

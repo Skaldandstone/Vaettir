@@ -1,0 +1,14 @@
+[
+  {
+    "name": "stage-support.derived.py",
+    "origin": "stage_support.py",
+    "parentSha256": "8d76ad04405352bf77287d808c4931ae10060db1725de19b314417fcdb695b8f",
+    "candidateSha256": "43119832802ffe114b9c77f6a28563ebc08c677885dfba0f0fc32e22d46710f5"
+  },
+  {
+    "name": "stage-bootstrap.derived.mjs",
+    "origin": "stage-bootstrap.mjs",
+    "parentSha256": "58dd80227d8ca67271b2497807bd460cdcc1df811c97503a5d6e3fffcfd95f0f",
+    "candidateSha256": "858efd04649df20f0b4995497e5a8c6bd679cc628d70bb38b8a2f97b14aefb79"
+  }
+]
