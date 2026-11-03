@@ -1,0 +1,104 @@
+{
+  "parentFiles": [
+    {
+      "path": "scripts/final-application-package-dependency-v1/.gitattributes",
+      "sha256": "705fd4d6451a31d36b3df7de96f83f30ac976c9b4a6d1e51671d8e2f33e2d0da",
+      "bytes": 8
+    },
+    {
+      "path": "scripts/final-application-package-dependency-v1/.gitignore",
+      "sha256": "862263fa1f46c20f0d1e4dac5ffcc75abd55c08211b2c3864c5f8764b9d87793",
+      "bytes": 19
+    },
+    {
+      "path": "scripts/final-application-package-dependency-v1/OPERATORS.md",
+      "sha256": "f75a3e633cad14641590cb5e6b4281b33e0b42762e035929ca62ef24a4f2f69e",
+      "bytes": 3297
+    },
+    {
+      "path": "scripts/final-application-package-dependency-v1/admission.mjs",
+      "sha256": "d76837645bbf58446e6292ddf277e686990c3a5f1614d5a5b1d941127cb53921",
+      "bytes": 1680
+    },
+    {
+      "path": "scripts/final-application-package-dependency-v1/derivation_test.py",
+      "sha256": "82656c3d7827c75648aa782d8d35b57543f3e0bed2108560e8a24b11673ef070",
+      "bytes": 1872
+    },
+    {
+      "path": "scripts/final-application-package-dependency-v1/derivations.json",
+      "sha256": "466b159f1860390f7f2ddbf4bf16aae621b6363e2c25f001f1318503149f5a96",
+      "bytes": 2509
+    },
+    {
+      "path": "scripts/final-application-package-dependency-v1/derive-operators.derived.py",
+      "sha256": "84404707363f61f9276043686d50d5311a26984d7f5d32c6bbabb1ff4ea45d69",
+      "bytes": 11952
+    },
+    {
+      "path": "scripts/final-application-package-dependency-v1/derive.mjs",
+      "sha256": "5f1a13c515332aff1ead00a854229a3413e55012b63d4ce324c34e8c021a7adc",
+      "bytes": 5665
+    },
+    {
+      "path": "scripts/final-application-package-dependency-v1/native-probe-context.derived.mjs",
+      "sha256": "7dc31ecfe046965e445053617105c8cf3c85ccfb4ca07d2f18b0321b0fbb48c0",
+      "bytes": 4403
+    },
+    {
+      "path": "scripts/final-application-package-dependency-v1/native-release-gates.derived.mjs",
+      "sha256": "348f712291b22ebcb851bdeedf7a16cbe86574e178556ab2ac853743a4a3fe5b",
+      "bytes": 9950
+    },
+    {
+      "path": "scripts/final-application-package-dependency-v1/operator-contracts.derived.py",
+      "sha256": "c58f5ba9d69b735e65cf11891b92fabaccc8148d2df9b2095cf7f9e56a165308",
+      "bytes": 8722
+    },
+    {
+      "path": "scripts/final-application-package-dependency-v1/output-producer.mjs",
+      "sha256": "6961abc6bbe053070f374f26b3c0c51e246c74218a13f74440d05555b2465140",
+      "bytes": 7926
+    },
+    {
+      "path": "scripts/final-application-package-dependency-v1/package-transition.mjs",
+      "sha256": "2a50f8f091280dfecf1faddd91cae8abad9b380f7b46a05c21528aa9b04b50dd",
+      "bytes": 7325
+    },
+    {
+      "path": "scripts/final-application-package-dependency-v1/package.test.mjs",
+      "sha256": "9b4098ff20174bee95e99c057dda3f44ebf592050bb186b2e383a0fbdd8b966d",
+      "bytes": 8320
+    },
+    {
+      "path": "scripts/final-application-package-dependency-v1/policy.json",
+      "sha256": "f56fccc42870545d97d072500a1d7c77df59331c4d45b8f0f1da159dc54b7de4",
+      "bytes": 6183
+    },
+    {
+      "path": "scripts/final-application-package-dependency-v1/produce.mjs",
+      "sha256": "d036e64834c7158c2870ea484c44c5230396aeed0876ccf9ddd6df4917883529",
+      "bytes": 7271
+    },
+    {
+      "path": "scripts/final-application-package-dependency-v1/release-admission.derived.mjs",
+      "sha256": "45045fbc6f7a4836377e8efaab1cf15ddc1766a77c6c4447dfdb9099af8068e2",
+      "bytes": 19607
+    },
+    {
+      "path": "scripts/final-application-package-dependency-v1/release-context.derived.mjs",
+      "sha256": "e31ab39e44cd40f891f28d3c642af598e6693d980b9f53f23aa3b32fabb1c929",
+      "bytes": 6644
+    },
+    {
+      "path": "scripts/final-application-package-dependency-v1/seal-runtime.derived.mjs",
+      "sha256": "59d2f07920f4d26b1cc2f12f003dd8e5e2c13492a2e79eb63d32e31a8adaae4f",
+      "bytes": 5675
+    },
+    {
+      "path": "scripts/final-application-package-dependency-v1/transaction-inventory.derived.mjs",
+      "sha256": "992cb0dc6f809a111fa39770bf784aa248b01bf6d053dc0fc3f7fb9550c2c6f1",
+      "bytes": 6435
+    }
+  ]
+}

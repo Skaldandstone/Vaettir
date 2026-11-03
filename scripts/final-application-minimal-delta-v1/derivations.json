@@ -1,0 +1,72 @@
+[
+  {
+    "name": "normalize.derived.mjs",
+    "original": "final-application-producers-v1/normalize.mjs",
+    "parentSha256": "edbf764b3acd6f34d700dd75175a731616b8a9d57fdcdf124faf2605da569cb4",
+    "candidateSha256": "e24b3e536994a7ff1f8d47663dfa653362ca6ffe48ad3154d4c6eddbf474fde0",
+    "changed": true
+  },
+  {
+    "name": "normalizer-regression.test.mjs",
+    "original": "final-application-producers-v1/producers.test.mjs",
+    "parentSha256": "e44e5a9f4bed79145682f3dc1c8b78c38a06f675ba1cb5c621210d7e268d8036",
+    "candidateSha256": "bab540c22ea79dbc433cd9ee7b84f66fc48135c782b248bc2bbfe70dc565bc4f",
+    "changed": true
+  },
+  {
+    "name": "release-admission.derived.mjs",
+    "original": "final-application-package-dependency-v1/release-admission.derived.mjs",
+    "parentSha256": "45045fbc6f7a4836377e8efaab1cf15ddc1766a77c6c4447dfdb9099af8068e2",
+    "candidateSha256": "6e04aa69e22043ed153f9d71249ec73f3f71502b0dcd02c6a677ca352265b251",
+    "changed": true
+  },
+  {
+    "name": "release-context.derived.mjs",
+    "original": "final-application-package-dependency-v1/release-context.derived.mjs",
+    "parentSha256": "e31ab39e44cd40f891f28d3c642af598e6693d980b9f53f23aa3b32fabb1c929",
+    "candidateSha256": "e31ab39e44cd40f891f28d3c642af598e6693d980b9f53f23aa3b32fabb1c929",
+    "changed": false
+  },
+  {
+    "name": "native-probe-context.derived.mjs",
+    "original": "final-application-package-dependency-v1/native-probe-context.derived.mjs",
+    "parentSha256": "7dc31ecfe046965e445053617105c8cf3c85ccfb4ca07d2f18b0321b0fbb48c0",
+    "candidateSha256": "7dc31ecfe046965e445053617105c8cf3c85ccfb4ca07d2f18b0321b0fbb48c0",
+    "changed": false
+  },
+  {
+    "name": "seal-runtime.derived.mjs",
+    "original": "final-application-package-dependency-v1/seal-runtime.derived.mjs",
+    "parentSha256": "59d2f07920f4d26b1cc2f12f003dd8e5e2c13492a2e79eb63d32e31a8adaae4f",
+    "candidateSha256": "59d2f07920f4d26b1cc2f12f003dd8e5e2c13492a2e79eb63d32e31a8adaae4f",
+    "changed": false
+  },
+  {
+    "name": "operator-contracts.derived.py",
+    "original": "final-application-package-dependency-v1/operator-contracts.derived.py",
+    "parentSha256": "c58f5ba9d69b735e65cf11891b92fabaccc8148d2df9b2095cf7f9e56a165308",
+    "candidateSha256": "be48126539b7b23efeea90ee03f008eed1f2a070dd2b7623e80cf5a24d66abbb",
+    "changed": true
+  },
+  {
+    "name": "derive-operators.derived.py",
+    "original": "final-application-package-dependency-v1/derive-operators.derived.py",
+    "parentSha256": "84404707363f61f9276043686d50d5311a26984d7f5d32c6bbabb1ff4ea45d69",
+    "candidateSha256": "4969c5db47f3ca6e96e735c99ae035a223b281179ef940169420e4befb5f59b4",
+    "changed": true
+  },
+  {
+    "name": "output-producer.mjs",
+    "original": "final-application-package-dependency-v1/output-producer.mjs",
+    "parentSha256": "6961abc6bbe053070f374f26b3c0c51e246c74218a13f74440d05555b2465140",
+    "candidateSha256": "fa41726fdcc29740688391618f2eafcb9a8679fff08a10e8b420291959837fbc",
+    "changed": true
+  },
+  {
+    "name": "produce.mjs",
+    "original": "final-application-package-dependency-v1/produce.mjs",
+    "parentSha256": "d036e64834c7158c2870ea484c44c5230396aeed0876ccf9ddd6df4917883529",
+    "candidateSha256": "1e57884bec64ef6f406888f27eb03b7d1816176d921a4488d7b85f698343ce62",
+    "changed": true
+  }
+]
