@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 import vm from "node:vm";
 import ts from "typescript";
 import { authReturnUrl, isBrowserDocument, LEGACY_APPLICATION_ORIGIN } from "./auth-return.ts";
-import { isWorkspaceAuthHost, workspaceRedirectOrigins } from "./workspace-auth.ts";
+import { isWorkspaceAuthHost, workspaceRedirectOrigins, WorkspaceIngressError } from "./workspace-auth.ts";
 
 test("proxy HTTP input preserves the entire setup path/query on the configured HTTPS origin", () => {
   const path = new URL("http://internal:3000/integrations/atlassian/connect?request=opaque_-state&next=%2Fprojects%2Fa%3Fview%3Dx");
@@ -38,6 +38,9 @@ const { NextRequest } = createRequire(import.meta.url)("next/server");
 const normalizer = readFileSync(new URL("./workspace-clerk-request.ts", import.meta.url), "utf8");
 const normalizerCode = ts.transpileModule(normalizer.replace(/^import .*;\r?\n/gm, ""), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText
   .replace("export async function verifiedWorkspaceClerkRequest", "this.verifiedWorkspaceClerkRequest = async function verifiedWorkspaceClerkRequest");
+const rejectionSource = readFileSync(new URL("./workspace-ingress-response.ts", import.meta.url), "utf8");
+const rejectionCode = ts.transpileModule(rejectionSource.replace(/^import .*;\r?\n/gm, ""), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText
+  .replace("export function workspaceIngressRejection", "this.workspaceIngressRejection = function workspaceIngressRejection");
 const source = readFileSync(new URL("../middleware.ts", import.meta.url), "utf8");
 const domainSource = readFileSync(new URL("./clerk-auth-domain.ts", import.meta.url), "utf8");
 const domainCode = ts.transpileModule(domainSource.replace(/^import .*;\r?\n/gm, ""), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText.replace(/^export /gm, "");
@@ -54,7 +57,9 @@ async function invoke({ signedIn = false, pending = false, method = "GET", path 
   } };
   const auth = Object.assign(async () => session, { protect: async () => { events.push(["protect"]); } });
   const sandbox = { authReturnUrl, isBrowserDocument, LEGACY_APPLICATION_ORIGIN, NextRequest, Headers, URL, Response, isWorkspaceAuthHost, workspaceRedirectOrigins,
-    verifiedWorkspaceWebHost: async () => { if (invalidWorkspace) throw new Error("Invalid workspace ingress"); return workspaceHost; },
+    verifiedWorkspaceWebHost: async () => { if (invalidWorkspace) throw new WorkspaceIngressError("signature"); return workspaceHost; },
+    WorkspaceIngressError,
+    Sentry: { withScope: callback => callback({ setLevel() {}, setTag() {}, setContext() {} }), captureException: error => events.push(["reported", error.reason]) },
     process: { env: { NODE_ENV: "production", NEXT_PUBLIC_VAETTIR_WORKSPACE_AUTH_ENABLED: workspaceHost || invalidWorkspace || primary ? "1" : undefined,
       NEXT_PUBLIC_VAETTIR_PRIMARY_AUTH_ENABLED: primary ? "1" : undefined, NEXT_PUBLIC_VAETTIR_ACTIVE_WORKSPACE_NAMES: "synthetic" } },
     clerkMiddleware: (handler, options) => async request => {
@@ -75,7 +80,7 @@ async function invoke({ signedIn = false, pending = false, method = "GET", path 
     },
     createRouteMatcher: routes => { assert.deepEqual([...routes], ["/", "/sign-in(.*)", "/sign-up(.*)", "/share(.*)", "/beta-guide(.*)", "/google-sheets-privacy", "/atlassian-privacy"]); return req => ["/google-sheets-privacy", "/atlassian-privacy"].includes(req.nextUrl.pathname) || ["/", "/sign-in", "/sign-up", "/share", "/beta-guide"].some(route => req.nextUrl.pathname === route || (route !== "/" && req.nextUrl.pathname.startsWith(route + "/"))); },
   };
-  vm.createContext(sandbox); vm.runInContext(domainCode, sandbox); vm.runInContext(normalizerCode, sandbox); vm.runInContext(code, sandbox);
+  vm.createContext(sandbox); vm.runInContext(domainCode, sandbox); vm.runInContext(normalizerCode, sandbox); vm.runInContext(rejectionCode, sandbox); vm.runInContext(code, sandbox);
   const response = await sandbox.handler(new NextRequest(new URL(path, "http://internal:3000"), { method,
     headers: new Headers({ "sec-fetch-dest": destination, host: originHost, "x-forwarded-host": "attacker.invalid", "x-forwarded-proto": "http" }),
   }), {});
@@ -94,7 +99,8 @@ test("actual signed-out document handler chooses HTTPS without reflecting forwar
 test("actual handler preserves a verified customer return origin and fails closed on invalid ingress", async () => {
   const events = await invoke({ workspaceHost: "synthetic.vaettir.app", path: "/projects/synthetic/reports?tab=readiness" });
   assert.equal(events[0][1].returnBackUrl, "https://synthetic.vaettir.app/projects/synthetic/reports?tab=readiness");
-  await assert.rejects(invoke({ invalidWorkspace: true }), /Invalid workspace ingress/);
+  // A refused attestation is still reported, then answered with a non-cacheable 400.
+  assert.deepEqual(await invoke({ invalidWorkspace: true }), [["reported", "signature"], ["response", 400, null, "no-store"]]);
 });
 test("actual handler retains auth.protect for signed-in, pending tasks and APIs; public pages remain public", async () => {
   for (const options of [{ signedIn: true }, { pending: true }, { method: "POST" }, { destination: "empty" }, { path: "/api/private" }, { path: "/trpc/private" }]) assert.equal((await invoke(options))[0][0], "protect");
@@ -120,7 +126,7 @@ test("primary cutover redirects legacy documents before Clerk while preserving o
   for (const options of [{ path: "/api/private" }, { path: "/trpc/private" }, { method: "POST" }])
     assert.equal((await invoke({ primary: true, ...options }))[0][0], "protect");
   assert.deepEqual(await invoke({ primary: true, path: "/sign-in?redirect_url=https%3A%2F%2Fevil.test" }), [["response", 400, null, "no-store"]]);
-  await assert.rejects(invoke({ primary: true, invalidWorkspace: true }), /Invalid workspace ingress/);
+  assert.deepEqual(await invoke({ primary: true, invalidWorkspace: true }), [["reported", "signature"], ["response", 400, null, "no-store"]]);
 });
 test("primary cutover keeps verified customer auth protection and HTTPS returns on the new primary", async () => {
   const events = await invoke({ primary: true, workspaceHost: "synthetic.vaettir.app", path: "/projects/synthetic" });
@@ -138,5 +144,5 @@ test("primary sign-in behind a rewritten origin Host keeps the complete setup re
   for (const options of [{ signedIn: true }, { pending: true }, { method: "POST" }, { path: "/api/private" }, { path: "/trpc/private" }])
     assert.equal((await invoke({ primary: true, originHost: "internal-alb.example", ...options }))[0][0], "protect");
   assert.deepEqual(await invoke({ primary: true, originHost: "internal-alb.example", path: "/" }), []);
-  await assert.rejects(invoke({ primary: true, originHost: "internal-alb.example", invalidWorkspace: true }), /Invalid workspace ingress/);
+  assert.deepEqual(await invoke({ primary: true, originHost: "internal-alb.example", invalidWorkspace: true }), [["reported", "signature"], ["response", 400, null, "no-store"]]);
 });
