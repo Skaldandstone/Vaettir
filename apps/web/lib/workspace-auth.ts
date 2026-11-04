@@ -29,9 +29,12 @@ export type WorkspaceIngressRejection =
 // Carries why an edge attestation was refused so middleware can answer with a
 // 400 and report the reason. The default Error name is kept intentionally so
 // existing Sentry grouping for "Invalid workspace ingress" is preserved.
+// Declared without a parameter property so Node's type stripping can load it.
 export class WorkspaceIngressError extends Error {
-  constructor(readonly reason: WorkspaceIngressRejection, message = "Invalid workspace ingress") {
+  readonly reason: WorkspaceIngressRejection;
+  constructor(reason: WorkspaceIngressRejection, message = "Invalid workspace ingress") {
     super(message);
+    this.reason = reason;
   }
 }
 // Only used by Next's middleware. The provider selects its satellite from the
