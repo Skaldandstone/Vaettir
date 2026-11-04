@@ -11,7 +11,7 @@ import Fastify, { type FastifyError, type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import { fastifyTRPCPlugin } from "@trpc/server/adapters/fastify";
-import { prisma } from "@vaettir/db";
+import { prisma, refreshDatabaseCredentials, databasePoolStatus } from "@vaettir/db";
 import { appRouter } from "./router.js";
 import { XLSX_HTTP_BODY_BYTES } from "./services/xlsxImportLimits.js";
 import { createContext } from "./trpc.js";
@@ -94,9 +94,10 @@ const credentialMonitor =
     ? createDatabaseCredentialMonitor({
         initialUrl: process.env.DATABASE_URL,
         resolveUrl: () => resolveDatabaseUrlFromManagedSecret(),
+        refresh: refreshDatabaseCredentials,
         onRotation: () =>
           console.warn(
-            "Database credentials rotated; requesting task replacement through health checks",
+            "Database credentials refreshed; replacement pool ready and old work draining",
           ),
         onCheckFailure: () =>
           console.warn(
@@ -105,16 +106,13 @@ const credentialMonitor =
       })
     : undefined;
 
-// Only a confirmed credential change withdraws this task. A Secrets Manager
-// outage does not trigger a restart loop. ECS starts a fresh pool using the
-// current secret; no business query, transaction or paid operation is retried.
+// Rotation prepares a verified replacement pool within this task. Keep ALB
+// and container liveness stable; detailed health exposes dependency failures.
 function livenessHandler(
   _request: unknown,
   reply: { code(status: number): unknown },
 ) {
-  const result = databaseCredentialLiveness(
-    credentialMonitor?.status().rotated ?? false,
-  );
+  const result = databaseCredentialLiveness();
   reply.code(result.statusCode);
   return result.body;
 }
@@ -134,7 +132,7 @@ const EXPECTED_POLLER_INTERVALS = {
 
 // Deliberately separate from the plain `/health` liveness probe the ALB/
 // ECS health check uses (transient DB/secret-store failures must not cycle
-// the task; only a confirmed managed-credential rotation withdraws it).
+// the task, including while a replacement credential pool is being probed).
 // This is for an external uptime
 // monitor to point at instead: real DB connectivity plus whether each
 // in-process job poller has ticked recently. Always 200 with a body
@@ -152,11 +150,14 @@ async function detailedHealthHandler() {
   const credentials = credentialMonitor?.status() ?? {
     rotated: false,
     checkFailed: false,
+    refreshing: false,
   };
+  const pool = databasePoolStatus();
   const healthy =
     dbOk &&
     !credentials.rotated &&
     !credentials.checkFailed &&
+    !pool.cleanupFailed &&
     pollers.every((p) => !p.stale);
   return {
     healthy,
@@ -167,6 +168,7 @@ async function detailedHealthHandler() {
     },
     db: { ok: dbOk },
     credentials,
+    pool,
     pollers,
     release: getReleaseIdentity(),
   };
@@ -669,7 +671,10 @@ server.addHook("onClose", async () => stopReportScheduleWorker?.());
 let stopAtlassianPrivacyWorker: (() => void) | undefined;
 server.addHook("onClose", async () => stopAtlassianPrivacyWorker?.());
 let credentialTimer: ReturnType<typeof setInterval> | undefined;
-server.addHook("onClose", async () => clearInterval(credentialTimer));
+server.addHook("onClose", async () => {
+  clearInterval(credentialTimer);
+  credentialMonitor?.stop();
+});
 server
   .listen({ port, host: "0.0.0.0" })
   .then(() => {
