@@ -353,7 +353,7 @@ export default function TestCaseForm({
         validationDomain: value.validationDomain,
         verificationProfile: value.verificationProfile,
         priority: value.priority as "CRITICAL" | "HIGH" | "MEDIUM" | "LOW",
-        suitePath: value.suitePath || undefined,
+        suitePath: value.suitePath,
         customFields: caseFieldsDraft.customFields,
         expectedFieldSchemaHash: caseFieldsDraft.expectedFieldSchemaHash,
         expectedCustomFieldRevision: caseFieldsDraft.expectedCustomFieldRevision,
