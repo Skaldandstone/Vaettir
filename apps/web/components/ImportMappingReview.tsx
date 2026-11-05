@@ -8,6 +8,13 @@ type Prepare = RouterInputs["importJobs"]["prepareMapping"];
 type Confirm = RouterInputs["importJobs"]["confirmMapping"];
 export type ImportMappingSource = Prepare["source"];
 
+function importFailure(error: unknown, fallback: string) {
+  if (!(error instanceof Error)) return fallback;
+  return /unexpected token.*<|doctype|not valid json/i.test(error.message)
+    ? fallback
+    : error.message;
+}
+
 // The mounted review owns one source and one request. A late response may settle
 // its private receipt, but cannot navigate or refresh another actor's view.
 export function ImportMappingReview({ projectId, sourceLabel, source, onBack, onCommitted }: {
@@ -35,7 +42,7 @@ export function ImportMappingReview({ projectId, sourceLabel, source, onBack, on
       expectedClerkActorId: origin.clerkActorId, requestId: crypto.randomUUID(), ...frozen };
     busy.current = true; setWorking(true); setError(null);
     try { const result = await prepare.mutateAsync(request.current); if (mounted.current) setSummary(result); }
-    catch (e) { if (mounted.current) setError(e instanceof Error ? e.message : "Could not prepare this import."); }
+    catch (e) { if (mounted.current) setError(importFailure(e, "The import service did not return a summary. Retry to recover it.")); }
     finally { busy.current = false; if (mounted.current) setWorking(false); }
   }
   function backBeforeSummary() {
@@ -67,7 +74,7 @@ export function ImportMappingReview({ projectId, sourceLabel, source, onBack, on
         if (mounted.current) setReceipt(result);
         if (mounted.current && access.owns(origin, "edit")) onCommitted();
       }
-    } catch (e) { if (mounted.current) setError(e instanceof Error ? e.message : "No confirmed receipt. Retry this same request."); }
+    } catch (e) { if (mounted.current) setError(importFailure(e, "The import service did not return a receipt. The result is unconfirmed.")); }
     finally { busy.current = false; if (mounted.current) setWorking(false); }
   }
   if (!access.canEdit) return <section aria-label="Import summary"><p>Import details are hidden until original access is verified.</p>

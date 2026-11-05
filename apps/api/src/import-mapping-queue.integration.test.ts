@@ -43,6 +43,19 @@ async function fixture(csv = "ID,Title,Steps,Expected Result\na,Ready,Open,Works
 }
 
 describe("durable mapping queue on real PostgreSQL", () => {
+  it("imports 762 ready rows and preserves 355 unmapped rows on confirmation and retry", async () => {
+    const csv = ["ID,Title,Steps,Expected Result",
+      ...Array.from({ length: 762 }, (_, i) => `ready-${i},Ready ${i},Open,Works`),
+      ...Array.from({ length: 355 }, (_, i) => `pending-${i},,Check,Shown`),
+    ].join("\n");
+    const f = await fixture(csv);
+    expect(f.prepared).toMatchObject({ readyCount: 762, pendingCount: 355 });
+    const receipt = await confirmMappingBatch(prisma, actor, f.input);
+    expect(receipt).toMatchObject({ createdCount: 762, updatedCount: 0, pendingCount: 355, importedCount: 762 });
+    expect(await confirmMappingBatch(prisma, actor, f.input)).toEqual(receipt);
+    expect(await prisma.testCase.count({ where: { projectId: f.project.id } })).toBe(762);
+  }, 120_000);
+
   it.each(["ID,Unknown,Steps\na,Original,Open\nb,,", "ID,Title,Title,Steps\na,First,Second,Open\nb,,,"])("retains unresolved title columns through the actual review and repair routes: %s", async csvText => {
     const project = await prisma.project.create({ data: { organizationId: orgId, name: "Synthetic unresolved columns", slug: `${tag}-${randomUUID()}` } });
     const user = await prisma.user.findUniqueOrThrow({ where: { id: actor.id }, include: { memberships: { include: { organization: true } } } });

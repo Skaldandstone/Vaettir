@@ -2,9 +2,9 @@ import {randomUUID} from "node:crypto";
 import {afterEach,beforeEach,describe,expect,it,vi} from "vitest";
 import {prisma,type OrgRole,type SeatType} from "@vaettir/db";
 import {jiraConnectionsRouter} from "./routers/jiraConnections.js";
-import {listJiraProjects} from "./services/jiraSourceConnection.js";
+import {listJiraProjects,listJiraReleases} from "./services/jiraSourceConnection.js";
 import {decryptToken,encryptToken,type EncryptedToken} from "./services/tokenEncryption.js";
-vi.mock("./services/jiraSourceConnection.js",async original=>({...await original<typeof import("./services/jiraSourceConnection.js")>(),listJiraProjects:vi.fn()}));
+vi.mock("./services/jiraSourceConnection.js",async original=>({...await original<typeof import("./services/jiraSourceConnection.js")>(),listJiraProjects:vi.fn(),listJiraReleases:vi.fn()}));
 const url=process.env.DATABASE_URL?new URL(process.env.DATABASE_URL):null;
 const isolated=url&&["localhost","127.0.0.1"].includes(url.hostname)&&/test/i.test(url.pathname)&&!url.searchParams.has("host");
 const workspace={id:"https://synthetic.atlassian.net",name:"https://synthetic.atlassian.net"};const account={id:randomUUID(),name:"Synthetic account"};
@@ -66,6 +66,21 @@ describe.skipIf(!isolated)("Jira native metadata connection",()=>{
       await expect(caller.forget({id:result.id,confirmed:true})).rejects.toMatchObject({code:"NOT_FOUND"});
     }
     expect(await editor.mine({projectId})).toEqual([]);
+  });
+  it("reads releases only for the active actor's approved Jira project",async()=>{
+    const first=await ready();
+    const input={projectId,id:first.id,jiraProjectId:projectA.id};
+    await expect(owner.releases(input)).rejects.toMatchObject({code:"NOT_FOUND"});
+    await owner.approve({id:first.id,version:first.version,projectIds:[projectA.id],requestId:randomUUID(),approved:true});
+    await expect(owner.releases({...input,jiraProjectId:projectB.id})).rejects.toMatchObject({code:"NOT_FOUND"});
+    await expect(owner.releases({...input,projectId:"another-project"})).rejects.toMatchObject({code:"NOT_FOUND"});
+    await expect(editor.releases(input)).rejects.toMatchObject({code:"NOT_FOUND"});
+    expect(listJiraReleases).not.toHaveBeenCalled();
+    vi.mocked(listJiraReleases).mockResolvedValue({releases:[],next:null});
+    await expect(owner.releases(input)).resolves.toEqual({releases:[],next:null});
+    await owner.forget({id:first.id,confirmed:true});
+    await expect(owner.releases(input)).rejects.toMatchObject({code:"PRECONDITION_FAILED"});
+    expect(listJiraReleases).toHaveBeenCalledTimes(1);
   });
   it("preserves completed scope on identical approval retries and enriches incrementally",async()=>{
     const first=await ready();const approval={id:first.id,version:first.version,projectIds:[projectA.id],requestId:randomUUID(),approved:true as const};

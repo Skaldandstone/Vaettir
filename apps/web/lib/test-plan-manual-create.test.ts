@@ -30,6 +30,7 @@ function fixture(){
   // Header tooltip is outside this manual-controller fixture. Its component
   // behavior has separate icon-button tests; register only this unused import.
   modules["@/components/ui/IconButton"]={IconButton:noop};
+  modules["@/components/JiraReleasePicker"]={JiraReleasePicker:noop};
   // List presentation imports are not executed by this manual-create controller.
   modules["@/components/ui/Workspace"]={Icon:noop,StatusPill:noop};
   modules["@/lib/case-inspector"]={inspectorLabel:noop};
@@ -60,6 +61,15 @@ it("type read failure has original guarded retry and preserves chosen custom typ
   const tree=f.render();expect(elements(tree).find(node=>node.type==="select")!.props.value).toBe("custom");expect(text(tree)).toContain("refresh required");await f.submit(tree);expect(f.mutate).not.toHaveBeenCalled();expect(text(f.render())).toContain("selected plan type is unavailable");
   const retry=elements(f.render()).find(node=>node.type==="button"&&text(node.props.children)==="Retry plan types")!;(retry.props.onClick as ()=>void)();expect(f.types.refetch).toHaveBeenCalledOnce();f.access.owns.mockReturnValue(false);(retry.props.onClick as ()=>void)();expect(f.types.refetch).toHaveBeenCalledOnce();
   f.access.owns.mockReturnValue(true);f.types.error=null;await f.submit();expect(f.mutate).toHaveBeenCalledWith({projectId:"project-original",name:"Named plan",testPlanTypeId:"custom"});
+});
+it("selecting a Jira release fills the name and waits for the user to create the plan",async()=>{
+  const f=fixture();
+  const picker=elements(f.render()).find(node=>typeof node.props.onSelect==="function")!;
+  (picker.props.onSelect as (name:string)=>void)("Release 2.0");
+  expect(f.mutate).not.toHaveBeenCalled();
+  expect(elements(f.render()).find(node=>node.type==="input")!.props.value).toBe("Release 2.0");
+  await f.submit(f.name("Release 2.0 regression"));
+  expect(f.mutate).toHaveBeenCalledWith({projectId:"project-original",name:"Release 2.0 regression"});
 });
 it("programmatic blank/too-long form submit gives actionable validation, not a silent no-op",async()=>{
   const f=fixture();f.name("   ");await f.submit();expect(text(f.render())).toContain("Enter a plan name");expect(f.mutate).not.toHaveBeenCalled();f.name("n".repeat(201));await f.submit();expect(text(f.render())).toContain("200 characters or fewer");expect(f.mutate).not.toHaveBeenCalled();

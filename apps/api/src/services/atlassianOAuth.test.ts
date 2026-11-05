@@ -47,6 +47,15 @@ describe("Atlassian OAuth protocol",()=>{
   vi.mocked(repositoryProviderJson).mockResolvedValue({results:[{id:"12",key:"QA",name:"Synthetic QA",description:{view:"private"}}],_links:{next:"/wiki/api/v2/spaces?cursor=synthetic-next&limit=50"}});const result=await listAtlassianResources("synthetic-access",site,"confluence");expect(result.next).toBe("synthetic-next");expect(JSON.stringify(result)).not.toContain("private");
   vi.mocked(repositoryProviderJson).mockResolvedValue({results:[{id:"12",key:"QA",name:"Synthetic QA"}],_links:{next:"https://untrusted.invalid/?cursor=secret"}});await expect(listAtlassianResources("synthetic-access",site,"confluence")).rejects.toThrow(/pagination/);
  });
+ it("lists team spaces alongside personal space keys",async()=>{
+  const team={id:"12",key:"QA",name:"Synthetic QA"};
+  const personal={id:"13",key:"~712020:synthetic-account",name:"Synthetic personal space"};
+  vi.mocked(repositoryProviderJson).mockResolvedValue({results:[team,personal]});
+  await expect(listAtlassianResources("synthetic-access",site,"confluence")).resolves.toEqual({
+   resources:[{...team,url:site.url+"/wiki/spaces/QA"},{...personal,url:site.url+"/wiki/spaces/~712020%3Asynthetic-account"}],
+   next:null,
+  });
+ });
  it("refuses unsupported product/site and stalled pagination",async()=>{
   await expect(listAtlassianResources("synthetic-access",{...site,products:["jira"]},"confluence")).rejects.toThrow();expect(repositoryProviderJson).not.toHaveBeenCalled();
   vi.mocked(repositoryProviderJson).mockResolvedValue({results:[],_links:{next:"/wiki/api/v2/spaces?cursor=repeat&limit=50"}});await expect(listAtlassianResources("synthetic-access",site,"confluence","repeat")).rejects.toThrow(/advance/);

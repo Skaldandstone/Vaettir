@@ -1,7 +1,7 @@
 import { z } from "@vaettir/core/dist/validation.js";
 import { smartCaseSchema } from "@vaettir/ai-agent";
 import { router, protectedProcedure } from "../trpc.js";
-import { suggestionScopeSchema, suggestionSelectionSchema, smartMapping, smartRecommendations, applySmartRecommendations, smartSuggestionConfiguration } from "../services/smartCaseSuggestions.js";
+import { suggestionScopeSchema, suggestionSelectionSchema, MAX_SAVED_SUGGESTION_REVIEWS, smartMapping, smartRecommendations, applySmartRecommendations, smartSuggestionConfiguration } from "../services/smartCaseSuggestions.js";
 import { parseXlsxWorkbookIsolated } from "../services/xlsxImportIsolation.js";
 import { XLSX_MAX_BASE64_CHARACTERS } from "../services/xlsxImportLimits.js";
 import { requireProjectAccess } from "../trpc.js";
@@ -27,6 +27,6 @@ export const caseSuggestionsRouter = router({
     .refine(v => Boolean(v.cases) !== Boolean(v.caseIds), "Choose imported definitions or existing cases, not both.")
     .refine(v => !v.caseIds || new Set(v.caseIds).size === v.caseIds.length, "Choose distinct cases."))
     .mutation(({ ctx, input, signal }) => smartRecommendations(ctx.prisma, ctx.user.id, ctx.authenticatedClerkSubject, input, signal)),
-  applyReviewed: protectedProcedure.input(scope.extend({ reviewIds: z.array(z.string().uuid()).min(1).max(10).refine(ids => new Set(ids).size === ids.length), selections: suggestionSelectionSchema }).strict())
+  applyReviewed: protectedProcedure.input(scope.extend({ reviewIds: z.array(z.string().uuid()).min(1).max(MAX_SAVED_SUGGESTION_REVIEWS).refine(ids => new Set(ids).size === ids.length), selections: suggestionSelectionSchema }).strict())
     .mutation(({ ctx, input }) => applySmartRecommendations(ctx.prisma, ctx.user.id, ctx.authenticatedClerkSubject, input)),
 });

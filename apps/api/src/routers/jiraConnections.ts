@@ -4,7 +4,7 @@ import {Prisma} from "@vaettir/db";
 import {router,protectedProcedure,requireProjectAccess,type Context} from "../trpc.js";
 import {encryptToken,decryptToken} from "../services/tokenEncryption.js";
 import {hashOAuthState} from "../services/gitlabRepositoryOAuth.js";
-import {jiraCatalogSchema,jiraProjectSchema,listJiraProjects} from "../services/jiraSourceConnection.js";
+import {jiraCatalogSchema,jiraProjectSchema,listJiraProjects,listJiraReleases} from "../services/jiraSourceConnection.js";
 import {jiraOAuthCredentials,atlassianStorageReady,disconnectAtlassian} from "../services/atlassianOAuthConnection.js";
 import {atlassianApplication} from "../services/atlassianOAuth.js";
 
@@ -49,6 +49,32 @@ export const jiraConnectionsRouter=router({
     await editor(ctx,input.projectId);
     const rows=await ctx.prisma.ticketSourceConnection.findMany({where:{projectId:input.projectId,actorId:ctx.user.id,provider:"jira"},orderBy:{createdAt:"desc"},take:20});
     return rows.map(row=>({id:row.id,oauthConnectionId:row.oauthConnectionId,status:row.status==="VERIFIED"&&(!row.tokenExpiresAt||row.tokenExpiresAt.getTime()<=Date.now()+30000)||row.status==="VERIFYING"&&row.authorizationExpiresAt.getTime()<=Date.now()?"EXPIRED":row.status,workspace:catalogSchema.safeParse(row.catalog).data?.workspace??null,approvedProjects:z.array(jiraProjectSchema).parse(row.approvedProjects),approvedAt:row.approvedAt,siteUrl:row.providerOrigin}));
+  }),
+  releases:protectedProcedure.input(projectInput.extend({
+    id:z.string(),
+    jiraProjectId:z.string().regex(/^[1-9]\d{0,31}$/),
+    after:cursor.nullable().default(null),
+  })).query(async({ctx,input})=>{
+    const row=await own(ctx,input.id);
+    if(row.projectId!==input.projectId||!z.array(jiraProjectSchema).parse(row.approvedProjects)
+      .some(project=>project.id===input.jiraProjectId&&new URL(project.url).origin===row.providerOrigin)){
+      throw new TRPCError({code:"NOT_FOUND"});
+    }
+    verified(row);
+    await ctx.prisma.$transaction(tx=>liveEditor(tx,row.organizationId,ctx.user.id));
+    const credentials=await ticketCredentials(ctx,row);
+    let page;
+    try{
+      page=await listJiraReleases(credentials,input.jiraProjectId,input.after??0);
+    }catch{
+      throw new TRPCError({code:"BAD_REQUEST",message:"Jira releases are unavailable. Check access to this Jira project."});
+    }
+    const current=await own(ctx,row.id);
+    if(current.version!==row.version)throw new TRPCError({code:"CONFLICT",message:"Jira access changed. Refresh and try again."});
+    verified(current);
+    if(current.oauthConnectionId)await ticketCredentials(ctx,current);
+    await ctx.prisma.$transaction(tx=>liveEditor(tx,row.organizationId,ctx.user.id));
+    return page;
   }),
   // Retained wire shape for stale clients. New API-token registrations are retired.
   verify:protectedProcedure.input(projectInput.merge(credentialSchema).extend({requestId:z.string().uuid(),approveMetadataAccess:z.literal(true)})).mutation(async({ctx,input}):Promise<{id:string}>=>{

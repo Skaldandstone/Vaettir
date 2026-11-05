@@ -26,7 +26,8 @@ export async function reportAtlassianPrivacy(token:string,accountId:string,updat
 const cloudId = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
 export const atlassianSiteSchema = z.object({ id: cloudId, name: label, url: z.string().refine(s => { try { return jiraSiteOrigin(s) === s; } catch { return false; } }), products: z.array(atlassianProduct).min(1).max(2) }).strict();
 export type AtlassianSite = z.infer<typeof atlassianSiteSchema>;
-export const atlassianResourceSchema = z.object({ id: z.string().min(1).max(100).regex(/^[A-Za-z0-9_-]+$/), name: label, key: z.string().min(1).max(100).regex(/^[A-Za-z0-9_-]+$/), url: z.string().url().max(1000) }).strict();
+const resourceKey = z.string().min(1).max(100).regex(/^(?:[A-Za-z0-9_-]+|~[A-Za-z0-9_-]+(?::[A-Za-z0-9_-]+)?)$/);
+export const atlassianResourceSchema = z.object({ id: z.string().min(1).max(100).regex(/^[A-Za-z0-9_-]+$/), name: label, key: resourceKey, url: z.string().url().max(1000) }).strict();
 
 /** Dedicated callback configuration. Never silently repoint legacy WEB_APP_URL callbacks. */
 export function atlassianApplication(env: NodeJS.ProcessEnv = process.env): AtlassianApplication | null {
@@ -89,7 +90,7 @@ export async function listAtlassianResources(token: string, site: AtlassianSite,
   const cursor=after===0?null:printable.max(1024).parse(after);
   const path=`/ex/confluence/${admitted.id}/wiki/api/v2/spaces`;
   const query=new URLSearchParams({limit:"50",...(cursor?{cursor}:{})});
-  const page=z.object({results:z.array(z.object({id:z.string().regex(/^[1-9][0-9]*$/),key:z.string().regex(/^[A-Za-z0-9_-]+$/),name:label})).max(50),_links:z.object({next:z.string().max(2000).optional()}).default({})}).parse(await repositoryProviderJson("https://api.atlassian.com",`${path}?${query}`,{token:printable.parse(token)}));
+  const page=z.object({results:z.array(z.object({id:z.string().regex(/^[1-9][0-9]*$/),key:resourceKey,name:label})).max(50),_links:z.object({next:z.string().max(2000).optional()}).default({})}).parse(await repositoryProviderJson("https://api.atlassian.com",`${path}?${query}`,{token:printable.parse(token)}));
   let next:string|null=null;
   if(page._links.next){
     // Never follow provider URLs. Admit only a cursor for the exact endpoint and reconstruct it.
@@ -98,5 +99,5 @@ export async function listAtlassianResources(token: string, site: AtlassianSite,
     next=printable.max(1024).parse(link.searchParams.get("cursor"));
     if(next===cursor||!page.results.length)throw new Error("Space pagination did not advance");
   }
-  return {resources:page.results.map(x=>atlassianResourceSchema.parse({...x,url:`${admitted.url}/wiki/spaces/${x.key}`})),next};
+  return {resources:page.results.map(x=>atlassianResourceSchema.parse({...x,url:`${admitted.url}/wiki/spaces/${encodeURIComponent(x.key)}`})),next};
 }

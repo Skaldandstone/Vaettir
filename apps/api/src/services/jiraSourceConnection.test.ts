@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { repositoryProviderJson } from "./repositoryProviderHttp.js";
-import { jiraCatalogSchema, jiraProjectSchema, jiraSiteOrigin, listJiraProjects } from "./jiraSourceConnection.js";
+import { jiraCatalogSchema, jiraProjectSchema, jiraSiteOrigin, listJiraProjects, listJiraReleases } from "./jiraSourceConnection.js";
 
 vi.mock("./repositoryProviderHttp.js", () => ({ repositoryProviderJson: vi.fn() }));
 const credentials = { siteUrl: "https://synthetic.atlassian.net", email: "fixture@example.test", apiToken: "synthetic-only-key" };
@@ -13,6 +13,17 @@ function response(body: unknown = page(), account: unknown = identity) {
 beforeEach(() => vi.resetAllMocks());
 
 describe("Jira Cloud metadata-only adapter", () => {
+  it("reads only release metadata from the approved OAuth project and reconstructs the next offset", async () => {
+    const cloudId="01234567-89ab-cdef-0123-456789abcdef";
+    const oauth={kind:"oauth" as const,siteUrl:credentials.siteUrl,cloudId,accessToken:"synthetic-oauth",accountId:identity.accountId,accountName:identity.displayName};
+    const version={id:"12",name:"Release 2",archived:false,released:false,releaseDate:"2026-11-05"};
+    const result={startAt:50,maxResults:50,isLast:false,nextPage:"https://other.invalid",values:[{...version,projectId:10001,description:"private"}]};
+    vi.mocked(repositoryProviderJson).mockResolvedValue(result);
+    await expect(listJiraReleases(oauth,project.id,50)).resolves.toEqual({releases:[version],next:100});
+    expect(repositoryProviderJson).toHaveBeenCalledExactlyOnceWith("https://api.atlassian.com",
+      `/ex/jira/${cloudId}/rest/api/3/project/10001/version?startAt=50&maxResults=50`,{token:oauth.accessToken});
+    await expect(listJiraReleases(oauth,"10002",50)).rejects.toThrow(/Invalid Jira release page/);
+  });
   it("uses a validated cloud gateway and Bearer for OAuth, checking the same account",async()=>{
     response();const cloudId="01234567-89ab-cdef-0123-456789abcdef";
     const oauth={kind:"oauth" as const,siteUrl:credentials.siteUrl,cloudId,accessToken:"synthetic-oauth",accountId:identity.accountId,accountName:identity.displayName};
