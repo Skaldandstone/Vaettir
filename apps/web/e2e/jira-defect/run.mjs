@@ -22,18 +22,33 @@ const origin=`http://127.0.0.1:${server.address().port}`;
 await page.route("**/*",route=>route.request().url().startsWith(origin)?route.continue():route.abort());
 const actionName=description=>new RegExp("^(?:[^:]+: )?"+description.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"$");
 const visible=locator=>locator.waitFor({state:"visible"});
+const jiraButton=page.getByRole("button",{name:actionName("Connect Jira tracker"),exact:true});
+async function assertActionSurface(locator,primary=false){
+ const style=await locator.evaluate(element=>{
+  const css=element.ownerDocument.defaultView.getComputedStyle(element);
+  return {fill:css.backgroundColor,border:css.borderTopStyle,primary:element.classList.contains("btn-primary")};
+ });
+ assert.notEqual(style.fill,"rgba(0, 0, 0, 0)","The button has a visible surface before hover");
+ if(primary) assert.equal(style.primary,true,"Connect Jira uses the primary action treatment");
+ else assert.equal(style.border,"solid","Secondary and bare buttons have a visible outline");
+}
 async function advanced(){const node=page.getByText("Previous access",{exact:true});if(!(await node.evaluate(el=>el.closest("details").open)))await node.click();}
 try{
  await page.goto(origin);await page.getByRole("tab",{name:"Jira & Confluence",exact:true}).click();
- await page.getByRole("button",{name:actionName("Connect Jira tracker"),exact:true}).click();await advanced();
+ await assertActionSurface(jiraButton,true);
+ await page.getByRole("region",{name:"Jira defect tracker connection",exact:true}).screenshot({path:path.join(output,"jira-action-dark.png")});
+ await jiraButton.click();await advanced();
  await visible(page.getByRole("heading",{name:"Connect Jira to the defect map",exact:true}));
  assert.equal(await page.getByLabel("API token",{exact:true}).count(),0,"No new Jira token entry is offered");
+ await assertActionSurface(page.getByRole("button",{name:actionName("Issues"),exact:true}));
  await page.getByRole("button",{name:actionName("Issues"),exact:true}).click();
  await page.getByRole("button",{name:"SYN Synthetic tracker",exact:false}).click();
  await page.getByRole("textbox",{name:"Labels",exact:true}).fill("crash");
  await page.getByRole("checkbox",{name:"I approve reading issue summaries",exact:false}).check();
  await page.getByRole("button",{name:actionName("Approve issue reads and start preview"),exact:true}).click();
- await page.getByRole("button",{name:actionName("Read next issue page"),exact:true}).click();
+ const readButton=page.getByRole("button",{name:actionName("Read next issue page"),exact:true});
+ await assertActionSurface(readButton);
+ await readButton.click();
  await visible(page.getByText("Synthetic defect 2",{exact:true}));
  assert.equal(await page.getByRole("columnheader",{name:"Type, components and labels"}).count(),1);
  await page.getByRole("button",{name:actionName("Finish preview and review"),exact:true}).click();
@@ -63,7 +78,9 @@ try{
  await visible(page.getByRole("button",{name:actionName("Retry the same task import"),exact:true}));
  await page.getByRole("button",{name:actionName("Close"),exact:true}).click();
  await page.getByRole("button",{name:actionName("Switch theme"),exact:true}).click();
- await page.getByRole("button",{name:actionName("Connect Jira tracker"),exact:true}).click();await advanced();
+ await assertActionSurface(jiraButton,true);
+ await page.getByRole("region",{name:"Jira defect tracker connection",exact:true}).screenshot({path:path.join(output,"jira-action-light.png")});
+ await jiraButton.click();await advanced();
  await visible(page.getByRole("button",{name:actionName("Retry the same task import"),exact:true}));
  await page.screenshot({path:path.join(output,"jira-retry-light.png"),fullPage:true});
  await page.setViewportSize({width:390,height:844});
@@ -87,7 +104,7 @@ try{
  await page.getByText("Synthetic transport evidence",{exact:true}).click();
  const evidence=JSON.parse(await page.getByTestId("evidence").innerText());
  assert.equal(evidence.readCount,1);assert.equal(evidence.requirements,0);assert.equal(evidence.sourceWrites,1);assert.equal(evidence.writes.length,3);assert.deepEqual(evidence.writes[0],evidence.writes[1]);assert.notEqual(evidence.writes[1].requestId,evidence.writes[2].requestId);
- await page.goto(origin+"/?screen=map");await page.getByRole("button",{name:actionName("Connect Jira tracker"),exact:true}).click();await advanced();
+ await page.goto(origin+"/?screen=map");await assertActionSurface(jiraButton,true);await jiraButton.click();await advanced();
  await visible(page.getByRole("button",{name:actionName("Issues"),exact:true}));
  assert.deepEqual(errors,[]);
  const result={actualComponents:true,syntheticTransport:true,hostedProviderAccepted:false,checks:["settings and defect-map connection entry points","explicit scoped issue-read and separate task-save approval","per-task action review","unchanged requirement classification remains selectable for tasks","no requirement mutations","active write blocks close","unknown receipt survives failed refresh, close and reopen","exact retry and one durable write","selection change withholds old review","known rejection releases only through fresh review","dark, light and390px"],errors,evidence};

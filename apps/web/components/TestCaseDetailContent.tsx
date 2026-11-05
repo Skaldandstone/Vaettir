@@ -977,19 +977,18 @@ function AttachmentsSection({
             style={{
               display: "flex",
               justifyContent: "space-between",
+              alignItems: "center",
+              flexWrap: "wrap",
+              gap: 8,
               fontSize: 13,
               padding: "3px 0",
             }}
           >
             <button
+              type="button"
+              className="btn-secondary"
               onClick={() => view(a.id)}
-              style={{
-                background: "none",
-                border: "none",
-                color: "var(--frost)",
-                cursor: "pointer",
-                padding: 0,
-              }}
+              style={{ minWidth: 0, textAlign: "left", overflowWrap: "anywhere" }}
             >
               {a.fileName}
             </button>
