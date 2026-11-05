@@ -1,6 +1,7 @@
 "use client";
 
 import type { RouterOutputs } from "@/lib/trpcReact";
+import { IconButton } from "./ui/IconButton";
 type Tickets = RouterOutputs["jiraConnections"]["releasePlanPreview"]["tickets"];
 
 export function jiraReleaseStrategy(tickets: Tickets) {
@@ -35,11 +36,14 @@ export function JiraPlanPreview({ tickets, partial, caseIds, disabled, onCases, 
           value={check} maxLength={650} rows={2} disabled={disabled}
           style={{ display: "block", width: "100%", boxSizing: "border-box" }}
           onChange={event => onChecks(ticket.key, ticket.checks.map((value, i) => i === index ? event.target.value : value))}/>)}
-        {ticket.cases.map(candidate => <label key={candidate.id} style={{ display: "block" }}>
-          <input type="checkbox" checked={selected.has(candidate.id)} disabled={disabled || !selected.has(candidate.id) && caseIds.length >= 500}
-            onChange={event => onCases(event.target.checked ? [...caseIds, candidate.id] : caseIds.filter(id => id !== candidate.id))}/>
-          {candidate.title} <span className="muted">· {candidate.matches.join(", ")}</span>
-        </label>)}
+        {ticket.cases.map(candidate => <div key={candidate.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <label>
+            <input type="checkbox" checked={selected.has(candidate.id)} disabled={disabled || !selected.has(candidate.id) && caseIds.length >= 500}
+              onChange={event => onCases(event.target.checked ? [...caseIds, candidate.id] : caseIds.filter(id => id !== candidate.id))}/>
+            {candidate.title}
+          </label>
+          <IconButton icon="help" label={`Match details for ${candidate.title}`} tooltip={candidate.matches.join(", ")}/>
+        </div>)}
         {ticket.moreCases && <p>Top 5 matches shown. Use Configure cases for more.</p>}
       </details>)}
     </div>
