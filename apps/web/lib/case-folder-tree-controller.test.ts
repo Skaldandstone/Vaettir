@@ -121,7 +121,7 @@ describe("actual tree and folder controller source", () => {
   it("external folder gesture opens scoped unsaved setup and only explicit review requests complete impact", async () => {
     const host = foldersHarness(); await host.settled(); await host.intent("gesture-one");
     expect(host.html()).toContain("Destination parent folder"); expect(host.html()).toContain("Source files/provenance stay unchanged"); expect(host.writes).toHaveLength(0);
-    host.click("Review change"); await host.settled(); expect(host.html()).toContain("851 cases (2"); expect(host.html()).toContain("Source-derived suite"); expect(host.html()).toContain("previous history and run evidence are not"); expect(host.writes).toHaveLength(0);
+    host.click("Review change"); await host.settled(); expect(host.html()).toContain("851 cases (2"); expect(host.html()).toContain("Source-derived suite"); expect(host.html()).toContain("Folder changes are recorded in history"); expect(host.writes).toHaveLength(0);
     expect(host.catalogUpdates.some(value => value && (value as helpers.CaseFolderCatalog).folders[0]!.id === "stable-destination")).toBe(true);
   });
   it("external intents cannot overwrite a closed editable draft; explicit discard permits a later gesture", async () => {

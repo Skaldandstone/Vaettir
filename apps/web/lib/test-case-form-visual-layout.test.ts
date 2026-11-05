@@ -132,7 +132,7 @@ it.each([undefined, ...core.CASE_PROCEDURE_FORMATS])("keeps scenario phrasing op
   const scenario = /<details([^>]*)><summary>Optional Given \/ When \/ Then<\/summary>/.exec(html);
   expect(scenario).not.toBeNull();
   expect(scenario![1]!.includes('open=""')).toBe(format === "GHERKIN" || format === "MIXED");
-  expect(html).toContain("Given/When/Then is not required");
+  expect(html).toContain("About procedure steps");
   expect(html).toContain(format === "CHECKLIST" ? "Procedure checklist" : format === "NARRATIVE" ? "Narrative procedure" : "Procedure");
   expect(pairs(html).map(pair => pair.kind)).toEqual(["action-technical", "result-response", "action-technical", "result-response"]);
   expect(html).toContain('aria-label="Step 1 images and video"');
