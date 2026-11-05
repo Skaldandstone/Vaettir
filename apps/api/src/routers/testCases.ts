@@ -38,6 +38,7 @@ import { testCaseContentRevision } from "../services/testCaseContentRevision.js"
 import { snapshotTestCaseVersion } from "../services/testCaseVersion.js";
 import { ensureCaseEvidenceNotRetained } from "../services/caseEvidenceRetention.js";
 import { requireCurrentPlanAccess } from "../services/testPlanExecution.js";
+import { createCaseWithReceipt } from "../services/caseCreateReceipt.js";
 import { liveCaseDisplayId, resolveProjectCaseReference } from "../services/projectCaseKeys.js";
 import {
   validationDomainSchema,
@@ -143,6 +144,109 @@ function requireAtLeastOneFormat(v: z.infer<typeof testCaseContentSchema>) {
 }
 const AT_LEAST_ONE_FORMAT_MESSAGE =
   "Provide given/when/then, at least one structured step, or a shared step library";
+
+const manualCaseCreateInput = testCaseContentSchema.extend({ projectId: z.string() });
+async function createManualCaseContent(
+  tx: Prisma.TransactionClient, user: { id: string; clerkUserId: string },
+  input: z.infer<typeof manualCaseCreateInput>,
+) {
+  await requireCurrentPlanAccess(tx, user.id, input.projectId, true);
+  if (
+    input.testPlanId &&
+    !(await tx.testPlan.findFirst({
+      where: { id: input.testPlanId, projectId: input.projectId },
+      select: { id: true },
+    }))
+  ) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Choose a test plan in this project.",
+    });
+  }
+  if (
+    input.sharedStepGroupId &&
+    !(await tx.sharedStepGroup.findFirst({
+      where: { id: input.sharedStepGroupId, projectId: input.projectId, archivedAt: null },
+      select: { id: true },
+    }))
+  ) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Choose a shared step library in this project.",
+    });
+  }
+  const customFields = await assertCaseFieldAuthoring(tx, user.id, input.projectId, { values: input.customFields, expectedSchemaHash: input.expectedFieldSchemaHash }, { clerkActorId: user.clerkUserId });
+  const created = await tx.testCase.create({
+    data: {
+      projectId: input.projectId,
+      testPlanId: input.testPlanId,
+      customFields: customFields as Prisma.InputJsonValue,
+      title: input.title,
+      background: input.background,
+      given: input.given,
+      when: input.when,
+      then: input.then,
+      tags: input.tags,
+      testType: input.testType as never,
+      validationDomain: input.validationDomain,
+      verificationProfile: input.verificationProfile,
+      priority: input.priority,
+      suitePath: input.suitePath || undefined,
+      createdById: user.id,
+      updatedById: user.id,
+      sharedStepGroupId: input.sharedStepGroupId || undefined,
+      // A case linked to a shared group defers entirely to it - see
+      // the schema comment on sharedStepGroupId - so it owns no
+      // structured steps of its own.
+      steps: input.sharedStepGroupId
+        ? undefined
+        : {
+            create: input.steps.map((s, i) => ({
+              order: i,
+              action: s.action,
+              expectedActionOrData: s.expectedActionOrData ?? undefined,
+              expectedResult: s.expectedResult ?? undefined,
+              expectedResponse: s.expectedResponse ?? undefined,
+              mediaAttachmentIds: [],
+            })),
+          },
+    },
+  });
+  const fieldDefinition = await tx.project.findUniqueOrThrow({ where: { id: input.projectId }, select: { organizationId: true, caseFieldSchema: true, caseFieldSchemaVersion: true } });
+  await tx.auditLog.create({
+    data: {
+      organizationId: fieldDefinition.organizationId,
+      projectId: input.projectId,
+      actorId: user.id,
+      entityType: "TestCase",
+      entityId: created.id,
+      action: "CREATE",
+      summary: `Created test case "${created.title}"`,
+      metadata: { fieldEvidence: { version: 1, beforeValues: {}, afterValues: customFields, schema: fieldDefinition.caseFieldSchema, schemaVersion: fieldDefinition.caseFieldSchemaVersion, recoverySupported: true } } as Prisma.InputJsonValue,
+    },
+  });
+  await snapshotTestCaseVersion(tx, {
+    testCaseId: created.id,
+    title: created.title,
+    background: created.background,
+    given: created.given,
+    when: created.when,
+    then: created.then,
+    steps: input.steps.map((s, i) => ({
+      order: i,
+      action: s.action,
+      expectedActionOrData: s.expectedActionOrData ?? null,
+      expectedResult: s.expectedResult ?? null,
+      expectedResponse: s.expectedResponse ?? null,
+      mediaAttachmentIds: [],
+    })),
+    tags: created.tags,
+    priority: created.priority,
+    testType: created.testType,
+    actorId: user.id,
+  });
+  return created;
+}
 
 export const testCasesRouter = router({
   list: protectedProcedure
@@ -1286,16 +1390,32 @@ export const testCasesRouter = router({
       });
     }),
 
+  createDurable: protectedProcedure
+    .input(manualCaseCreateInput.extend({
+      requestId: z.string().uuid(), originalOrganizationId: z.string().min(1).max(200),
+      expectedClerkActorId: z.string().min(1).max(200),
+    }).refine(requireAtLeastOneFormat, { message: AT_LEAST_ONE_FORMAT_MESSAGE }))
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.authenticatedClerkSubject)
+        throw new TRPCError({ code: "FORBIDDEN", message: "A current independently authenticated human session is required." });
+      await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      if (stepMediaIds(input.steps).length)
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Save the case before linking image or video attachments to steps." });
+      return ctx.prisma.$transaction(tx => createCaseWithReceipt(
+        tx, ctx.user.id, ctx.authenticatedClerkSubject!, input,
+        () => createManualCaseContent(tx, ctx.user, input),
+      ));
+    }),
+
   create: protectedProcedure
     .input(
-      testCaseContentSchema
-        .extend({ projectId: z.string() })
+      manualCaseCreateInput
         .refine(requireAtLeastOneFormat, {
           message: AT_LEAST_ONE_FORMAT_MESSAGE,
         }),
     )
     .mutation(async ({ ctx, input }) => {
-      const { project } = await requireProjectAccess(
+      await requireProjectAccess(
         ctx,
         input.projectId,
         "EDITOR",
@@ -1307,104 +1427,7 @@ export const testCasesRouter = router({
             "Save the case before linking image or video attachments to steps.",
         });
       }
-      return ctx.prisma.$transaction(async (tx) => {
-        await requireCurrentPlanAccess(tx, ctx.user.id, input.projectId, true);
-        if (
-          input.testPlanId &&
-          !(await tx.testPlan.findFirst({
-            where: { id: input.testPlanId, projectId: input.projectId },
-            select: { id: true },
-          }))
-        ) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "Choose a test plan in this project.",
-          });
-        }
-        if (
-          input.sharedStepGroupId &&
-          !(await tx.sharedStepGroup.findFirst({
-            where: { id: input.sharedStepGroupId, projectId: input.projectId, archivedAt: null },
-            select: { id: true },
-          }))
-        ) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "Choose a shared step library in this project.",
-          });
-        }
-        const customFields = await assertCaseFieldAuthoring(tx, ctx.user.id, input.projectId, { values: input.customFields, expectedSchemaHash: input.expectedFieldSchemaHash }, { clerkActorId: ctx.user.clerkUserId });
-        const created = await tx.testCase.create({
-          data: {
-            projectId: input.projectId,
-            testPlanId: input.testPlanId,
-            customFields: customFields as Prisma.InputJsonValue,
-            title: input.title,
-            background: input.background,
-            given: input.given,
-            when: input.when,
-            then: input.then,
-            tags: input.tags,
-            testType: input.testType as never,
-            validationDomain: input.validationDomain,
-            verificationProfile: input.verificationProfile,
-            priority: input.priority,
-            suitePath: input.suitePath || undefined,
-            createdById: ctx.user.id,
-            updatedById: ctx.user.id,
-            sharedStepGroupId: input.sharedStepGroupId || undefined,
-            // A case linked to a shared group defers entirely to it - see
-            // the schema comment on sharedStepGroupId - so it owns no
-            // structured steps of its own.
-            steps: input.sharedStepGroupId
-              ? undefined
-              : {
-                  create: input.steps.map((s, i) => ({
-                    order: i,
-                    action: s.action,
-                    expectedActionOrData: s.expectedActionOrData ?? undefined,
-                    expectedResult: s.expectedResult ?? undefined,
-                    expectedResponse: s.expectedResponse ?? undefined,
-                    mediaAttachmentIds: [],
-                  })),
-                },
-          },
-        });
-        const fieldDefinition = await tx.project.findUniqueOrThrow({ where: { id: input.projectId }, select: { organizationId: true, caseFieldSchema: true, caseFieldSchemaVersion: true } });
-        await tx.auditLog.create({
-          data: {
-            organizationId: fieldDefinition.organizationId,
-            projectId: input.projectId,
-            actorId: ctx.user.id,
-            entityType: "TestCase",
-            entityId: created.id,
-            action: "CREATE",
-            summary: `Created test case "${created.title}"`,
-            metadata: { fieldEvidence: { version: 1, beforeValues: {}, afterValues: customFields, schema: fieldDefinition.caseFieldSchema, schemaVersion: fieldDefinition.caseFieldSchemaVersion, recoverySupported: true } } as Prisma.InputJsonValue,
-          },
-        });
-        await snapshotTestCaseVersion(tx, {
-          testCaseId: created.id,
-          title: created.title,
-          background: created.background,
-          given: created.given,
-          when: created.when,
-          then: created.then,
-          steps: input.steps.map((s, i) => ({
-            order: i,
-            action: s.action,
-            expectedActionOrData: s.expectedActionOrData ?? null,
-            expectedResult: s.expectedResult ?? null,
-            expectedResponse: s.expectedResponse ?? null,
-            mediaAttachmentIds: [],
-          })),
-          tags: created.tags,
-          priority: created.priority,
-          testType: created.testType,
-          actorId: ctx.user.id,
-        });
-        return created;
-      });
+      return ctx.prisma.$transaction(tx => createManualCaseContent(tx, ctx.user, input));
     }),
 
   // P11-07: the generic catch-all importer for a spreadsheet-tracked suite

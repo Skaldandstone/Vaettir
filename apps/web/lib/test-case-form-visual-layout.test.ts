@@ -1,3 +1,4 @@
+import { CaseCreateRecovery } from "./case-create-recovery";
 import { controllerTranspile } from "./controller-transpile.fixture";
 // Installed React SSR of the actual form and its real presentation/authoring
 // helpers. RPC/access and child components are explicitly synthetic boundaries.
@@ -66,11 +67,11 @@ function render(options: { locked?: boolean; active?: boolean; hide?: boolean; s
     react: React, "next/navigation": { useRouter: () => ({ push: refuse }) }, "@vaettir/core": core,
     "@/lib/trpcReact": { trpcReact: {
       useUtils: () => ({}), project: { experience: query({ experience: null }) }, casePresentation: { get: query(data) },
-      testCases: { list: query([]), create: mutation, update: mutation }, sharedStepGroups: { list: query([]) },
+      testCases: { list: query([]), create: mutation, createDurable: mutation, update: mutation }, sharedStepGroups: { list: query([]) },
       testCaseAttachments: { list: query([]), requestUpload: mutation, confirmUpload: mutation, delete: mutation },
     } },
     "@/components/TestCaseTree": { collectKnownSuitePaths: () => [] },
-    "@/lib/use-case-field-access": { useCaseFieldAccess: () => ({ origin, readable: options.active !== false, current: options.active === false ? null : origin }) },
+    "@/lib/case-create-recovery": { CaseCreateRecovery }, "@/lib/use-case-field-access": { useCaseFieldAccess: () => ({ origin, readable: options.active !== false, current: options.active === false ? null : origin }) },
     "@/lib/case-presentation-read": { freshCasePresentation }, "@/lib/case-authoring-fields": authoring,
     "@/lib/move-list-item": { moveListItem },
     "@/lib/case-inspector": { inspectorLabel },
