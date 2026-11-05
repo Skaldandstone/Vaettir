@@ -160,6 +160,10 @@ it("clearing a saved suite sends explicit empty text on the wire without changin
 });
 it.each(["create","edit"] as const)("a late %s save cannot navigate away from a different case's unsaved draft",async mode=>{
   const original=harness(seed(),false,mode);original.ready();const finish=original.holdSave();
+  if(mode==="edit"){
+    const suite=elements(original.tree).find(e=>e.type==="input"&&e.props.list==="known-suite-paths")!;
+    (suite.props.onChange as (event:{target:{value:string}})=>void)({target:{value:""}});original.settle();
+  }
   const pending=(original.button(mode==="create"?"Create test case":"Save changes").props.onClick as ()=>Promise<void>)();
   original.unmount();
   const next=harness();next.props.testCaseId="case-b";next.ready();
@@ -167,6 +171,7 @@ it.each(["create","edit"] as const)("a late %s save cannot navigate away from a 
   (title.props.onChange as (event:{target:{value:string}})=>void)({target:{value:"Unsaved case B title"}});next.settle();
   finish({id:mode==="edit"?"case":"new-case"});await pending;
   expect(original.sent).toHaveLength(1);expect(original.navigation).toEqual([]);
+  if(mode==="edit")expect(original.sent[0]).toMatchObject({suitePath:"",expectedSuitePath:"suite/exact"});
   expect(next.navigation).toEqual([]);expect(next.sent).toEqual([]);
   expect(elements(next.tree).some(e=>e.type==="input"&&e.props.value==="Unsaved case B title")).toBe(true);
 });
