@@ -7,6 +7,8 @@ document and `scripts/setup-staging-aws.sh` exist so standing one up is a
 reviewed, ready-to-run action later, not a from-scratch design exercise
 under time pressure when it's finally needed.
 
+Production ingress changed on November 5, 2026. Use the current ingress section in `docs/AWS_DEPLOYMENT.md`; the staging design below remains unprovisioned planning material.
+
 ## Why a second, fully separate stack
 
 Production today (see `docs/AWS_DEPLOYMENT.md`) is the only AWS stack that
@@ -25,7 +27,7 @@ misconfigured webhook, test data) can never touch real data or traffic.
 | ECS services | `vaettir-api`, `vaettir-web` | `vaettir-api-staging`, `vaettir-web-staging` |
 | ECR repos | `vaettir-api`, `vaettir-web` | `vaettir-api-staging`, `vaettir-web-staging` |
 | RDS instance | `vaettir-postgres` (db.t4g.micro, single-AZ) | `vaettir-postgres-staging` (same tier - no reason to size staging differently) |
-| ALB | `vaettir-alb` | `vaettir-alb-staging` |
+| ALB | Shared `kall-p-LoadB-aaUoIRkupG58`, with separate Vaettir target groups | A dedicated staging ALB remains a proposal requiring review |
 | CloudFront | `d35bt2repnvk6t.cloudfront.net` | a new distribution, staging's own CloudFront URL |
 | Secrets Manager | `vaettir/anthropic-api-key`, `vaettir/clerk-secret-key`, `vaettir/database-url`, GitHub App secrets, Stripe test-mode keys | same set, `vaettir-staging/*` prefix - **its own Stripe test-mode keys and Clerk instance**, not production's, so staging traffic never touches the same Clerk users or Stripe customers as production |
 | S3 buckets | `vaettir-build-source-051722405355`, `vaettir-test-artifacts-051722405355` | `-staging` suffixed |
