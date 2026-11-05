@@ -17,8 +17,8 @@ function text(value: React.ReactNode): string {
     : Array.isArray(value) ? value.map(text).join("")
     : React.isValidElement(value) ? text((value as Element).props.children) : "";
 }
-function parent(name: string, extras: Record<string, unknown>) {
-  const source = readFileSync(new URL(`../components/${name}.tsx`, import.meta.url), "utf8");
+function parent(name: string, extras: Record<string, unknown>, fileName = name) {
+  const source = readFileSync(new URL(`../components/${fileName}.tsx`, import.meta.url), "utf8");
   const ast = ts.createSourceFile("parent.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const body = ast.statements.filter(n => ts.isFunctionDeclaration(n) || ts.isVariableStatement(n))
     .map(n => ts.createPrinter().printNode(ts.EmitHint.Unspecified, n, ast).replace(/^export /, "")).join("\n");
@@ -28,7 +28,7 @@ function parent(name: string, extras: Record<string, unknown>) {
       return [slots[index], (value: unknown) => { slots[index] = typeof value === "function" ? value(slots[index]) : value; }]; },
     useRef(initial: unknown) { const index = cursor++; return slots[index] ??= { current: initial }; },
     useCallback(callback: unknown) { const index = cursor++; return slots[index] ??= callback; },
-    useLayoutEffect() {}, useIsMutating: () => 0,
+    useLayoutEffect() {}, useEffect() {}, useIsMutating: () => 0,
     ...extras,
   });
   vm.runInContext(controllerTranspile(`${body}\nthis.actual=${name};`, {
@@ -81,4 +81,26 @@ it("Confluence browser access remains separate and mounted through a Forge metad
   expect(connection()).toHaveLength(1);
   expect(text(render(props))).toContain("Connecting does not publish reports");
   expect(render({ ...props, canConfigure: false })).toBeNull();
+});
+
+it.each([['jira',false],['jira',true],['confluence',false],['confluence',true]] as const)("renewal refreshes saved %s views even after an uncertain response (%s)", async (product,uncertain) => {
+  const events:string[]=[], scope=[{id:"123",key:"QA"}];
+  const saved={id:"grant",status:"EXPIRED",selectedSite:{name:"Synthetic site"},approvedResources:scope,canRefresh:true};
+  const query=(data:unknown,name:string)=>({data,isSuccess:true,isFetching:false,isPaused:false,refetch:async()=>{events.push(name);return {data};}});
+  const mine=query([saved],"mine"),current=query(saved,"status");
+  const mutation={useMutation:()=>({isPending:false})};
+  const render=parent("AtlassianOAuthSession",{
+    useAuth:()=>({userId:"actor",isLoaded:true,isSignedIn:true}),IconButton:"icon-boundary",
+    trpcReact:{useUtils:()=>({jiraConnections:{mine:{invalidate:async(input:unknown)=>{expect(input).toEqual({projectId:"project"});events.push("jira");}}}}),
+      atlassianConnections:{capabilities:{useQuery:()=>query({canConnect:true,available:true,clerkActorId:"actor"},"capabilities")},
+        mine:{useQuery:()=>mine},status:{useQuery:()=>current},begin:mutation,selectSite:mutation,approve:mutation,disconnect:mutation,
+        refresh:{useMutation:()=>({isPending:false,mutateAsync:async(input:unknown)=>{expect(input).toEqual({id:"grant"});events.push("renew");if(uncertain)throw Error("Lost response");}})}}},
+  },"AtlassianOAuthConnection");
+  const props={projectId:"project",product};
+  (nodes(render(props)).find(n=>n.type==="button"&&text(n.props.children)==="Open")!.props.onClick as ()=>void)();
+  const refresh=nodes(render(props)).find(n=>n.type==="icon-boundary"&&n.props.label==="Refresh access")!;
+  await (refresh.props.onClick as ()=>Promise<void>)();
+  expect(events).toEqual(["renew","status","mine",...(product==="jira"?["jira"]:[])]);
+  expect(saved.approvedResources).toBe(scope);
+  if(uncertain)expect(text(render(props))).toContain("Refresh unconfirmed");
 });

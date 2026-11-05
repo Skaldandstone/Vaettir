@@ -14,7 +14,7 @@ const own=(id,actor)=>{const row=rows.find(row=>row.id===id&&row.actor===actor);
 const status=(input,actor)=>structuredClone(own(input.id,actor));
 const catalog=(input,actor)=>{const row=own(input.id,actor);if(row.status!=="VERIFIED"||!row.selectedSite)throw Error("Synthetic scope missing");row.version=++version;return {resources,next:null,version:row.version,reset:input.after===null};};
 export const trpcReact={
- useUtils(){const actor=useContext(Actor);return {atlassianConnections:{catalog:{fetch:async input=>{await wait();return catalog(input,actor);}}}};},
+ useUtils(){const actor=useContext(Actor),client=useQueryClient();return {jiraConnections:{mine:{invalidate:input=>client.invalidateQueries({queryKey:["jiraMine",input]})}},atlassianConnections:{catalog:{fetch:async input=>{await wait();return catalog(input,actor);}}}};},
  atlassianConnections:{
   capabilities:query("capabilities",(_,actor)=>{if(statusFailure)throw Error("Synthetic access unavailable");return {available:!location.search.includes("unavailable"),canConnect:true,organizationId:"synthetic-org",clerkActorId:actor};}),
   mine:query("mine",(input,actor)=>{if(statusFailure)throw Error("Synthetic access unavailable");return structuredClone(rows.filter(row=>row.actor===actor&&row.product===input.product));}),

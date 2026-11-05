@@ -30,6 +30,11 @@ function AtlassianOAuthSession({projectId,product,onApproved,onWorkingChange}:Pr
   const access=capabilities.isSuccess&&!capabilities.isFetching&&capabilities.data.clerkActorId===userId?capabilities.data:null;
   const readable=!!access?.canConnect&&mine.isSuccess&&!mine.isFetching&&!mine.isPaused;
   const row=readable&&current.isSuccess&&!current.isFetching&&!current.isPaused?current.data:null;
+  async function refreshAccessViews(){
+    const reads:Promise<unknown>[]=[current.refetch(),mine.refetch()];
+    if(product==="jira")reads.push(utils.jiraConnections.mine.invalidate({projectId}));
+    await Promise.allSettled(reads);
+  }
   async function load(after:number|string|null=null){
     if(!id||busy)return;setLoading(true);setMessage("");
     try{const result=await utils.atlassianConnections.catalog.fetch({id,after});if(!alive.current)return;setListing(result);if(result.reset)setSelected({});pending.current=null;setPendingHeld(false);setMetadataConsent(false);setScopeConsent(false);await current.refetch();}
@@ -75,7 +80,7 @@ function AtlassianOAuthSession({projectId,product,onApproved,onWorkingChange}:Pr
           }}>{pendingHeld?"Check save":"Approve"}</button>
         </>}
       </>}
-      {row.canRefresh&&<IconButton label="Refresh access" tooltip="Renew this Atlassian sign-in without adding projects or spaces." icon="refresh" disabled={busy||pendingHeld} onClick={async()=>{try{await renew.mutateAsync({id});setListing(null);setSelected({});setMetadataConsent(false);setScopeConsent(false);await current.refetch();}catch{setMessage("Refresh unconfirmed. Check access before reconnecting.");await current.refetch();}}}/>}
+      {row.canRefresh&&<IconButton label="Refresh access" tooltip="Renew this Atlassian sign-in without adding projects or spaces." icon="refresh" disabled={busy||pendingHeld} onClick={async()=>{try{await renew.mutateAsync({id});setListing(null);setSelected({});setMetadataConsent(false);setScopeConsent(false);}catch{setMessage("Refresh unconfirmed. Check access before reconnecting.");}finally{await refreshAccessViews();}}}/>}
       {!["DISCONNECTED","DISCONNECTING","CANCELLED"].includes(row.status)&&<button type="button" className="btn-secondary" disabled={busy} onClick={()=>setRemoving(id)}>Disconnect</button>}
       {removing===id&&<div role="group" aria-label="Disconnect Atlassian"><p>Stop Vaettir access? Saved evidence stays. Remove the app in Atlassian to revoke its provider permission.</p><button type="button" disabled={busy} onClick={async()=>{try{await disconnect.mutateAsync({id,confirmed:true});pending.current=null;setPendingHeld(false);setListing(null);setSelected({});setMetadataConsent(false);setScopeConsent(false);setRemoving("");await current.refetch();await mine.refetch();}catch{setMessage("Disconnect unconfirmed. Check access and retry.");}}}>Disconnect</button><button type="button" className="btn-secondary" disabled={busy} onClick={()=>setRemoving("")}>Cancel</button></div>}
       {["DISCONNECTED","RECOVERY_REQUIRED"].includes(row.status)&&<a href="https://id.atlassian.com/manage-profile/apps" target="_blank" rel="noopener noreferrer">Manage access</a>}
