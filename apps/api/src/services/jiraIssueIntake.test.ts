@@ -52,6 +52,34 @@ describe("bounded Jira Cloud issue-summary intake", () => {
     respond({ ...page(), issues: [{ ...providerIssue(), fields }] });
     await expect(listJiraIssuePage(credentials, ["10001"], null, { releaseId: "10003" })).rejects.toThrow("out-of-scope");
   });
+  it("suggests untagged cases from specific title overlap while retaining explicit tag precedence", () => {
+    const issue = { ...expectedIssue(), title: "Password reset email delivery", labels: ["mail"] };
+    const result = suggestJiraReleaseChecks(issue, null, [
+      { id: "title", title: "Verify password-reset email delivery", tags: [] },
+      { id: "label", title: "Email failure", tags: ["mail"] },
+      { id: "key", title: "Previous regression", tags: ["SYN-1"] },
+      { id: "unrelated", title: "Verify profile update", tags: [] },
+    ]);
+    expect(result.cases).toEqual([
+      { id: "key", title: "Previous regression", matches: ["syn-1"] },
+      { id: "label", title: "Email failure", matches: ["mail"] },
+      { id: "title", title: "Verify password-reset email delivery", matches: ["Title: password, reset, email, delivery"] },
+    ]);
+    expect(result.fromJira).toBe(false);
+  });
+
+  it("does not suggest cases from generic wording, one shared term, or a minority of specific terms", () => {
+    const issue = { ...expectedIssue(), title: "Verify password reset email delivery" };
+    expect(suggestJiraReleaseChecks(issue, null, [
+      { id: "generic", title: "Verify expected behavior", tags: [] },
+      { id: "one", title: "Password strength validation", tags: [] },
+      { id: "weak", title: "Password reset profile avatar preferences", tags: [] },
+    ]).cases).toEqual([]);
+    expect(suggestJiraReleaseChecks({ ...issue, title: "Verify expected behavior" }, null, [
+      { id: "empty", title: "Verify expected behavior", tags: [] },
+    ]).cases).toEqual([]);
+  });
+
   it("retains reviewed project JQL and site links while reading through the OAuth gateway",async()=>{
     respond();const cloudId="01234567-89ab-cdef-0123-456789abcdef";
     await expect(listJiraIssuePage({kind:"oauth",siteUrl:credentials.siteUrl,cloudId,accessToken:"synthetic-oauth",accountId:"synthetic-account",accountName:"Synthetic"},["10001"])).resolves.toEqual({issues:[expectedIssue()],nextPageToken:null});

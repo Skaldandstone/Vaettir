@@ -3,8 +3,10 @@ import {afterEach,beforeEach,describe,expect,it,vi} from "vitest";
 import {prisma,type OrgRole,type SeatType} from "@vaettir/db";
 import {jiraConnectionsRouter} from "./routers/jiraConnections.js";
 import {listJiraProjects,listJiraReleases} from "./services/jiraSourceConnection.js";
+import {listJiraIssuePage} from "./services/jiraIssueIntake.js";
 import {decryptToken,encryptToken,type EncryptedToken} from "./services/tokenEncryption.js";
 vi.mock("./services/jiraSourceConnection.js",async original=>({...await original<typeof import("./services/jiraSourceConnection.js")>(),listJiraProjects:vi.fn(),listJiraReleases:vi.fn()}));
+vi.mock("./services/jiraIssueIntake.js",async original=>({...await original<typeof import("./services/jiraIssueIntake.js")>(),listJiraIssuePage:vi.fn()}));
 const url=process.env.DATABASE_URL?new URL(process.env.DATABASE_URL):null;
 const isolated=url&&["localhost","127.0.0.1"].includes(url.hostname)&&/test/i.test(url.pathname)&&!url.searchParams.has("host");
 const workspace={id:"https://synthetic.atlassian.net",name:"https://synthetic.atlassian.net"};const account={id:randomUUID(),name:"Synthetic account"};
@@ -58,6 +60,23 @@ describe.skipIf(!isolated)("Jira native metadata connection",()=>{
     expect(row.approvedProjects).toEqual([]);expect(await prisma.requirement.count({where:{projectId}})).toBe(0);
     await owner.approve({id:row.id,version:result.version,projectIds:[projectA.id],requestId:randomUUID(),approved:true});
     expect((await owner.mine({projectId}))[0]!.approvedProjects).toEqual([projectA]);
+  });
+  it("finds untagged title matches without exposing other projects, archived or unapproved cases",async()=>{
+    const first=await ready();
+    await owner.approve({id:first.id,version:first.version,projectIds:[projectA.id],requestId:randomUUID(),approved:true});
+    const other=await prisma.project.create({data:{organizationId:orgId,name:"Other project",slug:randomUUID()}});
+    const base={title:"Password-reset email delivery",given:["A synthetic account"],when:["Reset is requested"],then:["Email arrives"],tags:[],testType:"FUNCTIONAL" as const};
+    const match=await prisma.testCase.create({data:{...base,projectId}});
+    await prisma.testCase.createMany({data:[
+      {...base,projectId:other.id}, {...base,projectId,archived:true},
+      {...base,projectId,reviewStatus:"PENDING_REVIEW"},
+    ]});
+    vi.mocked(listJiraIssuePage).mockResolvedValue({issues:[{id:"11001",projectId:projectA.id,key:"SYNTA-1",title:"Password reset email delivery",status:"Open",url:`${workspace.id}/browse/SYNTA-1`,updatedAt:new Date().toISOString()}],nextPageToken:null});
+    const input={projectId,id:first.id,jiraProjectId:projectA.id,releaseId:"10003",approveIssueRead:true as const};
+    expect((await owner.releasePlanPreview(input)).tickets[0]?.cases.map(candidate=>candidate.id)).toEqual([match.id]);
+    await expect(outsider.releasePlanPreview(input)).rejects.toMatchObject({code:"NOT_FOUND"});
+    vi.mocked(listJiraIssuePage).mockResolvedValue({issues:[],nextPageToken:null});
+    expect((await owner.releasePlanPreview(input)).tickets).toEqual([]);
   });
   it("binds metadata and approval to actor and tenant",async()=>{
     const result=await ready();for(const caller of [editor,outsider]){

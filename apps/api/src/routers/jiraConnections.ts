@@ -8,7 +8,7 @@ import {jiraCatalogSchema,jiraProjectSchema,listJiraProjects,listJiraReleases} f
 import {jiraOAuthCredentials,atlassianStorageReady,disconnectAtlassian} from "../services/atlassianOAuthConnection.js";
 import {atlassianApplication} from "../services/atlassianOAuth.js";
 import {listJiraIssuePage} from "../services/jiraIssueIntake.js";
-import {jiraPlanningTags,suggestJiraReleaseChecks} from "../services/jiraReleasePlanning.js";
+import {jiraPlanningTags,jiraPlanningTitleTerms,suggestJiraReleaseChecks} from "../services/jiraReleasePlanning.js";
 
 const projectInput=z.object({projectId:z.string()});
 const cursor=z.number().int().min(1).max(1000000);
@@ -111,12 +111,17 @@ export const jiraConnectionsRouter=router({
     }
     const rows=[...issues.values()];
     const tags=[...new Set(rows.flatMap(({issue})=>jiraPlanningTags(issue)))];
+    const titleTerms=[...new Set(rows.flatMap(({issue})=>jiraPlanningTitleTerms(issue.title)))];
+    const titleArray=titleTerms.length ? Prisma.sql`ARRAY[${Prisma.join(titleTerms)}]::text[]` : Prisma.sql`ARRAY[]::text[]`;
+    const tagMatch=tags.length ? Prisma.sql`EXISTS (SELECT 1 FROM unnest("tags") AS tag(value)
+          WHERE lower(btrim(tag.value)) IN (${Prisma.join(tags)}))` : Prisma.sql`FALSE`;
     const candidates=tags.length ? await ctx.prisma.$queryRaw<Array<{id:string;title:string;tags:string[]}>>`
       SELECT "id", "title", "tags" FROM "TestCase"
       WHERE "projectId" = ${input.projectId} AND NOT "archived" AND "reviewStatus" = 'APPROVED'
-        AND EXISTS (SELECT 1 FROM unnest("tags") AS tag(value)
-          WHERE lower(btrim(tag.value)) IN (${Prisma.join(tags)}))
-      ORDER BY "id" LIMIT 2001
+        AND (${tagMatch} OR (SELECT count(DISTINCT word) FROM
+          unnest(regexp_split_to_array(lower("title"), '[^[:alnum:]]+')) AS terms(word)
+          WHERE word = ANY(${titleArray})) >= 2)
+      ORDER BY ${tagMatch} DESC, "id" LIMIT 2001
     ` : [];
     await authorize();
     return {

@@ -6,6 +6,12 @@ type Candidate = { id: string; title: string; tags: string[] };
 type AdfNode = { type?: unknown; text?: unknown; content?: unknown };
 const criteriaHeading = /^acceptance (?:criteria|checks)\s*[:–-]?\s*(.*)$/i;
 const normalize = (value: string) => value.trim().toLowerCase();
+const genericTitleWords = new Set("a an and are as at be by can case check checks for from has have in is it of on or should test tests that the then this to verify when with bug defect fix issue expected behavior".split(" "));
+
+export function jiraPlanningTitleTerms(title: string) {
+  return [...new Set(normalize(title).split(/[^\p{L}\p{N}]+/u)
+    .filter(term => term.length >= 3 && !genericTitleWords.has(term)))].slice(0, 24);
+}
 
 function nodes(value: unknown): AdfNode[] {
   return Array.isArray(value)
@@ -52,11 +58,20 @@ export function jiraPlanningTags(issue: Issue) {
 
 export function suggestJiraReleaseChecks(issue: Issue, description: unknown, candidates: Candidate[]) {
   const tags = new Set(jiraPlanningTags(issue));
+  const titleTerms = new Set(jiraPlanningTitleTerms(issue.title));
   const cases = candidates.flatMap(candidate => {
     const matches = [...new Set(candidate.tags.map(normalize).filter(tag => tags.has(tag)))];
-    return matches.length ? [{ id: candidate.id, title: candidate.title, matches }] : [];
+    const candidateTerms = jiraPlanningTitleTerms(candidate.title);
+    const overlap = candidateTerms.filter(term => titleTerms.has(term));
+    const titleMatch = overlap.length >= Math.max(2, Math.ceil(Math.min(titleTerms.size, candidateTerms.length) * .75));
+    return matches.length || titleMatch ? [{
+      id: candidate.id, title: candidate.title,
+      matches: matches.length ? matches : [`Title: ${overlap.join(", ")}`],
+      tagCount: matches.length, titleCount: overlap.length,
+    }] : [];
   }).sort((left, right) => Number(right.matches.includes(normalize(issue.key))) -
-    Number(left.matches.includes(normalize(issue.key))) || right.matches.length - left.matches.length);
+    Number(left.matches.includes(normalize(issue.key))) || right.tagCount - left.tagCount || right.titleCount - left.titleCount)
+    .map(({ id, title, matches }) => ({ id, title, matches }));
   const checks = releaseAcceptanceChecks(description);
   const bug = /^(bug|defect)$/i.test(issue.issueType ?? "");
   return {
