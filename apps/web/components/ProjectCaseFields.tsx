@@ -268,12 +268,7 @@ function FieldDefinitions({ projectId }: { projectId: string }) {
           </p>
         ) : (
           <>
-            <p>
-              Typed metadata for this project&apos;s cases, separate from
-              test-plan fields. Saved keys, types and choices stay stable, even
-              after values are cleared; retire fields instead of deleting their
-              values.
-            </p>
+            <p>Manage project case fields. Retire fields you no longer need. <a className="inline-help" href="/guide#settings" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
             {notice && <p role="alert">{notice}</p>}
             {!baseline && !pending && (
               <p role="status">Loading current definitions…</p>

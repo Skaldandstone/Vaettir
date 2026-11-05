@@ -19,12 +19,7 @@ export function CaseDesignGuide() {
   return (
     <details style={{ minWidth: 0, marginBlock: 12 }}>
       <summary>Help design this test</summary>
-      <p className="text-muted">
-        Choose a workflow for advisory prompts. Nothing is inferred from your
-        project or written into case fields. Checklist marks are local, not
-        saved evidence, execution status or approval; they reset when this guide
-        unmounts.
-      </p>
+      <p className="text-muted">Choose a workflow for writing guidance. Checklist marks stay in this tab. <a className="inline-help" href="/guide#cases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
       <div
         style={{
           display: "grid",

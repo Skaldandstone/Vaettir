@@ -143,7 +143,7 @@ test("library configuration stays mounted through close, sends only retained sco
     modal,
     /!access.ready \|\| !completion.authorized \|\| !native \?/,
   );
-  assert.match(modal, /Private configuration is hidden/);
+  assert.match(modal, /Restore editor access to this workspace/);
   assert.match(
     modal,
     /disabled=\{\s*busy \|\| refreshing \|\| !completion.canEdit/,

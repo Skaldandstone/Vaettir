@@ -20,7 +20,7 @@ test("unknown risk UUID baseline and human draft remain retained through current
   assert.ok(source.includes("const request = pending ?? { ...structuredClone(input), expectedScope:")); assert.ok(source.includes("retainSavedQueryRequest(recovery, error)"));
   assert.ok(source.includes("if (mutation.isPending || !writeReady) return"));
   assert.ok(source.includes("formVisible && mode !== \"VIEW\" && <fieldset"));
-  assert.ok(source.includes("Your fields and any exact unconfirmed request are retained without rebasing"));
+  assert.ok(source.includes("Your draft is retained"));
   assert.ok(source.includes("Recheck current baseline without replacing draft"));
   const originEffect = source.slice(source.indexOf("useEffect(() =>"), source.indexOf("const identityChanged"));
   for (const setter of ["setPending", "setDefinition", "setReview", "setBaseline"]) assert.ok(!originEffect.includes(setter));

@@ -39,7 +39,7 @@ function ProjectTagHubView({ projectId, tag }: { projectId: string; tag: string 
   function restart() { setPages([]); setRefresh(value => value + 1); }
   return <main>
     <h1>Tag associations</h1>
-    <p>Find saved cases with an exact tag and the records linked through those cases. Linked records do not acquire the tag, and current tags do not describe historical run evidence.</p>
+    <p>Find cases by tag and explore their linked records. <a className="inline-help" href="/guide#cases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
     <form onSubmit={event => { event.preventDefault(); router.push(projectTagHref(projectId, draftTag)); }}>
       <label htmlFor="project-tag-search">Exact tag text</label>
       <textarea id="project-tag-search" rows={2} value={draftTag} onChange={event => setDraftTag(event.target.value)} style={{ maxWidth: 640, width: "100%", display: "block" }} />

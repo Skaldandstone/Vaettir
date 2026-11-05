@@ -186,12 +186,8 @@ function Comparison({ projectId }: { projectId: string }) {
   return (
     <section style={{ minWidth: 0 }}>
       <h1>Recorded run comparison</h1>
-      <p>
-        Compare stored non-manual run observations. This is not a regression or
-        flakiness classifier. Provider, branch and commit labels do not prove
-        equivalent tests or configurations.
-      </p>
-      {!ready ? <div role="alert"><p>Current original-organization membership and signed-in actor must be verified before run choices or evidence can be shown. Your baseline, candidate and page selections remain retained, not rebound to another account.</p><ActionButton type="button" onClick={() => void retryAccess()} tooltip={<> Recheck original comparison access </>}> Refresh </ActionButton></div> : catalog.error ? (
+      <p>Compare recorded run results. Check that the tests and configurations are comparable. <a className="inline-help" href="/guide#reports" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
+      {!ready ? <div role="alert"><p>Restore access to this workspace to view run results. Your selections are retained. <a className="inline-help" href="/guide#reports" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p><ActionButton type="button" onClick={() => void retryAccess()} tooltip={<> Recheck original comparison access </>}> Refresh </ActionButton></div> : catalog.error ? (
         <p role="alert">
           Current run access could not be verified. Cached run choices and
           comparisons are withheld.{" "}

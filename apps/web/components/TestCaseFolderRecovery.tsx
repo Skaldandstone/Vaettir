@@ -260,11 +260,7 @@ export function TestCaseFolderRecovery({
           </div>
         ) : !reviewId ? (
           <div style={{ display: "grid", gap: 12, minWidth: 0 }}>
-            <p>
-              Choose a recent rename or move (latest 25 receipts). Recovery
-              restores placement only, as a new reviewed operation. It never
-              replaces test steps, deletes history or changes existing runs.
-            </p>
+            <p>Choose a recent folder change to restore. <a className="inline-help" href="/guide#cases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
             <label>
               Folder operation
               <select

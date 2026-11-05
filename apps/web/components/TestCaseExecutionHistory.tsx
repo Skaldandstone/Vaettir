@@ -356,9 +356,7 @@ function History({ projectId, testCaseId, active }: { projectId: string; testCas
               {applied.runStatus && ` · Overall run: ${overallStatuses.find(item => item.value === applied.runStatus)?.label}`}
               {(["platform", "build", "environment"] as const).filter(key => applied[key]).map(key => ` · Exact recorded ${key}: ${applied[key]}`).join("")}. Observed {page.observedAt && new Date(page.observedAt).toLocaleString()}.</p>
             {!page.items.length ? (
-              <p>
-                No linked or planned executions match this applied scope. Missing or unsupported manual configuration and CI imports are not substituted when configuration filters are selected.
-              </p>
+              <p>No runs match these filters. Try a wider scope. <a className="inline-help" href="/guide#runs" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
             ) : (
               <div style={{ display: "grid", gap: 12 }}>
                 {page.items.map((item) => (
@@ -449,7 +447,7 @@ function History({ projectId, testCaseId, active }: { projectId: string; testCas
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(min(180px,100%),1fr))", gap: 12 }}>
             {(["start", "end"] as const).map(key => <label key={key} style={{ display: "grid", gap: 6, minWidth: 0 }}>UTC {key} date<input type="date" style={{ width: "100%", boxSizing: "border-box", minWidth: 0 }} value={filterDraft[key]} max={new Date().toISOString().slice(0, 10)} onChange={event => setFilterDraft(value => ({ ...value, [key]: event.target.value }))} /></label>)}
           </div>
-          <details style={{ marginBlock: 12 }}><summary>Exact recorded manual configuration</summary><p>Only complete supported selected-case manual snapshots match. CI commits are not treated as build, platform or environment evidence. Match literal text including case and whitespace.</p>
+          <details style={{ marginBlock: 12 }}><summary>Exact recorded manual configuration</summary><p>Filters match the recorded configuration exactly. <a className="inline-help" href="/guide#runs" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
             {(["platform", "build", "environment"] as const).map(key => <label key={key} style={{ display: "grid", gap: 6, minWidth: 0, marginBlock: 12 }}>Recorded {key}<input style={{ width: "100%", boxSizing: "border-box", minWidth: 0 }} value={filterDraft[key]} maxLength={key === "environment" ? 2000 : 300} onChange={event => setFilterDraft(value => ({ ...value, [key]: event.target.value }))} /></label>)}
           </details>
           {filterDraft.recordedSource === "CI_IMPORT" && !!(filterDraft.platform || filterDraft.build || filterDraft.environment) && <p role="note">Exact manual configuration filters exclude imported providers. This combined scope will have no matching runs; clear configuration fields to review imported runs.</p>}

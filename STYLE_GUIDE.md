@@ -232,3 +232,9 @@ The rest of this document remains the historical marketing identity reference, n
 - Project connection uses explicit project-choice cards beside a concise permission summary, with the verified destination visible. Do not simplify away consent, account/session boundaries, exact retries or revocation recovery.
 - Quality Intelligence uses native Atlassian design-token surfaces, labeled metric cards and outcome charts. No outcomes means an explicit unassessed empty state, not a fabricated donut or zero-denominator completion bar. Keep capture date, live/frozen distinction and essential evidence boundaries visible; detailed definitions have a named disclosure.
 - Check actual rendered light/dark, desktop/narrow and short-height states. The first shared pass is not whole-product visual acceptance. Source tests, browser fixtures with synthetic auth, native-host rendering and owner acceptance remain distinct.
+
+### Workflow copy, November 4, 2026
+
+- Keep action labels to one or two words. Use visible button surfaces and functional icons, with hover and keyboard tooltips for added context.
+- Show the task, current result and next action first. Put extended instructions in the clickable Guide and supporting record details in disclosures.
+- Keep data-sharing consent, destructive-action effects and actionable errors visible where the decision is made.

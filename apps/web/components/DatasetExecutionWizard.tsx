@@ -449,12 +449,7 @@ export function DatasetExecutionWizard({
                 imported-code execution or automatic test execution is used.
                 This creates manual run records only.
               </p>
-              <p>
-                Each row is a separate run, not multiple instances inside one
-                legacy run. A prerequisite pass in another row or configuration
-                never unlocks this row. Procedures and parameter values are
-                saved at start.
-              </p>
+              <p>Each dataset row starts a separate run. <a className="inline-help" href="/guide#runs" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
               <label
                 style={{ display: "flex", gap: 8, alignItems: "flex-start" }}
               >

@@ -337,11 +337,7 @@ export function PopulationWizard({
                     "None selected"}
                 </dd>
               </dl>
-              <p>
-                Saving retains your setup choices only. It does not generate or
-                import records, overwrite approved work, or spend AI credits.
-                Discovery and generation require a separate reviewed action.
-              </p>
+              <p>Save these setup choices. Import or generation is a separate step. <a className="inline-help" href="/guide#settings" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
             </>
           )}
         </CreationWizard>

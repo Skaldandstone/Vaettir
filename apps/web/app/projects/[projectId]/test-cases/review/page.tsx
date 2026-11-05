@@ -20,7 +20,7 @@ function ReviewQueueSession({projectId}:{projectId:string}){
   const page=queue.fresh;
   return <main style={{maxWidth:1100}}>
     <a className="btn-secondary" href={`/projects/${projectId}/test-cases`}>← Test cases</a><h1>Review queue</h1>
-    <p>Active pending cases only. Approved cases belong in the repository; rejected and archived cases remain retained outside this queue. Browsing pages never selects or approves hidden cases.</p>
+    <p>Review pending cases here. <a className="inline-help" href="/guide#cases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
     <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
       <label>Search pending cases<input type="search" maxLength={200} value={queue.freshAccess?queue.filter.search:""} disabled={!queue.freshAccess} onChange={event=>queue.setSearch(event.target.value)} placeholder="Case ID, title or source path"/></label>
       <label>Sort<select value={queue.filter.sort} disabled={!queue.freshAccess} onChange={event=>queue.setSort(event.target.value as typeof queue.filter.sort)}><option value="confidence">Lowest known confidence</option><option value="case-id">Case ID</option><option value="title">Title</option></select></label>
@@ -40,6 +40,6 @@ function ReviewQueueSession({projectId}:{projectId:string}){
     {/* Editors stay mounted when closed or their current reader disappears. No
         request is silently rebased, discarded or recreated by another page. */}
     {opened.map(item=>{const active=item.projectId===projectId&&selected===item.caseId&&!!queue.freshAccess;return <div key={`${item.projectId}:${item.caseId}`} hidden={!active} ref={node=>{if(node)node.inert=!active;}}><CaseReviewDecision projectId={item.projectId} caseId={item.caseId} active={active} readOnly={!queue.freshAccess?.canRecover} onSaved={refresh} onRelease={()=>releaseAcknowledged(item)}/></div>;})}
-    <details><summary>Details</summary><p className="text-muted">Retained requests survive closing this mounted view and temporary access changes. Reload/route-away recovery, bulk decisions and additional relationship review contexts are not provided by this slice.</p></details>
+    <details><summary>Details</summary><p className="text-muted">Keep this page open until your review is saved. <a className="inline-help" href="/guide#cases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p></details>
   </main>;
 }

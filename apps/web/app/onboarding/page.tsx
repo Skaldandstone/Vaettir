@@ -59,13 +59,13 @@ function AccessPanel({
       ? {
           icon: "alert" as const,
           title: "This beta invitation is no longer active",
-          body: "Workspace creation is paused for this account. Ask the person who invited you to review the enrollment before trying again.",
+          body: "Ask the person who invited you to renew access.",
         }
       : status === "CLAIMED"
         ? {
             icon: "alert" as const,
             title: "This invitation has already been used",
-            body: "The owner invitation is linked to a workspace, but this account does not currently have workspace access. Beta support can restore the correct membership without creating a duplicate organization.",
+            body: "Ask your workspace owner to restore access.",
           }
         : {
             icon: "people" as const,
@@ -73,8 +73,8 @@ function AccessPanel({
               ? "Reserve your owner workspace"
               : "Your demo account is ready",
             body: canManageEnrollments
-              ? "This is the approved full-access owner account. Reserve the private workspace before creating it."
-              : "You can explore Vaettir's sales demo now. Customer workspaces, AI actions, integrations, imports, and administrative controls require explicit access.",
+              ? "Reserve your workspace to continue."
+              : "Explore the demo or open your team’s invitation.",
           };
 
   return (

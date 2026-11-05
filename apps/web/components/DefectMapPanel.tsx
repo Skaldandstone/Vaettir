@@ -1036,11 +1036,7 @@ export default function DefectMapPanel({ projectId }: { projectId: string }) {
           )}
           {importStep === "export" && (
             <>
-              <p>
-                Native provider exports must be normalized to Vaettir&apos;s
-                metadata schema first. Up to 100 signal summaries, 100 tasks and
-                20 explicit source scopes per batch; below 150 KB.
-              </p>
+              <p>Use Vaettir’s export format: up to 100 signals, 100 tasks and 20 scopes per batch, under 150 KB. <a className="inline-help" href="/guide#defects" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
               <ActionButton
                 type="button"
                 className="btn-secondary"

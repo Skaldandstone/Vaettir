@@ -551,9 +551,7 @@ export default function TestCaseForm({
 
       <details open={presentation.procedureFormat === "GHERKIN" || presentation.procedureFormat === "MIXED" || value.given.length > 0 || value.when.length > 0 || value.then.length > 0} style={{ marginTop: 24 }}>
       <summary>Optional Given / When / Then</summary>
-      <p style={{ color: "var(--muted)", fontSize: 13, margin: "0 0 14px" }}>
-        Use scenario phrasing if it suits this project, or write a procedure below. Given/When/Then is not required. Existing scenario text is retained when you choose a different layout.
-      </p>
+      <p style={{ color: "var(--muted)", fontSize: 13, margin: "0 0 14px" }}>Write steps or use Given, When and Then. <a className="inline-help" href="/guide#cases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(240px, 100%), 1fr))", gap: 16 }}>
         <StringListEditor label="Given" items={value.given} onChange={(given) => setValue((v) => ({ ...v, given }))} />
         <StringListEditor label="When" items={value.when} onChange={(when) => setValue((v) => ({ ...v, when }))} />

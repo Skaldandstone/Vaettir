@@ -26,7 +26,7 @@ test("query scope/columns are disclosed separate from saved views, selection, bu
   for (const text of [
     "Save personal or shared criteria",
     "existing table views and selections stay unchanged",
-    "Existing saved views, selected cases, bulk",
+    "Build a query, then apply it to your case list.",
     "caseQuerySchema.safeParse",
     "crypto.randomUUID()",
     "Query cases",

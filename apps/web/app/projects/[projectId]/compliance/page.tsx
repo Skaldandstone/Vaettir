@@ -352,12 +352,7 @@ function ControlEvidenceDrawer({
           <h3 style={{ marginTop: 24, marginBottom: 6 }}>Request a sign-off</h3>
           <details>
             <summary>Details</summary>
-            <p className="text-muted" style={{ fontSize: 12, marginTop: -4 }}>
-              Ask another Compliance Auditor (or Admin/Owner) to sign off - they
-              get a push notification on the mobile app, and it's automatically
-              marked done the moment they actually sign off for this same
-              period.
-            </p>
+            <p className="text-muted" style={{ fontSize: 12, marginTop: -4 }}>Request sign-off from an auditor, admin or owner. <a className="inline-help" href="/guide#compliance" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
           </details>
           <div
             style={{

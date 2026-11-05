@@ -12,7 +12,7 @@ test("advisory checklist uses native selects and local marks without case mutati
   assert.ok(guide.includes("Choose a workflow"));
   assert.ok(guide.includes("caseDesignStages.map"));
   assert.ok(guide.includes('type="checkbox"'));
-  assert.ok(guide.includes("local, not saved evidence"));
+  assert.ok(guide.includes("/guide#cases"));
   assert.ok(guide.includes("No readiness score"));
   for (const forbidden of [
     "trpcReact",

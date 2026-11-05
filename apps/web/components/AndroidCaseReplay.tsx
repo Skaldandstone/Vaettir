@@ -563,12 +563,7 @@ export function AndroidCaseReplay(props: Props) {
                         setTicket(null);
                     }} style={{ width: "100%", fontFamily: "monospace" }}/>
                   </label>
-                  <p>
-                    Only TAP and exact VISIBLE_LABEL assertions are supported.
-                    Supply real locators from the selected app; no bounds-only
-                    or invented selectors. An assertion checks this visible
-                    label, not every business rule in the case.
-                  </p>
+                  <p>Replay supports taps and visible-label checks. Use selectors from your app. <a className="inline-help" href="/guide#live-apps" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
                   </details>
                   <details>
                     <summary>App requests</summary>
@@ -690,15 +685,7 @@ export function AndroidCaseReplay(props: Props) {
                   </p>
                   <details>
                     <summary>Review changes</summary>
-                    <p>
-                      Append the reviewed technical evidence below to each
-                      step’s action, create a new version and audit receipt, and
-                      return ordinary case approval to pending. Expected
-                      results, responses, other fields and original source
-                      provenance are preserved. The saved action evidence
-                      becomes context for the existing UI Automator draft
-                      option; no draft is generated or charged here.
-                    </p>
+                    <p>Add this evidence to a new case version. The case returns to review. <a className="inline-help" href="/guide#live-apps" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
                     <pre style={{ whiteSpace: "pre-wrap" }}>
                       {JSON.stringify({
                         actions: run.receipts.map((r, i) => androidReplayPatchedAction(selected!.steps[i]!.action, run.id, r, network, patchRequestId, networkCorrelation)),

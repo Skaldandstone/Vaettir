@@ -972,14 +972,7 @@ function Analysis({ projectId, selectedIds, onCompleted, buttonLabel = "Analyze 
                 <p>No saved analysis queues yet.</p>
               )}
             </details>
-            <p>
-              <small>
-                Unconfirmed local requests are retained while this module stays
-                mounted. Reloading or leaving the project may lose an
-                unsubmitted local draft; saved server jobs remain in the
-                original account.
-              </small>
-            </p>
+            <p>Keep this page open to retain unsaved drafts. Saved jobs remain available. <a className="inline-help" href="/guide#cases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
           </>
         )}
       </Modal>

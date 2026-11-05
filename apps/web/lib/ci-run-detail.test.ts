@@ -307,7 +307,7 @@ it("private-reader loss removes all private rows/header/source/counts and keeps 
   ])
     expect(html).not.toContain(privateText);
   expect(html).toContain("withheld");
-  expect(html).toContain("Explicitly refresh");
+  expect(html).toContain("Refresh access to view the run");
   h.button("Refresh current native access").props.onClick!();
   expect(h.refresh).toHaveBeenCalledOnce();
 });

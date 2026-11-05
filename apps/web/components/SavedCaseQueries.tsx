@@ -257,11 +257,7 @@ export function useSavedCaseQueries({
   return (
     <details style={{ marginBlock: 16 }}>
       <summary>Saved queries and column layouts</summary>
-      <p className="text-muted">
-        Personal definitions belong to their creator. Shared definitions are
-        visible to current project members. A full editor seat is required to
-        save changes. Loading never changes cases or existing table selection.
-      </p>
+      <p className="text-muted">Save a personal query or share it with your project. <a className="inline-help" href="/guide#cases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
       {scopeReady && (
         <fieldset
           disabled={frozen}
@@ -591,12 +587,7 @@ export function useSavedCaseQueries({
                 </select>
               </label>
               {visibility === "SHARED" && (
-                <p>
-                  Other current project members can load these conditions and
-                  column labels. Do not put secrets or restricted source text in
-                  them. Full editors can edit shared definitions; only their
-                  creator can make them personal.
-                </p>
+                <p>Project members can use this shared query. Full editors can change it. <a className="inline-help" href="/guide#cases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
               )}
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                 <ActionButton

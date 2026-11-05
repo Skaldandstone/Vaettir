@@ -252,11 +252,7 @@ function AutomationDraftSection({
           request is blocked.
         </p>
       )}
-      <details><summary>Details</summary><p className="text-muted" style={{ fontSize: 13, margin: "5px 0 12px" }}>
-        Turn this reviewed case into framework-specific source. Vaettir returns
-        a draft for human review and never writes to your repository or claims
-        that the source was executed.
-      </p></details>
+      <details><summary>Details</summary><p className="text-muted" style={{ fontSize: 13, margin: "5px 0 12px" }}>Generate an automation draft for review. <a className="inline-help" href="/guide#automation" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p></details>
       {!readOnly && !saved.data && !saved.isLoading && !saved.error && (
         <details>
           <summary>Prepare an automation draft</summary>
@@ -808,7 +804,7 @@ function DatasetSection({
 
       {editing && (
         <fieldset disabled={saving || Boolean(readOnly)} style={{ marginTop: 8, border: 0, padding: 0, minWidth: 0 }}>
-          <details><summary>Details</summary><p className="text-muted">Add parameters as columns, then enter one set of values per row. For example, use &lt;username&gt; in an action and supply different usernames below. This edits data only; it does not start a run.</p></details>
+          <details><summary>Details</summary><p className="text-muted">Add parameter columns and one set of values per row. <a className="inline-help" href="/guide#cases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p></details>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "end", marginBottom: 12 }}>
             <label style={{ display: "grid", gap: 4 }}>Parameter name<input value={parameterDraft} onChange={event => setParameterDraft(event.target.value)} placeholder="e.g. username" maxLength={120}/></label>
             <button type="button" className="btn-secondary" disabled={!parameterDraft.trim()} onClick={addParameter}>Add parameter</button>
@@ -1426,7 +1422,7 @@ function TestCaseInspector({
         {tc.steps.length > 0 && (
           <section className="case-step-table">
             <h3>Steps</h3>
-            <details><summary>Details</summary><p className="text-muted">Each row pairs the tester’s action with its technical behavior, expected visible result and expected response. A parameter dataset is separate from these per-step descriptors.</p></details>
+            <details><summary>Details</summary><p className="text-muted">Describe each action and its expected result. <a className="inline-help" href="/guide#cases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p></details>
             <table style={{ borderCollapse: "collapse", width: "100%" }}>
               <thead>
                 <tr>
@@ -1572,11 +1568,7 @@ function TestCaseInspector({
               <summary>
                 Saved AI risk suggestions ({riskReviews.data.length})
               </summary>
-              <p style={{ color: "var(--muted)" }}>
-                Previous paid suggestions remain available, including when a
-                case was edited before one could be applied. Viewing them does
-                not replace the current assessment or use credits.
-              </p>
+              <p style={{ color: "var(--muted)" }}>Open earlier suggestions without using more credits. <a className="inline-help" href="/guide#cases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
               {riskReviews.data.map((review) => {
                 return (
                   <article

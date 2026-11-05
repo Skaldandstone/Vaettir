@@ -101,10 +101,7 @@ function BackfillSection({ projectId, defaultBranch }: { projectId: string; defa
   return (
     <div className="panel" style={{ marginBottom: 20 }}>
       <h2 style={{ marginTop: 0 }}>Import automated report history</h2>
-      <details><summary>Details</summary><p className="text-muted" style={{ fontSize: 13 }}>
-        Import past JUnit XML reports with their real original dates - not the date you import them - so pass-rate
-        trends, flaky-test detection, and release-to-release charts have real history instead of starting empty.
-      </p></details>
+      <details><summary>Details</summary><p className="text-muted" style={{ fontSize: 13 }}>Import historical results with their original test dates. <a className="inline-help" href="/guide#import" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p></details>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
         <label style={{ fontSize: 13 }}>

@@ -25,10 +25,8 @@ test("wrapper lazy mounts once, uses hide not unmount on collapse and has no dat
   assert.match(wrapper, /<RecordedExecutionTrend projectId=\{projectId\} active=\{opened\}/);
   assert.match(wrapper, /aria-expanded=\{opened\} aria-controls=\{contentId\}/);
   assert.doesNotMatch(wrapper, /useQuery|\.refetch\(|\.mutate\(|runsQuery|setApplied/);
-  assert.match(wrapper, /up to 90 inclusive UTC days/);
-  assert.match(wrapper, /stored run-start timestamps, not individual result observation times/);
-  assert.match(wrapper, /not global manual planned cases, work left or release readiness/);
-  assert.match(wrapper, /current history page/);
+  assert.match(wrapper, /Compare recorded results across a date range/);
+  assert.match(wrapper, /\/guide#runs/);
 });
 
 test("opening a retained reader never implicitly applies date or configuration drafts", () => {
