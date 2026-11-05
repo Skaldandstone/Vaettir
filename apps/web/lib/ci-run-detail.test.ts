@@ -201,6 +201,8 @@ function harness() {
     context = vm.createContext({
       React,
       useState: React.useState,
+      useEffect: React.useEffect,
+      useRef: React.useRef,
       trpcReact: { useUtils: () => ({}) },
       ActionButton: ({ tooltip, ...props }: React.ComponentProps<"button"> & { tooltip: React.ReactNode }) =>
         React.createElement("button", {

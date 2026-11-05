@@ -1,7 +1,7 @@
 "use client";
 
 import { ActionButton } from "@/components/ui/ActionButton";
-import { useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { trpcReact } from "@/lib/trpcReact";
 import { useCiRunDetail } from "../lib/use-ci-run-detail";
 import type { CiRunDetailPage } from "../lib/ci-run-detail-reader";
@@ -63,28 +63,37 @@ function CiOutcomeBadge({ status }: { status: string }) {
 }
 function CiArtifactViewer({ id, type }: { id: string; type: string }) {
   const utils = trpcReact.useUtils();
-  const [url, setUrl] = useState<string>();
+  const [preview, setPreview] = useState<{ url: string; generation: number }>();
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
+  const generation = useRef(0);
+  useEffect(() => () => { generation.current++; }, []);
+  const url = preview?.url;
 
   if (type !== "SCREENSHOT" && type !== "VIDEO") return null;
   const label = type === "SCREENSHOT" ? "Screenshot" : "Video";
 
   async function open() {
+    const request = ++generation.current;
     setLoading(true);
     setFailed(false);
     try {
       const result = await utils.client.testRuns.getArtifactViewUrl.query({ artifactId: id });
-      setUrl(result.viewUrl);
+      if (request === generation.current) setPreview({ url: result.viewUrl, generation: request });
     } catch {
-      setFailed(true);
+      if (request === generation.current) setFailed(true);
     } finally {
-      setLoading(false);
+      if (request === generation.current) setLoading(false);
     }
   }
 
-  function unavailable() {
-    setUrl(undefined);
+  function hide() {
+    generation.current++;
+    setPreview(undefined);
+  }
+  function unavailable(displayed: NonNullable<typeof preview>) {
+    if (displayed.generation !== generation.current) return;
+    hide();
     setFailed(true);
   }
 
@@ -95,20 +104,20 @@ function CiArtifactViewer({ id, type }: { id: string; type: string }) {
         disabled={loading}
         aria-expanded={Boolean(url)}
         tooltip={url ? "Hide evidence" : "View captured " + label.toLowerCase()}
-        onClick={() => url ? setUrl(undefined) : void open()}
+        onClick={() => url ? hide() : void open()}
       >
         {loading ? "Loading…" : url ? "Hide" : label}
       </ActionButton>
       {failed && <p role="status">Evidence unavailable. Try again.</p>}
-      {url && (
+      {preview && (
         <div style={{ marginTop: 8 }}>
           {type === "SCREENSHOT" ? (
             // eslint-disable-next-line @next/next/no-img-element -- private signed URL must stay out of the image optimizer.
-            <img src={url} alt="Captured failure screenshot" referrerPolicy="no-referrer"
-              style={{ display: "block", maxWidth: "100%" }} onError={unavailable} />
+            <img src={preview.url} alt="Captured failure screenshot" referrerPolicy="no-referrer"
+              style={{ display: "block", maxWidth: "100%" }} onError={() => unavailable(preview)} />
           ) : (
-            <video src={url} controls preload="metadata" aria-label="Captured failure video"
-              style={{ display: "block", maxWidth: "100%" }} onError={unavailable} />
+            <video src={preview.url} controls preload="metadata" aria-label="Captured failure video"
+              style={{ display: "block", maxWidth: "100%" }} onError={() => unavailable(preview)} />
           )}
         </div>
       )}
