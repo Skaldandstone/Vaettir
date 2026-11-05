@@ -12,25 +12,25 @@
     "lint": "eslint ."
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1149.0",
-    "@aws-sdk/client-secrets-manager": "^3.1149.0",
-    "@aws-sdk/client-sesv2": "3.1141.0",
-    "@aws-sdk/s3-request-presigner": "^3.1149.0",
-    "@clerk/backend": "^3.23.2",
+    "@aws-sdk/client-s3": "^3.1161.0",
+    "@aws-sdk/client-secrets-manager": "^3.1161.0",
+    "@aws-sdk/client-sesv2": "3.1161.0",
+    "@aws-sdk/s3-request-presigner": "^3.1161.0",
+    "@clerk/backend": "^3.26.5",
     "@fastify/cors": "^11.3.1",
     "@fastify/rate-limit": "^11.2.1",
     "@sentry/node": "^10.73.0",
-    "@trpc/server": "^11.19.0",
+    "@trpc/server": "^11.22.1",
     "@vaettir/ai-agent": "workspace:*",
     "@vaettir/core": "workspace:*",
     "@vaettir/db": "workspace:*",
     "adm-zip": "^0.6.1",
     "fast-xml-parser": "^5.11.2",
     "fastify": "^5.12.6",
-    "jose": "6.2.12",
+    "jose": "6.2.15",
     "minimatch": "^10.2.6",
     "playwright": "^1.64.0",
-    "stripe": "^23.0.0",
+    "stripe": "^23.1.0",
     "zod": "4.6.7"
   },
   "devDependencies": {
@@ -38,6 +38,6 @@
     "@types/node": "22.20.1",
     "tsx": "^4.23.15",
     "typescript": "^6.0.3",
-    "vitest": "^5.0.3"
+    "vitest": "^5.0.5"
   }
 }
