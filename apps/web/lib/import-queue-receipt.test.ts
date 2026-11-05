@@ -24,7 +24,7 @@ function harness(state = "DRAFT") {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.React },
   }).outputText;
   const slots: unknown[] = [];
-  let cursor = 0, fail = false, commits = 0, reads = 0;
+  let cursor = 0, failure: unknown = null, commits = 0, reads = 0;
   const hooks = {
     ...React,
     useState(initial: unknown) {
@@ -44,7 +44,7 @@ function harness(state = "DRAFT") {
   const requests: unknown[] = [];
   const mutation = { useMutation: () => ({ isPending: false, mutateAsync: async (input: unknown) => {
     requests.push(structuredClone(input));
-    if (fail) { fail = false; throw Error("Uncertain response"); }
+    if (failure !== null) { const cause = failure; failure = null; throw cause; }
     return { createdCount: state === "DRAFT" ? 8 : 1, updatedCount: 0, pendingCount: 0 };
   } }) };
   const access = { canEdit: true, origin: { organizationId: "org", clerkActorId: "actor" }, owns: () => access.canEdit };
@@ -67,7 +67,7 @@ function harness(state = "DRAFT") {
     render();
   }
   render();
-  return { access, requests, button, click, failNext: () => { fail = true; },
+  return { access, requests, button, click, failNext: (cause: unknown = Error("Uncertain response")) => { failure = cause; },
     get commits() { return commits; }, get reads() { return reads; },
     html: () => { render(); return renderToStaticMarkup(tree); },
     select: () => { render(); const node = elements(tree).find(n => n.type === "input" && n.props.type === "checkbox")!;
@@ -97,4 +97,25 @@ it("retains the exact request after an uncertain result and hides all details wh
   expect(h.html()).not.toContain("cases are ready");
   h.access.canEdit = false;
   expect(h.html()).toContain("hidden until original access"); expect(h.html()).not.toContain("8 created");
+});
+it.each(["BAD_REQUEST", "CONFLICT"])("a later %s cannot discard an earlier unconfirmed import", async code => {
+  const h = harness(); h.failNext(); await h.click("Import");
+  h.failNext({ data: { code } }); await h.click("Retry");
+  expect(h.button("Revise")).toBeUndefined();
+  expect(h.button("Refresh saved mapping rows")?.props.disabled).toBe(true);
+  await h.click("Retry");
+  expect(h.requests).toHaveLength(3);
+  expect(h.requests[1]).toEqual(h.requests[0]); expect(h.requests[2]).toEqual(h.requests[0]);
+});
+it("a first definite refusal still allows deliberate revision", async () => {
+  const h = harness(); h.failNext({ data: { code: "CONFLICT" } }); await h.click("Import");
+  await h.click("Revise"); expect(h.button("Retry")).toBeUndefined();
+  expect(h.reads).toBe(1); expect(h.requests).toHaveLength(1);
+});
+it("a captured Revise action cannot release a request after a later unknown response", async () => {
+  const h = harness(); h.failNext({ data: { code: "BAD_REQUEST" } }); await h.click("Import");
+  const revise = h.button("Revise")!.props.onClick as () => void;
+  h.failNext(); await h.click("Retry"); revise();
+  expect(h.button("Retry")).toBeDefined(); expect(h.reads).toBe(0);
+  await h.click("Retry"); expect(h.requests[2]).toEqual(h.requests[0]);
 });
