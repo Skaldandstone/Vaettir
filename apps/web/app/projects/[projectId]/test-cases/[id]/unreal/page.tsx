@@ -101,7 +101,7 @@ export default function UnrealPlaytestPage() {
     <main style={{ maxWidth: 900, margin: "0 auto", padding: 24 }}>
       <p><a href={`/projects/${projectId}/test-cases/${id}`}>← Test case</a></p>
       <h1>Unreal playtest</h1>
-      <p style={{ color: "var(--muted)" }}>Technical preview: bind this Vaettir test to one level and ordered objectives from a local Unreal worker&apos;s catalog. Candidate matches need your confirmation. A live game round trip remains a release gate.</p>
+      <p style={{ color: "var(--muted)" }}>Preview. Choose a level and review the suggested objectives. <a className="inline-help" href="/guide#live-apps" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
       {error && <p role="alert" style={{ color: "var(--ember)" }}>{error}</p>}
       {message && <p role="status">{message}</p>}
       {saved.isLoading ? <p>Loading binding…</p> : (

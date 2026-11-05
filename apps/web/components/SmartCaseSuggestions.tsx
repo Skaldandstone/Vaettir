@@ -134,7 +134,7 @@ export function SmartCaseSuggestions({ projectId, cases, caseIds, onApplyImport,
   return <details className="panel smart-case-suggestions" open>
     <summary>Suggest suites, subsuites, priorities and test types</summary>
     {notice?.identity === identity && <p role="status">{notice.text}</p>}
-    <p>Vaettir proposes placement based on each case’s complete procedure and expected outcome, using existing suites first. Review the explanations and select changes before applying. Suggestions do not verify the tests.</p>
+    <p>Review suggestions for suites, priorities and test types before applying them. <a className="inline-help" href="/guide#cases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
     {!draft && <>
       {blocked && <p role="status">{blocked}</p>}
       {(!availability?.canAnalyze || access.error) && <p><a href={`/projects/${encodeURIComponent(projectId)}/settings/integrations#ai-sharing`} target="_blank" rel="noopener noreferrer">AI sharing</a>{" · "}<ActionButton type="button" disabled={busy || access.checking} onClick={() => { setConsentKey(null); access.refresh(); }} tooltip="Check the current project classification and your AI access">Refresh</ActionButton></p>}

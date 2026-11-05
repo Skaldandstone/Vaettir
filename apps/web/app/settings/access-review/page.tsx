@@ -166,12 +166,7 @@ export default function AccessReviewPage() {
   return (
     <div style={{ maxWidth: 720 }}>
       <h1>{orgName} access review</h1>
-      <p className="text-muted" style={{ fontSize: 13, marginTop: -6 }}>
-        A periodic record that someone with admin access actually looked at who
-        has access to this org and confirmed it's still appropriate - the kind
-        of evidence a SOC 2 auditor asks for. Every current member must get a
-        decision; revoking removes their access immediately.
-      </p>
+      <p className="text-muted" style={{ fontSize: 13, marginTop: -6 }}>Review each member’s access and record your decision. <a className="inline-help" href="/guide#settings" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
 
       {status && (
         <div className="panel" style={{ margin: "12px 0 20px" }}>

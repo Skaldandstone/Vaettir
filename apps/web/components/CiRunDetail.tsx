@@ -307,11 +307,7 @@ export function CiRunDetail({
               : "Current CI detail is unavailable. Cached private result text and labels are withheld."}
           </p>
           {reader.error && <p>{reader.error}</p>}
-          <p className="small muted">
-            Restoring an account or session does not reopen cached results.
-            Explicitly refresh native access under the original project and
-            actor. No stored body, count or readiness is inferred.
-          </p>
+          <p className="small muted">Refresh access to view the run. <a className="inline-help" href="/guide#runs" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
         </div>
       ) : (
         <>
@@ -321,7 +317,7 @@ export function CiRunDetail({
           >
             <CiOutcomeBadge status={page.header.status} />{" "}
             <code>{page.header.id}</code>
-            {page.header.ciProvider === "historical-import" && <p>Imported historical observations. The original day is known; execution time, step evidence and the procedure used were not reconstructed. These results do not reverify the current case procedure.</p>}
+            {page.header.ciProvider === "historical-import" && <p>Imported results include the original date; detailed execution evidence may be unavailable. <a className="inline-help" href="/guide#import" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>}
             <dl style={{ ...layout, marginBottom: 0 }}>
               <CiStoredText
                 label="CI provider"

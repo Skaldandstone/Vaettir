@@ -921,13 +921,7 @@ export function CaseAuthoringPresets({ projectId, organizationId }: { projectId:
         ) : !prepared ? (
           <div style={{ display: "grid", gap: 14, minWidth: 0 }}>
             <p>{current.notice}</p>
-            <p>
-              Up to 50 retained presets, including archived identities; each
-              complete definition is limited to 256 KiB, 100 items per Given /
-              When / Then phase and 100 structured steps. Typed defaults retain
-              the separate 64 KiB case metadata limit. History shows the latest
-              25 immutable changes; no prior records are deleted.
-            </p>
+            <p>Save up to 50 presets, including archived presets. <a className="inline-help" href="/guide#cases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
             <label>
               Preset
               <select
@@ -1434,11 +1428,7 @@ export function NewCaseFromAuthoringPreset({
               Case creation remains a separate existing workflow. No template
               usage link or execution proof is asserted.
             </p>
-            <p>
-              Closing this module retains edits in this open workspace only.
-              Reloading or leaving the page can lose an unsaved draft; no
-              durable case-save or reload guarantee is claimed.
-            </p>
+            <p>Keep this page open to retain your draft. <a className="inline-help" href="/guide#cases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
             </div>
             <ActionButton
               onClick={() => {

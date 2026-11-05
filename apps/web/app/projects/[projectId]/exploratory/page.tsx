@@ -27,10 +27,7 @@ export default function ExploratorySessionsPage() {
   return (
     <div style={{ maxWidth: 700 }}>
       <h1>Exploratory testing</h1>
-      <details><summary>Details</summary><p className="text-muted" style={{ fontSize: 13 }}>
-        Session-based exploratory testing: no predefined steps - explore against a charter, log what you find as you
-        go, then optionally turn real findings into a permanent scripted test case.
-      </p></details>
+      <details><summary>Details</summary><p className="text-muted" style={{ fontSize: 13 }}>Explore with a charter and turn findings into test cases. <a className="inline-help" href="/guide#exploration" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p></details>
 
       <div style={{ display: "flex", gap: 8, margin: "16px 0" }}>
         <input

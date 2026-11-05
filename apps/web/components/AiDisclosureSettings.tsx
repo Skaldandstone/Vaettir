@@ -242,18 +242,18 @@ function AiDisclosureControls({
         <div id={classificationHelpId}>
           <p>
             {classification === "UNCLASSIFIED"
-              ? "Choose Unclassified when the project has not been reviewed or its data sensitivity is uncertain."
+              ? "Review the project’s data before enabling AI."
               : classification === "CUSTOMER_PROPRIETARY"
-                ? "Choose Customer proprietary for confidential customer or business information, such as internal requirements, test procedures, or unreleased product details. If regulated information is also present, choose Regulated."
+                ? "Confidential customer or business data. Choose Regulated if protected data is also present."
                 : classification === "REGULATED"
-                  ? "Choose Regulated when tests, attachments, or results contain information subject to regulatory protections, such as patient health information or personal data."
-                  : "Choose Synthetic only when all project data is fabricated for testing, with no real people, customer information, confidential business content, or regulated information. Anonymized or redacted customer data is not automatically synthetic."}
+                  ? "Protected health, personal or other regulated data."
+                  : "Fabricated data only. Redacted customer data needs its own review."}
           </p>
           <p role="status">
             <strong>Plugin access:</strong>{" "}
             {classification === "SYNTHETIC"
-              ? "Eligible for a separately approved, expiring counts-only connection after saving the classification and attestation. Selecting this option does not grant access."
-              : "Blocked for this classification. Project data remains unavailable to the plugin."}
+              ? "Save and attest first, then approve an expiring counts-only connection."
+              : "Blocked for this classification."} <a className="inline-help" href="/guide#ai-sharing" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a>
           </p>
         </div>
         {classification === "SYNTHETIC" && (

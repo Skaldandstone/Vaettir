@@ -72,7 +72,7 @@ test("native plan and run dropdowns preserve unlisted references without guessin
   assert.ok(component.includes("Use an older exact plan or run reference"));
   assert.ok(component.includes("maxLength={200}"));
   assert.ok(
-    component.includes("no configuration metadata is filled automatically"),
+    component.includes("Choose an existing reference."),
   );
   assert.ok(!component.includes('list="coverage-plans"'));
   assert.ok(!component.includes('list="coverage-runs"'));

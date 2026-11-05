@@ -25,7 +25,7 @@ test("inverse placement recovery retains exact uncertain approval and shows boun
   for (const value of [
     "retainedTraceabilityReceipt",
     "mutation.mutate(pending)",
-    "latest 25 receipts",
+    "Choose a recent folder change to restore.",
     "reviewed.caseCount",
     "reviewed.archivedCaseCount",
     "isFetchedAfterMount",

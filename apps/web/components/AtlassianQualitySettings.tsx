@@ -161,12 +161,7 @@ export function AtlassianQualitySettings({
       <h2 id="atlassian-quality-settings">
         Jira &amp; Confluence quality sharing
       </h2>
-      <p>
-        Connect this project from Quality Intelligence in Jira or Confluence:
-        choose Connect a Vaettir project, sign in and select this project.
-        Manage its read-only sharing here. Architecture analysis and mappings
-        stay in Vaettir. No connection metadata needs to be copied.
-      </p>
+      <p>Connect Vaettir from Quality Intelligence in Jira or Confluence. <a className="inline-help" href="/guide#integrations" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
       {message && <p role="status">{message}</p>}
       {query.error && <p role="alert">{query.error.message}</p>}
       {!data && !query.error && (
@@ -343,14 +338,7 @@ export function AtlassianQualitySettings({
               {binding?.product === "jira" && (
                 <section style={{ display: "grid", gap: 12, marginBlock: 20 }}>
                   <h3>Release tracking</h3>
-                  <p>
-                    Link a Jira version to a Vaettir release and choose the runs
-                    that validate it. Show live metrics before release. The
-                    first successful capture following Jira marking the version
-                    Released is retained permanently; reopening or editing runs
-                    does not overwrite it. Capture time may lag the Jira
-                    transition. This does not approve release readiness.
-                  </p>
+                  <p>Link a Jira version and choose the runs that validate it. <a className="inline-help" href="/guide#releases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
                   {releaseLinks.map((link, index) => (
                     <div
                       key={index}

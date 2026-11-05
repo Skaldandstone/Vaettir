@@ -44,7 +44,7 @@ test("late acknowledgement cannot use an old actor or access epoch after a scope
 });
 test("human baseline scope review is progressive, linked and explicitly unqualified", () => {
   for (const text of ["Wording comparison", "Direct case scope", "Capture rationale and limits", "No execution verification",
-    "Earlier snapshots remain intact", "Native case unavailable", "Retained immutable baseline history", "label excerpt"])
+    "Save a new baseline", "Native case unavailable", "Retained immutable baseline history", "label excerpt"])
     assert.ok(source.includes(text), text);
   assert.match(source, /not verified coverage, a qualified signature or regulatory approval/);
   assert.match(source, /width: "100%", minWidth: 0, boxSizing: "border-box"/);
@@ -63,13 +63,13 @@ test("literal title search binds the canonical echoed query while preserving typ
   assert.match(source, /search: searchTerm, expectedScope: origin/);
   assert.match(source, /list\.data\.search === searchTerm/);
   assert.match(source, /value=\{search\}/);
-  assert.ok(source.includes("%, _ and backslash are text, not wildcard patterns"));
+  assert.ok(source.includes("Search requirement titles."));
 });
 
 test("native expandable case chips disclose page-only filtering and current-versus-captured limitations", () => {
   for (const text of ["filterBaselineCasePage(current.affected.items, caseSearch)", "<details key={c.caseId ?? c.displayId}",
     "baselineNativeCaseHref(projectId, c.caseId, c.available)", "<summary", "Open current native test case", "No currently available same-project native case route",
-    "does not search other pages or full case procedures", "not the historical procedure at baseline capture", "Show all candidates on this page",
+    "does not search other pages or full case procedures", "Opens the current case.", "Show all candidates on this page",
     "filtering does not change captured/current membership", "Previous cases", "Next cases"])
     assert.ok(source.includes(text), text);
   assert.ok(!source.includes("setTarget({ caseId:"));

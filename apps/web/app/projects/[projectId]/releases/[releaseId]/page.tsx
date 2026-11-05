@@ -97,11 +97,7 @@ function GenerateSummaryModal({
   return (
     <Modal open={open} onClose={close} title="Generate a release summary">
       <div style={{ display: "grid", gap: 10, minWidth: 460, maxWidth: 560 }}>
-        <details><summary>Details</summary><p className="text-muted" style={{ fontSize: 13, marginTop: -4 }}>
-          A stakeholder-readable draft, grounded in this release's real
-          readiness score, acceptance criteria, and open risk flags. Review and
-          edit before sharing -- nothing here is posted or sent automatically.
-        </p></details>
+        <details><summary>Details</summary><p className="text-muted" style={{ fontSize: 13, marginTop: -4 }}>Review the summary before sharing it. <a className="inline-help" href="/guide#reports" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p></details>
         {projectRepo?.repoUrl && (
           <div
             style={{
@@ -633,11 +629,7 @@ export default function ReleaseReadinessPage() {
       <div className="panel">
         <div className="panel" style={{ marginBottom: 20 }}>
           <h2 style={{ marginTop: 0 }}>Readiness history</h2>
-          <details><summary>Details</summary><p className="text-muted" style={{ fontSize: 13, marginTop: -8 }}>
-            Checked every five minutes. A change in the READY / AT RISK /
-            BLOCKED label notifies subscribed webhooks, Slack, and mobile
-            devices; score-only moves are recorded here without a notification.
-          </p></details>
+          <details><summary>Details</summary><p className="text-muted" style={{ fontSize: 13, marginTop: -8 }}>Subscribers receive readiness-status changes. <a className="inline-help" href="/guide#releases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p></details>
           {(historyQuery.data ?? []).length === 0 ? (
             <p className="text-muted" style={{ fontSize: 13 }}>
               No snapshots yet - the first one lands within five minutes of a

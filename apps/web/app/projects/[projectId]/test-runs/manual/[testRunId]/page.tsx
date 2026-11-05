@@ -933,12 +933,7 @@ function ManualExecutionContent() {
                   ? `: ${resolveQualityExperience(data.executionContext.experience).title}`
                   : ""}
               </summary>
-              <p>
-                These case definitions and configuration were saved when this
-                run started. Later profile or case edits do not rewrite this
-                run. Recorded results remain separate evidence; this context
-                does not certify safety or compliance.
-              </p>
+              <p>This run uses the cases and configuration saved when it started. <a className="inline-help" href="/guide#runs" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
               {data.executionContext.plan && (
                 <section style={{ marginBottom: 12 }}>
                   <h2 style={{ fontSize: 16 }}>Frozen plan definition</h2>

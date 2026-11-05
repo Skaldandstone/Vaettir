@@ -168,11 +168,7 @@ export function CriterionDescriptionEditor({
           </p>
         ) : (
           <div style={{ display: "grid", gap: 12 }}>
-            <details><summary>Details</summary><p className="text-muted">
-              Changes only the wording. Native verdicts, linked requirements and
-              release assignment are preserved. Approved or archived plans and
-              ready or shipped releases must be explicitly reopened first.
-            </p></details>
+            <details><summary>Details</summary><p className="text-muted">Edit this criterion’s wording. <a className="inline-help" href="/guide#plans" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p></details>
             {query.error && (
               <p role="alert">
                 {query.error.message}{" "}

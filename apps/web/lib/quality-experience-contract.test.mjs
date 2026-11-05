@@ -53,7 +53,7 @@ test("manual runs open reviewed configuration and render frozen evidence", () =>
   assert.match(execution, /data.executionContext.configuration/);
   assert.match(
     execution,
-    /Later profile or case edits do not\s+rewrite this run/,
+    /cases and configuration saved when it started/,
   );
   assert.match(
     execution,

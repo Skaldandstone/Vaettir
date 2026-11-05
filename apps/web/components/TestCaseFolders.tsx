@@ -528,7 +528,7 @@ export function TestCaseFolders({
                   Existing case IDs, within-suite order and frozen runs remain
                   unchanged.
                 </p>
-                <p>Source-derived groups are test-case presentation, not filesystem folders. A reviewed move/rename to a different destination assigns saved suite paths and can create a new saved folder identity; original source paths/files are unchanged. Same-path promotion is not supported. The server review includes hidden, unreviewed and archived descendant cases, not just this page&apos;s visible lane or filters.</p>
+                <p>Move cases into a saved suite to organize them. <a className="inline-help" href="/guide#cases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
                 <button
                   className="btn-primary"
                   disabled={
@@ -618,12 +618,7 @@ export function TestCaseFolders({
                         </div>
                       </details>
                     )}
-                    <p>
-                      A new procedure version is retained for each moved case.
-                      The folder receipt stores old/new placement and version
-                      numbers; previous history and run evidence are not
-                      rewritten.
-                    </p>
+                    <p>Folder changes are recorded in history. <a className="inline-help" href="/guide#cases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
                     <label>
                       Reason (required)
                       <textarea

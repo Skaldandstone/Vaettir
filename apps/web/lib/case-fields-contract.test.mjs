@@ -58,7 +58,7 @@ test("typed native case fields use fresh scoped definitions and retain uncertain
   assert.match(controls, /inputMode="decimal"/);
   assert.match(
     source,
-    /Procedure\s+version comparison and restore preserve current\s+metadata/,
+    /Metadata edits are recorded in the audit history/,
   );
 });
 test("project schema changes require current Owner Admin, impact, reason and explicit confirmation", () => {

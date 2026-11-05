@@ -491,10 +491,7 @@ export default function LiveAppGenerationPage() {
       >
         Experimental — early access
       </div>
-      <p>
-        Connect an Android test app to explore approved navigation and review proposed tests.
-        Web and iOS capture tools are also available. Nothing is saved until you review and add it.
-      </p>
+      <p>Connect an app, explore navigation, then review suggested tests. <a className="inline-help" href="/guide#live-apps" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
 
       {captureMode !== "android" && <DeviceHelperSetupStatus
         intent={{
@@ -580,12 +577,7 @@ export default function LiveAppGenerationPage() {
                     <p
                       className="text-muted"
                       style={{ fontSize: 13, margin: "6px 0 0" }}
-                    >
-                      A small connector runs on the computer attached to the
-                      device. Raw hierarchy, screenshots, and provider
-                      credentials stay on that computer. Vaettir receives only
-                      named controls such as buttons, fields, tabs, and labels.
-                    </p>
+                    >Run the connector on the computer attached to your test device. <a className="inline-help" href="/guide#live-apps" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
                   </div>
 
                   <section
@@ -682,12 +674,12 @@ export default function LiveAppGenerationPage() {
                               : "Downloading does not start checks or discover devices. Open the reviewed launcher only if policy permits, then choose Check paired response."}
                         </span>
                       </div>
-                      {!captureInputsAllowed && <p role="status">Original independent session/project/workspace access is not current. Private pairing, selections, captures and paid drafts remain retained but hidden. Setup metadata and paired liveness do not approve device/source processing.</p>}
-                      {connectorStatus === "blocked" && <div role="status"><DeviceHelperBlockedLaunchGuidance reportedBlocked={true} /><p>Your private pairing draft remains retained. Reporting this did not launch a helper, change policy or perform device capture. Signed trusted distribution and actual Windows/device acceptance remain separate.</p><ActionButton type="button" className="btn-secondary" onClick={showPolicyPermittedManualSetup} tooltip={<> Show manual instructions only if policy permits </>}> Show </ActionButton></div>}
+                      {!captureInputsAllowed && <p role="status">Restore access to the original workspace to continue. <a className="inline-help" href="/guide#live-apps" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>}
+                      {connectorStatus === "blocked" && <div role="status"><DeviceHelperBlockedLaunchGuidance reportedBlocked={true} /><p>Your pairing draft is retained. <a className="inline-help" href="/guide#live-apps" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p><ActionButton type="button" className="btn-secondary" onClick={showPolicyPermittedManualSetup} tooltip={<> Show manual instructions only if policy permits </>}> Show </ActionButton></div>}
                       <details open={manualSetupOpen} onToggle={event => setManualSetupOpen(event.currentTarget.open)}>
                         <summary>Manual setup and troubleshooting</summary>
                         <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
-                          {!captureInputsAllowed || connectorStatus === "blocked" && !manualSetupRevealed ? <p>Pairing code and private setup command are hidden. Restore the original account/full seat and review device policy first, then explicitly choose “Show manual instructions only if policy permits.” This alternative is not a bypass or permission grant.</p> : <>
+                          {!captureInputsAllowed || connectorStatus === "blocked" && !manualSetupRevealed ? <p>Restore your original account and full seat to view setup. <a className="inline-help" href="/guide#live-apps" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p> : <>
                           <span className="text-muted" style={{ fontSize: 13 }}>
                             Pairing code:{" "}
                             <code>{pairingCode || "Preparing..."}</code>
