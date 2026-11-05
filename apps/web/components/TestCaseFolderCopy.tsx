@@ -400,16 +400,7 @@ export function TestCaseFolderCopy({
               overflowWrap: "anywhere",
             }}
           >
-            <p>
-              Copy up to 50 independent cases and their complete empty/nested
-              folder hierarchy in one atomic operation. The batch is limited to
-              8 MiB; each procedure to 512 KiB / 500 steps. Archived cases,
-              shared libraries, media and attachments block this copy rather
-              than being silently dropped. Parameter datasets require the
-              explicit supported-data review below. Prerequisites also block it
-              unless you explicitly review complete internal remapping below.
-              External links always block the entire copy.
-            </p>
+            <p>Copy up to 50 cases and their folders. Review any unsupported content before copying. <a className="inline-help" href="/guide#cases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
             <label>
               Source folder
               <select

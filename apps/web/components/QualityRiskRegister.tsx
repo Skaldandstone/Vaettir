@@ -190,7 +190,7 @@ function Register({ projectId }: { projectId: string }) {
       </>}
     <Modal open={open} onClose={close} size="wide" title={!formVisible ? "Verify quality risk access" : mode === "CREATE" ? "Record a quality risk" : baseline ? `${baseline.displayId} · ${mode === "REVIEW" ? "Residual decision" : "Edit risk"}` : "Quality risk"}>
       {formVisible && message && <p role="status">{message}</p>}
-      {!formVisible && <div role="alert"><p>Current access, actor and original organization must be verified before displaying retained definition or draft fields. Your fields and any exact unconfirmed request are retained without rebasing.</p>
+      {!formVisible && <div role="alert"><p>Restore access to this workspace to continue. Your draft is retained. <a className="inline-help" href="/guide#reports" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
         <ActionButton type="button" className="btn-secondary" onClick={() => void refresh()} tooltip={<> Recheck current risk access </>}> Refresh </ActionButton></div>}
       {pending && <div role="alert"><p>Unconfirmed {pending.operation.toLowerCase()} request. Its baseline and fields are fixed, including after this module closes.</p>
         <ActionButton type="button" className="btn-primary" disabled={mutation.isPending || !writeReady}

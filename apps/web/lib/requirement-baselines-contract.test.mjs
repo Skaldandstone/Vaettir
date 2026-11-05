@@ -20,7 +20,7 @@ test("an unconfirmed capture survives close and retains exact payload through ty
   assert.match(source, /Retry exact baseline capture/);
 });
 test("original project/member/Clerk scope withholds cached history wording and chips without erasing human rationale", () => {
-  for (const value of ["useAuth", "project.isFetchedAfterMount", "organizations.isFetchedAfterMount", "origin.organizationId === project.data?.organizationId", "origin.clerkActorId === userId", "sameScope(permissions.data)", "sameScope(list.data)", "sameScope(detail.data)", "expectedScope: origin ?? undefined", "cached wording, chips and history are hidden"])
+  for (const value of ["useAuth", "project.isFetchedAfterMount", "organizations.isFetchedAfterMount", "origin.organizationId === project.data?.organizationId", "origin.clerkActorId === userId", "sameScope(permissions.data)", "sameScope(list.data)", "sameScope(detail.data)", "expectedScope: origin ?? undefined", "Restore access to this workspace to view baselines"])
     assert.ok(source.includes(value), value);
   assert.ok(!source.includes("key={userId}"));
   const begin = source.slice(source.indexOf("function startReview"), source.indexOf("async function send"));
@@ -53,7 +53,7 @@ test("human baseline scope review is progressive, linked and explicitly unqualif
 test("complete supported wording is grouped without calling a missing side unchanged", () => {
   for (const text of ["groupBaselineWording(current.baseline?.requirement ?? null, current.current, current.comparison.changedFields)",
     "Changed recorded fields", "Unchanged recorded fields", "Fields without two available comparison sides", "unsupported changed fields",
-    "Current requirement</th>", "Captured baseline</th>", "not proof of unchanged procedure"])
+    "Current requirement</th>", "Captured baseline</th>", "Review linked tests separately"])
     assert.ok(source.includes(text), text);
   assert.ok(!source.includes("setRationale(\"\")"));
 });

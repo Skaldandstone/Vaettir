@@ -157,11 +157,7 @@ export function QualityRiskAggregateExport({
               {active.filtered.entries} in the applied filtered cohort. Observed
               UTC {active.observedAt}.
             </p>
-            <p>
-              Includes complete category and reference-availability counts for
-              both populations, not just the visible twenty-row page. No
-              per-entry content or literal search text is exported.
-            </p>
+            <p>Exports summary counts for all matching entries, without entry content or search text. <a className="inline-help" href="/guide#reports" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
             <label style={{ display: "grid", gap: 6, marginBlock: 12 }}>
               File format
               <select
@@ -181,12 +177,7 @@ export function QualityRiskAggregateExport({
               </select>
             </label>
             {format === "HTML" && (
-              <p>
-                Text-only offline report with full and filtered counts and
-                evidence boundaries. Open the downloaded file and use your
-                browser's Print command for PDF. No approved snapshot, PDF or
-                delivery is created.
-              </p>
+              <p>Download HTML, then use your browser’s Print command for PDF. <a className="inline-help" href="/guide#reports" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
             )}
             <ul>
               {riskAggregateBoundaries.map((boundary) => (

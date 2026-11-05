@@ -916,7 +916,7 @@ describe("actual mounted run configuration synthetic controller", () => {
     "actual modal refuses %s monitor without publishing configuration or submitting",
     (mode) => {
       const h = harness(mode);
-      expect(h.content).toContain("Private configuration is hidden");
+      expect(h.content).toContain("Restore editor access to this workspace");
       expect(h.sent).toHaveLength(0);
       expect(h.ids).toBe(0);
       expect(h.content).not.toContain("Private listener diagnostic");
@@ -951,9 +951,9 @@ describe("actual mounted run configuration synthetic controller", () => {
     await h.flush();
     expect(h.sent).toHaveLength(0);
     expect(h.ids).toBe(0);
-    expect(h.content).toContain("Private configuration is hidden");
+    expect(h.content).toContain("Restore editor access to this workspace");
     await h.recheck();
-    expect(h.content).not.toContain("Private configuration is hidden");
+    expect(h.content).not.toContain("Restore editor access to this workspace");
     expect(h.button("Start execution record").props.disabled).toBe(true);
   });
   it("SDK loss while recheck awaits metadata rejects the old token even after A returns", async () => {

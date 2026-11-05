@@ -18,7 +18,7 @@ test("fresh project membership original-org and request-bound query caches gate 
 });
 test("human reviews and captured evidence never become safety or verification metrics", () => {
   for (const text of ["Entry version matches ordinary review", "No ordinary review recorded", "Reviewed with no evidence", "No category cross-product, normative ranking or risk-reduction score",
-    "not automatically reverified", "NOT_RECORDED means no decision", "No entries match these filters", "Unavailable original tuple; native IDs withheld", "Result reference, no standalone result route"]) assert.ok(source.includes(text));
+    "Review the latest results and linked tests", "NOT_RECORDED means no decision", "No entries match these filters", "Unavailable original tuple; native IDs withheld", "Result reference, no standalone result route"]) assert.ok(source.includes(text));
   assert.ok(source.includes("/test-cases?caseId=")); assert.ok(source.includes("/requirements#requirement-")); assert.ok(source.includes("/test-runs#run-"));
   assert.ok(!source.includes("useMutation"));
 });

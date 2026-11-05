@@ -48,7 +48,7 @@ function harness(tag: string | null = " spaced ", bootstrapReady = true) {
 it("shows no cached body until a completed exact current read; approved/active is default and tags stay raw", () => {
   const host = harness(); expect(host.enabled()).toBe(true); expect(host.input()).toMatchObject({ tag: " spaced ", archive: "ACTIVE", review: "APPROVED" });
   expect(host.html()).not.toContain("Secret tagged title"); host.receive(); expect(host.html()).toContain("Secret tagged title");
-  expect(host.html()).toContain("not a frozen all-sections snapshot"); expect(host.html()).toContain("current tags do not describe historical run evidence");
+  expect(host.html()).toContain("not a frozen all-sections snapshot"); expect(host.html()).toContain("Find cases by tag and explore their linked records");
   host.click("Linked plans"); expect(host.html()).not.toContain("Secret tagged title"); expect(host.input().section).toBe("PLANS");
 });
 

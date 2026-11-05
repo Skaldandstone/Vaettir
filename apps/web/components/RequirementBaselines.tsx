@@ -137,7 +137,7 @@ function Register({ projectId }: { projectId: string }) {
     <p>{readableMetric(current.comparison.status)}. {current.baseline ? `${current.baseline.displayId} · version ${current.baseline.version}` : "No baseline recorded"}.</p>
     {!current.selectedIsLatest && <p role="status">Comparing a historical baseline. Return to latest before reviewing a new capture.</p>}
     {current.captureUnavailableReason && <p role="status">{current.captureUnavailableReason} No history has been replaced or removed.</p>}
-    <p>Captured wording belongs to the selected immutable baseline; current wording is a read-time native comparison. Unchanged displayed text is not proof of unchanged procedure, execution, external issue status or requirement fulfillment.</p>
+    <p>Compare the saved baseline with current wording. Review linked tests separately. <a className="inline-help" href="/guide#requirements" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
     {wordingGroups && <>
       {wordingGroups.changed.length > 0 && <section><h4>Changed recorded fields ({wordingGroups.changed.length})</h4>{wordingTable(wordingGroups.changed, "Changed requirement wording and metadata")}</section>}
       {wordingGroups.unchanged.length > 0 && <details><summary>Unchanged recorded fields ({wordingGroups.unchanged.length})</summary>{wordingTable(wordingGroups.unchanged, "Unchanged displayed requirement fields")}</details>}
@@ -185,7 +185,7 @@ function Register({ projectId }: { projectId: string }) {
     <p>Compare requirement wording and case links with a saved baseline. <a className="inline-help" href="/guide#requirements" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
     <label style={label}>Find current or captured requirement by title<input type="search" style={control} value={search} maxLength={80} onChange={e => { setSearch(e.target.value); setOffset(0); }} /></label>
     <details><summary>Details</summary><p className="text-muted">Search requirement titles. <a className="inline-help" href="/guide#requirements" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p></details>
-    {!ready ? <p role="alert">Original organization and current signed-in membership are unavailable. Local rationale, selections and any exact pending capture are retained; cached wording, chips and history are hidden.</p> : list.error ? <div role="alert"><p>Requirement comparison unavailable; cached or incomplete results are not substituted.</p><button type="button" className="btn-secondary" onClick={() => void list.refetch()}>Retry register</button></div>
+    {!ready ? <p role="alert">Restore access to this workspace to view baselines. Your draft is retained. <a className="inline-help" href="/guide#requirements" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p> : list.error ? <div role="alert"><p>Requirement comparison unavailable; cached or incomplete results are not substituted.</p><button type="button" className="btn-secondary" onClick={() => void list.refetch()}>Retry register</button></div>
       : !catalog ? <p role="status">{list.isPaused ? "Waiting to verify current access…" : "Checking bounded requirement scope…"}</p>
         : <>
           {!catalog.canWrite && <p>Read-only. A current full editor seat is required for a new reviewed baseline.</p>}

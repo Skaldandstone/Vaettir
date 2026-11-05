@@ -145,7 +145,7 @@ export function SmartCaseSuggestions({ projectId, cases, caseIds, onApplyImport,
     </>}
     {visible && draft && <>
       <p role="status">Review {draft.reviews.reduce((n, r) => n + r.before.length, 0)} cases. New paths create the named suite and subsuite levels when applied. Uncertain values remain unchanged.</p>
-      {draft.reviews.some(r => r.legacySuitePaths?.length) && <p>Older imported suite labels remain unchanged and are included in this review’s source checks. They are not converted into folders. Only the selected case placements below can change.</p>}
+      {draft.reviews.some(r => r.legacySuitePaths?.length) && <p>Review each proposed placement. Existing suite labels remain available. <a className="inline-help" href="/guide#cases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>}
       <ActionButton type="button" className="btn-secondary" disabled={busy || hasPending} onClick={() => setDraft({ ...draft, selected: Object.fromEntries(draft.reviews.flatMap(changes).map(s => [s.id, s])) })} tooltip={<> Select all proposed changes </>}> Select all </ActionButton>{" "}
       <button type="button" className="btn-secondary" disabled={busy || hasPending} onClick={() => setDraft({ ...draft, selected: {} })}>Clear selection</button>
       <div className="smart-suggestion-list">{draft.reviews.flatMap(review => review.suggestions.map(s => {

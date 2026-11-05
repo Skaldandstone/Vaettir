@@ -137,6 +137,6 @@ describe("actual tree and folder controller source", () => {
   });
   it("catalog and gesture admission fail closed after actor change; no hidden draft transfer or write", async () => {
     const host = foldersHarness(); await host.settled(); await host.intent("one"); host.auth.userId = "other-actor"; await host.settled(); await host.intent("two", "Native");
-    expect(host.catalogUpdates.at(-1)).toBeNull(); expect(host.html()).toContain("draft controls are hidden"); expect(host.writes).toHaveLength(0);
+    expect(host.catalogUpdates.at(-1)).toBeNull(); expect(host.html()).toContain("Restore access to the original workspace"); expect(host.writes).toHaveLength(0);
   });
 });

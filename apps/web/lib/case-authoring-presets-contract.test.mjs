@@ -86,7 +86,7 @@ test("acknowledged preset write and failed independent refresh do not erase huma
     assert.ok(!ack.includes(destructive), destructive);
 });
 test("a retained local prefill discloses later profile/schema changes without reapplying or qualifying its scaffold", () => {
-  for (const value of ["draft.value.profileHash !== current.profileHash", "draft.value.fieldSchemaHash !== current.fieldSchemaHash", "original prefill and your edits remain unchanged", "not a regulatory or console TRC qualification", "Retained defaults are not silently reapplied or discarded"])
+  for (const value of ["draft.value.profileHash !== current.profileHash", "draft.value.fieldSchemaHash !== current.fieldSchemaHash", "Project settings changed.", "Retained defaults are not silently reapplied or discarded"])
     assert.ok(component.includes(value), value);
 });
 test("optional kept-mounted native dialog stays closed/hidden/inert without changing existing default unmount", () => {

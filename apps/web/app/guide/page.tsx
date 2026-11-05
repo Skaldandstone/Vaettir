@@ -88,6 +88,7 @@ const topics = [
       "Review the charts, add notes and save a snapshot for a fixed record.",
       "Export the format your audience needs. HTML and PDF include charts and notes. CSV contains summary data.",
       "Execution-history exports distinguish corrections from retests. Imports with only an original date do not reconstruct step evidence.",
+      "Release filters use current plan associations and selected cases; they do not reconstruct a run’s historical release membership.",
       "The run dashboard compares up to 90 inclusive UTC days using run start dates. The history-page chart covers only the runs on that page.",
       "Configure a Slack summary in Organization settings if your team wants regular release updates.",
     ],

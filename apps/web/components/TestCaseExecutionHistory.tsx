@@ -356,9 +356,7 @@ function History({ projectId, testCaseId, active }: { projectId: string; testCas
               {applied.runStatus && ` · Overall run: ${overallStatuses.find(item => item.value === applied.runStatus)?.label}`}
               {(["platform", "build", "environment"] as const).filter(key => applied[key]).map(key => ` · Exact recorded ${key}: ${applied[key]}`).join("")}. Observed {page.observedAt && new Date(page.observedAt).toLocaleString()}.</p>
             {!page.items.length ? (
-              <p>
-                No linked or planned executions match this applied scope. Missing or unsupported manual configuration and CI imports are not substituted when configuration filters are selected.
-              </p>
+              <p>No runs match these filters. Try a wider scope. <a className="inline-help" href="/guide#runs" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
             ) : (
               <div style={{ display: "grid", gap: 12 }}>
                 {page.items.map((item) => (

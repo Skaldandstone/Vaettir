@@ -651,13 +651,7 @@ function PresetEditor({
             ),
         ) && (
           <div role="alert">
-            <p>
-              Retained defaults include an unavailable field. Edit its
-              compatible active definition, or explicitly remove its default
-              from the next preset revision before reviewing. Existing cases and
-              prior receipts remain unchanged; no default will be silently
-              removed.
-            </p>
+            <p>Update or remove the unavailable field default before reviewing this preset. <a className="inline-help" href="/guide#cases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
             {Object.entries(value.customFields)
               .filter(
                 ([key]) =>
@@ -1394,7 +1388,7 @@ export function NewCaseFromAuthoringPreset({
               overwrite this human draft.
             </p>
             {draft.value.warnings.map((warning, index) => <p key={index}>{warning}</p>)}
-            {current && draft.value.profileHash !== current.profileHash && <p role="alert">The project profile changed after this separate draft was reviewed. Its original prefill and your edits remain unchanged; review current applicability again. This is not a regulatory or console TRC qualification.</p>}
+            {current && draft.value.profileHash !== current.profileHash && <p role="alert">Project settings changed. Review the draft again; your edits are retained. <a className="inline-help" href="/guide#cases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>}
             {current && draft.value.fieldSchemaHash !== current.fieldSchemaHash && <p role="alert">The current human field schema changed. Retained defaults are not silently reapplied or discarded; review the form&apos;s current field compatibility before saving.</p>}
             {current && <CurrentProfile experience={current.experience} />}
             <TestCaseForm

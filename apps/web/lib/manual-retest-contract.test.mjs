@@ -10,7 +10,7 @@ test("retest module explicitly reviews exact frozen procedure and no-cost separa
   assert.match(modal, /c\.steps\.map/);
   assert.match(modal, /preview\.configuration/);
   assert.match(modal, /preview\.sourceResults\.map/);
-  assert.match(modal, /No AI credits or automatic execution/);
+  assert.match(modal, /Review the cases and configuration before starting a separate retest/);
   assert.match(modal, /type="checkbox"/);
   assert.match(modal, /approval!==snapshot\?\.data\.readContext\.requestId\|\|!state\.canSubmit/);
   assert.match(

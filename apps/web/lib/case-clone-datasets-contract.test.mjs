@@ -19,7 +19,7 @@ test("optional review shows every concrete value and names new composite row ide
     "baseline.dataset.rows.map",
     "row.values[name]",
     "Empty string",
-    "new dataset ID, row index",
+    "Test results are not copied",
     "expectedDatasetHash: baseline.datasetReviewHash",
     "expectedDataset: baseline.datasetSource",
     "Historical copied dataset mapping",

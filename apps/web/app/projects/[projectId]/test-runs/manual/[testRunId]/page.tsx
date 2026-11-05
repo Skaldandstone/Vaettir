@@ -422,11 +422,7 @@ function CaseRow({
         <div
           style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}
         >
-          <p style={{ flexBasis: "100%" }}>
-            Choose an initial observed outcome to open its reviewed editor. This
-            does not save a result. Existing observations use reasoned immutable
-            corrections in the history above, not unversioned overwrites.
-          </p>
+          <p style={{ flexBasis: "100%" }}>Choose an outcome, then review and save the result. <a className="inline-help" href="/guide#runs" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
           <button
             className="btn-secondary"
             onClick={() => reviewOutcome("PASS")}
@@ -638,11 +634,7 @@ function ManualExecutionContent() {
     <div style={{ maxWidth: 800 }}>
       {!readable && (
         <section role={access.denied || !!pageError ? "alert" : "status"}>
-          <p>
-            Current original actor, workspace and exact saved run must be
-            verified. Private cached procedures and observations are hidden;
-            mounted drafts and identical requests remain retained.
-          </p>
+          <p>Restore access to this workspace to view the run. Your draft is retained. <a className="inline-help" href="/guide#runs" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
           <ActionButton
             type="button"
             className="btn-secondary"
@@ -746,7 +738,7 @@ function ManualExecutionContent() {
             {data.status}
           </p>
           {!plannedScope && <p role="alert">The complete saved planned identity scope could not be admitted. Progress, completion and exports are unavailable; no smaller available-case denominator was substituted.</p>}
-          {plannedScope && plannedScope.unavailableCaseIds.length > 0 && <section className="panel" aria-label="Unavailable planned procedures"><h2>Unavailable planned procedures</h2><p>These saved planned identities remain left to test. No current or frozen procedure was available; completion and whole-run exports are blocked without inventing instructions.</p><ul>{plannedScope.unavailableCaseIds.map(id => <li key={id}><code>{id}</code> · Procedure unavailable, read-only retained identity</li>)}</ul></section>}
+          {plannedScope && plannedScope.unavailableCaseIds.length > 0 && <section className="panel" aria-label="Unavailable planned procedures"><h2>Unavailable planned procedures</h2><p>These cases have no available procedure. Restore their definitions before completing this run. <a className="inline-help" href="/guide#runs" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p><ul>{plannedScope.unavailableCaseIds.map(id => <li key={id}><code>{id}</code> · Procedure unavailable, read-only retained identity</li>)}</ul></section>}
           {plannedScope && <RunExecutionSummary
             cases={data.cases}
             runId={testRunId}

@@ -259,7 +259,7 @@ test("private schema controls are conditionally withheld not hidden in retained 
   assert.match(source, /key=\{projectId\}/);
   assert.match(source, /if \(!access\.canConfigure\) setConfirmed\(false\)/);
   assert.match(source, /!access\.readable \|\| !access\.canConfigure \? \(/);
-  assert.match(source, /\) : \(\s*<>\s*<p>\s*Typed metadata/);
+  assert.match(source, /\) : \(\s*<>\s*<p>\s*Manage project case fields/);
   assert.match(source, /access\.readable && access\.canConfigure && notice/);
   assert.match(source, /Discard local definition draft/);
   assert.match(source, /baseline && !pending && \(/);
