@@ -179,6 +179,11 @@ export default function TestCaseForm({
   active = true,
   stepFieldLabels,
 }: TestCaseFormProps) {
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
   // Keep the concurrency baseline bound to this draft, not a later refetch.
   const [baseline] = useState(initial);
   const router = useRouter();
@@ -373,7 +378,8 @@ export default function TestCaseForm({
       void utils.caseFields.get.invalidate({ projectId, caseId: testCaseId });
       if (mode === "edit")
         void utils.testCases.byId.invalidate({ id: testCaseId! });
-      router.push(`/projects/${projectId}/test-cases/${result.id}`);
+      // A completed old save must not displace another case's unsaved draft.
+      if (mounted.current) router.push(`/projects/${projectId}/test-cases/${result.id}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       // Definitions may have changed after the draft loaded. Refresh without

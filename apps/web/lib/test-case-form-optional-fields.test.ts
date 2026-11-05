@@ -98,7 +98,7 @@ function harness(initial = seed(), automatic = false, mode: "create" | "edit" = 
   function ready() { const child = elements(tree).find(e => e.type === FieldBoundary); if (!child) throw Error("Actual metadata readiness callback missing"); (child.props.onChange as (value: unknown) => void)({ ready: true, customFields: { untouched: false, zero: 0, empty: "" }, expectedFieldSchemaHash: "f".repeat(64), expectedCustomFieldRevision: "m".repeat(64) }); settle(); }
   function textarea(label: string, occurrence = 0) { const parent = elements(tree).filter(e => e.type === "label" && text(e.props.children).startsWith(label))[occurrence]; if (!parent) throw Error(`Label absent: ${label}`); const child = elements(parent).find(e => e.type === "textarea"); if (!child) throw Error(`Textarea absent: ${label}`); return child; }
   settle();
-  return { props, sent, reads, settingsWrites, navigation, button, click, ready, render, settle, textarea, get tree() { return tree; }, html: () => { settle(); return renderToStaticMarkup(tree); }, change: (label: string, value: string, occurrence = 0) => { (textarea(label, occurrence).props.onChange as (event: { target: { value: string } }) => void)({ target: { value } }); settle(); }, save: async () => { const b = button(mode === "create" ? "Create test case" : "Save changes"); expect(b.props.disabled).not.toBe(true); await (b.props.onClick as () => Promise<void>)(); settle(); }, holdSave: () => { mutate = () => new Promise(() => {}); }, holdUpload: () => { upload = () => new Promise(() => {}); const input = elements(tree).find(e => e.type === "input" && e.props.type === "file"); if (!input) throw Error("Actual upload input missing"); (input.props.onChange as (event: { target: { files: File[]; value: string } }) => void)({ target: { files: [new File(["synthetic"], "synthetic.png", { type: "image/png" })], value: "synthetic" } }); settle(); } };
+  return { props, sent, reads, settingsWrites, navigation, button, click, ready, render, settle, textarea, get tree() { return tree; }, html: () => { settle(); return renderToStaticMarkup(tree); }, change: (label: string, value: string, occurrence = 0) => { (textarea(label, occurrence).props.onChange as (event: { target: { value: string } }) => void)({ target: { value } }); settle(); }, save: async () => { const b = button(mode === "create" ? "Create test case" : "Save changes"); expect(b.props.disabled).not.toBe(true); await (b.props.onClick as () => Promise<void>)(); settle(); }, holdSave: () => { let resolve!: (value: { id: string }) => void; const pending = new Promise<{ id: string }>(done => { resolve = done; }); mutate = () => pending; return resolve; }, unmount: () => slots.forEach(slot => slot.cleanup?.()), holdUpload: () => { upload = () => new Promise(() => {}); const input = elements(tree).find(e => e.type === "input" && e.props.type === "file"); if (!input) throw Error("Actual upload input missing"); (input.props.onChange as (event: { target: { files: File[]; value: string } }) => void)({ target: { files: [new File(["synthetic"], "synthetic.png", { type: "image/png" })], value: "synthetic" } }); settle(); } };
 }
 it.each(core.CASE_PROCEDURE_FORMATS)("%s permits step-only authoring without adding scenario text or changing exact descriptors/media/CAS", async format => {
   const initial = seed(); initial.given = []; initial.when = []; initial.then = [];
@@ -157,6 +157,18 @@ it("clearing a saved suite sends explicit empty text on the wire without changin
   expect(cleared.sent[0]).toEqual({...untouched.sent[0] as Record<string,unknown>,suitePath:""});
   expect(JSON.parse(JSON.stringify(cleared.sent[0]))).toHaveProperty("suitePath","");
   expect(cleared.settingsWrites).toEqual([]);
+});
+it.each(["create","edit"] as const)("a late %s save cannot navigate away from a different case's unsaved draft",async mode=>{
+  const original=harness(seed(),false,mode);original.ready();const finish=original.holdSave();
+  const pending=(original.button(mode==="create"?"Create test case":"Save changes").props.onClick as ()=>Promise<void>)();
+  original.unmount();
+  const next=harness();next.props.testCaseId="case-b";next.ready();
+  const title=elements(next.tree).find(e=>e.type==="input"&&e.props.value===seed().title)!;
+  (title.props.onChange as (event:{target:{value:string}})=>void)({target:{value:"Unsaved case B title"}});next.settle();
+  finish({id:mode==="edit"?"case":"new-case"});await pending;
+  expect(original.sent).toHaveLength(1);expect(original.navigation).toEqual([]);
+  expect(next.navigation).toEqual([]);expect(next.sent).toEqual([]);
+  expect(elements(next.tree).some(e=>e.type==="input"&&e.props.value==="Unsaved case B title")).toBe(true);
 });
 it.each([null, ""])("initial saved Background %j projected to the empty editor retains omitted behavior on unrelated save", async background => {
   const initial = seed(); initial.background = background ?? "";
