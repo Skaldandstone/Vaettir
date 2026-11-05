@@ -25,7 +25,7 @@ function JiraTrackerControls({ projectId, canEdit, onSaved, authReady }: Props &
   const busy = activity || mutationBusy;
   const allowed = canEdit && authReady;
   return <>
-    <ActionButton type="button" disabled={!allowed || busy} onClick={() => { setVisited(true); setOpen(true); }} tooltip={<> Connect Jira tracker </>}> Connect Jira </ActionButton>
+    <ActionButton type="button" className="btn-primary" disabled={!allowed || busy} onClick={() => { setVisited(true); setOpen(true); }} tooltip={<> Connect Jira tracker </>}> Connect Jira </ActionButton>
     <Modal open={open && allowed} keepMounted dismissible={!busy} title="Connect Jira to the defect map" size="wide" onClose={() => { if (!busy) setOpen(false); }}>
       {visited && <JiraSourceConnection projectId={projectId} purpose="defects" onDefectWorkingChange={setActivity} onClose={() => { if (!busy) setOpen(false); }} onDefectsSaved={() => { void utils.defectMap.get.invalidate({ projectId }); onSaved?.(); }} />}
     </Modal>

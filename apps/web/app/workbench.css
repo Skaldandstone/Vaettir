@@ -6,9 +6,7 @@ h2 { font-size: 18px; } h3 { font-size: 15px; }
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
 input:focus, select:focus, textarea:focus { border-color: var(--focus); outline: 2px solid var(--focus); outline-offset: 1px; }
 .btn, .btn-primary { background: var(--accent); color: var(--on-accent); }
-button:not([class]) { background: transparent; color: var(--fg); }
 .btn-primary:hover:not(:disabled) { background: var(--accent); filter: brightness(1.08); }
-.btn-secondary { background: transparent; color: var(--fg); }
 .btn, .btn-primary, .btn-secondary, button:not([class]) { padding: 6px 11px; min-height: 32px; font-size: 13px; border-radius: 4px; transition: none; }
 .ui-icon-button { width: 32px; height: 32px; min-width: 32px; border-radius: 4px; }
 .ui-icon-button:focus-visible { outline-color: var(--focus); }
