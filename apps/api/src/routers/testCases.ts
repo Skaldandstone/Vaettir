@@ -1404,7 +1404,7 @@ export const testCasesRouter = router({
       return ctx.prisma.$transaction(tx => createCaseWithReceipt(
         tx, ctx.user.id, ctx.authenticatedClerkSubject!, input,
         () => createManualCaseContent(tx, ctx.user, input),
-      ));
+      ), { isolationLevel: "ReadCommitted" });
     }),
 
   create: protectedProcedure
