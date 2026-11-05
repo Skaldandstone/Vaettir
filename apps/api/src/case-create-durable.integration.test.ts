@@ -70,6 +70,14 @@ describe.skipIf(!admitted)("durable manual case creation on an owned disposable 
     const project = await prisma.project.create({ data: { organizationId, name: tag, slug: tag, caseKey: "OTH" } });
     await expect(owner.testCases.createDurable({ ...input, projectId: project.id })).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(await prisma.testCase.count({ where: { projectId: project.id } })).toBe(0);
+    const concurrent = await request(), fields = await owner.caseFields.get({ projectId: project.id });
+    const outcomes = await Promise.allSettled([
+      owner.testCases.createDurable(concurrent),
+      owner.testCases.createDurable({ ...concurrent, projectId: project.id, expectedFieldSchemaHash: fields.expectedSchemaHash }),
+    ]);
+    expect(outcomes.filter(result => result.status === "fulfilled")).toHaveLength(1);
+    expect(outcomes.find(result => result.status === "rejected")).toMatchObject({ reason: { code: "FORBIDDEN" } });
+    expect(await prisma.auditLog.count({ where: { entityType: "TestCaseCreate", entityId: concurrent.requestId } })).toBe(1);
   });
   it("rolls back the entire case and version if durable receipt insertion fails", async () => {
     const input = await request(), name = `durable_fail_${randomUUID().replaceAll("-", "")}`;
