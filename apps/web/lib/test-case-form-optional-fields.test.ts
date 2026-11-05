@@ -149,6 +149,15 @@ it.each(["Original background\nUseful prose", " \n\t "])("clearing saved Backgro
   expect(cleared.settingsWrites).toEqual([]);
   expect(cleared.navigation).toEqual(["/projects/p/test-cases/case"]);
 });
+it("clearing a saved suite sends explicit empty text on the wire without changing the procedure or concurrency baseline", async () => {
+  const untouched=harness(),cleared=harness();untouched.ready();cleared.ready();
+  const suite=elements(cleared.tree).find(e=>e.type==="input"&&e.props.list==="known-suite-paths")!;
+  (suite.props.onChange as (event:{target:{value:string}})=>void)({target:{value:""}});cleared.settle();
+  await untouched.save();await cleared.save();
+  expect(cleared.sent[0]).toEqual({...untouched.sent[0] as Record<string,unknown>,suitePath:""});
+  expect(JSON.parse(JSON.stringify(cleared.sent[0]))).toHaveProperty("suitePath","");
+  expect(cleared.settingsWrites).toEqual([]);
+});
 it.each([null, ""])("initial saved Background %j projected to the empty editor retains omitted behavior on unrelated save", async background => {
   const initial = seed(); initial.background = background ?? "";
   // The real edit route projects native NULL with tc.background ?? "";

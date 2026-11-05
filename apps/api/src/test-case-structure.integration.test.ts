@@ -121,4 +121,16 @@ describe.skipIf(!isolated)("case placement and prerequisite execution", () => {
     const next = await owner.manualExecution.start({ projectId, testCaseIds: [premiumId] });
     expect((await owner.manualExecution.getForExecution({ testRunId: next.testRunId })).cases.map(c => c.testCaseId)).toEqual([premiumId]);
   });
+  it("preserves an omitted suite during content edits and clears only an explicitly empty assignment",async()=>{
+    const content={title:"Synthetic suite intent",given:[" Exact setup\n"],when:[" Exact action "],then:["Exact result"],tags:[],testType:"FUNCTIONAL" as const,priority:"MEDIUM" as const};
+    const created=await owner.testCases.create({projectId,...content,suitePath:"auth/recovery"});
+    for(const suitePath of [undefined,"","auth/regression"]){
+      const baseline=await owner.testCases.byId({id:created.id});
+      const input={id:created.id,...content,expectedCaseRevision:baseline.caseRevision,expectedStepRevision:baseline.stepRevision,expectedPriority:baseline.priority,expectedSuitePath:baseline.suitePath};
+      await owner.testCases.update(suitePath===undefined?input:{...input,suitePath});
+      const saved=await owner.testCases.byId({id:created.id});
+      expect(saved.suitePath).toBe(suitePath===undefined?"auth/recovery":suitePath||null);
+      expect(saved).toMatchObject({id:created.id,given:content.given,when:content.when,then:content.then});
+    }
+  });
 });
