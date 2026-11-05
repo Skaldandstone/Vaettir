@@ -161,30 +161,44 @@ function CiResultCard({ row }: { row: CiRunDetailPage["rows"][number] }) {
             : "Unmatched result"}
         </strong>
       </header>
-      <p className="small muted">
-        Result <code>{row.id}</code> · Duration{" "}
-        {row.durationMs === null
-          ? "not recorded (NULL)"
-          : `${row.durationMs} ms`}
-      </p>
+      {row.durationMs !== null && <p className="small muted">{row.durationMs} ms</p>}
       <dl>
-        <CiStoredText
-          label="Captured external test ID"
-          value={row.externalTestId}
-        />
-        <CiStoredText
-          label="Captured external file path"
-          value={row.externalFilePath}
-        />
-        <CiStoredText label="Stored error message" value={row.errorMessage} />
-        <CiStoredText label="Stored note" value={row.note} />
+        {row.errorMessage !== null && row.errorMessage !== "" && <CiStoredText label="Error" value={row.errorMessage} />}
+        {row.note !== null && row.note !== "" && <CiStoredText label="Notes" value={row.note} />}
       </dl>
+      <details>
+        <summary>Result details</summary>
+        <p className="small muted">
+          Result <code>{row.id}</code> · Duration{" "}
+          {row.durationMs === null
+            ? "not recorded (NULL)"
+            : `${row.durationMs} ms`}
+        </p>
+        <dl>
+          <CiStoredText
+            label="Captured external test ID"
+            value={row.externalTestId}
+          />
+          <CiStoredText
+            label="Captured external file path"
+            value={row.externalFilePath}
+          />
+          <CiStoredText label="Stored error message" value={row.errorMessage} />
+          <CiStoredText label="Stored note" value={row.note} />
+        </dl>
+        <p className="small muted">
+          Current stored result, not immutable history. Captured IDs/paths and
+          current case/source labels are separate; no mapping, source or case was
+          changed.
+        </p>
+      </details>
       {linked && (
         <details>
-          <summary>
+          <summary>Case details</summary>
+          <p className="small muted">
             Current linked case / source metadata (not a frozen execution
             definition)
-          </summary>
+          </p>
           <p className="small">
             Native case <code>{linked.id}</code> ·{" "}
             {linked.archived ? "Archived" : "Not archived"} · Review{" "}
@@ -237,17 +251,16 @@ function CiResultCard({ row }: { row: CiRunDetailPage["rows"][number] }) {
           </dl>
         </details>
       )}
-      <details style={{ marginTop: 10 }}>
-        <summary>
-          {row.artifacts.length} evidence file
-          {row.artifacts.length === 1 ? "" : "s"} on this result
-        </summary>
+      <section aria-label="Captured evidence" style={{ marginTop: 10 }}>
         {row.artifacts.length === 0 ? (
           <p>No evidence captured.</p>
         ) : (
-          <ul>
+          <ul style={{ listStyle: "none", padding: 0 }}>
             {row.artifacts.map((artifact) => (
               <li key={artifact.id} style={{ marginBottom: 8 }}>
+                <CiArtifactViewer id={artifact.id} type={artifact.type} />
+                <details>
+                  <summary>File details</summary>
                 <code>{artifact.id}</code> · {artifact.type} · Captured UTC{" "}
                 <time dateTime={artifact.capturedAt}>
                   {artifact.capturedAt}
@@ -256,17 +269,12 @@ function CiResultCard({ row }: { row: CiRunDetailPage["rows"][number] }) {
                 {artifact.durationMs === null
                   ? "not recorded (NULL)"
                   : `${artifact.durationMs} ms`}
-                <CiArtifactViewer id={artifact.id} type={artifact.type} />
+                </details>
               </li>
             ))}
           </ul>
         )}
-      </details>
-      <p className="small muted">
-        Current stored result, not immutable history. Captured IDs/paths and
-        current case/source labels are separate; no mapping, source or case was
-        changed.
-      </p>
+      </section>
     </article>
   );
 }
