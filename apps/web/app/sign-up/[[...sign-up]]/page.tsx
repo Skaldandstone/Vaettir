@@ -6,13 +6,12 @@ export default function SignUpPage() {
     <div className="auth-workspace">
       <section className="auth-introduction">
         <p className="workspace-breadcrumb">VAETTIR / SALES DEMO</p>
-        <h1>Build release confidence your team can inspect.</h1>
-        <p>Create an account with Google or email. Every account can explore the demo; protected workspaces require explicit access.</p>
-        <Link href="/">Explore the example workspace</Link>
+        <h1>Create account</h1>
+        <Link className="btn-secondary" href="/">View demo</Link>
       </section>
       <div className="auth-form">
         <SignUp />
-        <p className="auth-help">Signing up opens the sales demo. Customer data, workspace creation, AI usage, integrations, and administrative controls stay gated.</p>
+        <p className="auth-help">Start with the demo or join an invited workspace.</p>
       </div>
     </div>
   );
