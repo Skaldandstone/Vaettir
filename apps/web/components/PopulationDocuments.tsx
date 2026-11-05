@@ -247,7 +247,7 @@ export function PopulationDocuments({ projectId }: { projectId: string }) {
             disabled={busy || preview.data.status === "conflict"}
             onClick={() => void commit()}
            tooltip={<>
-            Approve document evidence · 0 credits
+            Approve document evidence · No credit charge
            </>}>
              Approve evidence </ActionButton>
           <ActionButton

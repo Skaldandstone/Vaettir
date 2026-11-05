@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { repositoryProviderJson } from "./repositoryProviderHttp.js";
 import { jiraIssueSchema, listJiraIssuePage } from "./jiraIssueIntake.js";
+import { suggestJiraReleaseChecks } from "./jiraReleasePlanning.js";
 
 vi.mock("./repositoryProviderHttp.js", () => ({ repositoryProviderJson: vi.fn() }));
 const credentials = { siteUrl: "https://synthetic.atlassian.net", email: "fixture@example.test", apiToken: "synthetic-only-key" };
@@ -20,6 +21,37 @@ function respond(body: unknown = page()) { vi.mocked(repositoryProviderJson).moc
 beforeEach(() => vi.resetAllMocks());
 
 describe("bounded Jira Cloud issue-summary intake", () => {
+  it("constrains Jira defect reads by type and labels before returning matches", async () => {
+    const filtered = { ...providerIssue(), fields: { ...providerIssue().fields, issuetype: { name: "Bug" }, labels: ["crash"] } };
+    const options = { defectFilters: { issueType: "Bug", labels: ["crash"] } };
+    respond({ ...page(), issues: [filtered] });
+    expect((await listJiraIssuePage(credentials, ["10001"], null, options)).issues[0]).toMatchObject({ issueType: "Bug", labels: ["crash"] });
+    const [, path] = vi.mocked(repositoryProviderJson).mock.calls[0]!;
+    expect(new URL(path, credentials.siteUrl).searchParams.get("jql"))
+      .toBe('project in (10001) AND issuetype = "Bug" AND labels = "crash" ORDER BY id ASC');
+    respond();
+    await expect(listJiraIssuePage(credentials, ["10001"], null, options)).rejects.toThrow("out-of-scope");
+  });
+
+  it("previews only the chosen Jira version, using acceptance text and case tags", async () => {
+    const fields = {
+      ...providerIssue().fields, fixVersions: [{ id: "10002" }], labels: ["Payments"],
+      description: { content: [
+        { type: "heading", content: [{ type: "text", text: "Acceptance criteria" }] },
+        { type: "paragraph", content: [{ type: "text", text: "Declined cards show an error." }] },
+        { type: "heading", content: [{ type: "text", text: "Internal notes" }] },
+        { type: "paragraph", content: [{ type: "text", text: "Unrelated notes" }] },
+      ] },
+    };
+    respond({ ...page(), issues: [{ ...providerIssue(), fields }] });
+    const preview = await listJiraIssuePage(credentials, ["10001"], null, { releaseId: "10002" });
+    expect(suggestJiraReleaseChecks(preview.issues[0]!, preview.descriptions?.[0], [
+      { id: "case-1", title: "Declined payment", tags: ["payments"] },
+      { id: "case-2", title: "Profile update", tags: ["profile"] },
+    ])).toMatchObject({ fromJira: true, checks: ["Declined cards show an error."], cases: [{ id: "case-1", matches: ["payments"] }] });
+    respond({ ...page(), issues: [{ ...providerIssue(), fields }] });
+    await expect(listJiraIssuePage(credentials, ["10001"], null, { releaseId: "10003" })).rejects.toThrow("out-of-scope");
+  });
   it("retains reviewed project JQL and site links while reading through the OAuth gateway",async()=>{
     respond();const cloudId="01234567-89ab-cdef-0123-456789abcdef";
     await expect(listJiraIssuePage({kind:"oauth",siteUrl:credentials.siteUrl,cloudId,accessToken:"synthetic-oauth",accountId:"synthetic-account",accountName:"Synthetic"},["10001"])).resolves.toEqual({issues:[expectedIssue()],nextPageToken:null});
