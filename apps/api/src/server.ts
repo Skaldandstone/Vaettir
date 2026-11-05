@@ -129,6 +129,7 @@ const EXPECTED_POLLER_INTERVALS = {
   reportScheduleWorker: REPORT_SCHEDULE_INTERVAL_MS,
   atlassianPrivacyWorker: ATLASSIAN_PRIVACY_INTERVAL_MS,
 };
+const backgroundWorkersEnabled = process.env.VAETTIR_BACKGROUND_WORKERS_ENABLED !== "0";
 
 // Deliberately separate from the plain `/health` liveness probe the ALB/
 // ECS health check uses (transient DB/secret-store failures must not cycle
@@ -146,7 +147,7 @@ async function detailedHealthHandler() {
   } catch {
     dbOk = false;
   }
-  const pollers = getHeartbeatStatuses(EXPECTED_POLLER_INTERVALS);
+  const pollers = getHeartbeatStatuses(backgroundWorkersEnabled ? EXPECTED_POLLER_INTERVALS : {});
   const credentials = credentialMonitor?.status() ?? {
     rotated: false,
     checkFailed: false,
@@ -161,6 +162,7 @@ async function detailedHealthHandler() {
     pollers.every((p) => !p.stale);
   return {
     healthy,
+    backgroundWorkersEnabled,
     // Public transport readiness only, never a grant to read project evidence.
     capabilities: {
       forgeQuality: Boolean(process.env.VAETTIR_FORGE_APP_ID && process.env.VAETTIR_FORGE_ENVIRONMENT_ID),
@@ -687,13 +689,15 @@ server
       );
       credentialTimer.unref();
     }
-    startReverseEngineerJobPoller();
-    startCaseAnalysisQueuePoller();
-    startReadinessDigestScheduler();
-    stopReportScheduleWorker = startReportScheduleWorker();
-    stopAtlassianPrivacyWorker = startAtlassianPrivacyWorker();
-    startAiCreditGrantScheduler();
-    startReadinessChangeScheduler();
+    if (backgroundWorkersEnabled) {
+      startReverseEngineerJobPoller();
+      startCaseAnalysisQueuePoller();
+      startReadinessDigestScheduler();
+      stopReportScheduleWorker = startReportScheduleWorker();
+      stopAtlassianPrivacyWorker = startAtlassianPrivacyWorker();
+      startAiCreditGrantScheduler();
+      startReadinessChangeScheduler();
+    }
   })
   .catch((err) => {
     server.log.error(err);
