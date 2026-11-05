@@ -14,6 +14,7 @@ import {
 import { Drawer } from "@/components/Drawer";
 import { Modal } from "@/components/Modal";
 import { TestPlanDetailContent } from "@/components/TestPlanDetailContent";
+import { JiraReleasePicker } from "@/components/JiraReleasePicker";
 import { resolveQualityExperience } from "@vaettir/core";
 import { useCaseFieldAccess } from "@/lib/use-case-field-access";
 import { currentSessionScope, sameAuthScope } from "@/lib/auth-query-cache";
@@ -77,6 +78,8 @@ function ManualPlanCreate({projectId,readOnly,onCreated}:{projectId:string;readO
   return <section aria-label="Manual test plan creation" style={{margin:"16px 0",minWidth:0}}>
     {visible?<>
       <h2 style={{fontSize:18,marginBottom:10}}>Create test plan</h2>
+      <JiraReleasePicker key={`${frame.projectId}:${frame.organizationId}:${frame.clerkActorId}:${frame.sessionId}`}
+        projectId={projectId} disabled={pending||unknown} onSelect={releaseName=>edit(()=>setName(releaseName.slice(0,200)))}/>
       <form onSubmit={async event=>{event.preventDefault();await submit();}} style={{display:"flex",flexWrap:"wrap",gap:10,alignItems:"end"}}>
         <label style={{display:"grid",gap:6,flex:"2 1 220px",minWidth:0}}>Plan name<input value={name} maxLength={200} disabled={pending||unknown} onChange={event=>edit(()=>setName(event.target.value))} placeholder="e.g. Release regression" style={{width:"100%",minWidth:0,boxSizing:"border-box"}}/></label>
         <label style={{display:"grid",gap:6,flex:"1 1 190px",minWidth:0}}>Plan type<select value={typeId} disabled={pending||unknown} onChange={event=>edit(()=>setTypeId(event.target.value))} style={{width:"100%",minWidth:0}}><option value="">Functional (default)</option>{typeId&&!types.some(type=>type.id===typeId)&&<option value={typeId}>Selected type (refresh required)</option>}{types.map(type=><option key={type.id} value={type.id}>{type.name}</option>)}</select></label>

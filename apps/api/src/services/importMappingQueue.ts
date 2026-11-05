@@ -32,7 +32,7 @@ async function ownedBatch(tx: Prisma.TransactionClient, actor: Actor, input: z.i
   if (batch.revokedAt) throw fail("Access changed since this import. The original source is retained; this request cannot resume.", "FORBIDDEN");
   return batch;
 }
-function summary(batch: ImportMappingBatch, rows: ImportMappingRow[]) {
+function summary(batch: ImportMappingBatch, rows: Pick<ImportMappingRow, "id" | "state" | "candidate" | "caseId" | "hasHistory">[]) {
   return { id: batch.id, sourceLabel: batch.sourceLabel, state: batch.state,
     readyCount: rows.filter(r => r.state === "READY").length,
     pendingCount: rows.filter(r => r.state === "MAPPING").length,
@@ -66,11 +66,21 @@ export async function stageMappingBatch(db: PrismaClient, actor: Actor, scope: S
 }
 
 const receiptSchema = z.object({ batchId: z.string(), createdCount: z.number(), updatedCount: z.number(), pendingCount: z.number(), historyCount: z.number(), importedCount: z.number() }).strict();
-async function applyRows(tx: Prisma.TransactionClient, batch: ImportMappingBatch, rows: ImportMappingRow[], edits = new Map<string, MappingCandidate>()) {
+const confirmationRowSelect = {
+  id: true, ordinal: true, state: true, candidate: true, caseId: true, hasHistory: true,
+  keyPrefix: true, externalIdPrefix: true, framework: true,
+} as const;
+type ConfirmationRow = Pick<ImportMappingRow, keyof typeof confirmationRowSelect>;
+
+async function applyRows(tx: Prisma.TransactionClient, batch: ImportMappingBatch, rows: ConfirmationRow[], allRows: ConfirmationRow[], edits: Map<string, MappingCandidate>) {
   let createdCount = 0, updatedCount = 0;
-  const groups = new Map<string, ImportMappingRow[]>();
-  for (const row of rows) groups.set(row.keyPrefix, [...(groups.get(row.keyPrefix) ?? []), row]);
-  const allRows = await tx.importMappingRow.findMany({ where: { batchId: batch.id } });
+  const groups = new Map<string, ConfirmationRow[]>();
+  for (const row of rows) {
+    const group = groups.get(row.keyPrefix);
+    if (group) group.push(row);
+    else groups.set(row.keyPrefix, [row]);
+  }
+  const selectedIds = new Set(rows.map(row => row.id));
   for (const [keyPrefix, group] of groups) {
     const candidates = group.map(r => {
       const c = edits.get(r.id) ?? mappingCandidateSchema.parse(r.candidate);
@@ -78,11 +88,12 @@ async function applyRows(tx: Prisma.TransactionClient, batch: ImportMappingBatch
       return { ...c, rowNumber: r.ordinal + 2, externalId: c.externalId ? r.externalIdPrefix + c.externalId.trim() : undefined,
         reviewRequired: Boolean(c.reviewReasons?.length) };
     });
-    const keys = candidates.flatMap(r => r.externalId ? [r.externalId] : []);
-    if (new Set(keys).size !== keys.length) throw fail("Resolve duplicate source IDs before applying this selection.", "BAD_REQUEST");
-    for (const other of allRows.filter(r => r.keyPrefix === keyPrefix && r.state !== "CONTEXT" && !rows.some(selected => selected.id === r.id))) {
+    const sourceIds = candidates.flatMap(r => r.externalId ? [r.externalId] : []);
+    const keys = new Set(sourceIds);
+    if (keys.size !== sourceIds.length) throw fail("Resolve duplicate source IDs before applying this selection.", "BAD_REQUEST");
+    for (const other of allRows.filter(r => r.keyPrefix === keyPrefix && r.state !== "CONTEXT" && !selectedIds.has(r.id))) {
       const originalId = z.object({ externalId: z.string().optional() }).safeParse(other.candidate);
-      if (originalId.success && originalId.data.externalId && keys.includes(other.externalIdPrefix + originalId.data.externalId))
+      if (originalId.success && originalId.data.externalId && keys.has(other.externalIdPrefix + originalId.data.externalId))
         throw fail("This source ID belongs to another row in this import. Resolve the duplicate.", "BAD_REQUEST");
     }
     const result = await commitImportedTestCasesInTransaction(tx as unknown as PrismaClient, {
@@ -91,15 +102,17 @@ async function applyRows(tx: Prisma.TransactionClient, batch: ImportMappingBatch
       keyPrefix, framework: group[0]!.framework, captureRows: true,
     });
     createdCount += result.createdCount; updatedCount += result.updatedCount;
+    const receipts = new Map(result.rowReceipts?.map(row => [row.rowNumber, row]));
+    const skipped = new Map(result.skipped.map(row => [row.rowNumber, row.reason]));
     for (const r of group) {
-      const accepted = result.rowReceipts?.find(x => x.rowNumber === r.ordinal + 2);
+      const accepted = receipts.get(r.ordinal + 2);
       if (accepted) await tx.importMappingRow.update({ where: { id: r.id }, data: {
         state: r.hasHistory ? "HISTORY" : "IMPORTED", caseId: accepted.caseId, resolvedAt: new Date(),
         candidate: json({ externalId: (edits.get(r.id) ?? mappingCandidateSchema.parse(r.candidate)).externalId }),
-        original: r.hasHistory ? json(r.original) : {}, reasons: r.hasHistory ? ["Historical observations are retained for separate pairing; no results were imported."] : [],
+        ...(r.hasHistory ? {} : { original: {} }), reasons: r.hasHistory ? ["Historical observations are retained for separate pairing; no results were imported."] : [],
       } });
       else await tx.importMappingRow.update({ where: { id: r.id }, data: { state: "MAPPING",
-        reasons: [result.skipped.find(x => x.rowNumber === r.ordinal + 2)?.reason ?? "No case receipt was recorded. Review this row."],
+        reasons: [skipped.get(r.ordinal + 2) ?? "No case receipt was recorded. Review this row."],
       } });
     }
   }
@@ -115,7 +128,9 @@ export async function confirmMappingBatch(db: PrismaClient, actor: Actor, raw: z
       if (prior.batchId !== batch.id || prior.requestHash !== hash) throw fail("The retained request differs. Its receipt was not replaced.");
       return receiptSchema.parse(prior.receipt);
     }
-    const rows = await tx.importMappingRow.findMany({ where: { batchId: batch.id }, orderBy: { ordinal: "asc" } });
+    const rows = await tx.importMappingRow.findMany({
+      where: { batchId: batch.id }, orderBy: { ordinal: "asc" }, select: confirmationRowSelect,
+    });
     if (summary(batch, rows).digest !== input.expectedDigest) throw fail("The queue changed. Refresh the selection.");
     const resolving = resolution !== null;
     if (batch.state !== (resolving ? "CONFIRMED" : "DRAFT")) throw fail("The import state changed. Refresh its recorded result.");
@@ -123,11 +138,14 @@ export async function confirmMappingBatch(db: PrismaClient, actor: Actor, raw: z
     const selected = resolving ? rows.filter(r => edits.has(r.id)) : rows.filter(r => r.state === "READY");
     if (resolution && (selected.length !== resolution.rows.length || selected.some(r => r.state !== "MAPPING" && r.state !== "CONTEXT")))
       throw fail("Choose unresolved rows from this queue.");
-    const counts = await applyRows(tx, batch, selected, edits);
+    const counts = await applyRows(tx, batch, selected, rows, edits);
     await tx.importMappingBatch.update({ where: { id: batch.id }, data: { state: "CONFIRMED", confirmedAt: batch.confirmedAt ?? new Date() } });
-    const remaining = await tx.importMappingRow.findMany({ where: { batchId: batch.id }, orderBy: { ordinal: "asc" } });
-    const info = summary({ ...batch, state: "CONFIRMED" }, remaining);
-    const receipt = { batchId: batch.id, ...counts, pendingCount: info.pendingCount, historyCount: info.historyCount, importedCount: info.importedCount };
+    const remaining = await tx.importMappingRow.findMany({ where: { batchId: batch.id }, select: { state: true, hasHistory: true } });
+    const receipt = { batchId: batch.id, ...counts,
+      pendingCount: remaining.filter(r => r.state === "MAPPING").length,
+      historyCount: remaining.filter(r => r.state === "HISTORY" || r.hasHistory && r.state !== "IMPORTED").length,
+      importedCount: remaining.filter(r => r.state === "IMPORTED" || r.state === "HISTORY").length,
+    };
     await tx.importMappingWrite.create({ data: { id: input.requestId, batchId: batch.id, requestHash: hash, receipt } });
     return receipt;
   }, txOptions);

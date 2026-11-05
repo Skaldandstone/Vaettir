@@ -5,7 +5,7 @@ import { repositoryProviderJson } from "./repositoryProviderHttp.js";
 // https://developer.atlassian.com/cloud/jira/platform/basic-auth-for-rest-apis/
 // Scoped tokens require a different gateway and are not supported by this adapter:
 // https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/
-// Identity and projects: REST v3 /myself and /project/search. No issue requests.
+// Identity, projects and release metadata. No issue requests.
 export function jiraSiteOrigin(raw: string): string {
   const value = raw.trim();
   // Match the input before URL parsing can normalize credentials, Unicode,
@@ -110,4 +110,35 @@ export async function listJiraProjects(credentials: JiraReadCredentials, after =
     projects: page.values.map(project => ({ ...project, url: `${origin}/browse/${project.key}` })),
   });
   return { ...catalog, hasMore: !page.isLast, nextCursor: page.isLast ? null : next };
+}
+
+const releasePage = pageSchema.omit({values:true}).extend({
+  values:z.array(z.object({
+    id:nativeId,
+    name:label,
+    released:z.boolean(),
+    archived:z.boolean(),
+    releaseDate:z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    projectId:z.number().int().positive().safe(),
+  })).max(50),
+});
+
+/** Only read releases for the approved project; never follow Jira's links. */
+export async function listJiraReleases(credentials:JiraReadCredentials, projectId:string, after:number) {
+  const transport=jiraReadTransport(credentials);
+  const id=nativeId.parse(projectId);
+  const startAt=offset.parse(after);
+  const page=releasePage.parse(await repositoryProviderJson(transport.origin,
+    `${transport.prefix}/rest/api/3/project/${id}/version?startAt=${startAt}&maxResults=50`, transport.options));
+  const next=startAt+page.maxResults;
+  if(page.startAt!==startAt||page.values.length>page.maxResults||
+    page.values.some(version=>String(version.projectId)!==id)||
+    new Set(page.values.map(version=>version.id)).size!==page.values.length||
+    !page.isLast&&(!page.values.length||next>1000000)) {
+    throw new Error("Invalid Jira release page");
+  }
+  return {
+    releases:page.values.map(({id,name,released,archived,releaseDate})=>({id,name,released,archived,releaseDate})),
+    next:page.isLast?null:next,
+  };
 }

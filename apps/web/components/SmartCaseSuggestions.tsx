@@ -64,7 +64,7 @@ export function SmartCaseSuggestions({ projectId, cases, caseIds, onApplyImport,
   useEffect(() => () => { analysisController.current?.abort(); }, [key]);
   const count = cases?.length ?? caseIds?.length ?? 0;
   const consent = consentKey === key;
-  const maximum = cases ? 2500 : 200;
+  const maximum = cases ? 2500 : 1000;
   const analysisKey = useRef<string | null>(null);
   const ready = available && !access.checking && !access.error && auth.isLoaded && auth.isSignedIn && Boolean(project.data) && !project.error && !project.isFetching && !project.isPaused;
   const blocked = busy ? `Reviewing ${progress} of ${count}…` : access.checking ? "Checking AI access…" : access.error ||
@@ -138,7 +138,7 @@ export function SmartCaseSuggestions({ projectId, cases, caseIds, onApplyImport,
     {!draft && <>
       {blocked && <p role="status">{blocked}</p>}
       {(!availability?.canAnalyze || access.error) && <p><a href={`/projects/${encodeURIComponent(projectId)}/settings/integrations#ai-sharing`} target="_blank" rel="noopener noreferrer">AI sharing</a>{" · "}<ActionButton type="button" disabled={busy || access.checking} onClick={() => { setConsentKey(null); access.refresh(); }} tooltip="Check the current project classification and your AI access">Refresh</ActionButton></p>}
-      <p>{count} selected · No AI credits</p>
+      <p>{count} selected · No AI credits{count > 20 && count <= maximum ? ` · ${Math.ceil(count / 20)} batches, one review` : ""}</p>
       <label><input type="checkbox" checked={consent} disabled={busy} onChange={e => { setConsentKey(e.target.checked ? key : null); analysis.current = null; setHasAnalysis(false); }} /> I approve sending these selected case definitions, tags, current placement and project suite names to Vaettir’s configured Anthropic AI provider for suggestions. This approval does not grant plugin access or apply changes.</label>
       <p><ActionButton type="button" className="btn-primary" aria-label={hasAnalysis ? "Retry suggestion review" : "Generate suggestions"} disabled={Boolean(blocked)} onClick={() => void analyze()} tooltip={blocked || (hasAnalysis ? "Retry suggestion review" : "Generate suggestions")}>{busy ? "Reviewing…" : hasAnalysis ? "Retry" : "Generate suggestions"}</ActionButton></p>
       {busy && <button type="button" className="btn-secondary" onClick={() => { analysisController.current?.abort(); analysis.current = null; setHasAnalysis(false); setConsentKey(null); }}>Stop analysis</button>}

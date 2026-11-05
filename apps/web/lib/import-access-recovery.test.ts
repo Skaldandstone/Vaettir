@@ -65,6 +65,7 @@ function mount(file: string, name: string, imports: Record<string, unknown>, pro
 
 function importFixture() {
   let reject = true, allowed = true, back = 0, committed = 0;
+  let confirmError: Error | undefined;
   let release: (() => void) | undefined;
   let held: Promise<void> | undefined;
   const calls: { kind: string; input: unknown }[] = [];
@@ -75,6 +76,7 @@ function importFixture() {
     calls.push({ kind, input: structuredClone(input) });
     if (held) await held;
     if (reject) throw Error('The "title" field must be mapped to a CSV column');
+    if (kind === "confirm" && confirmError) throw confirmError;
     return kind === "prepare" ? summary : { createdCount: 1, updatedCount: 0, pendingCount: 1, historyCount: 0 };
   } }) });
   const fixture = mount("ImportMappingReview", "ImportMappingReview", {
@@ -82,6 +84,7 @@ function importFixture() {
     "@/lib/trpcReact": { trpcReact: { importJobs: { prepareMapping: mutation("prepare"), confirmMapping: mutation("confirm"), cancelMapping: mutation("cancel") } } },
   }, { projectId: "project", sourceLabel: "Synthetic", source: { format: "CSV", sheets: [{ name: "", csvText: "Unknown\nSynthetic", mapping: {} }] }, onBack: () => back++, onCommitted: () => committed++ });
   return { ...fixture, calls, back: () => back, committed: () => committed,
+    confirmFailure: (error?: Error) => { confirmError = error; },
     allow: (value: boolean) => { allowed = value; }, succeed: () => { reject = false; },
     hold: () => { held = new Promise<void>(resolve => { release = resolve; }); }, release: () => { held = undefined; release?.(); } };
 }
@@ -143,4 +146,61 @@ it("a failed AI access refresh cannot reuse earlier permission or consent", asyn
   await f.approve(); const button = f.find("button", "Generate suggestions");
   expect(button.props.disabled).toBe(true); expect(button.props.tooltip).toContain("Could not verify AI access");
   (button.props.onClick as () => void)(); await f.settle(); expect(f.requests()).toBe(0);
+});
+
+
+it("keeps the exact confirmation after an HTML gateway response", async () => {
+  const f = importFixture(); await f.settle(); f.succeed(); await f.click("Retry");
+  f.confirmFailure(new SyntaxError("Unexpected token '<', \"<!DOCTYPE \" is not valid JSON"));
+  await f.click("Import");
+  expect(f.render()).toContain("The result is unconfirmed");
+  expect(f.render()).not.toContain("DOCTYPE");
+  expect(f.find("button", "Back").props.disabled).toBe(true);
+  f.confirmFailure();
+  await f.click("Retry");
+  const writes = f.calls.filter(call => call.kind === "confirm");
+  expect(writes).toHaveLength(2);
+  expect(writes[1]).toEqual(writes[0]);
+  expect(f.committed()).toBe(1);
+});
+
+it("analyzes 981 saved cases in bounded requests and applies only after review", async () => {
+  const ids = Array.from({ length: 981 }, (_, i) => `case-${i}`);
+  const batches: string[][] = [];
+  const writes: unknown[] = [];
+  const utils = { client: { caseSuggestions: {
+    configuration: { query: async () => ({ enabled: true, canAnalyze: true, policyVersion: 1, reason: null }) },
+    recommend: { mutate: async ({ caseIds }: { caseIds: string[] }) => {
+      batches.push(caseIds);
+      return {
+        reviewId: `review-${batches.length}`, knownSuites: [], legacySuitePaths: [],
+        before: caseIds.map(id => ({ id, title: id, suitePath: null, priority: "MEDIUM", testType: "FUNCTIONAL" })),
+        suggestions: caseIds.map(id => ({ id, suitePath: null, priority: "HIGH", testType: null, confidence: "HIGH", reason: "Synthetic", evidence: [] })),
+      };
+    } },
+    applyReviewed: { mutate: async (input: { selections: unknown[] }) => {
+      writes.push(input); return { changed: input.selections.length };
+    } },
+  } } };
+  const f = mount("SmartCaseSuggestions", "SmartCaseSuggestions", {
+    "@clerk/nextjs": { useAuth: () => ({ isLoaded: true, isSignedIn: true, userId: "actor", sessionId: "session" }) },
+    "@/lib/trpcReact": { trpcReact: { useUtils: () => utils, project: { byId: { useQuery: () => ({ data: { organizationId: "org" } }) } } } },
+    "@/lib/smart-suggestion-errors": { definitiveSuggestionRefusal: () => false },
+    "@/lib/reassign-import-column": { suggestedImportMapping: () => ({}) },
+  }, { projectId: "project", caseIds: ids });
+  await f.settle();
+  expect(f.find("button", "Generate suggestions").props.disabled).toBe(true);
+  (f.find("input").props.onChange as (e: unknown) => void)({ target: { checked: true } });
+  f.render();
+  await f.click("Generate suggestions");
+  await new Promise(resolve => setImmediate(resolve));
+  expect(f.render()).toContain("Review 981 cases");
+  expect(batches).toHaveLength(50);
+  expect(batches.every(batch => batch.length <= 20)).toBe(true);
+  expect(batches.flat()).toEqual(ids);
+  expect(writes).toHaveLength(0);
+  await f.click("Apply changes");
+  expect(writes).toHaveLength(1);
+  expect(writes[0]).toMatchObject({ approved: true, reviewIds: Array.from({ length: 50 }, (_, i) => `review-${i + 1}`) });
+  expect(f.render()).toContain("Reviewed changes confirmed for 981 cases.");
 });
