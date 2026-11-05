@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import vm from "node:vm";
+import ts from "typescript";
 const form = readFileSync(
   new URL("../components/TestCaseForm.tsx", import.meta.url),
   "utf8",
@@ -59,4 +61,39 @@ test("native fieldset and handler guards prevent revoked-access writes and save 
     /async function uploadStepMedia[\s\S]*?if \(locked \|\| saving \|\| uploadingStepKey !== null\) return/,
   );
   assert.match(form, /role="alert"[^>]*>\{error\}/);
+});
+
+function previewFixture(fetch) {
+  const ast=ts.createSourceFile("TestCaseForm.tsx",form,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
+  let preview;
+  function visit(node){if(ts.isFunctionDeclaration(node)&&node.name?.text==="viewStepMedia")preview=node;ts.forEachChild(node,visit);}
+  visit(ast);assert.ok(preview);
+  let error=null;
+  const opened=[];
+  const context=vm.createContext({Error,mediaPreviewGeneration:{current:0},setError:value=>{error=value;},window:{open:(...args)=>opened.push(args)},
+    utils:{testCaseAttachments:{getViewUrl:{fetch}}}});
+  vm.runInContext(ts.transpileModule(preview.getText(ast),{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,context);
+  return {preview:context.viewStepMedia,opened,get error(){return error;}};
+}
+
+test("an evidence preview retry clears the old failure before a successful read", async () => {
+  let refuse=true;const requests=[];
+  const h=previewFixture(async input=>{requests.push(input);if(refuse)throw Error("Synthetic preview failure");return {viewUrl:"https://synthetic.invalid/evidence"};});
+  await h.preview("media-A");assert.equal(h.error,"Synthetic preview failure");assert.deepEqual(h.opened,[]);
+  refuse=false;await h.preview("media-A");
+  assert.equal(h.error,null);assert.deepEqual(h.opened,[["https://synthetic.invalid/evidence","_blank","noopener,noreferrer"]]);
+  assert.deepEqual(requests.map(request=>request.attachmentId),["media-A","media-A"]);
+});
+
+test("an older evidence response cannot open a superseded file or replace the latest preview status",async()=>{
+  for(const outcome of ["success","failure"]){
+    let resolve,reject;
+    const first=new Promise((done,fail)=>{resolve=done;reject=fail;});
+    const h=previewFixture(input=>input.attachmentId==="media-A"?first:Promise.resolve({viewUrl:"https://synthetic.invalid/B"}));
+    const older=h.preview("media-A");await h.preview("media-B");
+    if(outcome==="success")resolve({viewUrl:"https://synthetic.invalid/A"});else reject(Error("Stale failure"));
+    await older;
+    assert.deepEqual(h.opened,[["https://synthetic.invalid/B","_blank","noopener,noreferrer"]]);
+    assert.equal(h.error,null);
+  }
 });
