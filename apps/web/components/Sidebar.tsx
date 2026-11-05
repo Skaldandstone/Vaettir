@@ -29,6 +29,7 @@ const LINK_ICONS: Record<string, IconName> = {
   Overview: "grid",
   "Test Cases": "cases",
   "Test Plans": "book",
+  Guide: "book",
   "Test Runs": "check",
   Reports: "grid",
   Requirements: "cases",
@@ -51,6 +52,7 @@ const LINK_ICONS: Record<string, IconName> = {
 const ORG_LINKS = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/projects", label: "Projects" },
+  { href: "/guide", label: "Guide" },
 ];
 
 // Mirrors TestRail/Qase: a project-scoped sidebar with a switcher at the
@@ -154,7 +156,7 @@ function ProjectSidebar({ projectId }: { projectId: string }) {
     <SidebarFrame
       label={currentName || "Project workspace"}
       detail="Project navigation"
-      rail={<nav aria-label="Compact project navigation"><SidebarLink href="/projects" label="Projects" exact />{projectAccessible && navigation.flatMap(group => group.links).map(link => <SidebarLink key={link.path} href={`/projects/${projectId}${link.path}`} label={link.label} exact={link.path === ""} />)}</nav>}
+      rail={<nav aria-label="Compact project navigation"><SidebarLink href="/projects" label="Projects" exact />{projectAccessible && navigation.flatMap(group => group.links).map(link => <SidebarLink key={link.path} href={`/projects/${projectId}${link.path}`} label={link.label} exact={link.path === ""} />)}<SidebarLink href="/guide" label="Guide" /></nav>}
     >
       <div className="sidebar-group">
         <Link href="/projects" className="sidebar-back">
@@ -227,6 +229,7 @@ function ProjectSidebar({ projectId }: { projectId: string }) {
             );
           })}
           <div className="sidebar-tools"><IconButton icon="settings" label="Customize project tools" tooltip="Choose the tools shown in this project's navigation." onClick={() => setToolsOpen(true)} /><span>Project tools</span></div>
+          <SidebarLink href="/guide" label="Guide" />
         </nav>
       ) : (
         <div

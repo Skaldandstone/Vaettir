@@ -75,7 +75,7 @@ test("import requires metadata permission before read and a bounded normalized p
     panel,
     /batch: draft.batch,[\s\S]*?version: draft.preview.version,[\s\S]*?previewHash: draft.preview.previewHash,[\s\S]*?requestId: crypto.randomUUID\(\),[\s\S]*?approveMetadataRead: true,[\s\S]*?approveImport: true/,
   );
-  assert.match(panel, /No AI · 0\s+credits/);
+  assert.match(panel, /No AI · No credit charge/);
   assert.match(panel, /Native provider exports must be normalized/);
 });
 

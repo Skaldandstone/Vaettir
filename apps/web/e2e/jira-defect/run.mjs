@@ -30,10 +30,12 @@ try{
  assert.equal(await page.getByLabel("API token",{exact:true}).count(),0,"No new Jira token entry is offered");
  await page.getByRole("button",{name:actionName("Issues"),exact:true}).click();
  await page.getByRole("button",{name:"SYN Synthetic tracker",exact:false}).click();
+ await page.getByRole("textbox",{name:"Labels",exact:true}).fill("crash");
  await page.getByRole("checkbox",{name:"I approve reading issue summaries",exact:false}).check();
  await page.getByRole("button",{name:actionName("Approve issue reads and start preview"),exact:true}).click();
  await page.getByRole("button",{name:actionName("Read next issue page"),exact:true}).click();
  await visible(page.getByText("Synthetic defect 2",{exact:true}));
+ assert.equal(await page.getByRole("columnheader",{name:"Type, components and labels"}).count(),1);
  await page.getByRole("button",{name:actionName("Finish preview and review"),exact:true}).click();
  await visible(page.getByRole("button",{name:actionName("Review selected defect tasks"),exact:true}));
  assert.equal(await page.getByRole("checkbox",{name:"Import SYN-2",exact:true}).isChecked(),true,"Existing requirement classification does not suppress a tracker task");

@@ -5,7 +5,7 @@ import {Prisma,type JiraIssueImportRun} from "@vaettir/db";
 import {router,protectedProcedure,type Context} from "../trpc.js";
 import {hashOAuthState} from "../services/gitlabRepositoryOAuth.js";
 import {jiraProjectSchema} from "../services/jiraSourceConnection.js";
-import {jiraIssueSchema,listJiraIssuePage} from "../services/jiraIssueIntake.js";
+import {jiraDefectFiltersSchema,jiraIssueSchema,listJiraIssuePage} from "../services/jiraIssueIntake.js";
 import {own,verified,ticketCredentials,liveEditor} from "./jiraConnections.js";
 
 const ids=z.array(z.string().regex(/^[1-9]\d{0,31}$/)).min(1).max(100);
@@ -19,7 +19,14 @@ const issueFingerprint=(value:unknown)=>{
   const issue=jiraIssueSchema.safeParse(value);
   return issue.success?fingerprint([issue.data.id,issue.data.projectId,issue.data.key,issue.data.title,issue.data.status,issue.data.updatedAt,issue.data.url]):null;
 };
-const scope=(run:JiraIssueImportRun)=>z.array(jiraProjectSchema).min(1).max(20).parse(run.selectedProjects);
+const jiraProjectsSchema=z.array(jiraProjectSchema).min(1).max(20);
+const storedDefectScope=z.object({projects:jiraProjectsSchema,filters:jiraDefectFiltersSchema}).strict();
+function readScope(run:JiraIssueImportRun) {
+  return Array.isArray(run.selectedProjects)
+    ? {projects:jiraProjectsSchema.parse(run.selectedProjects),filters:null}
+    : storedDefectScope.parse(run.selectedProjects);
+}
+const scope=(run:JiraIssueImportRun)=>readScope(run).projects;
 function active(run:JiraIssueImportRun){
   if(run.expiresAt.getTime()<=Date.now())throw new TRPCError({code:"PRECONDITION_FAILED",message:"This preview expired. Start a new run; saved requirements are retained."});
 }
@@ -89,7 +96,7 @@ export const jiraIssueIntakeRouter=router({
       if(project[0]?.organizationId!==connection.organizationId)throw new TRPCError({code:"FORBIDDEN"});
       return tx.jiraIssueImportRun.findMany({where:{connectionId:input.connectionId,actorId:ctx.user.id},orderBy:{createdAt:"desc"},take:20});
     });
-    return runs.map(r=>({id:r.id,status:r.status,version:r.version,createdAt:r.createdAt,issueCount:issuesSchema.parse(r.issues).length,completedCount:resultsSchema.parse(r.results).length,lastError:r.lastError}));
+    return runs.map(r=>({id:r.id,status:r.status,version:r.version,createdAt:r.createdAt,issueCount:issuesSchema.parse(r.issues).length,completedCount:resultsSchema.parse(r.results).length,lastError:r.lastError,filters:readScope(r).filters}));
   }),
   get:protectedProcedure.input(runInput).query(async({ctx,input})=>{
     const owned=await runOwn(ctx,input.runId);
@@ -99,13 +106,14 @@ export const jiraIssueIntakeRouter=router({
       return {run:current,issues};
     });
     const {run,issues}=snapshot;
-    return {id:run.id,status:run.status,version:run.version,projects:scope(run),issues,readInFlight:run.status==="READING"&&!!run.leaseUntil&&run.leaseUntil.getTime()>Date.now(),nextPageAvailable:run.pageCount===0||!!run.nextCursor,pageCount:run.pageCount,bounded:run.pageCount>=5||issues.length>=100,results:resultsSchema.parse(run.results),lastError:run.lastError};
+    return {id:run.id,status:run.status,version:run.version,...readScope(run),issues,readInFlight:run.status==="READING"&&!!run.leaseUntil&&run.leaseUntil.getTime()>Date.now(),nextPageAvailable:run.pageCount===0||!!run.nextCursor,pageCount:run.pageCount,bounded:run.pageCount>=5||issues.length>=100,results:resultsSchema.parse(run.results),lastError:run.lastError};
   }),
-  start:protectedProcedure.input(z.object({connectionId:z.string(),projectIds:ids.refine(v=>v.length<=20),requestId:z.string().uuid(),approveIssueRead:z.literal(true)})).mutation(async({ctx,input})=>{
+  start:protectedProcedure.input(z.object({connectionId:z.string(),projectIds:ids.refine(v=>v.length<=20),requestId:z.string().uuid(),approveIssueRead:z.literal(true),defectFilters:jiraDefectFiltersSchema.optional()})).mutation(async({ctx,input})=>{
     const connection=await own(ctx,input.connectionId);
     const projectIds=[...new Set(input.projectIds)].sort();
     const requestKey=fingerprint(["jira-issue-read",ctx.user.id,input.connectionId,input.requestId]);
-    const requestHash=fingerprint(projectIds);
+    const filters=input.defectFilters && {issueType:input.defectFilters.issueType,labels:[...new Set(input.defectFilters.labels)].sort()};
+    const requestHash=fingerprint(filters ? [projectIds,filters] : projectIds);
     const result=await ctx.prisma.$transaction(async tx=>{
       await liveEditor(tx,connection.organizationId,ctx.user.id);
       const projectsNow=await tx.$queryRaw<Array<{organizationId:string}>>`SELECT "organizationId" FROM "Project" WHERE id=${connection.projectId} FOR UPDATE`;
@@ -118,7 +126,7 @@ export const jiraIssueIntakeRouter=router({
       const projects=projectIds.map(id=>approved.find(p=>p.id===id));
       if(projects.some(p=>!p))throw new TRPCError({code:"FORBIDDEN",message:"Approve project scope before reading issues."});
       if(await tx.jiraIssueImportRun.count({where:{actorId:ctx.user.id,createdAt:{gt:new Date(Date.now()-3600000)}}})>=20)throw new TRPCError({code:"TOO_MANY_REQUESTS"});
-      return tx.jiraIssueImportRun.create({data:{connectionId:current.id,projectId:current.projectId,organizationId:current.organizationId,actorId:ctx.user.id,requestKey,requestHash,selectedProjects:projects as Prisma.InputJsonValue,expiresAt:new Date(Date.now()+86400000)}});
+      return tx.jiraIssueImportRun.create({data:{connectionId:current.id,projectId:current.projectId,organizationId:current.organizationId,actorId:ctx.user.id,requestKey,requestHash,selectedProjects:(filters ? {projects,filters} : projects) as Prisma.InputJsonValue,expiresAt:new Date(Date.now()+86400000)}});
     });
     return {id:result.id};
   }),
@@ -141,9 +149,10 @@ export const jiraIssueIntakeRouter=router({
     });
     if(!claimed)return {id:run.id};
     try{
-      const page=await listJiraIssuePage(await ticketCredentials(ctx,claimed.access),scope(claimed.run).map(p=>p.id),claimed.run.nextCursor);
+      const {projects,filters}=readScope(claimed.run);
+      const page=await listJiraIssuePage(await ticketCredentials(ctx,claimed.access),projects.map(p=>p.id),claimed.run.nextCursor,{defectFilters:filters??undefined});
       const fresh=z.array(jiraIssueSchema).max(20).parse(page.issues);
-      if(fresh.some(i=>!scope(claimed.run).some(p=>p.id===i.projectId)||new URL(i.url).origin!==claimed.access.providerOrigin))throw new Error("Out-of-scope Jira response");
+      if(fresh.some(i=>!projects.some(p=>p.id===i.projectId)||new URL(i.url).origin!==claimed.access.providerOrigin))throw new Error("Out-of-scope Jira response");
       const seen=z.array(z.string()).max(5).parse(claimed.run.seenCursors);
       if(page.nextPageToken&&(page.nextPageToken===claimed.run.nextCursor||seen.includes(page.nextPageToken)))throw new Error("Pagination loop");
       const previous=issuesSchema.parse(claimed.run.issues);
@@ -176,6 +185,7 @@ export const jiraIssueIntakeRouter=router({
       const current=await lockRun(tx,run);
       if(current.approvalRequestId===input.requestId){if(current.approvalHash!==hash)throw new TRPCError({code:"CONFLICT"});return;}
       active(current);await liveConnection(tx,current);
+      if(readScope(current).filters)throw new TRPCError({code:"PRECONDITION_FAILED",message:"Use this preview in the defect map."});
       if(current.status!=="REVIEW"||current.version!==input.version)throw new TRPCError({code:"CONFLICT",message:"Refresh and review this batch again."});
       const staged=issuesSchema.parse(current.issues);
       if(selected.some(id=>!staged.some(i=>i.id===id)))throw new TRPCError({code:"BAD_REQUEST"});

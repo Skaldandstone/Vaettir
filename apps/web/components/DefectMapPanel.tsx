@@ -897,8 +897,7 @@ export default function DefectMapPanel({ projectId }: { projectId: string }) {
       </p></details>
       <div className={styles.statusLine}>
         <span>
-          Jira connection and reviewed exports · Manual snapshots · No AI · 0
-          credits
+          Jira connection and reviewed exports · Manual snapshots · No AI · No credit charge
         </span>
         <ActionButton
           type="button"
