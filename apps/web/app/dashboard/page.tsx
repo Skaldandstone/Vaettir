@@ -205,7 +205,7 @@ export default function OrgDashboardPage() {
                         />
                       </div>
                       <Link
-                        className="text-button"
+                        className="btn-secondary"
                         href={`/projects/${project.projectId}/releases/${project.release.id}`}
                       >
                         Review release <Icon name="arrow" size={14} />

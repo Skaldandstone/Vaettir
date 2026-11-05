@@ -151,6 +151,8 @@ function CaseRow({
             }}
           >
             <button
+              type="button"
+              className="btn-secondary"
               ref={heading}
               aria-expanded={expanded}
               onClick={() => {
@@ -158,15 +160,7 @@ function CaseRow({
                 if (!expanded) onOpenCase(testCase.testCaseId);
                 setExpanded((v) => !v);
               }}
-              style={{
-                background: "none",
-                border: "none",
-                cursor: "pointer",
-                textAlign: "left",
-                fontWeight: 600,
-                padding: 0,
-                color: "var(--fg)",
-              }}
+              style={{ minWidth: 0, textAlign: "left", overflowWrap: "anywhere" }}
             >
               {expanded ? "▾" : "▸"}{" "}
               <span title={testCase.displayId ? "Case ID" : "Stable case record ID"}>{testCase.displayId ?? testCase.testCaseId}</span> · {testCase.title}
