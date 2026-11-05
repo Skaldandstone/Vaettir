@@ -203,6 +203,8 @@ export default function TestCaseForm({
   }));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const mediaPreviewGeneration = useRef(0);
+  useEffect(() => () => { mediaPreviewGeneration.current++; }, [projectId, testCaseId]);
   const [caseFieldsDraft, setCaseFieldsDraft] = useState<CaseFieldFormDraft | null>(null);
   // P1-15: both reads share the cache with the test-cases list page and the
   // shared-steps page, so opening the form right after either is free.
@@ -319,11 +321,13 @@ export default function TestCaseForm({
   }
 
   async function viewStepMedia(attachmentId: string) {
+    const generation = ++mediaPreviewGeneration.current;
+    setError(null);
     try {
       const { viewUrl } = await utils.testCaseAttachments.getViewUrl.fetch({ attachmentId });
-      window.open(viewUrl, "_blank", "noopener,noreferrer");
+      if (generation === mediaPreviewGeneration.current) window.open(viewUrl, "_blank", "noopener,noreferrer");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      if (generation === mediaPreviewGeneration.current) setError(cause instanceof Error ? cause.message : String(cause));
     }
   }
 
