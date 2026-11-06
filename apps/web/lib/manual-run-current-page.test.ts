@@ -966,6 +966,36 @@ describe("actual manual page/CaseRow/summary synthetic boundaries; native/React 
     expect(h.push).not.toHaveBeenCalled();
     expect(text(h.render().tree)).not.toContain("private error");
   });
+  it.each(["case", "history", "filter"] as const)("late completion success cannot displace a newer %s view with the same native run read", change => {
+    const h = harness(), before = h.render().tree;
+    click(button(before, "Complete run"));
+    const callbacks = h.mutate.mock.calls[0]![1] as { onSuccess: () => void; onError: () => void };
+    h.state.pending = true;
+    const waiting = h.render().tree;
+    if (change === "case") (component(waiting, h.types.CaseRow).props.onOpenCase as (id: string) => void)("second");
+    else if (change === "history") h.state.historyCaseIds = ["second"];
+    else (nodes(waiting).find(node => node.type === "input" && node.props.placeholder === "Search case ID or title")!.props.onChange as (event: { target: { value: string } }) => void)({ target: { value: "Second" } });
+    h.render(); h.state.pending = false; h.render();
+    callbacks.onSuccess();
+    expect(h.push).not.toHaveBeenCalled();
+    expect(h.refresh).toHaveBeenCalledOnce();
+    expect(text(h.render().tree)).not.toContain("Completion unconfirmed");
+    expect(h.mutate).toHaveBeenCalledOnce();
+  });
+  it("an uncertain completion failure still requires rechecking the original run after case navigation", () => {
+    const h = harness(); click(button(h.render().tree, "Complete run"));
+    const callbacks = h.mutate.mock.calls[0]![1] as { onError: () => void };
+    const row = component(h.render().tree, h.types.CaseRow);
+    (row.props.onOpenCase as (id: string) => void)("second"); h.render(); callbacks.onError();
+    expect(text(h.render().tree)).toContain("Completion unconfirmed");
+    expect(h.push).not.toHaveBeenCalled(); expect(h.refresh).not.toHaveBeenCalled();
+  });
+  it("ordinary completion still navigates after only the mutation pending state changes", () => {
+    const h = harness(); click(button(h.render().tree, "Complete run"));
+    const callbacks = h.mutate.mock.calls[0]![1] as { onSuccess: () => void };
+    h.state.pending = true; h.render(); h.state.pending = false; h.render();
+    callbacks.onSuccess(); expect(h.push).toHaveBeenCalledOnce();
+  });
   it.each([
     "Export current outcomes · CSV",
     "Export procedures and current record · JSON",

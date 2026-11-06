@@ -515,6 +515,12 @@ function ManualExecutionContent() {
     () => new Set(),
   );
   const completeMutation = trpcReact.manualExecution.complete.useMutation();
+  // Navigation intent is separate from the mutation's own pending renders.
+  const historyCaseKey = JSON.stringify(searchParams.getAll("caseId"));
+  const completionView = useMemo(() => ({ projectId, testRunId, caseSearch, caseFilter, navigation, historyCaseKey }),
+    [projectId, testRunId, caseSearch, caseFilter, navigation, historyCaseKey]);
+  const completionViewRef = useRef(completionView);
+  useLayoutEffect(() => { completionViewRef.current = completionView; }, [completionView]);
   const [pageGuard] = useState(() => new ManualRunCurrentRenderGuard());
   const frame = useMemo(() => ({ snapshot, caseSearch, caseFilter, navigation, error, completePending: completeMutation.isPending }),
     [snapshot, caseSearch, caseFilter, navigation, error, completeMutation.isPending]);
@@ -714,9 +720,14 @@ function ManualExecutionContent() {
                   // Legacy completion is NOT a reviewed UUID/CAS recovery path.
                   // Keep its response presentation tied to this exact native read.
                   const submittedSnapshot = snapshot;
+                  const submittedView = completionViewRef.current;
                   completeMutation.mutate({ testRunId }, {
-                    onSuccess: () => { if (submittedSnapshot && reader.current() === submittedSnapshot) router.push(`/projects/${projectId}/test-runs`); },
-                    onError: () => { if (submittedSnapshot && reader.current() === submittedSnapshot) setError("Run completion could not be confirmed. Retain evidence and recheck original run access; this is not a recovered completion receipt."); },
+                    onSuccess: () => {
+                      if (!submittedSnapshot || postedStamp.current === null || reader.current() !== submittedSnapshot) return;
+                      if (completionViewRef.current === submittedView) router.push(`/projects/${projectId}/test-runs`);
+                      else reader.refresh();
+                    },
+                    onError: () => { if (submittedSnapshot && reader.current() === submittedSnapshot) setError("Completion unconfirmed. Refresh this run to check its status."); },
                   });
                 }
               }}
