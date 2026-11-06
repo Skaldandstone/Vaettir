@@ -21,6 +21,10 @@ describe("exact test-only owned database admission", () => {
       expect(assertOwnedTestDatabase(service, { ...ci, GITHUB_REF: ref, GITHUB_WORKFLOW_REF: `Skaldandstone/Vaettir/.github/workflows/ci.yml@${ref}` }).route).toBe("GITHUB_SERVICE");
     }
   });
+  it("admits the Windows alternate only for a generated disposable local database", () => {
+    expect(assertOwnedTestDatabase(local.replace(":5432/", ":55432/"), {}).route).toBe("LOCAL_DISPOSABLE");
+    expect(() => assertOwnedTestDatabase(service.replace(":5432/", ":55432/"), ci)).toThrow();
+  });
   it("refuses CI flags alone and each missing supplied GitHub identity variable", () => {
     expect(() => assertOwnedTestDatabase(service, { CI: "true", GITHUB_ACTIONS: "true" })).toThrow();
     expect(() => assertOwnedTestDatabase(service, {})).toThrow();

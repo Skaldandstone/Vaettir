@@ -21,7 +21,7 @@ describe.skipIf(!admitted)("durable manual case creation on an owned disposable 
     const other = await prisma.user.create({ data: { email: `${tag}-outside@example.invalid`, clerkUserId: `${tag}-outside` }, include: { memberships: true } });
     owner = appRouter.createCaller({ prisma, user, authenticatedClerkSubject: subject });
     outsider = appRouter.createCaller({ prisma, user: other, authenticatedClerkSubject: other.clerkUserId });
-    projectId = (await prisma.project.create({ data: { organizationId, name: tag, slug: tag, caseKey: "DUR" } })).id;
+    projectId = (await prisma.project.create({ data: { organizationId, name: tag, slug: tag, caseKey: "dur" } })).id;
   });
   async function request() {
     const fields = await owner.caseFields.get({ projectId });
@@ -33,7 +33,25 @@ describe.skipIf(!admitted)("durable manual case creation on an owned disposable 
   }
   it("serializes concurrent retries into one case, receipt and initial version", async () => {
     const input = await request();
-    const results = await Promise.all([owner.testCases.createDurable(input), owner.testCases.createDurable(input)]);
+    let unlock!: () => void, locked!: () => void;
+    const release = new Promise<void>(resolve => { unlock = resolve; });
+    const ready = new Promise<void>(resolve => { locked = resolve; });
+    const blocker = prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT "id" FROM "Project" WHERE "id" = ${projectId} FOR UPDATE`;
+      locked(); await release;
+    }, { timeout: 10000 });
+    await ready;
+    const contenders = Promise.all([owner.testCases.createDurable(input), owner.testCases.createDurable(input)]);
+    try {
+      let waiting = 0;
+      for (let attempt = 0; attempt < 50 && waiting < 2; attempt++) {
+        const [row] = await prisma.$queryRaw<{ count: number }[]>`SELECT count(*)::int AS count FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid() AND wait_event_type = 'Lock'`;
+        waiting = row!.count;
+        if (waiting < 2) await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      expect(waiting).toBe(2); // Native PostgreSQL observed both contenders blocked.
+    } finally { unlock(); await blocker; }
+    const results = await contenders;
     expect(results[0]!.id).toBe(results[1]!.id); expect(results.filter(result => result.replayed)).toHaveLength(1);
     expect(await prisma.testCase.count({ where: { projectId } })).toBe(1);
     expect(await prisma.auditLog.count({ where: { projectId, entityType: "TestCaseCreate", entityId: input.requestId } })).toBe(1);
@@ -46,8 +64,10 @@ describe.skipIf(!admitted)("durable manual case creation on an owned disposable 
   it("recovers the original ID without overwriting later manual edits or adding a version", async () => {
     const input = await request(), first = await owner.testCases.createDurable(input);
     const before = await owner.testCases.byId({ id: first.id });
+    const fields = await owner.caseFields.get({ projectId, caseId: first.id });
     await owner.testCases.update({ ...input, id: first.id, title: "Later human wording", expectedCaseRevision: before.caseRevision,
-      expectedStepRevision: before.stepRevision, expectedPriority: before.priority, expectedSuitePath: before.suitePath });
+      expectedStepRevision: before.stepRevision, expectedPriority: before.priority, expectedSuitePath: before.suitePath,
+      expectedFieldSchemaHash: fields.expectedSchemaHash, expectedCustomFieldRevision: fields.expectedValueHash });
     const versions = await prisma.testCaseVersion.findMany({ where: { testCaseId: first.id }, orderBy: { versionNumber: "asc" } });
     expect(await owner.testCases.createDurable(input)).toEqual({ ...first, replayed: true });
     expect((await owner.testCases.byId({ id: first.id })).title).toBe("Later human wording");
@@ -67,7 +87,7 @@ describe.skipIf(!admitted)("durable manual case creation on an owned disposable 
       memberships: { create: { organizationId, role: "EDITOR", seatType: "FULL" } } }, include: { memberships: true } });
     const other = appRouter.createCaller({ prisma, user, authenticatedClerkSubject: tag });
     await expect(other.testCases.createDurable({ ...input, expectedClerkActorId: tag })).rejects.toMatchObject({ code: "FORBIDDEN" });
-    const project = await prisma.project.create({ data: { organizationId, name: tag, slug: tag, caseKey: "OTH" } });
+    const project = await prisma.project.create({ data: { organizationId, name: tag, slug: tag, caseKey: "oth" } });
     await expect(owner.testCases.createDurable({ ...input, projectId: project.id })).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(await prisma.testCase.count({ where: { projectId: project.id } })).toBe(0);
     const concurrent = await request(), fields = await owner.caseFields.get({ projectId: project.id });
