@@ -27,6 +27,7 @@ const topics = [
     id: "runs", label: "Test runs", title: "Run tests and report", steps: [
       "Open a plan and use Configure cases to choose cases and a run configuration.",
       "Select Run plan and record the outcome and evidence for each case.",
+      "In a manual run, choose CSV for outcomes, JSON for the current run record, or HTML for a printable report.",
       "Open Reports to review results and choose what to share.",
     ],
   },
