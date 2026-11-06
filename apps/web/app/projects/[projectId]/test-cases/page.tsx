@@ -716,6 +716,15 @@ export default function TestCasesPage() {
     if (outcome && !outcome.error && currentReviewScope()) { setBulkTag(""); setOrganizeAction(null); }
   }
 
+  const exportFrame = useMemo(() => ({ viewFrame, selected, visibleCases }), [viewFrame, selected, visibleCases]);
+  const activeExportFrame = useRef<typeof exportFrame | null>(null);
+  useLayoutEffect(() => {
+    activeExportFrame.current = exportFrame;
+    return () => { if (activeExportFrame.current === exportFrame) activeExportFrame.current = null; };
+  }, [exportFrame]);
+  function currentExportFrame() {
+    return currentViewFrame() && activeExportFrame.current === exportFrame;
+  }
   const selectedExportCount = caseExportIds(
     visibleCases,
     selected,
@@ -723,7 +732,7 @@ export default function TestCasesPage() {
   ).length;
   async function exportCsv(scope: "filtered" | "selected", exactIds?: string[]) {
     const ids = caseExportIds(visibleCases, exactIds ? new Set(exactIds) : selected, scope);
-    if (exporting || ids.length === 0) return;
+    if (exporting || ids.length === 0 || !currentExportFrame()) return;
     setExporting(true);
     setError(null);
     try {
@@ -731,6 +740,7 @@ export default function TestCasesPage() {
         projectId,
         includeArchived: showArchived,
       });
+      if (!currentExportFrame()) return;
       const rows = scopeCaseExport(available, ids);
       const header = [
         "caseId",
@@ -765,9 +775,10 @@ export default function TestCasesPage() {
       downloadCsv(
         `${project?.name ?? "test-cases"}-${scope}-${rows.length}.csv`,
         [header, ...body.map((row) => row.map(spreadsheetText))],
+        currentExportFrame,
       );
     } catch (e) {
-      setError(
+      if (currentExportFrame()) setError(
         e instanceof Error ? e.message : "Export failed. Please try again.",
       );
     } finally {
@@ -777,7 +788,7 @@ export default function TestCasesPage() {
 
   async function exportProcedure(scope: "filtered" | "selected", exactIds?: string[]) {
     const ids = caseExportIds(visibleCases, exactIds ? new Set(exactIds) : selected, scope);
-    if (exporting || ids.length === 0) return;
+    if (exporting || ids.length === 0 || !currentExportFrame()) return;
     setExporting(true);
     setError(null);
     try {
@@ -787,13 +798,15 @@ export default function TestCasesPage() {
         scope,
         includeArchived: showArchived,
       });
+      if (!currentExportFrame()) return;
       downloadFile(
         `${bundle.project.caseKey}-${scope}-${bundle.cases.length}-procedures.json`,
         encodeCaseProcedureExport(bundle),
         "application/json",
+        currentExportFrame,
       );
     } catch (cause) {
-      setError(
+      if (currentExportFrame()) setError(
         cause instanceof Error
           ? cause.message
           : "Procedure export failed. No file was downloaded.",
