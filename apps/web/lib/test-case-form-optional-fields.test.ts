@@ -176,6 +176,7 @@ it.each(["create","edit"] as const)("a late %s save cannot navigate away from a 
   if(mode==="edit")expect(original.sent[0]).toMatchObject({suitePath:"",expectedSuitePath:"suite/exact"});
   expect(next.navigation).toEqual([]);expect(next.sent).toEqual([]);
   expect(elements(next.tree).some(e=>e.type==="input"&&e.props.value==="Unsaved case B title")).toBe(true);
+});
 it("lost create confirmation retains one exact request for explicit retry instead of creating a fresh intent",async()=>{
   const h=harness(seed(),false,"create");h.ready();let lost=true;
   h.setSave(async()=>{if(lost)throw Error("Lost confirmation");return {id:"created-case"};});
