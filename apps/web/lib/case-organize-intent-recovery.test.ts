@@ -3,6 +3,8 @@ import React from "react";
 import ts from "typescript";
 import { expect, it, vi } from "vitest";
 import { ActionButton } from "./test-support/action-button";
+import { runCaseActionBatches } from "./case-action-batches";
+import { currentSessionScope } from "./auth-query-cache";
 
 // Actual organize dialog/handlers; scope, batch completion and mutation are
 // synthetic boundaries. No real case update or provider/database/API call.
@@ -58,4 +60,38 @@ it("a fresh dialog pins its own scope and copied IDs without exposing an old own
   expect(h.action()).toMatchObject({ kind: "move", ids: ["new-case"], draft: "" });
   expect(h.action()!.scope).not.toBe(h.original.scope); expect(h.input()?.props.value).toBe("");
   expect(h.mutation).not.toHaveBeenCalled();
+});
+
+// Integration seam: actual organize handler, current-owner guard and batch
+// runner together. Only mutation/committed state are synthetic, not a live API.
+it.each(["complete", "new-draft", "new-owner"])("organize batching preserves the %s intent across a pending first response", async scenario => {
+  const names = ["bulkAddTag", "editOrganizeDraft", "runBulkAction", "currentReviewScope"];
+  const actual = page.body!.statements.filter(node => ts.isFunctionDeclaration(node) && names.includes(node.name?.text ?? "")).map(node => node.getText(ast)).join("\n");
+  const ids = Array.from({ length: 401 }, (_, index) => `synthetic-${index}`);
+  const reviewScope = { projectId: "p", userId: "u", sessionId: "s", eligible: true };
+  const original = { kind: "tag", ids, draft: " original-tag ", scope: reviewScope };
+  let intent = original as typeof original | null, selected = new Set(ids);
+  const activeReviewScope = { current: reviewScope };
+  let acknowledge!: () => void;
+  const pending = new Promise<void>(resolve => { acknowledge = resolve; });
+  const mutation = vi.fn(async ({ ids: batch }: { ids: string[] }) => { await pending; return { count: batch.length }; });
+  const reload = vi.fn(), notice = vi.fn(), busy = vi.fn();
+  const bindings = { organizeAction: original, reviewScope, activeReviewScope, projectId: "p", readOnly: false, bulkBusy: false, selected,
+    window: { Clerk: { loaded: true, session: { id: "s", user: { id: "u" } } } }, currentSessionScope, runCaseActionBatches,
+    bulkTagMutation: { mutateAsync: mutation }, reload, setBulkBusy: busy, setBulkError: notice,
+    setSelected: (update: (value: Set<string>) => Set<string>) => { selected = update(selected); },
+    setOrganizeAction: (update: (value: typeof intent) => typeof intent) => { intent = update(intent); } };
+  const handlers = new Function(...Object.keys(bindings), ts.transpileModule(actual + ";return {run:bulkAddTag,edit:editOrganizeDraft};", { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText)(...Object.values(bindings)) as { run(): Promise<void>; edit(value: string): void };
+  const done = handlers.run();
+  expect(mutation).toHaveBeenCalledOnce(); expect(busy).toHaveBeenLastCalledWith(true);
+  if (scenario !== "complete") handlers.edit("new-unsent-tag");
+  if (scenario === "new-owner") { activeReviewScope.current = { ...reviewScope, userId: "new-owner" }; selected = new Set(["new-owner-selection"]); }
+  acknowledge(); await done;
+  expect(mutation).toHaveBeenCalledTimes(scenario === "new-owner" ? 1 : 3);
+  expect(mutation.mock.calls.map(([input]) => input.ids)).toEqual(scenario === "new-owner" ? [ids.slice(0, 200)] : [ids.slice(0, 200), ids.slice(200, 400), ids.slice(400)]);
+  expect(mutation.mock.calls.every(([input]) => JSON.stringify(input).includes('"tags":["original-tag"]'))).toBe(true);
+  expect(intent).toEqual(scenario === "complete" ? null : { ...original, draft: "new-unsent-tag" });
+  expect([...selected]).toEqual(scenario === "new-owner" ? ["new-owner-selection"] : []);
+  expect(reload).toHaveBeenCalledTimes(scenario === "new-owner" ? 0 : 1);
+  expect(notice.mock.calls).toEqual([[null]]); expect(busy).toHaveBeenLastCalledWith(false);
 });
