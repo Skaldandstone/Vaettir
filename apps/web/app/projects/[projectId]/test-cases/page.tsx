@@ -5,7 +5,7 @@ import { ActionButton } from "@/components/ui/ActionButton";
 
 import { CompactSidebar } from "@/components/ui/CompactSidebar";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@clerk/nextjs";
 import { useParams, useRouter } from "next/navigation";
@@ -41,6 +41,7 @@ import {
   spreadsheetText,
 } from "@/lib/test-case-export";
 import { runCaseActionBatches } from "@/lib/case-action-batches";
+import { currentSessionScope } from "@/lib/auth-query-cache";
 import {
   RunConfigurationModal,
 } from "@/components/RunConfigurationModal";
@@ -229,6 +230,17 @@ export default function TestCasesPage() {
   const permissions = useProjectPermissions(projectId);
   const folderActor = useAuth();
   const readOnly = !permissions.canEdit || Boolean(permissions.accessError);
+  const reviewScope = useMemo(() => ({
+    projectId, organizationId: permissions.organizationId,
+    userId: folderActor.userId, sessionId: folderActor.sessionId,
+    eligible: folderActor.isLoaded && folderActor.isSignedIn && !readOnly,
+  }), [projectId, permissions.organizationId, folderActor.userId, folderActor.sessionId,
+    folderActor.isLoaded, folderActor.isSignedIn, readOnly]);
+  const activeReviewScope = useRef<typeof reviewScope | null>(null);
+  useLayoutEffect(() => {
+    activeReviewScope.current = reviewScope.eligible ? reviewScope : null;
+    return () => { if (activeReviewScope.current === reviewScope) activeReviewScope.current = null; };
+  }, [reviewScope]);
   const [runConfigurationOpen, setRunConfigurationOpen] = useState(false);
   const [runSelection, setRunSelection] = useState<string[]>([]);
 
@@ -410,6 +422,7 @@ export default function TestCasesPage() {
   const [reviewAction, setReviewAction] = useState<{
     kind: "archive" | "restore" | "delete";
     ids: string[];
+    scope: typeof reviewScope;
   } | null>(null);
 
   // What the original load() refetched after every mutation.
@@ -595,11 +608,15 @@ export default function TestCasesPage() {
     reviewedIds = [...selected],
     confirmed?: (result: T, ids: readonly string[]) => boolean,
   ) {
-    if (readOnly || bulkBusy || reviewedIds.length === 0) return null;
+    if (readOnly || bulkBusy || reviewedIds.length === 0 || !currentReviewScope()) return null;
     setBulkBusy(true);
     setBulkError(null);
     try {
-      const outcome = await runCaseActionBatches(reviewedIds, execute, confirmed);
+      const outcome = await runCaseActionBatches(reviewedIds, (ids) => {
+        if (!currentReviewScope()) throw Error("The case action scope changed.");
+        return execute(ids);
+      }, confirmed);
+      if (!currentReviewScope()) return outcome;
       const completedIds = new Set(outcome.completedIds);
       setSelected(
         (current) =>
@@ -623,7 +640,7 @@ export default function TestCasesPage() {
       reviewedIds,
       (result, ids) => result.blockedCount === 0 && result.deletedCount === ids.length,
     );
-    if (outcome) {
+    if (outcome && currentReviewScope()) {
       const totals = outcome.results.reduce(
         (sum, result) => ({
           deletedCount: sum.deletedCount + result.deletedCount,
@@ -655,7 +672,7 @@ export default function TestCasesPage() {
         testPlanId: bulkMovePlanId || null,
       }), organizeAction.ids,
     );
-    if (outcome && !outcome.error) { setBulkMovePlanId(""); setOrganizeAction(null); }
+    if (outcome && !outcome.error && currentReviewScope()) { setBulkMovePlanId(""); setOrganizeAction(null); }
   }
 
   async function bulkAddTag() {
@@ -667,7 +684,7 @@ export default function TestCasesPage() {
         tags: [bulkTag.trim()],
       }), organizeAction.ids,
     );
-    if (outcome && !outcome.error) { setBulkTag(""); setOrganizeAction(null); }
+    if (outcome && !outcome.error && currentReviewScope()) { setBulkTag(""); setOrganizeAction(null); }
   }
 
   const selectedExportCount = caseExportIds(
@@ -814,22 +831,29 @@ export default function TestCasesPage() {
     setShowArchived(false);
     setActiveViewId("");
   }
-  function requestReview(kind: "archive" | "restore" | "delete") {
+  function currentReviewScope() {
+    const session = currentSessionScope(window.Clerk?.loaded ? window.Clerk.session : null);
+    return activeReviewScope.current === reviewScope && !!session && session.userId === reviewScope.userId &&
+      session.sessionId === reviewScope.sessionId;
+  }
+  function requestReview(kind: "archive" | "restore" | "delete", exactIds?: string[]) {
+    if (readOnly || bulkBusy || !currentReviewScope()) return;
     setReviewAction({
       kind,
-      ids:
+      ids: exactIds ?? (
         kind === "archive"
           ? activeSelectedIds
           : kind === "restore"
             ? archivedSelectedIds
-            : [...selected],
+            : [...selected]),
+      scope: reviewScope,
     });
   }
   async function confirmReviewedAction() {
-    if (!reviewAction || readOnly || bulkBusy) return;
+    if (!reviewAction || readOnly || bulkBusy || reviewAction.scope !== reviewScope || !currentReviewScope()) return;
     if (reviewAction.kind === "delete") await bulkDelete(reviewAction.ids);
     else await bulkArchive(reviewAction.kind === "archive", reviewAction.ids);
-    setReviewAction(null);
+    setReviewAction(current => current === reviewAction ? null : current);
   }
 
   return (
@@ -1331,9 +1355,9 @@ export default function TestCasesPage() {
                               onTag={() => setOrganizeAction({ kind: "tag", ids: [tc.id] })}
                               onCsv={() => void exportCsv("selected", [tc.id])} onJson={() => void exportProcedure("selected", [tc.id])}
                               onReview={() => router.push(`/projects/${projectId}/test-cases/review`)}
-                              onArchive={() => setReviewAction({ kind: "archive", ids: [tc.id] })}
-                              onRestore={() => setReviewAction({ kind: "restore", ids: [tc.id] })}
-                              onDelete={() => setReviewAction({ kind: "delete", ids: [tc.id] })} />
+                              onArchive={() => requestReview("archive", [tc.id])}
+                              onRestore={() => requestReview("restore", [tc.id])}
+                              onDelete={() => requestReview("delete", [tc.id])} />
 
                             <a
                               href={`/projects/${projectId}/test-cases/${tc.id}`}
@@ -1874,7 +1898,7 @@ export default function TestCasesPage() {
       </Modal>}
       {!readOnly && (
         <Modal
-          open={reviewAction !== null}
+          open={reviewAction !== null && reviewAction.scope === reviewScope && reviewScope.eligible}
           title={`Review ${reviewAction?.kind ?? "action"}`}
           onClose={() => setReviewAction(null)}
           dismissible={!bulkBusy}
