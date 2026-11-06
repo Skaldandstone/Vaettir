@@ -1859,7 +1859,7 @@ export default function TestCasesPage() {
                  tooltip={<>
                   Save changes to {currentView.name}
                  </>}>
-                   Save {currentView.name}
+                   Save
                 </ActionButton>
                 <button
                   className="btn-secondary"
