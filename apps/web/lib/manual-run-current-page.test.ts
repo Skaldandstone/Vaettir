@@ -146,6 +146,8 @@ function syntheticSnapshot(
     title?: string;
     nativeActorId?: string;
     frozen?: boolean;
+    reportContext?: boolean;
+    completed?: boolean;
   } = {},
 ) {
   const base = snapshotFactory({
@@ -164,6 +166,12 @@ function syntheticSnapshot(
     }),
     raw = structuredClone(base.data);
   raw.view.canWrite = options.writable ?? true;
+  if (options.completed) { raw.view.status = "PARTIAL"; raw.view.canWrite = false; }
+  if (options.reportContext) for (const row of raw.view.cases) {
+    row.background = `Saved context ${row.testCaseId}`;
+    row.verificationProfile = { setup: `Saved setup ${row.testCaseId}`, safety: `Saved safety ${row.testCaseId}`,
+      instruments: `Instrument <${row.testCaseId}>`, acceptanceCriteria: `Saved acceptance ${row.testCaseId}` };
+  }
   if (options.untested)
     for (const row of raw.view.cases) row.currentResult = null;
   if (options.frozen) {
@@ -995,6 +1003,26 @@ describe("actual manual page/CaseRow/summary synthetic boundaries; native/React 
     const callbacks = h.mutate.mock.calls[0]![1] as { onSuccess: () => void };
     h.state.pending = true; h.render(); h.state.pending = false; h.render();
     callbacks.onSuccess(); expect(h.push).toHaveBeenCalledOnce();
+  });
+  it("completion refresh retains the selected case and exports its saved context only after a fresh closed-run read", () => {
+    const h = harness(); h.state.candidate = syntheticSnapshot({ untested: true, frozen: true, reportContext: true });
+    h.state.held = h.state.candidate; click(button(h.render().tree, "Complete run"));
+    const callbacks = h.mutate.mock.calls[0]![1] as { onSuccess: () => void };
+    const row = component(h.render().tree, h.types.CaseRow);
+    (row.props.onOpenCase as (id: string) => void)("second");
+    const changed = h.render().tree, oldSummary = h.summary(component(changed, h.types.RunExecutionSummary));
+    callbacks.onSuccess(); expect(h.refresh).toHaveBeenCalledOnce(); expect(h.push).not.toHaveBeenCalled();
+    h.state.candidate = null; h.state.held = null; h.render();
+    click(button(oldSummary, "Export printable report · HTML")); expect(h.download).not.toHaveBeenCalled();
+    h.state.candidate = syntheticSnapshot({ untested: true, frozen: true, reportContext: true, completed: true });
+    h.state.held = h.state.candidate; const refreshed = h.render().tree;
+    expect(nodes(refreshed).filter(node => node.type === h.types.CaseRow && node.props.navigationTarget)
+      .map(node => (node.props.testCase as { testCaseId: string }).testCaseId)).toEqual(["second"]);
+    click(button(h.summary(component(refreshed, h.types.RunExecutionSummary)), "Export printable report · HTML"));
+    expect(h.download).toHaveBeenCalledOnce(); const html = h.download.mock.calls[0]![1] as string;
+    for (const content of ["PARTIAL", "Saved context second", "Saved setup second", "Saved safety second", "Instrument &lt;second&gt;", "Saved acceptance second"])
+      expect(html).toContain(content);
+    expect(h.mutate).toHaveBeenCalledOnce();
   });
   it.each([
     "Export current outcomes · CSV",
