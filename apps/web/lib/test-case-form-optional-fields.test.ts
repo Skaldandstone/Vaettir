@@ -13,6 +13,7 @@ import * as fields from "./case-authoring-fields";
 import { freshCasePresentation } from "./case-presentation-read";
 import { moveListItem } from "./move-list-item";
 import { inspectorLabel } from "./case-inspector";
+import { CaseCreateRecovery } from "./case-create-recovery";
 import vm from "node:vm";
 function actualUiDeclaration(file: string, name: string) {
   const source = readFileSync(new URL(file, import.meta.url), "utf8");
@@ -37,7 +38,7 @@ for (const [file, name] of [
 const IconButton = (iconScope as unknown as { IconButton: React.ComponentType<Record<string, unknown>> }).IconButton;
 const ProcedureStep = (iconScope as unknown as { ProcedureStep: React.ComponentType<Record<string, unknown>> }).ProcedureStep;
 
-const source = readFileSync(new URL("../components/TestCaseForm.tsx", import.meta.url), "utf8");
+const source = readFileSync(process.env.VAETTIR_FORM_FIXTURE_SOURCE ?? new URL("../components/TestCaseForm.tsx", import.meta.url), "utf8");
 const compiled = controllerTranspile(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } }).outputText;
 type Element = React.ReactElement<Record<string, unknown>>;
 function elements(value: unknown, all: Element[] = []): Element[] { if (React.isValidElement(value)) { const e = value as Element; all.push(e); elements(e.props.children, all); elements(e.props.tools, all); } else if (Array.isArray(value)) value.forEach(v => elements(v, all)); return all; }
@@ -61,15 +62,16 @@ function harness(initial = seed(), automatic = false, mode: "create" | "edit" = 
     useMemo: (fn: () => unknown, deps: readonly unknown[]) => { const id = cursor++, slot = slots[id] ??= {}; if (!same(slot.deps, deps)) { slot.memo = fn(); slot.deps = deps; } return slot.memo; },
     useEffect: (fn: () => unknown, deps: readonly unknown[]) => { const id = cursor++, slot = slots[id] ??= {}; if (!same(slot.deps, deps)) effects.push(() => { slot.cleanup?.(); slot.deps = deps; const cleanup = fn(); slot.cleanup = typeof cleanup === "function" ? cleanup as () => void : undefined; }); },
   };
+  Object.assign(hooks, { useLayoutEffect: hooks.useEffect });
   const observed = new Set<string>();
   function query(path: string, value: unknown) { return { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { const key = JSON.stringify([path, input, options?.enabled !== false]); if (options?.enabled !== false && !observed.has(key)) { observed.add(key); reads.push(key); } return { data: value, isFetchedAfterMount: true, isFetching: false, isPaused: false, error: null, refetch: async () => { reads.push(path + ":explicit-refetch"); return { data: value }; } }; } }; }
   let mutate: (body: unknown) => Promise<{ id: string }> = async () => ({ id: "case" });
   let upload: (body: unknown) => Promise<unknown> = async () => { throw Error("Synthetic upload never admitted"); };
   const mutation = () => ({ useMutation: () => ({ mutateAsync: (body: unknown) => { sent.push(body); return mutate(body); } }) });
   const mediaMutation = () => ({ useMutation: () => ({ mutateAsync: (body: unknown) => { reads.push("synthetic-upload-request"); return upload(body); } }) });
-  const api = { useUtils: () => ({ testCases: { list: { invalidate: async () => {} }, byId: { invalidate: async () => {} } }, caseFields: { get: { invalidate: async () => {} } }, testCaseAttachments: { list: { invalidate: async () => {} }, getViewUrl: { fetch: async () => { throw Error("No source/file operation allowed"); } } } }), project: { experience: query("project.experience", { experience: null }) }, casePresentation: { get: query("casePresentation.get", data), configure: { useMutation: () => ({ mutateAsync: (value: unknown) => { settingsWrites.push(value); throw Error("No settings write allowed"); } }) } }, testCases: { list: query("testCases.list", []), create: mutation(), update: mutation() }, sharedStepGroups: { list: query("sharedStepGroups.list", []) }, testCaseAttachments: { list: query("testCaseAttachments.list", []), requestUpload: mediaMutation(), confirmUpload: mediaMutation(), delete: mediaMutation() } };
+  const api = { useUtils: () => ({ testCases: { list: { invalidate: async () => {} }, byId: { invalidate: async () => {} } }, caseFields: { get: { invalidate: async () => {} } }, testCaseAttachments: { list: { invalidate: async () => {} }, getViewUrl: { fetch: async () => { throw Error("No source/file operation allowed"); } } } }), project: { experience: query("project.experience", { experience: null }) }, casePresentation: { get: query("casePresentation.get", data), configure: { useMutation: () => ({ mutateAsync: (value: unknown) => { settingsWrites.push(value); throw Error("No settings write allowed"); } }) } }, testCases: { list: query("testCases.list", []), create: mutation(), createDurable: {useMutation:()=>({mutateAsync:async(body:Record<string,unknown>)=>{sent.push(body);const saved=await mutate(body);return {...saved,projectId:body.projectId,requestId:body.requestId,originalOrganizationId:body.originalOrganizationId,expectedClerkActorId:body.expectedClerkActorId,requestHash:"a".repeat(64),replayed:sent.length>1};}})}, update: mutation() }, sharedStepGroups: { list: query("sharedStepGroups.list", []) }, testCaseAttachments: { list: query("testCaseAttachments.list", []), requestUpload: mediaMutation(), confirmUpload: mediaMutation(), delete: mediaMutation() } };
   const FieldBoundary = () => React.createElement("div", { "data-synthetic-fields-readiness": true });
-  const modules: Record<string, unknown> = { react: hooks, "next/navigation": { useRouter: () => ({ push: (path: string) => navigation.push(path) }) }, "@vaettir/core": core, "@/lib/trpcReact": { trpcReact: api }, "@/components/TestCaseTree": { collectKnownSuitePaths: () => [] }, "@/lib/move-list-item": { moveListItem }, "@/lib/use-case-field-access": { useCaseFieldAccess: (_p: string, _id: string, active: boolean) => ({ origin: { projectId: "p", organizationId: "o", clerkActorId: "cl", caseId: "case" }, readable: active, current: active ? { projectId: "p", organizationId: "o", clerkActorId: "cl", caseId: "case" } : null }) }, "@/lib/case-presentation-read": { freshCasePresentation }, "@/lib/case-authoring-fields": fields, "./CaseDesignGuide": { CaseDesignGuide: () => null }, "./CaseProcedureColumns": { CaseProcedureColumns: () => null }, "./CaseTagEditor": { CaseTagEditor: (p: { tags: string[] }) => React.createElement("div", { "data-tag-chips": true }, p.tags.map((tag, i) => React.createElement("span", { key: i }, tag))) }, "./ui/IconButton": { IconButton }, "./CaseCustomFields": { CaseCustomFieldsForm: FieldBoundary } };
+  const modules: Record<string, unknown> = { react: hooks, "next/navigation": { useRouter: () => ({ push: (path: string) => navigation.push(path) }) }, "@vaettir/core": core, "@/lib/trpcReact": { trpcReact: api }, "@/components/TestCaseTree": { collectKnownSuitePaths: () => [] }, "@/lib/move-list-item": { moveListItem }, "@/lib/use-case-field-access": { useCaseFieldAccess: (_p: string, _id: string, active: boolean) => ({ owns: (origin: { projectId: string; clerkActorId: string }) => props.active && !props.locked && origin.projectId === props.projectId && origin.clerkActorId === "cl", origin: { projectId: "p", organizationId: "o", clerkActorId: "cl", caseId: _id ?? null }, readable: active, current: active ? { projectId: "p", organizationId: "o", clerkActorId: "cl", caseId: "case" } : null }) }, "@/lib/case-presentation-read": { freshCasePresentation }, "@/lib/case-create-recovery": { CaseCreateRecovery }, "@/lib/case-authoring-fields": fields, "./CaseDesignGuide": { CaseDesignGuide: () => null }, "./CaseProcedureColumns": { CaseProcedureColumns: () => null }, "./CaseTagEditor": { CaseTagEditor: (p: { tags: string[] }) => React.createElement("div", { "data-tag-chips": true }, p.tags.map((tag, i) => React.createElement("span", { key: i }, tag))) }, "./ui/IconButton": { IconButton }, "./CaseCustomFields": { CaseCustomFieldsForm: FieldBoundary } };
   modules["./ui/ProcedureStep"] = { ProcedureStep };
   modules["@/lib/case-inspector"] = { inspectorLabel };
   const exports: Record<string, (p: typeof props) => React.ReactNode> = {};
@@ -98,7 +100,7 @@ function harness(initial = seed(), automatic = false, mode: "create" | "edit" = 
   function ready() { const child = elements(tree).find(e => e.type === FieldBoundary); if (!child) throw Error("Actual metadata readiness callback missing"); (child.props.onChange as (value: unknown) => void)({ ready: true, customFields: { untouched: false, zero: 0, empty: "" }, expectedFieldSchemaHash: "f".repeat(64), expectedCustomFieldRevision: "m".repeat(64) }); settle(); }
   function textarea(label: string, occurrence = 0) { const parent = elements(tree).filter(e => e.type === "label" && text(e.props.children).startsWith(label))[occurrence]; if (!parent) throw Error(`Label absent: ${label}`); const child = elements(parent).find(e => e.type === "textarea"); if (!child) throw Error(`Textarea absent: ${label}`); return child; }
   settle();
-  return { props, sent, reads, settingsWrites, navigation, button, click, ready, render, settle, textarea, get tree() { return tree; }, html: () => { settle(); return renderToStaticMarkup(tree); }, change: (label: string, value: string, occurrence = 0) => { (textarea(label, occurrence).props.onChange as (event: { target: { value: string } }) => void)({ target: { value } }); settle(); }, save: async () => { const b = button(mode === "create" ? "Create test case" : "Save changes"); expect(b.props.disabled).not.toBe(true); await (b.props.onClick as () => Promise<void>)(); settle(); }, holdSave: () => { let resolve!: (value: { id: string }) => void; const pending = new Promise<{ id: string }>(done => { resolve = done; }); mutate = () => pending; return resolve; }, unmount: () => slots.forEach(slot => slot.cleanup?.()), holdUpload: () => { upload = () => new Promise(() => {}); const input = elements(tree).find(e => e.type === "input" && e.props.type === "file"); if (!input) throw Error("Actual upload input missing"); (input.props.onChange as (event: { target: { files: File[]; value: string } }) => void)({ target: { files: [new File(["synthetic"], "synthetic.png", { type: "image/png" })], value: "synthetic" } }); settle(); } };
+  return { props, sent, reads, settingsWrites, navigation, setSave: (fn: typeof mutate) => { mutate = fn; }, button, click, ready, render, settle, textarea, get tree() { return tree; }, html: () => { settle(); return renderToStaticMarkup(tree); }, change: (label: string, value: string, occurrence = 0) => { (textarea(label, occurrence).props.onChange as (event: { target: { value: string } }) => void)({ target: { value } }); settle(); }, save: async () => { const b = button(mode === "create" ? "Create test case" : "Save changes"); expect(b.props.disabled).not.toBe(true); await (b.props.onClick as () => Promise<void>)(); settle(); }, holdSave: () => { let resolve!: (value: { id: string }) => void; const pending = new Promise<{ id: string }>(done => { resolve = done; }); mutate = () => pending; return resolve; }, unmount: () => slots.forEach(slot => slot.cleanup?.()), holdUpload: () => { upload = () => new Promise(() => {}); const input = elements(tree).find(e => e.type === "input" && e.props.type === "file"); if (!input) throw Error("Actual upload input missing"); (input.props.onChange as (event: { target: { files: File[]; value: string } }) => void)({ target: { files: [new File(["synthetic"], "synthetic.png", { type: "image/png" })], value: "synthetic" } }); settle(); } };
 }
 it.each(core.CASE_PROCEDURE_FORMATS)("%s permits step-only authoring without adding scenario text or changing exact descriptors/media/CAS", async format => {
   const initial = seed(); initial.given = []; initial.when = []; initial.then = [];
@@ -175,6 +177,28 @@ it.each(["create","edit"] as const)("a late %s save cannot navigate away from a 
   expect(next.navigation).toEqual([]);expect(next.sent).toEqual([]);
   expect(elements(next.tree).some(e=>e.type==="input"&&e.props.value==="Unsaved case B title")).toBe(true);
 });
+it("lost create confirmation retains one exact request for explicit retry instead of creating a fresh intent",async()=>{
+  const h=harness(seed(),false,"create");h.ready();let lost=true;
+  h.setSave(async()=>{if(lost)throw Error("Lost confirmation");return {id:"created-case"};});
+  await h.save();const original=h.sent[0] as {requestId:string};
+  expect(original.requestId).toMatch(/^[a-f0-9-]{36}$/);
+  expect(h.button("Create test case").props.disabled).toBe(true);
+  expect(Object.isFrozen(original)).toBe(true);
+  lost=false;await (h.button("Retry original case save").props.onClick as ()=>Promise<void>)();h.settle();
+  expect(h.sent).toHaveLength(2);expect(h.sent[1]).toBe(original);
+  expect(h.navigation).toEqual(["/projects/p/test-cases/created-case"]);
+  expect(h.button("Create test case").props.disabled).toBe(true);
+});
+it.each(["inactive", "locked", "different-project"])("a captured recovery action cannot write after the form becomes %s", async state => {
+  const h = harness(seed(), false, "create"); h.ready();
+  h.setSave(async () => { throw Error("Lost confirmation"); }); await h.save();
+  const retry = h.button("Retry original case save").props.onClick as () => Promise<void>;
+  if (state === "inactive") h.props.active = false;
+  else if (state === "locked") h.props.locked = true;
+  else h.props.projectId = "another-project";
+  h.settle(); await retry();
+  expect(h.sent).toHaveLength(1); expect(h.navigation).toEqual([]);
+});
 it.each([null, ""])("initial saved Background %j projected to the empty editor retains omitted behavior on unrelated save", async background => {
   const initial = seed(); initial.background = background ?? "";
   // The real edit route projects native NULL with tc.background ?? "";
@@ -188,7 +212,7 @@ it("new draft keeps initial blank or deliberately cleared template Background om
     const initial = seed(); initial.background = background;
     const h = harness(initial, false, "create"); h.ready();
     if (background !== "") h.change("Background", "");
-    await h.save(); expect(h.sent).toHaveLength(1); expect(h.sent[0]).toHaveProperty("background", undefined);
+    await h.save(); expect(h.sent).toHaveLength(1); expect(h.sent[0]).not.toHaveProperty("background");
     expect(h.sent[0]).toHaveProperty("projectId", "p"); expect(h.sent[0]).not.toHaveProperty("expectedCaseRevision"); expect(h.settingsWrites).toEqual([]);
   }
 });

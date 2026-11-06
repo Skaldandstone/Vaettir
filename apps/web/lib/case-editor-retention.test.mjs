@@ -50,11 +50,11 @@ test("create draft stays mounted after permission refresh failure, but cannot wr
 test("native fieldset and handler guards prevent revoked-access writes and save during upload", () => {
   assert.match(
     form,
-    /<fieldset[^>]*\s+disabled=\{locked \|\| saving \|\| uploadingStepKey !== null\}/,
+    /<fieldset[^>]*\s+disabled=\{locked \|\| saving \|\| uploadingStepKey !== null \|\| createPending/,
   );
   assert.match(
     form,
-    /async function submit\(\) \{\s*if \(!active \|\| locked \|\| saving \|\| uploadingStepKey !== null \|\| !value.title.trim\(\) \|\| !caseFieldsDraft\?\.ready\)/,
+    /async function submit\(\) \{\s*if \(!active \|\| locked \|\| saving \|\| uploadingStepKey !== null \|\| !value.title.trim\(\) \|\| \(!caseFieldsDraft\?\.ready && !createRecovery.pending\)\)/,
   );
   assert.match(
     form,
