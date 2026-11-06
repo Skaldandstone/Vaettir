@@ -186,6 +186,10 @@ export function FrozenReport({
   }
   function download(format: "html" | "csv") {
     if (!exportAllowed || !reviewed) return;
+    const captured = exportScope.current;
+    if (!captured.ready || captured.report !== report ||
+      captured.presentation !== presentation || captured.projectId !== projectId ||
+      captured.snapshotId !== snapshotId) return;
     let content: string;
     try {
       content =
@@ -198,6 +202,7 @@ export function FrozenReport({
       );
       return;
     }
+    if (exportScope.current !== captured || !captured.ready) return;
     setExportMessage("");
     const url = URL.createObjectURL(
       new Blob([content], {
