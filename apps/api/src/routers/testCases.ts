@@ -1743,7 +1743,7 @@ export const testCasesRouter = router({
             // the assignment" (null) -- the form always submits this field,
             // so an empty string here is a deliberate un-assign, not an
             // accidental no-op.
-            suitePath: input.suitePath ? input.suitePath : null,
+            suitePath: input.suitePath === undefined ? undefined : input.suitePath || null,
             updatedById: ctx.user.id,
             sharedStepGroupId: input.sharedStepGroupId || null,
             steps: input.sharedStepGroupId

@@ -3,6 +3,9 @@ import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import ts from "typescript";
 import { describe, expect, it, vi } from "vitest";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { ActionButton } from "./test-support/action-button";
 import {
   resolveQualityExperience,
   renderBoundedSpreadsheetCsv,
@@ -146,6 +149,8 @@ function syntheticSnapshot(
     title?: string;
     nativeActorId?: string;
     frozen?: boolean;
+    reportContext?: boolean;
+    completed?: boolean;
   } = {},
 ) {
   const base = snapshotFactory({
@@ -164,6 +169,12 @@ function syntheticSnapshot(
     }),
     raw = structuredClone(base.data);
   raw.view.canWrite = options.writable ?? true;
+  if (options.completed) { raw.view.status = "PARTIAL"; raw.view.canWrite = false; }
+  if (options.reportContext) for (const row of raw.view.cases) {
+    row.background = `Saved context ${row.testCaseId}`;
+    row.verificationProfile = { setup: `Saved setup ${row.testCaseId}`, safety: `Saved safety ${row.testCaseId}`,
+      instruments: `Instrument <${row.testCaseId}>`, acceptanceCriteria: `Saved acceptance ${row.testCaseId}` };
+  }
   if (options.untested)
     for (const row of raw.view.cases) row.currentResult = null;
   if (options.frozen) {
@@ -460,6 +471,32 @@ function click(node: ViewNode) {
 }
 
 describe("actual manual page/CaseRow/summary synthetic boundaries; native/React DOM/SDK NOT proved", () => {
+  it("actual summary shows distinct accessible formats and keeps each export handler and scope restriction", () => {
+    const h = harness();
+    const compiled = ts.transpileModule(functionSource("../components/RunExecutionSummary.tsx", ["RunExecutionSummary"]), {
+      compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React },
+    }).outputText;
+    const Actual = new Function("React", "useState", "ActionButton", "DistributionBar", compiled + ";return RunExecutionSummary;")(
+      React, React.useState, ActionButton, () => null,
+    ) as React.ComponentType<Record<string, unknown>>;
+    const summary = component(h.render().tree, h.types.RunExecutionSummary);
+    const html = renderToStaticMarkup(React.createElement(Actual, summary.props));
+    const buttons = [...html.matchAll(/<button\b([^>]*)>(.*?)<\/button>/gs)];
+    expect(buttons.map(match => match[2]!.trim())).toEqual(["CSV", "JSON", "HTML"]);
+    for (const [index, format] of ["CSV", "JSON", "HTML"].entries())
+      expect(buttons[index]![1]).toMatch(new RegExp(`aria-label="[^"]*${format}[^"]*"`));
+    for (const [label, name, mime] of [
+      ["Export current outcomes · CSV", "vaettir-run-run.csv", "text/csv"],
+      ["Export procedures and current record · JSON", "vaettir-run-run-current-record.json", "application/json"],
+      ["Export printable report · HTML", "vaettir-run-run-report.html", "text/html"],
+    ]) {
+      click(button(h.summary(summary), label!));
+      expect(h.download.mock.lastCall).toEqual([name, expect.any(String), mime, expect.any(Function)]);
+    }
+    h.state.candidate = syntheticSnapshot({ missing: ["first"] }); h.state.held = h.state.candidate;
+    const denied = renderToStaticMarkup(React.createElement(Actual, component(h.render().tree, h.types.RunExecutionSummary).props));
+    expect([...denied.matchAll(/<button\b([^>]*)>/g)].every(match => match[1]!.includes('disabled=""'))).toBe(true);
+  });
   it("current published rows use exact stable keys, private procedure text and full current scope", () => {
     const h = harness(),
       output = h.render();
@@ -965,6 +1002,56 @@ describe("actual manual page/CaseRow/summary synthetic boundaries; native/React 
     callbacks.onError(Error("private error"));
     expect(h.push).not.toHaveBeenCalled();
     expect(text(h.render().tree)).not.toContain("private error");
+  });
+  it.each(["case", "history", "filter"] as const)("late completion success cannot displace a newer %s view with the same native run read", change => {
+    const h = harness(), before = h.render().tree;
+    click(button(before, "Complete run"));
+    const callbacks = h.mutate.mock.calls[0]![1] as { onSuccess: () => void; onError: () => void };
+    h.state.pending = true;
+    const waiting = h.render().tree;
+    if (change === "case") (component(waiting, h.types.CaseRow).props.onOpenCase as (id: string) => void)("second");
+    else if (change === "history") h.state.historyCaseIds = ["second"];
+    else (nodes(waiting).find(node => node.type === "input" && node.props.placeholder === "Search case ID or title")!.props.onChange as (event: { target: { value: string } }) => void)({ target: { value: "Second" } });
+    h.render(); h.state.pending = false; h.render();
+    callbacks.onSuccess();
+    expect(h.push).not.toHaveBeenCalled();
+    expect(h.refresh).toHaveBeenCalledOnce();
+    expect(text(h.render().tree)).not.toContain("Completion unconfirmed");
+    expect(h.mutate).toHaveBeenCalledOnce();
+  });
+  it("an uncertain completion failure still requires rechecking the original run after case navigation", () => {
+    const h = harness(); click(button(h.render().tree, "Complete run"));
+    const callbacks = h.mutate.mock.calls[0]![1] as { onError: () => void };
+    const row = component(h.render().tree, h.types.CaseRow);
+    (row.props.onOpenCase as (id: string) => void)("second"); h.render(); callbacks.onError();
+    expect(text(h.render().tree)).toContain("Completion unconfirmed");
+    expect(h.push).not.toHaveBeenCalled(); expect(h.refresh).not.toHaveBeenCalled();
+  });
+  it("ordinary completion still navigates after only the mutation pending state changes", () => {
+    const h = harness(); click(button(h.render().tree, "Complete run"));
+    const callbacks = h.mutate.mock.calls[0]![1] as { onSuccess: () => void };
+    h.state.pending = true; h.render(); h.state.pending = false; h.render();
+    callbacks.onSuccess(); expect(h.push).toHaveBeenCalledOnce();
+  });
+  it("completion refresh retains the selected case and exports its saved context only after a fresh closed-run read", () => {
+    const h = harness(); h.state.candidate = syntheticSnapshot({ untested: true, frozen: true, reportContext: true });
+    h.state.held = h.state.candidate; click(button(h.render().tree, "Complete run"));
+    const callbacks = h.mutate.mock.calls[0]![1] as { onSuccess: () => void };
+    const row = component(h.render().tree, h.types.CaseRow);
+    (row.props.onOpenCase as (id: string) => void)("second");
+    const changed = h.render().tree, oldSummary = h.summary(component(changed, h.types.RunExecutionSummary));
+    callbacks.onSuccess(); expect(h.refresh).toHaveBeenCalledOnce(); expect(h.push).not.toHaveBeenCalled();
+    h.state.candidate = null; h.state.held = null; h.render();
+    click(button(oldSummary, "Export printable report · HTML")); expect(h.download).not.toHaveBeenCalled();
+    h.state.candidate = syntheticSnapshot({ untested: true, frozen: true, reportContext: true, completed: true });
+    h.state.held = h.state.candidate; const refreshed = h.render().tree;
+    expect(nodes(refreshed).filter(node => node.type === h.types.CaseRow && node.props.navigationTarget)
+      .map(node => (node.props.testCase as { testCaseId: string }).testCaseId)).toEqual(["second"]);
+    click(button(h.summary(component(refreshed, h.types.RunExecutionSummary)), "Export printable report · HTML"));
+    expect(h.download).toHaveBeenCalledOnce(); const html = h.download.mock.calls[0]![1] as string;
+    for (const content of ["PARTIAL", "Saved context second", "Saved setup second", "Saved safety second", "Instrument &lt;second&gt;", "Saved acceptance second"])
+      expect(html).toContain(content);
+    expect(h.mutate).toHaveBeenCalledOnce();
   });
   it.each([
     "Export current outcomes · CSV",

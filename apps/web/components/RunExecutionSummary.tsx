@@ -139,7 +139,7 @@ export function RunExecutionSummary({
        tooltip={<>
         Export current outcomes · CSV
        </>}>
-         Export </ActionButton>
+         CSV </ActionButton>
       <ActionButton
         type="button"
         className="btn-secondary"
@@ -183,7 +183,7 @@ export function RunExecutionSummary({
        tooltip={<>
         Export procedures and current record · JSON
        </>}>
-         Export </ActionButton>
+         JSON </ActionButton>
       <ActionButton type="button" className="btn-secondary" disabled={!completeExportScope} style={{ marginLeft: 8 }} onClick={() => {
         setExportError(null);
         if (!completeExportScope || !canExport()) { setExportError("Current original run access and complete planned procedure scope must be verified before export."); return; }
@@ -192,7 +192,7 @@ export function RunExecutionSummary({
           if (!canExport()) throw new Error("Original run access changed. Nothing was exported.");
           downloadFile(`vaettir-run-${runId}-report.html`, content, "text/html", canExport);
         } catch (cause) { setExportError(cause instanceof Error ? cause.message : "Current run report could not be exported."); }
-      }} tooltip={<> Export printable report · HTML </>}> Export </ActionButton>
+      }} tooltip={<> Export printable report · HTML </>}> HTML </ActionButton>
       <details><summary>Details</summary><p className="text-muted">
         {!completeExportScope && "Whole-run exports are unavailable while saved planned procedures are missing. No smaller subset is exported. "}
         Exports include the current authorized run, not just search matches.

@@ -179,6 +179,11 @@ export default function TestCaseForm({
   active = true,
   stepFieldLabels,
 }: TestCaseFormProps) {
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
   // Keep the concurrency baseline bound to this draft, not a later refetch.
   const [baseline] = useState(initial);
   const router = useRouter();
@@ -203,6 +208,8 @@ export default function TestCaseForm({
   }));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const mediaPreviewGeneration = useRef(0);
+  useEffect(() => () => { mediaPreviewGeneration.current++; }, [projectId, testCaseId]);
   const [caseFieldsDraft, setCaseFieldsDraft] = useState<CaseFieldFormDraft | null>(null);
   // P1-15: both reads share the cache with the test-cases list page and the
   // shared-steps page, so opening the form right after either is free.
@@ -319,11 +326,13 @@ export default function TestCaseForm({
   }
 
   async function viewStepMedia(attachmentId: string) {
+    const generation = ++mediaPreviewGeneration.current;
+    setError(null);
     try {
       const { viewUrl } = await utils.testCaseAttachments.getViewUrl.fetch({ attachmentId });
-      window.open(viewUrl, "_blank", "noopener,noreferrer");
+      if (generation === mediaPreviewGeneration.current) window.open(viewUrl, "_blank", "noopener,noreferrer");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      if (generation === mediaPreviewGeneration.current) setError(cause instanceof Error ? cause.message : String(cause));
     }
   }
 
@@ -353,7 +362,7 @@ export default function TestCaseForm({
         validationDomain: value.validationDomain,
         verificationProfile: value.verificationProfile,
         priority: value.priority as "CRITICAL" | "HIGH" | "MEDIUM" | "LOW",
-        suitePath: value.suitePath || undefined,
+        suitePath: value.suitePath,
         customFields: caseFieldsDraft.customFields,
         expectedFieldSchemaHash: caseFieldsDraft.expectedFieldSchemaHash,
         expectedCustomFieldRevision: caseFieldsDraft.expectedCustomFieldRevision,
@@ -373,7 +382,8 @@ export default function TestCaseForm({
       void utils.caseFields.get.invalidate({ projectId, caseId: testCaseId });
       if (mode === "edit")
         void utils.testCases.byId.invalidate({ id: testCaseId! });
-      router.push(`/projects/${projectId}/test-cases/${result.id}`);
+      // A completed old save must not displace another case's unsaved draft.
+      if (mounted.current) router.push(`/projects/${projectId}/test-cases/${result.id}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       // Definitions may have changed after the draft loaded. Refresh without

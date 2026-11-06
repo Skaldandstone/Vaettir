@@ -37,7 +37,7 @@ test("compact workbench preserves scoped reviewed actions and mounted bounded an
     page,
     /!loading && \(cases.length > 0 \|\| folderPaths.length > 0\)/,
   );
-  assert.match(page, /runCaseActionBatches\(\s*reviewedIds,\s*execute,?\s*\)/);
+  assert.match(page, /runCaseActionBatches\(\s*reviewedIds,/);
   assert.match(page, /setReviewAction\(\{\s*kind,\s*ids:/);
   assert.match(page, /bulkDelete\(reviewAction.ids\)/);
   assert.match(page, /if \(readOnly \|\| bulkBusy/);

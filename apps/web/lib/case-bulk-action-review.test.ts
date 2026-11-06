@@ -7,6 +7,8 @@ import { ActionButton } from "./test-support/action-button";
 import { renderToStaticMarkup } from "react-dom/server";
 import ts from "typescript";
 import { expect, it, vi } from "vitest";
+import { runCaseActionBatches } from "./case-action-batches";
+import { currentSessionScope } from "./auth-query-cache";
 
 type Element = React.ReactElement<Record<string, unknown>>;
 type Props = { kind: "delete" | "archive" | "restore"; ids: readonly string[]; cases: readonly { id: string; displayId: string; title: string }[]; busy: boolean; onCancel(): void; onConfirm(): void };
@@ -103,30 +105,94 @@ it("empty selection cannot confirm and has no fabricated row or batch", () => {
 const page = readFileSync(new URL("../app/projects/[projectId]/test-cases/page.tsx", import.meta.url), "utf8");
 const pageAst = ts.createSourceFile("page.tsx", page, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 function find(node: ts.Node, match: (node: ts.Node) => boolean): ts.Node | undefined { if (match(node)) return node; let found: ts.Node | undefined; ts.forEachChild(node, child => { if (!found) found = find(child, match); }); return found; }
-const modal = find(pageAst, node => ts.isJsxElement(node) && node.openingElement.tagName.getText(pageAst) === "Modal" && node.openingElement.attributes.properties.some(attribute => attribute.getText(pageAst) === "open={reviewAction !== null}"));
+const modal = find(pageAst, node => ts.isJsxElement(node) && node.openingElement.tagName.getText(pageAst) === "Modal" && node.openingElement.attributes.properties.some(attribute => attribute.getText(pageAst).startsWith("open={reviewAction !== null")));
 const parentConfirmation = find(pageAst, node => ts.isFunctionDeclaration(node) && node.name?.text === "confirmReviewedAction");
 if (!modal || !parentConfirmation) throw Error("Actual parent review scope/handler missing");
-type ReviewAction = { kind: Props["kind"]; ids: string[] };
-function parent(action: ReviewAction, readOnly = false, busy = false) {
-  const setReviewAction = vi.fn(), bulkDelete = vi.fn(async () => {}), bulkArchive = vi.fn(async () => {});
-  const get = new Function("React", "Modal", "TestCaseBulkActionReview", "reviewAction", "cases", "bulkBusy", "readOnly", "setReviewAction", "bulkDelete", "bulkArchive",
-    ts.transpileModule(`${parentConfirmation!.getText(pageAst)}\nreturn (${modal!.getText(pageAst)});`, { compilerOptions: { jsx: ts.JsxEmit.React, module: ts.ModuleKind.None, target: ts.ScriptTarget.ES2022 } }).outputText);
-  const tree = get(React, () => null, Review, action, [], busy, readOnly, setReviewAction, bulkDelete, bulkArchive) as Element;
+
+it.each(["mixed", "rejected", "complete", "scope-changed"])("actual delete handler preserves unconfirmed selection for a %s batch", async outcome => {
+  const ids = Array.from({ length: 451 }, (_, index) => `synthetic-${index}`);
+  let selected = new Set(ids), calls = 0, scopeCurrent = true;
+  const mutation = vi.fn(async ({ ids: batch }: { ids: string[] }) => {
+    calls++;
+    if (outcome === "scope-changed") { selected = new Set(["new-scope-selection"]); scopeCurrent = false; }
+    if (calls === 2) selected = new Set([...selected, "newly-selected"]);
+    if (calls === 2 && outcome === "rejected") throw Error("synthetic refusal");
+    return calls === 2 && outcome === "mixed"
+      ? { deletedCount: 1, blockedCount: batch.length - 1 }
+      : { deletedCount: batch.length, blockedCount: 0 };
+  });
+  const setError = vi.fn(), reload = vi.fn(), alert = vi.fn();
+  const functions = ["runBulkAction", "bulkDelete"].map(name => {
+    const node = find(pageAst, node => ts.isFunctionDeclaration(node) && node.name?.text === name);
+    if (!node) throw Error("Actual batch handler missing");
+    return node.getText(pageAst);
+  }).join("\n");
+  const run = new Function("runCaseActionBatches", "readOnly", "bulkBusy", "selected", "setBulkBusy", "setBulkError", "setSelected", "reload", "projectId", "bulkDeleteMutation", "alert", "currentReviewScope",
+    ts.transpileModule(functions, { compilerOptions: { module: ts.ModuleKind.None, target: ts.ScriptTarget.ES2022 } }).outputText + ";return bulkDelete;")(
+    runCaseActionBatches, false, false, selected, vi.fn(), setError,
+    (update: (current: Set<string>) => Set<string>) => { selected = update(selected); }, reload, "synthetic-project", { mutateAsync: mutation }, alert, () => scopeCurrent,
+  ) as (ids: string[]) => Promise<void>;
+  await run(ids);
+  if (outcome === "scope-changed") {
+    expect(mutation).toHaveBeenCalledOnce(); expect([...selected]).toEqual(["new-scope-selection"]);
+    expect(reload).not.toHaveBeenCalled(); expect(alert).not.toHaveBeenCalled();
+    expect(setError.mock.calls).toEqual([[null]]); return;
+  }
+  expect(mutation).toHaveBeenCalledTimes(outcome === "complete" ? 3 : 2);
+  expect([...selected]).toEqual([...(outcome === "complete" ? [] : ids.slice(200)), "newly-selected"]);
+  expect(reload).toHaveBeenCalledOnce();
+  if (outcome === "mixed") expect(alert).toHaveBeenCalledWith(expect.stringContaining("201 deleted, 199"));
+  if (outcome !== "complete") expect(setError).toHaveBeenCalledWith(expect.stringContaining("251 were not confirmed"));
+});
+type ReviewScope = { eligible: boolean; projectId: string; userId: string; sessionId: string };
+type ReviewAction = { kind: Props["kind"]; ids: string[]; scope?: ReviewScope };
+function parent(action: ReviewAction, readOnly = false, busy = false, scope: ReviewScope = { eligible: true, projectId: "p", userId: "u", sessionId: "s" }) {
+  let current: ReviewAction | null = { ...action, scope: action.scope ?? scope };
+  const browser = { Clerk: { loaded: true, session: { id: scope.sessionId, user: { id: scope.userId } } } };
+  const setReviewAction = vi.fn((value: ReviewAction | null | ((value: ReviewAction | null) => ReviewAction | null)) => { current = typeof value === "function" ? value(current) : value; });
+  const bulkDelete = vi.fn(async () => {}), bulkArchive = vi.fn(async () => {});
+  const scopeGuard = find(pageAst, node => ts.isFunctionDeclaration(node) && node.name?.text === "currentReviewScope");
+  const activeReviewScope = { current: scope as ReviewScope | null };
+  const effect = find(pageAst, node => ts.isCallExpression(node) && node.expression.getText(pageAst) === "useLayoutEffect" && !!node.arguments[0]?.getText(pageAst).includes("activeReviewScope")) as ts.CallExpression | undefined;
+  if (!effect) throw Error("Actual review-scope lifecycle missing");
+  const cleanup = new Function("reviewScope", "activeReviewScope", "return (" + effect.arguments[0]!.getText(pageAst) + ");")(scope, activeReviewScope)() as () => void;
+  const get = new Function("React", "Modal", "TestCaseBulkActionReview", "reviewAction", "cases", "bulkBusy", "readOnly", "setReviewAction", "bulkDelete", "bulkArchive", "reviewScope", "window", "currentSessionScope", "activeReviewScope",
+    ts.transpileModule(`${scopeGuard?.getText(pageAst) ?? ""}\n${parentConfirmation!.getText(pageAst)}\nreturn (${modal!.getText(pageAst)});`, { compilerOptions: { jsx: ts.JsxEmit.React, module: ts.ModuleKind.None, target: ts.ScriptTarget.ES2022 } }).outputText);
+  const tree = get(React, () => null, Review, current, [], busy, readOnly, setReviewAction, bulkDelete, bulkArchive, scope, browser, currentSessionScope, activeReviewScope) as Element;
   const component = elements(tree).find(node => node.type === Review)!;
-  return { tree, props: component.props as unknown as Props, setReviewAction, bulkDelete, bulkArchive };
+  return { tree, props: component.props as unknown as Props, setReviewAction, bulkDelete, bulkArchive, scope, browser, activeReviewScope, cleanup, current: () => current, replace: (next: ReviewAction) => { current = next; } };
 }
+it.each(["project", "actor", "session", "sdk-before-render", "unmounted", "committed-new-scope"])("obsolete %s review cannot invoke a destructive action", async change => {
+  const original = { eligible: true, projectId: "p", userId: "u", sessionId: "s" };
+  const scope = { ...original, ...(change === "project" ? { projectId: "other" } : change === "actor" ? { userId: "other" } : change === "session" ? { sessionId: "renewed" } : {}) };
+  const h = parent({ kind: "delete", ids: ["original-case"], scope: change === "sdk-before-render" || change === "unmounted" ? scope : original }, false, false, scope);
+  if (change === "sdk-before-render") h.browser.Clerk.session.id = "sdk-renewed";
+  if (change === "unmounted") h.cleanup();
+  if (change === "committed-new-scope") h.activeReviewScope.current = { ...scope, projectId: "newly-committed" };
+  h.props.onConfirm(); await new Promise<void>(resolve => setImmediate(resolve));
+  expect(h.bulkDelete).not.toHaveBeenCalled(); expect(h.bulkArchive).not.toHaveBeenCalled(); expect(h.setReviewAction).not.toHaveBeenCalled();
+});
+it("late confirmation cannot close a different newly opened review", async () => {
+  const h = parent({ kind: "archive", ids: ["original"] });
+  let finish!: () => void; h.bulkArchive.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
+  h.props.onConfirm();
+  const next: ReviewAction = { kind: "delete", ids: ["newly-reviewed"], scope: h.scope }; h.replace(next);
+  finish(); await new Promise<void>(resolve => setImmediate(resolve));
+  expect(h.current()).toBe(next);
+});
 it.each(["delete", "archive", "restore"] as const)("actual parent %s binding passes the exact frozen scope and existing reviewed callback", async kind => {
   const action = { kind, ids: ["stable-1", "stable-2"] }, h = parent(action);
+  expect(h.tree.props.open).toBe(true);
   expect(h.props.ids).toBe(action.ids); expect(h.props.kind).toBe(kind); expect(h.tree.props.dismissible).toBe(true);
   h.props.onConfirm(); await new Promise<void>(resolve => setImmediate(resolve));
   if (kind === "delete") { expect(h.bulkDelete).toHaveBeenCalledWith(action.ids); expect(h.bulkArchive).not.toHaveBeenCalled(); }
   else { expect(h.bulkArchive).toHaveBeenCalledWith(kind === "archive", action.ids); expect(h.bulkDelete).not.toHaveBeenCalled(); }
-  expect(h.setReviewAction).toHaveBeenCalledWith(null);
+  expect(h.current()).toBeNull();
 });
 it.each(["readonly", "busy"])("actual parent %s refusal and busy modal dismissal remain unchanged", async condition => {
   const h = parent({ kind: "delete", ids: ["stable"] }, condition === "readonly", condition === "busy");
   h.props.onConfirm(); await new Promise<void>(resolve => setImmediate(resolve));
   expect(h.bulkDelete).not.toHaveBeenCalled(); expect(h.bulkArchive).not.toHaveBeenCalled(); expect(h.setReviewAction).not.toHaveBeenCalled();
   if (condition === "busy") expect(h.tree.props.dismissible).toBe(false);
-  expect(page).toMatch(/!readOnly && \(\s*<Modal\s+open=\{reviewAction !== null\}/);
+  expect(page).toMatch(/!readOnly && \(\s*<Modal\s+open=\{reviewAction !== null && reviewAction.scope === reviewScope && reviewScope.eligible\}/);
 });

@@ -31,7 +31,7 @@ function QueueEditor({ projectId, batchId, access, onCommitted }: { projectId: s
   const [receipt, setReceipt] = useState<RouterOutputs["importJobs"]["resolveMapping"] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refused, setRefused] = useState(false);
-  const busy = useRef(false), mounted = useRef(true);
+  const busy = useRef(false), mounted = useRef(true), uncertain = useRef(false);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const data = access.canEdit && !query.isFetching && !query.isPaused && !query.error ? query.data : null;
   const frozen = Boolean(request);
@@ -54,7 +54,9 @@ function QueueEditor({ projectId, batchId, access, onCommitted }: { projectId: s
     } catch (e) { if (mounted.current) {
       setError(e instanceof Error ? e.message : "No confirmed receipt. Retry this same request.");
       const code = (e as { data?: { code?: string } })?.data?.code;
-      setRefused(code === "BAD_REQUEST" || code === "CONFLICT");
+      const definitive = !uncertain.current && (code === "BAD_REQUEST" || code === "CONFLICT");
+      setRefused(definitive);
+      if (!definitive) uncertain.current = true;
     } }
     finally { busy.current = false; }
   }
@@ -62,6 +64,7 @@ function QueueEditor({ projectId, batchId, access, onCommitted }: { projectId: s
     // A recorded receipt or explicit transactional refusal can be revised. An
     // ambiguous transport outcome keeps its exact immutable request for Retry.
     if (request && !receipt) return;
+    uncertain.current = false;
     setEdits({}); setSelected(new Set()); setRequest(null); setReceipt(null); setError(null);
     await query.refetch();
   }
@@ -102,7 +105,7 @@ function QueueEditor({ projectId, batchId, access, onCommitted }: { projectId: s
     </>}
     {!data && !query.error && <p role="status">Checking queue…</p>}
     {error && <p role="alert">{error} Retry preserves the same request.</p>}
-    {refused && <button disabled={pending} onClick={() => { setRequest(null); setRefused(false); setError(null); void query.refetch(); }}>Revise</button>}
+    {refused && <button disabled={pending} onClick={() => { if (busy.current || uncertain.current) return; setRequest(null); setRefused(false); setError(null); void query.refetch(); }}>Revise</button>}
   </section>;
 }
 
