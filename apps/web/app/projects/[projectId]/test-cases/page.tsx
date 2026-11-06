@@ -340,7 +340,7 @@ export default function TestCasesPage() {
     setShowArchived(filters.showArchived);
   }
   async function saveNewView() {
-    if (!newViewName.trim()) return;
+    if (!newViewName.trim() || !currentViewFrame()) return;
     setError(null);
     try {
       const saved = await createView.mutateAsync({
@@ -348,15 +348,17 @@ export default function TestCasesPage() {
         name: newViewName.trim(),
         filters: viewFilters(),
       });
-      await utils.testCaseViews.list.invalidate({ projectId });
+      const refreshed = await refreshSavedViews();
+      if (!currentViewFrame()) return;
       setActiveViewId(saved.id);
       setNewViewName("");
+      if (!refreshed) setError("View saved. Refresh the list.");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not save view.");
+      if (currentViewFrame()) setError(cause instanceof Error ? cause.message : "Could not save view.");
     }
   }
   async function saveCurrentView() {
-    if (!currentView) return;
+    if (!currentView || !currentViewFrame()) return;
     setError(null);
     try {
       await updateView.mutateAsync({
@@ -366,9 +368,10 @@ export default function TestCasesPage() {
         version: currentView.version,
         filters: viewFilters(),
       });
-      await utils.testCaseViews.list.invalidate({ projectId });
+      const refreshed = await refreshSavedViews();
+      if (currentViewFrame() && !refreshed) setError("View saved. Refresh the list.");
     } catch (cause) {
-      setError(
+      if (currentViewFrame()) setError(
         cause instanceof Error ? cause.message : "Could not update view.",
       );
     }
@@ -376,9 +379,11 @@ export default function TestCasesPage() {
   async function deleteCurrentView() {
     if (
       !currentView ||
+      !currentViewFrame() ||
       !window.confirm(`Delete your saved view “${currentView.name}”?`)
     )
       return;
+    if (!currentViewFrame()) return;
     setError(null);
     try {
       await removeView.mutateAsync({
@@ -386,10 +391,12 @@ export default function TestCasesPage() {
         id: currentView.id,
         version: currentView.version,
       });
+      const refreshed = await refreshSavedViews();
+      if (!currentViewFrame()) return;
       setActiveViewId("");
-      await utils.testCaseViews.list.invalidate({ projectId });
+      if (!refreshed) setError("View deleted. Refresh the list.");
     } catch (cause) {
-      setError(
+      if (currentViewFrame()) setError(
         cause instanceof Error ? cause.message : "Could not delete view.",
       );
     }
@@ -404,6 +411,28 @@ export default function TestCasesPage() {
   }
   const [showArchived, setShowArchived] = useState(false);
   const currentFilters = viewFilters();
+  const viewFrameKey = JSON.stringify([activeViewId, newViewName, tagFilter, currentFilters]);
+  // Personal views are available to readers too; do not reuse editor admission.
+  const viewFrame = useMemo(() => ({
+    projectId, organizationId: permissions.organizationId, key: viewFrameKey,
+    userId: folderActor.userId, sessionId: folderActor.sessionId,
+    eligible: folderActor.isLoaded && folderActor.isSignedIn && permissions.loaded && !permissions.accessError,
+  }), [projectId, permissions.organizationId, folderActor.userId, folderActor.sessionId,
+    folderActor.isLoaded, folderActor.isSignedIn, permissions.loaded, permissions.accessError, viewFrameKey]);
+  const activeViewFrame = useRef<typeof viewFrame | null>(null);
+  useLayoutEffect(() => {
+    activeViewFrame.current = viewFrame.eligible ? viewFrame : null;
+    return () => { if (activeViewFrame.current === viewFrame) activeViewFrame.current = null; };
+  }, [viewFrame]);
+  function currentViewFrame() {
+    const session = currentSessionScope(window.Clerk?.loaded ? window.Clerk.session : null);
+    return activeViewFrame.current === viewFrame && !!session &&
+      session.userId === viewFrame.userId && session.sessionId === viewFrame.sessionId;
+  }
+  async function refreshSavedViews() {
+    try { await utils.testCaseViews.list.invalidate({ projectId }); return true; }
+    catch { return false; }
+  }
   const viewHasChanges =
     currentView != null &&
     (Object.keys(currentFilters) as (keyof typeof currentFilters)[]).some(
