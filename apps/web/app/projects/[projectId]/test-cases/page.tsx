@@ -441,13 +441,13 @@ export default function TestCasesPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkError, setBulkError] = useState<string | null>(null);
-  const [bulkMovePlanId, setBulkMovePlanId] = useState("");
-  const [bulkTag, setBulkTag] = useState("");
   const [exporting, setExporting] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
-  const [organizeAction, setOrganizeAction] = useState<{ kind: "move" | "tag"; ids: string[] } | null>(null);
+  const [organizeAction, setOrganizeAction] = useState<{
+    kind: "move" | "tag"; ids: string[]; draft: string; scope: typeof reviewScope;
+  } | null>(null);
   const [reviewAction, setReviewAction] = useState<{
     kind: "archive" | "restore" | "delete";
     ids: string[];
@@ -695,27 +695,29 @@ export default function TestCasesPage() {
   }
 
   async function bulkMove() {
-    if (organizeAction?.kind !== "move") return;
+    const intent = organizeAction;
+    if (intent?.kind !== "move" || intent.scope !== reviewScope || !currentReviewScope()) return;
     const outcome = await runBulkAction((ids) =>
       bulkMoveMutation.mutateAsync({
         projectId,
         ids,
-        testPlanId: bulkMovePlanId || null,
-      }), organizeAction.ids,
+        testPlanId: intent.draft || null,
+      }), intent.ids,
     );
-    if (outcome && !outcome.error && currentReviewScope()) { setBulkMovePlanId(""); setOrganizeAction(null); }
+    if (outcome && !outcome.error && currentReviewScope()) setOrganizeAction(current => current === intent ? null : current);
   }
 
   async function bulkAddTag() {
-    if (!bulkTag.trim() || organizeAction?.kind !== "tag") return;
+    const intent = organizeAction;
+    if (intent?.kind !== "tag" || !intent.draft.trim() || intent.scope !== reviewScope || !currentReviewScope()) return;
     const outcome = await runBulkAction((ids) =>
       bulkTagMutation.mutateAsync({
         projectId,
         ids,
-        tags: [bulkTag.trim()],
-      }), organizeAction.ids,
+        tags: [intent.draft.trim()],
+      }), intent.ids,
     );
-    if (outcome && !outcome.error && currentReviewScope()) { setBulkTag(""); setOrganizeAction(null); }
+    if (outcome && !outcome.error && currentReviewScope()) setOrganizeAction(current => current === intent ? null : current);
   }
 
   const exportFrame = useMemo(() => ({ viewFrame, selected, visibleCases }), [viewFrame, selected, visibleCases]);
@@ -874,6 +876,14 @@ export default function TestCasesPage() {
     setOriginFilter("");
     setShowArchived(false);
     setActiveViewId("");
+  }
+  function requestOrganize(kind: "move" | "tag", ids: string[]) {
+    if (readOnly || bulkBusy || !currentReviewScope()) return;
+    setOrganizeAction({ kind, ids: [...ids], draft: "", scope: reviewScope });
+  }
+  function editOrganizeDraft(draft: string) {
+    if (!organizeAction || organizeAction.scope !== reviewScope || !currentReviewScope()) return;
+    setOrganizeAction(current => current === organizeAction ? { ...current, draft } : current);
   }
   function currentReviewScope() {
     const session = currentSessionScope(window.Clerk?.loaded ? window.Clerk.session : null);
@@ -1183,8 +1193,8 @@ export default function TestCasesPage() {
                   canRun={activeSelectedIds.length > 0} canArchive={activeSelectedIds.length > 0} canRestore={archivedSelectedIds.length > 0}
                   onRun={() => { setRunSelection(activeSelectedIds); setRunConfigurationOpen(true); }}
                   onEdit={selected.size === 1 ? () => router.push(`/projects/${projectId}/test-cases/${[...selected][0]}/edit`) : undefined}
-                  onMove={() => setOrganizeAction({ kind: "move", ids: [...selected] })}
-                  onTag={() => setOrganizeAction({ kind: "tag", ids: [...selected] })}
+                  onMove={() => requestOrganize("move", [...selected])}
+                  onTag={() => requestOrganize("tag", [...selected])}
                   onCsv={() => void exportCsv("selected")} onJson={() => void exportProcedure("selected")}
                   onReview={() => router.push(`/projects/${projectId}/test-cases/review`)}
                   onArchive={() => requestReview("archive")} onRestore={() => requestReview("restore")} onDelete={() => requestReview("delete")} />
@@ -1395,8 +1405,8 @@ export default function TestCasesPage() {
                               canRun={!tc.archived} canArchive={!tc.archived} canRestore={tc.archived}
                               onRun={() => { setRunSelection([tc.id]); setRunConfigurationOpen(true); }}
                               onEdit={() => router.push(`/projects/${projectId}/test-cases/${tc.id}/edit`)}
-                              onMove={() => setOrganizeAction({ kind: "move", ids: [tc.id] })}
-                              onTag={() => setOrganizeAction({ kind: "tag", ids: [tc.id] })}
+                              onMove={() => requestOrganize("move", [tc.id])}
+                              onTag={() => requestOrganize("tag", [tc.id])}
                               onCsv={() => void exportCsv("selected", [tc.id])} onJson={() => void exportProcedure("selected", [tc.id])}
                               onReview={() => router.push(`/projects/${projectId}/test-cases/review`)}
                               onArchive={() => requestReview("archive", [tc.id])}
@@ -1926,17 +1936,17 @@ export default function TestCasesPage() {
           >Full editor</a></ActionHelp>
         </Modal>
       )}
-      {!readOnly && organizeAction && <Modal open title={organizeAction.kind === "move" ? "Move cases to a test plan" : "Tag cases"}
-        onClose={() => setOrganizeAction(null)} dismissible={!bulkBusy}>
+      {!readOnly && organizeAction && organizeAction.scope === reviewScope && reviewScope.eligible && <Modal open title={organizeAction.kind === "move" ? "Move cases to a test plan" : "Tag cases"}
+        onClose={() => setOrganizeAction(current => current === organizeAction ? null : current)} dismissible={!bulkBusy}>
         <p className="text-muted">{organizeAction.ids.length} cases. Only this captured selection will change.</p>
         {organizeAction.kind === "move" ? <>
-          <label>Test plan<select value={bulkMovePlanId} onChange={event => setBulkMovePlanId(event.target.value)} style={{ width: "100%", display: "block", marginTop: 6 }}>
+          <label>Test plan<select value={organizeAction.draft} onChange={event => editOrganizeDraft(event.target.value)} style={{ width: "100%", display: "block", marginTop: 6 }}>
             <option value="">Choose a plan</option>{plans.map(plan => <option key={plan.id} value={plan.id}>{plan.name}</option>)}
           </select></label>
-          <ActionButton className="btn-primary" disabled={bulkBusy || !bulkMovePlanId} onClick={() => void bulkMove()} tooltip={<> Move to plan </>}> Move </ActionButton>
+          <ActionButton className="btn-primary" disabled={bulkBusy || !organizeAction.draft} onClick={() => void bulkMove()} tooltip={<> Move to plan </>}> Move </ActionButton>
         </> : <>
-          <label>Tag<input value={bulkTag} onChange={event => setBulkTag(event.target.value)} placeholder="regression" style={{ width: "100%", display: "block", marginTop: 6 }} /></label>
-          <button className="btn-primary" disabled={bulkBusy || !bulkTag.trim()} onClick={() => void bulkAddTag()}>Add tag</button>
+          <label>Tag<input value={organizeAction.draft} onChange={event => editOrganizeDraft(event.target.value)} placeholder="regression" style={{ width: "100%", display: "block", marginTop: 6 }} /></label>
+          <button className="btn-primary" disabled={bulkBusy || !organizeAction.draft.trim()} onClick={() => void bulkAddTag()}>Add tag</button>
         </>}
         {bulkError && <p role="alert">{bulkError}</p>}
       </Modal>}
