@@ -591,7 +591,7 @@ export default function TestCasesPage() {
     beforeCaseId: string | null,
   ) {
     const placement = placements.get(caseId);
-    if (!placement || readOnly || moveMutation.isPending) return;
+    if (!placement || readOnly || moveMutation.isPending || !currentReviewScope() || !currentViewFrame()) return;
     setError(null);
     try {
       await moveMutation.mutateAsync({
@@ -602,10 +602,12 @@ export default function TestCasesPage() {
         targetSuitePath,
         beforeCaseId,
       });
+      if (!currentReviewScope()) return;
       reload();
-      setSortBy("manual");
+      if (currentViewFrame()) setSortBy("manual");
     } catch (cause) {
-      setError(
+      if (!currentReviewScope()) return;
+      if (currentViewFrame()) setError(
         cause instanceof Error ? cause.message : "Could not move test case.",
       );
       await structureQuery.refetch();
