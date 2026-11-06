@@ -7,6 +7,7 @@ import { ActionButton } from "./test-support/action-button";
 import { renderToStaticMarkup } from "react-dom/server";
 import ts from "typescript";
 import { expect, it, vi } from "vitest";
+import { runCaseActionBatches } from "./case-action-batches";
 
 type Element = React.ReactElement<Record<string, unknown>>;
 type Props = { kind: "delete" | "archive" | "restore"; ids: readonly string[]; cases: readonly { id: string; displayId: string; title: string }[]; busy: boolean; onCancel(): void; onConfirm(): void };
@@ -106,6 +107,36 @@ function find(node: ts.Node, match: (node: ts.Node) => boolean): ts.Node | undef
 const modal = find(pageAst, node => ts.isJsxElement(node) && node.openingElement.tagName.getText(pageAst) === "Modal" && node.openingElement.attributes.properties.some(attribute => attribute.getText(pageAst) === "open={reviewAction !== null}"));
 const parentConfirmation = find(pageAst, node => ts.isFunctionDeclaration(node) && node.name?.text === "confirmReviewedAction");
 if (!modal || !parentConfirmation) throw Error("Actual parent review scope/handler missing");
+
+it.each(["mixed", "rejected", "complete"])("actual delete handler preserves unconfirmed selection for a %s batch", async outcome => {
+  const ids = Array.from({ length: 451 }, (_, index) => `synthetic-${index}`);
+  let selected = new Set(ids), calls = 0;
+  const mutation = vi.fn(async ({ ids: batch }: { ids: string[] }) => {
+    calls++;
+    if (calls === 2) selected = new Set([...selected, "newly-selected"]);
+    if (calls === 2 && outcome === "rejected") throw Error("synthetic refusal");
+    return calls === 2 && outcome === "mixed"
+      ? { deletedCount: 1, blockedCount: batch.length - 1 }
+      : { deletedCount: batch.length, blockedCount: 0 };
+  });
+  const setError = vi.fn(), reload = vi.fn(), alert = vi.fn();
+  const functions = ["runBulkAction", "bulkDelete"].map(name => {
+    const node = find(pageAst, node => ts.isFunctionDeclaration(node) && node.name?.text === name);
+    if (!node) throw Error("Actual batch handler missing");
+    return node.getText(pageAst);
+  }).join("\n");
+  const run = new Function("runCaseActionBatches", "readOnly", "bulkBusy", "selected", "setBulkBusy", "setBulkError", "setSelected", "reload", "projectId", "bulkDeleteMutation", "alert",
+    ts.transpileModule(functions, { compilerOptions: { module: ts.ModuleKind.None, target: ts.ScriptTarget.ES2022 } }).outputText + ";return bulkDelete;")(
+    runCaseActionBatches, false, false, selected, vi.fn(), setError,
+    (update: (current: Set<string>) => Set<string>) => { selected = update(selected); }, reload, "synthetic-project", { mutateAsync: mutation }, alert,
+  ) as (ids: string[]) => Promise<void>;
+  await run(ids);
+  expect(mutation).toHaveBeenCalledTimes(outcome === "complete" ? 3 : 2);
+  expect([...selected]).toEqual([...(outcome === "complete" ? [] : ids.slice(200)), "newly-selected"]);
+  expect(reload).toHaveBeenCalledOnce();
+  if (outcome === "mixed") expect(alert).toHaveBeenCalledWith(expect.stringContaining("201 deleted, 199"));
+  if (outcome !== "complete") expect(setError).toHaveBeenCalledWith(expect.stringContaining("251 were not confirmed"));
+});
 type ReviewAction = { kind: Props["kind"]; ids: string[] };
 function parent(action: ReviewAction, readOnly = false, busy = false) {
   const setReviewAction = vi.fn(), bulkDelete = vi.fn(async () => {}), bulkArchive = vi.fn(async () => {});

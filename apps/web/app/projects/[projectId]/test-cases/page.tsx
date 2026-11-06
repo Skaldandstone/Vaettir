@@ -593,12 +593,13 @@ export default function TestCasesPage() {
   async function runBulkAction<T>(
     execute: (ids: string[]) => Promise<T>,
     reviewedIds = [...selected],
+    confirmed?: (result: T, ids: readonly string[]) => boolean,
   ) {
     if (readOnly || bulkBusy || reviewedIds.length === 0) return null;
     setBulkBusy(true);
     setBulkError(null);
     try {
-      const outcome = await runCaseActionBatches(reviewedIds, execute);
+      const outcome = await runCaseActionBatches(reviewedIds, execute, confirmed);
       const completedIds = new Set(outcome.completedIds);
       setSelected(
         (current) =>
@@ -620,6 +621,7 @@ export default function TestCasesPage() {
     const outcome = await runBulkAction(
       (ids) => bulkDeleteMutation.mutateAsync({ projectId, ids }),
       reviewedIds,
+      (result, ids) => result.blockedCount === 0 && result.deletedCount === ids.length,
     );
     if (outcome) {
       const totals = outcome.results.reduce(
