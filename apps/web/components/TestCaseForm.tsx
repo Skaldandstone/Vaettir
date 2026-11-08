@@ -821,7 +821,7 @@ export default function TestCaseForm({
         {error && <p role="alert" style={{ color: "var(--ember)" }}>{error}</p>}
       </div>
     </fieldset>
-    {mode === "create" && createRecovery.pending && <div role="status">
+    {mode === "create" && createRecovery.pending && !saving && <div role="status">
       <p>Save unconfirmed. Your original draft is retained. <a href="/guide#cases" target="_blank" rel="noopener noreferrer">Help</a></p>
       <ActionButton type="button" disabled={saving || !ownsCaseCreate(currentCreateFrame, createRecovery.pending)} onClick={submit} tooltip="Retry original case save">Retry</ActionButton>
     </div>}

@@ -177,6 +177,28 @@ it.each(["create","edit"] as const)("a late %s save cannot navigate away from a 
   expect(next.navigation).toEqual([]);expect(next.sent).toEqual([]);
   expect(elements(next.tree).some(e=>e.type==="input"&&e.props.value==="Unsaved case B title")).toBe(true);
 });
+it("create progress does not show an unconfirmed-save warning until its response is uncertain", async () => {
+  const h = harness(seed(), false, "create"); h.ready();
+  let reject!: (cause: Error) => void;
+  h.setSave(() => new Promise((_resolve, fail) => { reject = fail; }));
+  const saving = h.save();
+  expect(h.html()).toContain("Saving");
+  expect(h.html()).not.toContain("Save unconfirmed");
+  expect(elements(h.tree).find(e => e.type === "fieldset")?.props.disabled).toBe(true);
+
+  reject(Error("Lost confirmation")); await saving;
+  expect(h.html()).toContain("Save unconfirmed");
+  expect(h.button("Retry original case save").props.disabled).toBe(false);
+  const original = h.sent[0];
+  const finish = h.holdSave();
+  const retry = (h.button("Retry original case save").props.onClick as () => Promise<void>)();
+  expect(h.html()).toContain("Saving");
+  expect(h.html()).not.toContain("Save unconfirmed");
+  expect(h.sent).toHaveLength(2); expect(h.sent[1]).toBe(original);
+  finish({ id: "created-case" }); await retry; h.settle();
+  expect(h.navigation).toEqual(["/projects/p/test-cases/created-case"]);
+  expect(h.html()).not.toContain("Save unconfirmed");
+});
 it("lost create confirmation retains one exact request for explicit retry instead of creating a fresh intent",async()=>{
   const h=harness(seed(),false,"create");h.ready();let lost=true;
   h.setSave(async()=>{if(lost)throw Error("Lost confirmation");return {id:"created-case"};});
