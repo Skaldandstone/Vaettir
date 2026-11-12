@@ -8,7 +8,7 @@ import { caseFieldPresentationJsonBytes } from "./caseFieldPresentationSchema.js
 import { sharedLibraryStepSchema } from "./sharedStepHistorySchema.js";
 import { admitCaseReviewPlanContext, caseReviewPlanContextProjection, validateCaseReviewPlanContext, linkedPlanReviewBlocked } from "./caseReviewPlanContext.js";
 import { admitCaseReviewComplianceContext, caseReviewComplianceContextProjection, validateCaseReviewComplianceContext } from "./caseReviewComplianceContext.js";
-import { reviewReadInput, reviewPreviewInput, reviewPageInput, reviewPageOutput, reviewMetadata, reviewDecisionInput, reviewSnapshotSchema, reviewSnapshotHashes, reviewRequestHash, reviewDecisionOutput } from "./caseReviewSchema.js";
+import { reviewReadInput, reviewPreviewInput, reviewPageInput, reviewPageOutput, reviewMetadata, reviewDecisionInput, reviewSnapshotSchema, reviewSnapshotHashes, reviewRequestHash, reviewDecisionOutput, reviewBulkDecisionInput, reviewBulkDecisionOutput, reviewBulkRequestHash } from "./caseReviewSchema.js";
 
 const options = { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead, timeout: 10000, maxWait: 5000 };
 const unsupported = () => new TRPCError({ code: "PRECONDITION_FAILED", message: "This case has retained material outside the supported complete review projection. Nothing was omitted, truncated, repaired or approved. Exact previously accepted requests remain recoverable." });
@@ -175,4 +175,54 @@ export async function decideCaseReview(db: PrismaClient, userId: string, raw: z.
     await tx.auditLog.create({ data: { organizationId: scope.organizationId,projectId: input.projectId,actorId: userId,entityType: "CaseReviewDecision/v1",entityId: input.caseId,action: "UPDATE",summary: `Case review ${input.decision}`,metadata: { requestId: input.requestId,requestHash,decision: input.decision,expectedContentHash: input.expectedContentHash,expectedReviewStateHash: input.expectedReviewStateHash,noteOperation: input.note.operation } } });
     return ack(false);
   },options);
+}
+
+// A queue-level approval remains deliberately bounded and all-or-nothing.  The
+// user reviews the compact rows first; at commit time every selected row still
+// has to pass the same complete-snapshot admission as an individual decision.
+// A stale queue, unsupported snapshot, or changed case rolls the whole batch
+// back rather than silently omitting rows.
+export async function decideBulkCaseReview(db: PrismaClient, userId: string, raw: z.input<typeof reviewBulkDecisionInput>, authorized: CaseFieldReadAuthorization) {
+  const input = reviewBulkDecisionInput.parse(raw), requestHash = reviewBulkRequestHash(input);
+  return db.$transaction(async tx => {
+    await tx.$executeRaw(Prisma.sql`SET LOCAL statement_timeout = '55000ms'`);
+    await lockCaseFieldProject(tx,userId,input.projectId);
+    const actorClerkUserId = await lockCurrentCaseFieldActor(tx,userId,authorized), project = await tx.project.findUniqueOrThrow({ where: { id: input.projectId },select: { organizationId: true } });
+    if (project.organizationId !== input.originalOrganizationId || actorClerkUserId !== input.expectedClerkActorId || userId !== input.expectedNativeActorId) throw new TRPCError({ code: "FORBIDDEN",message: "Restore the original full native reviewer and workspace before retrying this decision." });
+    const scope = { projectId: input.projectId,organizationId: project.organizationId,actorId: userId,actorClerkUserId };
+    const prior = await tx.auditLog.findMany({ where: { organizationId: scope.organizationId, projectId: input.projectId, actorId: userId, entityType: "CaseReviewBulkDecision/v1", entityId: input.projectId, metadata: { path: ["requestId"], equals: input.requestId } }, select: { metadata: true }, take: 2 });
+    if (prior.length) {
+      const priorEntry = prior.length === 1 ? prior[0] : undefined;
+      const metadata = priorEntry?.metadata !== null && typeof priorEntry?.metadata === "object" && !Array.isArray(priorEntry?.metadata) ? priorEntry.metadata as Record<string,unknown> : null;
+      if (!metadata || metadata.requestHash !== requestHash || !Number.isInteger(metadata.approvedCount) || Number(metadata.approvedCount) < 1 || Number(metadata.approvedCount) > 250) throw new TRPCError({ code: "CONFLICT",message: "This batch request cannot be recovered as the exact original decision." });
+      return reviewBulkDecisionOutput.parse({ projectId: input.projectId,requestId: input.requestId,requestHash,approvedCount: Number(metadata.approvedCount),replayed:true,readScope:scope });
+    }
+    const totalPending = await queuePopulation(tx,input.projectId);
+    const search = Prisma.sql`AND (${input.search}='' OR strpos(lower(c.title),lower(${input.search}))>0 OR strpos(lower(vaettir_case_display_label(c."projectId",c."caseNumber")),lower(${input.search}))>0 OR strpos(lower(coalesce(s."filePath",'')),lower(${input.search}))>0)`;
+    const [population] = await tx.$queryRaw<Array<{ digest: string; count: bigint }>>(Prisma.sql`
+      SELECT md5(coalesce(string_agg(md5(jsonb_build_array(c.id,c."caseNumber",vaettir_case_display_label(c."projectId",c."caseNumber"),c.title,c.confidence,s."filePath")::text),'' ORDER BY c.id),'')) AS digest,count(*)::bigint AS count
+      FROM "TestCase" c LEFT JOIN "TestCaseSource" s ON s."testCaseId"=c.id WHERE c."projectId"=${input.projectId} AND c.archived=false AND c."reviewStatus"='PENDING_REVIEW' ${search}`);
+    if (!population || typeof population.count !== "bigint" || population.count < 1n || population.count > BigInt(totalPending) || !/^[a-f0-9]{32}$/.test(population.digest)) throw unsupported();
+    const populationHash = createHash("sha256").update(JSON.stringify([scope,input.search,input.sort,totalPending,population.digest])).digest("hex");
+    if (input.populationHash !== populationHash) throw new TRPCError({ code: "CONFLICT",message: "The pending queue changed. Refresh it before approving; nothing was approved." });
+    const order = input.sort === "confidence" ? Prisma.sql`c.confidence ASC NULLS LAST,c.id ASC` : input.sort === "case-id" ? Prisma.sql`c."caseNumber" ASC,c.id ASC` : Prisma.sql`c.title COLLATE "C" ASC,c.id ASC`;
+    const selected = input.selection.mode === "ALL_MATCHING"
+      ? await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT c.id FROM "TestCase" c LEFT JOIN "TestCaseSource" s ON s."testCaseId"=c.id WHERE c."projectId"=${input.projectId} AND c.archived=false AND c."reviewStatus"='PENDING_REVIEW' ${search} ORDER BY ${order} LIMIT 251`)
+      : await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT c.id FROM "TestCase" c LEFT JOIN "TestCaseSource" s ON s."testCaseId"=c.id WHERE c."projectId"=${input.projectId} AND c.archived=false AND c."reviewStatus"='PENDING_REVIEW' AND c.id IN (${Prisma.join(input.selection.caseIds)}) ${search} ORDER BY c.id`);
+    if (!selected.length || selected.length > 250 || (input.selection.mode === "SELECTED" && selected.length !== input.selection.caseIds.length)) throw new TRPCError({ code: "CONFLICT",message: "The selected queue rows changed. Refresh them before approving; nothing was approved." });
+    const caseIds = selected.map(row => row.id);
+    const locked = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT id FROM "TestCase" WHERE "projectId"=${input.projectId} AND id IN (${Prisma.join(caseIds)}) FOR UPDATE`);
+    if (locked.length !== caseIds.length) throw new TRPCError({ code: "CONFLICT",message: "The selected queue rows changed. Refresh them before approving; nothing was approved." });
+    for (const caseId of caseIds) {
+      const state = await supportedSnapshot(tx,input.projectId,caseId,scope.organizationId);
+      if (state.parentBlockedReason || state.snapshot.state.archived || state.snapshot.state.status !== "PENDING_REVIEW") throw new TRPCError({ code: "PRECONDITION_FAILED",message: "At least one selected case needs an individual review. Nothing was approved." });
+    }
+    for (const caseId of caseIds) {
+      const changed = await tx.testCase.updateMany({ where: { id: caseId,projectId: input.projectId,archived: false,reviewStatus: "PENDING_REVIEW" },data: { reviewStatus: "APPROVED",reviewedById: userId,reviewedAt: new Date(),updatedById: userId } });
+      if (changed.count !== 1) throw new TRPCError({ code: "CONFLICT",message: "The selected queue changed during approval. Nothing was approved." });
+    }
+    await tx.auditLog.create({ data: { organizationId: scope.organizationId,projectId: input.projectId,actorId: userId,entityType: "CaseReviewBulkDecision/v1",entityId: input.projectId,action: "UPDATE",summary: `Bulk case review APPROVED (${caseIds.length})`,metadata: { requestId: input.requestId,requestHash,approvedCount: caseIds.length,selection: input.selection.mode,populationHash: input.populationHash,caseIds } } });
+    await tx.auditLog.createMany({ data: caseIds.map(caseId => ({ organizationId: scope.organizationId,projectId: input.projectId,actorId: userId,entityType: "CaseReviewDecision/v1",entityId: caseId,action: "UPDATE",summary: "Case review APPROVED (bulk)",metadata: { requestId: input.requestId,requestHash,decision: "APPROVED",bulk: true,noteOperation: "KEEP" } })) });
+    return reviewBulkDecisionOutput.parse({ projectId: input.projectId,requestId: input.requestId,requestHash,approvedCount: caseIds.length,replayed:false,readScope:scope });
+  },{ ...options, timeout: 60000, maxWait: 10000 });
 }
