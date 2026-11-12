@@ -166,13 +166,10 @@ describe.skipIf(process.platform !== "linux" || (process.env.CI !== "true" && pr
     const urls = databases.map(name => { const url = new URL(baseUrl); url.pathname = "/" + name; assertOwnedTestDatabase(url.toString()); return url.toString(); });
     const clients: PrismaClient[] = [], created = new Set<string>();
     const bootstrap = new PrismaClient({ datasources: { db: { url: baseUrl.toString() } } });
-    // The server image is16, not necessarily the runner's client installation.
-    // Prefer16; a newer installed trio must report one matching actual major.
-    // No package installation, Docker bootstrap or mismatch fallback.
-    const toolDirectory = readdirSync("/usr/lib/postgresql").filter(v => /^[0-9]+$/.test(v) && Number(v) >= 16)
-      .sort((a, b) => Number(a) - Number(b)).map(v => "/usr/lib/postgresql/" + v + "/bin")
-      .find(path => ["psql", "pg_dump", "pg_restore"].every(name => existsSync(join(path, name))));
-    assert.ok(toolDirectory);
+    // CI provisions wrappers backed by the exact immutable PostgreSQL 16 image
+    // used for the server. Do not accept the runner's newer client tools.
+    const toolDirectory = join(process.env.RUNNER_TEMP!, "vaettir-postgres16/bin");
+    assert.ok(["psql", "pg_dump", "pg_restore"].every(name => existsSync(join(toolDirectory, name))));
     const tools = ["psql", "pg_dump", "pg_restore"].map(name => join(toolDirectory, name));
     const run = (command: string, args: string[], env = process.env, binary = false) => {
       assert.ok(Date.now() - started < 210000);
@@ -199,7 +196,8 @@ describe.skipIf(process.platform !== "linux" || (process.env.CI !== "true" && pr
     try {
       const clientVersions = tools.map(tool => String(run(tool, ["--version"])));
       const clientMajors = clientVersions.map(v => /PostgreSQL\) ([0-9]+)\./.exec(v)?.[1]);
-      assert.ok(clientMajors.every(v => v === clientMajors[0]) && Number(clientMajors[0]) >= 16);
+      assert.ok(clientMajors.every(v => v === clientMajors[0]));
+      assert.equal(clientMajors[0], "16");
       const [identity] = await bootstrap.$queryRaw<Array<{ database: string; role: string; owner: string; version: string }>>`
         SELECT current_database()::text AS database,current_user::text AS role,
           pg_get_userbyid(datdba)::text AS owner,current_setting('server_version_num')::text AS version
