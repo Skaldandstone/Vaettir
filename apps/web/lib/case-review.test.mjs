@@ -20,6 +20,10 @@ test("review route uses native scoped pages and retained complete-snapshot decis
   assert.match(route, /<CaseReviewDecision/);
   assert.match(route, /Open supported review snapshot/);
   assert.match(route, /active=\{active\}/);
+  assert.match(route, /Select all \{page\.matching\} matching/);
+  assert.match(route, /caseReview\.decideBulk/);
+  assert.match(route, /I reviewed these cases/);
+  assert.match(route, />Review<\/ActionButton>/);
   assert.doesNotMatch(route, /testCases\.(approve|reject|pendingReview)/);
   const api = readFileSync(new URL("../../api/src/routers/testCases.ts", import.meta.url), "utf8");
   const read = api.slice(api.indexOf("pendingReview: protectedProcedure"), api.indexOf("approve: protectedProcedure"));
