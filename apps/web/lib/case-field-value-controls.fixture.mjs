@@ -1,3 +1,5 @@
+// Controller fixture treats the presentation-only wrapper as its native button.
+// Real hover/focus/form/ref/touch behavior is covered by action-button-ui.test.mjs.
 // Executes only checked-in browser-pure source with synthetic values. This
 // fixture proves handlers/static render, not authenticated browser acceptance.
 import { readFileSync } from "node:fs";
@@ -63,7 +65,7 @@ const compiled = ts.transpileModule(declarations.join("\n"), {
 }).outputText;
 export function caseFieldValueControlHarness() {
   const sandbox = {
-    React,
+    React, ActionButton: "button",
     useState: React.useState,
     useEffect: React.useEffect,
     useId: React.useId,

@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import {
   useEffect,
   useLayoutEffect,
@@ -437,14 +439,15 @@ function ExecutionTrend({ projectId, active }: { projectId: string; active: bool
                   ))}
                 </select>
               </label>
-              <button
+              <ActionButton
                 type="button"
                 className="btn-secondary"
                 disabled={!datePreset}
                 onClick={useDateShortcut}
-              >
+               tooltip={<>
                 Use shortcut dates
-              </button>
+               </>}>
+                 Use </ActionButton>
             </div>
           </details>
           {applied &&
@@ -459,12 +462,7 @@ function ExecutionTrend({ projectId, active }: { projectId: string; active: bool
             (["platform", "environment", "build"] as const).some(
               (key) => filters[key] !== (applied[key] ?? ""),
             ) && (
-              <p role="status">
-                Configuration filter edits have not been applied. The current
-                view, refresh and export still use the last applied
-                configuration filters. Choose Show recorded outcomes to replace
-                this view.
-              </p>
+              <p role="status">Select Show outcomes to apply these filters. <a className="inline-help" href="/guide#reports" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
             )}
           <details>
             <summary>Recorded configuration filters (optional)</summary>
@@ -498,22 +496,24 @@ function ExecutionTrend({ projectId, active }: { projectId: string; active: bool
             </div>
           </details>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-            <button
+            <ActionButton
               type="submit"
               className="btn-primary"
               disabled={query.isFetching}
-            >
+             tooltip={<>
               Show recorded outcomes
-            </button>
+             </>}>
+               Show </ActionButton>
             {applied && (
-              <button
+              <ActionButton
                 type="button"
                 className="btn-secondary"
                 disabled={query.isFetching || query.isPaused}
                 onClick={() => void query.refetch()}
-              >
+               tooltip={<>
                 Refresh applied scope
-              </button>
+               </>}>
+                 Refresh </ActionButton>
             )}
           </div>
         </form>
@@ -607,16 +607,17 @@ function ExecutionTrend({ projectId, active }: { projectId: string; active: bool
             <h2 style={{ margin: 0 }}>
               {grouping === "DAY" ? "Daily" : "Weekly"} outcomes
             </h2>
-            <button
+            <ActionButton
               type="button"
               className="btn-secondary"
               onClick={() => {
                 setExportOpen(true);
                 setReviewed(null);
               }}
-            >
+             tooltip={<>
               Export recorded outcome overview
-            </button>
+             </>}>
+               Export </ActionButton>
           </div>
           {grouping === "WEEK" && (
             <p>
@@ -699,15 +700,14 @@ function ExecutionTrend({ projectId, active }: { projectId: string; active: bool
                     ))}
                     <td>
                       {grouping === "DAY" ? (
-                        <button
+                        <ActionButton
                           type="button"
                           className="btn-secondary"
                           disabled={day.runs === 0}
-                          onClick={() => setSelectedDay(day.start)}
-                        >
+                          onClick={() => setSelectedDay(day.start)} tooltip={<>
                           View runs
                           <span className="sr-only"> on {day.start}</span>
-                        </button>
+                         </>}>View runs</ActionButton>
                       ) : (
                         <details>
                           <summary>Inspect days ({day.days.length})</summary>
@@ -872,11 +872,7 @@ function ExecutionTrend({ projectId, active }: { projectId: string; active: bool
               </select>
             </label>
             {exportFormat === "HTML" && (
-              <p>
-                Offline text-only report with common-scale bars and complete
-                numeric tables. Use your browser's Print command after opening
-                the downloaded file. Vaettir does not generate or deliver a PDF.
-              </p>
+              <p>Download HTML with charts and tables, then use your browser’s Print command for PDF. <a className="inline-help" href="/guide#reports" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
             )}
             <label
               style={{ display: "flex", gap: 8, alignItems: "flex-start" }}
@@ -894,12 +890,7 @@ function ExecutionTrend({ projectId, active }: { projectId: string; active: bool
               additional columns)
             </label>
             {includeRecordedDuration && (
-              <p>
-                The export preserves valid duration sums in milliseconds,
-                missing/invalid counts and incomplete completion evidence. It
-                does not estimate human effort, normalize throughput, compare
-                performance or certify completed tests.
-              </p>
+              <p>Exports recorded durations and missing data. Durations do not measure testing effort. <a className="inline-help" href="/guide#reports" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
             )}
             <label
               style={{ display: "flex", gap: 8, alignItems: "flex-start" }}
@@ -942,7 +933,7 @@ function ExecutionTrend({ projectId, active }: { projectId: string; active: bool
           >
             Cancel
           </button>
-          <button
+          <ActionButton
             type="button"
             className="btn-primary"
             disabled={
@@ -954,9 +945,10 @@ function ExecutionTrend({ projectId, active }: { projectId: string; active: bool
               reviewedEpoch !== exportEpoch
             }
             onClick={download}
-          >
+           tooltip={<>
             Prepare reviewed file
-          </button>
+           </>}>
+             Download </ActionButton>
         </div>
       </DialogFrame>
     </section>
@@ -1002,12 +994,7 @@ function TrendRunDrilldown({
       label={`Recorded runs on ${day}`}
     >
       <h2>Runs on {day} UTC</h2>
-      <p>
-        Fresh metadata drill-down using the same applied filters. Counts may
-        have changed since the daily view; this is not a frozen report or
-        equivalent-run certification. Labels are recorded, not provider/device
-        verification.
-      </p>
+      <p>Shows current records using the applied filters. Counts may have changed. <a className="inline-help" href="/guide#reports" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
       {query.error && (
         <p role="alert">
           Runs could not be read: {query.error.message}. No empty result is
@@ -1100,13 +1087,14 @@ function TrendRunDrilldown({
         </>
       )}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 16 }}>
-        <button
+        <ActionButton
           type="button"
           className="btn-secondary"
           onClick={() => void query.refetch()}
-        >
+         tooltip={<>
           Refresh this page
-        </button>
+         </>}>
+           Refresh </ActionButton>
         <button type="button" className="btn-secondary" onClick={onClose}>
           Close
         </button>

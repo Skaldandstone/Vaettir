@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import type { CaseExecutionHistoryItem } from "@vaettir/core";
@@ -200,7 +202,7 @@ function ExecutionEntry({
         </ul>
       </details>
       {item.source === "MANUAL" && <CaseObservationHistoryEntry projectId={projectId} testCaseId={testCaseId} displayId={displayId} item={item} />}
-      {item.source === "MANUAL" && <button type="button" className="btn-secondary" onClick={() => onReviewRetest(item)}>Review native retest links{item.outcome === "FAIL" || item.outcome === "BLOCKED" ? " or separate retest" : ""}</button>}
+      {item.source === "MANUAL" && <ActionButton type="button" className="btn-secondary" onClick={() => onReviewRetest(item)} tooltip={<> Review native retest links{item.outcome === "FAIL" || item.outcome === "BLOCKED" ? " or separate retest" : ""} </>}>Review</ActionButton>}
     </article>
   );
 }
@@ -329,7 +331,7 @@ function History({ projectId, testCaseId, active }: { projectId: string; testCas
         One entry per run. Step corrections stay within that run; a later
         execution does not by itself verify a defect fix or a linked retest.
       </p>
-      {denied ? <div role="alert"><p>Current actor, project membership or original organization could not be verified. Retained execution evidence is hidden; filter choices are preserved.</p><button type="button" className="btn-secondary" onClick={refresh}>Recheck history access</button></div>
+      {denied ? <div role="alert"><p>Current actor, project membership or original organization could not be verified. Retained execution evidence is hidden; filter choices are preserved.</p><ActionButton type="button" className="btn-secondary" onClick={refresh} tooltip={<> Recheck history access </>}> Refresh </ActionButton></div>
       : paused ? <p role="status">Waiting for a connection to verify execution history. Cached evidence is hidden.</p>
       : history.error ? (
         <div role="alert">
@@ -354,9 +356,7 @@ function History({ projectId, testCaseId, active }: { projectId: string; testCas
               {applied.runStatus && ` · Overall run: ${overallStatuses.find(item => item.value === applied.runStatus)?.label}`}
               {(["platform", "build", "environment"] as const).filter(key => applied[key]).map(key => ` · Exact recorded ${key}: ${applied[key]}`).join("")}. Observed {page.observedAt && new Date(page.observedAt).toLocaleString()}.</p>
             {!page.items.length ? (
-              <p>
-                No linked or planned executions match this applied scope. Missing or unsupported manual configuration and CI imports are not substituted when configuration filters are selected.
-              </p>
+              <p>No runs match these filters. Try a wider scope. <a className="inline-help" href="/guide#runs" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
             ) : (
               <div style={{ display: "grid", gap: 12 }}>
                 {page.items.map((item) => (
@@ -416,7 +416,7 @@ function History({ projectId, testCaseId, active }: { projectId: string; testCas
         <ManualRetestActions key={`${projectId}:${selectedRetest.runId}:${selectedRetest.caseId}`} projectId={projectId}
           sourceRunId={selectedRetest.runId} testCaseId={selectedRetest.caseId} canRetest={selectedRetest.canRetest && memberCanWrite} active={!!page}
           onRetainedRequestChange={setRetainedRetest} />
-        {!!page && <button type="button" className="btn-secondary" disabled={retainedRetest} onClick={() => { setSelectedRetest(null); setRetestNotice(""); }}>Close selected retest workflow</button>}
+        {!!page && <ActionButton type="button" className="btn-secondary" disabled={retainedRetest} onClick={() => { setSelectedRetest(null); setRetestNotice(""); }} tooltip={<> Close selected retest workflow </>}> Close </ActionButton>}
         {retainedRetest && <p role="status">A request or review is pending in this mounted workflow. Recover it before selecting another execution; reloading does not preserve local state.</p>}
       </section>}
       <Modal open={filtersOpen} onClose={() => setFiltersOpen(false)} title="Filter recorded case executions">
@@ -441,18 +441,18 @@ function History({ projectId, testCaseId, active }: { projectId: string; testCas
                 <option value="">Choose a date shortcut…</option>{executionDatePresets.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}
               </select>
             </label>
-            <button type="button" className="btn-secondary" disabled={!dateShortcut} onClick={chooseDateShortcut}>Set draft dates</button>
+            <ActionButton type="button" className="btn-secondary" disabled={!dateShortcut} onClick={chooseDateShortcut} tooltip={<> Set draft dates </>}> Set dates </ActionButton>
           </div>
           <p className="muted">Shortcuts set explicit draft dates only. Apply filters to change the displayed history; your selected retest workflow stays separate.</p>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(min(180px,100%),1fr))", gap: 12 }}>
             {(["start", "end"] as const).map(key => <label key={key} style={{ display: "grid", gap: 6, minWidth: 0 }}>UTC {key} date<input type="date" style={{ width: "100%", boxSizing: "border-box", minWidth: 0 }} value={filterDraft[key]} max={new Date().toISOString().slice(0, 10)} onChange={event => setFilterDraft(value => ({ ...value, [key]: event.target.value }))} /></label>)}
           </div>
-          <details style={{ marginBlock: 12 }}><summary>Exact recorded manual configuration</summary><p>Only complete supported selected-case manual snapshots match. CI commits are not treated as build, platform or environment evidence. Match literal text including case and whitespace.</p>
+          <details style={{ marginBlock: 12 }}><summary>Exact recorded manual configuration</summary><p>Filters match the recorded configuration exactly. <a className="inline-help" href="/guide#runs" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
             {(["platform", "build", "environment"] as const).map(key => <label key={key} style={{ display: "grid", gap: 6, minWidth: 0, marginBlock: 12 }}>Recorded {key}<input style={{ width: "100%", boxSizing: "border-box", minWidth: 0 }} value={filterDraft[key]} maxLength={key === "environment" ? 2000 : 300} onChange={event => setFilterDraft(value => ({ ...value, [key]: event.target.value }))} /></label>)}
           </details>
           {filterDraft.recordedSource === "CI_IMPORT" && !!(filterDraft.platform || filterDraft.build || filterDraft.environment) && <p role="note">Exact manual configuration filters exclude imported providers. This combined scope will have no matching runs; clear configuration fields to review imported runs.</p>}
           {filterError && <p role="alert">{filterError}</p>}
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}><button type="button" className="btn-secondary" onClick={() => { setFilterDraft(blankFilters); setDateShortcut(""); setFilterError(""); }}>Clear draft filters</button><button type="button" className="btn-secondary" onClick={() => setFiltersOpen(false)}>Cancel</button><button type="button" className="btn-primary" onClick={applyFilters}>Apply filters</button></div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}><ActionButton type="button" className="btn-secondary" onClick={() => { setFilterDraft(blankFilters); setDateShortcut(""); setFilterError(""); }} tooltip={<> Clear draft filters </>}> Clear </ActionButton><button type="button" className="btn-secondary" onClick={() => setFiltersOpen(false)}>Cancel</button><button type="button" className="btn-primary" onClick={applyFilters}>Apply filters</button></div>
         </>}
       </Modal>
     </section>

@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 // ACTUAL component function/controller with synthetic hook + RPC + Clerk boundaries.
 // No authenticated browser/native database evidence.
 import { readFileSync } from "node:fs";
@@ -38,7 +39,7 @@ const source = readFileSync(
     true,
     ts.ScriptKind.TSX,
   );
-const compiled = ts.transpileModule(
+const compiled = controllerTranspile(
   ast.statements
     .filter(
       (node) => ts.isVariableStatement(node) || ts.isFunctionDeclaration(node),
@@ -69,7 +70,7 @@ const sharedSource = readFileSync(
     true,
     ts.ScriptKind.TSX,
   );
-const sharedCompiled = ts.transpileModule(
+const sharedCompiled = controllerTranspile(
   sharedAst.statements
     .filter((node) => ts.isFunctionDeclaration(node))
     .map((node) =>
@@ -457,6 +458,25 @@ function harness() {
   };
 }
 describe("ACTUAL whole-case reviewed editor synthetic controller/render proof", () => {
+  it.each([null, "BAD_REQUEST"])("failed save (%s) hides the server body and retains the note with the correct recovery path", async code => {
+    const h = harness(); h.click("Review whole-case observation"); h.change("Observed status", "FAIL");
+    h.change("Note representation", "TEXT"); h.change("What actually happened", " Original\n note ");
+    h.click("Review exact observation"); h.state.waiting = deferred(); h.click("Confirm reviewed observation");
+    const original = JSON.stringify(h.sent[0]);
+    h.state.waiting.reject(Object.assign(Error("PRIVATE_SERVER_DETAIL connection failure"), { data: { code } })); await h.settle();
+    expect(text(h.tree())).not.toContain("PRIVATE_SERVER_DETAIL");
+    expect(text(h.tree())).toContain(code ? "Not saved" : "Save unconfirmed");
+    expect(h.field("What actually happened").props.value).toBe(" Original\n note ");
+    expect(h.changed).not.toHaveBeenCalled(); expect(h.sent).toHaveLength(1);
+    if (code) {
+      expect(h.button("Review exact observation").props.disabled).toBe(false);
+      expect(nodes(h.tree()).some(node => text(node.props.children) === "Retry identical UUID")).toBe(false);
+    } else {
+      h.state.waiting = null; h.click("Retry identical UUID"); await h.settle();
+      expect(h.sent.map(input => JSON.stringify(input))).toEqual([original, original]);
+      expect(h.changed).toHaveBeenCalledTimes(1);
+    }
+  });
   it.each(["missing", "void", "throw"] as const)("auxiliary %s SDK observer cannot crash or reveal a withheld original native access frame", mode => {
     const h = harness(); h.click("Review whole-case observation"); h.change("Note representation", "TEXT"); h.change("What actually happened", " PRIVATE listener draft ");
     h.access.readable = false; h.access.activation = "withheldSDKInstallation";

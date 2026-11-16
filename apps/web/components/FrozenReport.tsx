@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useLayoutEffect, useRef, useState } from "react";
 import {
   reportMetricRows,
@@ -14,6 +16,17 @@ import { REPORT_TEMPLATES } from "@/lib/report-templates";
 import { QualityVisualReport } from "./QualityVisualReport";
 import { buildQualityVisualReport } from "@vaettir/core";
 import { renderFrozenReportCsv } from "@/lib/report-csv";
+import {
+  DEFAULT_REPORT_PRESENTATION,
+  MAX_PRESENTATION_PRESET_BYTES,
+  PRESENTATION_PALETTES,
+  PRESENTATION_FONTS,
+  normalizeReportPresentation,
+  parseReportPresentation,
+  serializeReportPresentation,
+  reportPresentationStyle,
+  type ReportPresentation,
+} from "@/lib/report-presentation";
 
 export function FrozenReport({
   report,
@@ -27,13 +40,22 @@ export function FrozenReport({
   snapshotId?: string;
 }) {
   const rows = reportMetricRows(report);
+  const [presentation, setPresentation] = useState(DEFAULT_REPORT_PRESENTATION);
+  const [importing, setImporting] = useState(false);
+  const [presetMessage, setPresetMessage] = useState("");
+  const importSequence = useRef(0);
+  const presentationKey = serializeReportPresentation(presentation);
+  const style = reportPresentationStyle(presentation);
   const [review, setReview] = useState<{
     report: FrozenReportPayload;
+    presentation: ReportPresentation;
     projectId?: string;
     snapshotId?: string;
   } | null>(null);
   const [exportMessage, setExportMessage] = useState("");
   const reviewed =
+    !importing &&
+    review?.presentation === presentation &&
     review?.report === report &&
     review.projectId === projectId &&
     review.snapshotId === snapshotId;
@@ -41,10 +63,20 @@ export function FrozenReport({
   const [deckBusy, setDeckBusy] = useState<"pptx" | "docx" | "xlsx" | null>(
     null,
   );
+  const viewScope = useRef({ active: exportAllowed });
+  useLayoutEffect(() => {
+    viewScope.current = { active: exportAllowed };
+    const captured = viewScope.current;
+    return () => {
+      captured.active = false;
+    };
+  }, [report, projectId, snapshotId, exportAllowed]);
   const exportScope = useRef({
     report,
     projectId,
     snapshotId,
+    presentationKey,
+    presentation,
     ready: exportAllowed && reviewed,
   });
   useLayoutEffect(() => {
@@ -52,12 +84,70 @@ export function FrozenReport({
       report,
       projectId,
       snapshotId,
+      presentationKey,
+      presentation,
       ready: exportAllowed && reviewed,
     };
     return () => {
       exportScope.current.ready = false;
     };
-  }, [report, projectId, snapshotId, exportAllowed, reviewed]);
+  }, [
+    report,
+    projectId,
+    snapshotId,
+    exportAllowed,
+    reviewed,
+    presentation,
+    presentationKey,
+  ]);
+  function changePresentation(next: ReportPresentation) {
+    // Invalidate immediately, including change-and-restore before React commits.
+    exportScope.current.ready = false;
+    importSequence.current++;
+    setImporting(false);
+    setReview(null);
+    setPresentation(normalizeReportPresentation(next));
+    setPresetMessage("");
+    setExportMessage("");
+  }
+  async function importPresentation(file: File) {
+    exportScope.current.ready = false;
+    setReview(null);
+    setImporting(true);
+    setPresetMessage("");
+    const operation = ++importSequence.current;
+    const captured = viewScope.current;
+    const current = () =>
+      operation === importSequence.current &&
+      captured === viewScope.current &&
+      captured.active;
+    try {
+      if (file.size > MAX_PRESENTATION_PRESET_BYTES)
+        throw new Error("Preset too large");
+      const next = parseReportPresentation(await file.text());
+      if (current()) changePresentation(next);
+    } catch {
+      if (current())
+        setPresetMessage(
+          "This preset could not be loaded. Use a version 1 Vaettir preset with only palette and font choices (maximum 512 bytes). Current styling is unchanged; review again before exporting.",
+        );
+    } finally {
+      if (operation === importSequence.current) setImporting(false);
+    }
+  }
+  function savePresentation() {
+    if (!exportAllowed || importing) return;
+    const url = URL.createObjectURL(
+      new Blob([presentationKey], { type: "application/json" }),
+    );
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "vaettir-presentation.json";
+    document.body.append(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
   async function downloadDeck(format: "pptx" | "docx" | "xlsx" = "pptx") {
     if (!exportAllowed || !reviewed || deckBusy) return;
     const captured = exportScope.current;
@@ -66,14 +156,16 @@ export function FrozenReport({
     try {
       const blob =
         format === "pptx"
-          ? await (await import("@/lib/report-deck")).renderReportDeck(report)
+          ? await (
+              await import("@/lib/report-deck")
+            ).renderReportDeck(report, captured.presentation)
           : format === "docx"
             ? await (
                 await import("@/lib/report-office")
-              ).renderReportDocument(report)
+              ).renderReportDocument(report, captured.presentation)
             : await (
                 await import("@/lib/report-office")
-              ).renderReportWorkbook(report);
+              ).renderReportWorkbook(report, captured.presentation);
       if (exportScope.current !== captured || !captured.ready) return;
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -94,6 +186,10 @@ export function FrozenReport({
   }
   function download(format: "html" | "csv") {
     if (!exportAllowed || !reviewed) return;
+    const captured = exportScope.current;
+    if (!captured.ready || captured.report !== report ||
+      captured.presentation !== presentation || captured.projectId !== projectId ||
+      captured.snapshotId !== snapshotId) return;
     let content: string;
     try {
       content =
@@ -106,6 +202,7 @@ export function FrozenReport({
       );
       return;
     }
+    if (exportScope.current !== captured || !captured.ready) return;
     setExportMessage("");
     const url = URL.createObjectURL(
       new Blob([content], {
@@ -125,6 +222,8 @@ export function FrozenReport({
   }
   function print() {
     if (!exportAllowed || !reviewed) return;
+    const captured = exportScope.current;
+    if (!captured.ready) return;
     // Print only the portable snapshot, not the surrounding workspace/sidebar.
     const frame = document.createElement("iframe");
     frame.title = "Printable frozen report";
@@ -133,6 +232,12 @@ export function FrozenReport({
       "position:fixed;width:1px;height:1px;bottom:0;left:0;border:0";
     const cleanup = () => frame.remove();
     frame.onload = () => {
+      // Loading the print document is asynchronous. A later report/review or
+      // unmount must not let the old frame open a print dialog.
+      if (exportScope.current !== captured || !captured.ready) {
+        cleanup();
+        return;
+      }
       frame.contentWindow?.addEventListener("afterprint", cleanup, {
         once: true,
       });
@@ -151,63 +256,196 @@ export function FrozenReport({
           {report.state === "approved" ? "Approved report" : "Private preview"}
         </p>
         <h2>{report.title}</h2>
-        {report.definition.templateId && (
+        <details>
+          <summary>Details</summary>
+          {report.definition.templateId && (
+            <p className="text-muted">
+              Started from:{" "}
+              {REPORT_TEMPLATES[report.definition.templateId].title}. Metric
+              sections and author notes are captured below.
+            </p>
+          )}
           <p className="text-muted">
-            Started from: {REPORT_TEMPLATES[report.definition.templateId].title}
-            . Metric sections and author notes are captured below.
+            {report.projectName} · Data saved{" "}
+            {new Date(report.asOf).toLocaleString()}
           </p>
-        )}
-        <p className="text-muted">
-          {report.projectName} · Data saved{" "}
-          {new Date(report.asOf).toLocaleString()}
-        </p>
-        <p className="text-muted">
-          {reportScopeSummary(report)}. Execution (UTC):{" "}
-          {report.windowStart.slice(0, 10)} to{" "}
-          {(report.windowEnd ?? report.asOf).slice(0, 10)}.
-        </p>
-        {report.scope && (
-          <p className="text-muted">{report.scope.cohortBasis}</p>
-        )}
-        {projectId && snapshotId ? (
-          <ReportSnapshotEvidence
-            projectId={projectId}
-            snapshotId={snapshotId}
-          />
-        ) : (
-          report.scope && (
-            <details>
-              <summary>
-                Contributing recorded runs (
-                {report.scope.contributingRunIds.length})
-              </summary>
-              <p className="text-muted">
-                Stable run references captured with this snapshot. Later run
-                observations do not change this report. First 50 references
-                shown.
-              </p>
-              <ul>
-                {report.scope.contributingRunIds.slice(0, 50).map((id) => (
-                  <li key={id} style={{ overflowWrap: "anywhere" }}>
-                    {id}
-                  </li>
-                ))}
-              </ul>
-              {!report.scope.contributingRunIds.length && (
-                <p>No matching recorded runs. This is not a passing result.</p>
-              )}
-            </details>
-          )
-        )}
+          <p className="text-muted">
+            {reportScopeSummary(report)}. Execution (UTC):{" "}
+            {report.windowStart.slice(0, 10)} to{" "}
+            {(report.windowEnd ?? report.asOf).slice(0, 10)}.
+          </p>
+          {report.scope && (
+            <p className="text-muted">{report.scope.cohortBasis}</p>
+          )}
+          {projectId && snapshotId ? (
+            <ReportSnapshotEvidence
+              projectId={projectId}
+              snapshotId={snapshotId}
+            />
+          ) : (
+            report.scope && (
+              <details>
+                <summary>
+                  Contributing recorded runs (
+                  {report.scope.contributingRunIds.length})
+                </summary>
+                <p className="text-muted">
+                  Stable run references captured with this snapshot. Later run
+                  observations do not change this report. First 50 references
+                  shown.
+                </p>
+                <ul>
+                  {report.scope.contributingRunIds.slice(0, 50).map((id) => (
+                    <li key={id} style={{ overflowWrap: "anywhere" }}>
+                      {id}
+                    </li>
+                  ))}
+                </ul>
+                {!report.scope.contributingRunIds.length && (
+                  <p>
+                    No matching recorded runs. This is not a passing result.
+                  </p>
+                )}
+              </details>
+            )
+          )}
+        </details>
         {exportAllowed && (
           <section aria-label="Reviewed portable report export">
-            <p className="text-muted">
-              HTML and PDF include charts and your notes. CSV includes summary
-              counts, the selected tests and dates, and data limitations. It
-              leaves out notes and internal record IDs. Titles and test
-              selection labels can still contain private information. CSV is not
-              a full backup.
-            </p>
+            <details>
+              <summary>Export details</summary>
+              <p className="text-muted">
+                HTML and PDF include charts and your notes. CSV includes summary
+                counts, the selected tests and dates, and data limitations. It
+                leaves out notes and internal record IDs. Titles and test
+                selection labels can still contain private information. CSV is
+                not a full backup. Word includes editable notes and tables.
+                Excel includes typed metrics, chart data and notes on separate
+                sheets. Both are copies of this approved report.
+              </p>
+            </details>
+            <details style={{ marginBlock: 12 }}>
+              <summary>Presentation</summary>
+              <p className="text-muted">
+                Style Word, Excel and PowerPoint exports. Report content and
+                chart meaning stay unchanged. Save these choices to reuse in
+                another report; the preset contains no report data.
+              </p>
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: 16,
+                  marginBlock: 12,
+                }}
+              >
+                <label>
+                  Color palette
+                  <select
+                    value={presentation.palette}
+                    onChange={(event) =>
+                      changePresentation({
+                        ...presentation,
+                        palette: event.target
+                          .value as ReportPresentation["palette"],
+                      })
+                    }
+                  >
+                    {Object.entries(PRESENTATION_PALETTES).map(
+                      ([key, option]) => (
+                        <option key={key} value={key}>
+                          {option.label}
+                        </option>
+                      ),
+                    )}
+                  </select>
+                </label>
+                <label>
+                  Document font
+                  <select
+                    value={presentation.font}
+                    onChange={(event) =>
+                      changePresentation({
+                        ...presentation,
+                        font: event.target.value as ReportPresentation["font"],
+                      })
+                    }
+                  >
+                    {Object.entries(PRESENTATION_FONTS).map(([key, option]) => (
+                      <option key={key} value={key}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <div
+                aria-label="Presentation sample"
+                style={{
+                  background: `#${style.paper}`,
+                  color: `#${style.ink}`,
+                  borderInlineStart: `6px solid #${style.accent}`,
+                  padding: 16,
+                  marginBlock: 12,
+                  fontFamily: style.body,
+                }}
+              >
+                <strong style={{ fontFamily: style.heading }}>
+                  Quality update
+                </strong>
+                <p style={{ color: `#${style.muted}`, marginBottom: 0 }}>
+                  Editable notes, tables and chart data
+                </p>
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: 12,
+                  alignItems: "center",
+                }}
+              >
+                <ActionButton
+                  type="button"
+                  className="btn-secondary"
+                  disabled={importing}
+                  onClick={savePresentation}
+                  tooltip={<>Save presentation preset</>}
+                >
+                  Save preset{" "}
+                </ActionButton>
+                <ActionButton
+                  type="button"
+                  className="btn-secondary"
+                  tooltip="Reset presentation"
+                  onClick={() =>
+                    changePresentation(DEFAULT_REPORT_PRESENTATION)
+                  }
+                >
+                  Reset
+                </ActionButton>
+                <label style={{ minWidth: 0, maxWidth: "100%" }}>
+                  Load preset
+                  <input
+                    type="file"
+                    aria-label="Load presentation preset"
+                    accept=".json,application/json"
+                    style={{ maxWidth: "100%" }}
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      event.target.value = "";
+                      if (file) void importPresentation(file);
+                    }}
+                  />
+                </label>
+              </div>
+              {importing && <p role="status">Loading presentation preset...</p>}
+              {presetMessage && <p role="alert">{presetMessage}</p>}
+              <p className="text-muted">
+                A style change requires a fresh review. Fonts may be substituted
+                by the application opening the file.
+              </p>
+            </details>
             <label
               style={{
                 display: "flex",
@@ -219,84 +457,95 @@ export function FrozenReport({
               <input
                 type="checkbox"
                 checked={reviewed}
+                disabled={importing}
                 onChange={(event) => {
+                  exportScope.current.ready = false;
                   setReview(
                     event.target.checked
-                      ? { report, projectId, snapshotId }
+                      ? { report, projectId, snapshotId, presentation }
                       : null,
                   );
                   setExportMessage("");
                 }}
               />
-              I reviewed this report, its missing evidence and saved text, and
-              will check recipients before downloading or printing.
+              I reviewed this report, its presentation, missing evidence and
+              saved text, and will check recipients before downloading or
+              printing.
             </label>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-              <button
+              <ActionButton
                 className="btn-secondary"
                 type="button"
                 disabled={!reviewed}
+                tooltip="Download HTML"
                 onClick={() => download("html")}
               >
-                Download HTML
-              </button>
-              <button
+                HTML
+              </ActionButton>
+              <ActionButton
                 className="btn-secondary"
                 type="button"
                 disabled={!reviewed}
                 onClick={() => download("csv")}
+                tooltip={<>Download summary CSV</>}
               >
-                Download summary CSV
-              </button>
-              <button
+                CSV{" "}
+              </ActionButton>
+              <ActionButton
                 className="btn-secondary"
                 type="button"
                 disabled={!reviewed}
                 onClick={print}
+                tooltip={<>Print / save PDF</>}
               >
-                Print / save PDF
-              </button>
-              <button
+                Print{" "}
+              </ActionButton>
+              <ActionButton
                 className="btn-secondary"
                 type="button"
                 disabled={!reviewed || !!deckBusy}
                 onClick={() => void downloadDeck()}
+                tooltip={
+                  <>
+                    {deckBusy === "pptx"
+                      ? "Creating PowerPoint…"
+                      : "Download editable PowerPoint"}
+                  </>
+                }
               >
-                {deckBusy === "pptx"
-                  ? "Creating PowerPoint…"
-                  : "Download editable PowerPoint"}
-              </button>
+                {deckBusy === "pptx" ? "Creating PowerPoint…" : "PowerPoint"}
+              </ActionButton>
+              <ActionButton
+                className="btn-secondary"
+                type="button"
+                disabled={!reviewed || !!deckBusy}
+                onClick={() => void downloadDeck("docx")}
+                tooltip={
+                  <>
+                    {deckBusy === "docx"
+                      ? "Creating Word document…"
+                      : "Download Word document"}
+                  </>
+                }
+              >
+                {deckBusy === "docx" ? "Creating Word…" : "Word"}
+              </ActionButton>
+              <ActionButton
+                className="btn-secondary"
+                type="button"
+                disabled={!reviewed || !!deckBusy}
+                onClick={() => void downloadDeck("xlsx")}
+                tooltip={
+                  <>
+                    {deckBusy === "xlsx"
+                      ? "Creating Excel workbook…"
+                      : "Download Excel workbook"}
+                  </>
+                }
+              >
+                {deckBusy === "xlsx" ? "Creating Excel…" : "Excel"}
+              </ActionButton>
             </div>
-            <details style={{ marginBlock: 12 }}>
-              <summary>Other editable formats</summary>
-              <p className="text-muted">
-                Word includes editable notes and tables. Excel includes typed
-                metrics, chart data and notes on separate sheets. Both are
-                copies of this approved report.
-              </p>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                <button
-                  className="btn-secondary"
-                  type="button"
-                  disabled={!reviewed || !!deckBusy}
-                  onClick={() => void downloadDeck("docx")}
-                >
-                  {deckBusy === "docx"
-                    ? "Creating Word document…"
-                    : "Download Word document"}
-                </button>
-                <button
-                  className="btn-secondary"
-                  type="button"
-                  disabled={!reviewed || !!deckBusy}
-                  onClick={() => void downloadDeck("xlsx")}
-                >
-                  {deckBusy === "xlsx"
-                    ? "Creating Excel workbook…"
-                    : "Download Excel workbook"}
-                </button>
-              </div>
-            </details>
             {exportMessage && <p role="alert">{exportMessage}</p>}
           </section>
         )}
@@ -355,12 +604,10 @@ export function FrozenReport({
                       <th scope="row" style={{ whiteSpace: "normal" }}>
                         {row.label}
                         {row.note && (
-                          <small
-                            className="text-muted"
-                            style={{ display: "block", fontWeight: 400 }}
-                          >
-                            {row.note}
-                          </small>
+                          <details style={{ fontWeight: 400 }}>
+                            <summary>Details</summary>
+                            <small className="text-muted">{row.note}</small>
+                          </details>
                         )}
                       </th>
                       <td
@@ -379,7 +626,7 @@ export function FrozenReport({
         </section>
       ))}
       <details>
-        <summary>Data limitations and missing evidence</summary>
+        <summary>Limitations</summary>
         <ul>
           {report.limitations.map((note) => (
             <li key={note}>{note}</li>

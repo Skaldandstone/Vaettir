@@ -1,3 +1,4 @@
+import { actionName } from "../action-name.mjs";
 // Real component, parser and exploration engine. Native device and hosted save
 // are explicit synthetic boundaries; this does not prove a physical app or deploy.
 /* global window,document */
@@ -16,10 +17,10 @@ const viteRequire = createRequire(
 );
 const { build } = viteRequire("esbuild"),
   { chromium } = require("@playwright/test");
-const output = path.resolve(
+const output = (process.env.VAETTIR_E2E_OUTPUT_DIR ?? (path.resolve(
   process.argv[2] ??
     path.join(web, "../../.local/android-exploration-20261022/browser"),
-);
+)));
 await mkdir(output, { recursive: true });
 const files = [
   "components/AndroidAppExploration.tsx",
@@ -212,7 +213,7 @@ try {
   checks.push("No helper calls on mount");
   const download = page.waitForEvent("download");
   await page
-    .getByRole("button", { name: "Download Android connector", exact: true })
+    .getByRole("button", { name: actionName("Download Android connector"), exact: true })
     .click();
   const artifact = await download;
   assert.match(artifact.suggestedFilename(), /\.sh$|\.cmd$|\.command$/);
@@ -223,13 +224,13 @@ try {
   assert.equal(requests.length, 0);
   checks.push("Download exact dedicated-port launcher without dispatch");
   await page
-    .getByRole("button", { name: "Connect Android app", exact: true })
+    .getByRole("button", { name: actionName("Connect Android app"), exact: true })
     .click();
   await page
     .getByRole("combobox", { name: "Exploration device", exact: true })
     .selectOption("SYNTHETIC");
   await page
-    .getByRole("button", { name: "Use the open test app", exact: true })
+    .getByRole("button", { name: actionName("Use the open test app"), exact: true })
     .click();
   await page
     .getByRole("heading", {
@@ -243,7 +244,7 @@ try {
     .getByRole("checkbox", { name: /I approve local screen observation/ })
     .check();
   await page
-    .getByRole("button", { name: "Explore normal navigation", exact: true })
+    .getByRole("button", { name: actionName("Explore normal navigation"), exact: true })
     .click();
   await page
     .getByRole("heading", { name: "Exploration completed", exact: true })
@@ -272,7 +273,7 @@ try {
     "Actual object selector and ADB receipt rendered separately from uncaptured app HTTP evidence",
   );
   await page
-    .getByRole("button", { name: "Pause", exact: true })
+    .getByRole("button", { name: actionName("Pause"), exact: true })
     .waitFor({ state: "hidden" });
   for (const theme of ["dark", "light"])
     for (const width of [1280, 390]) {
@@ -303,13 +304,13 @@ try {
     })
     .check();
   await page
-    .getByRole("button", { name: "Add selected proposed tests", exact: true })
+    .getByRole("button", { name: actionName("Add selected proposed tests"), exact: true })
     .click();
   await page
-    .getByRole("button", { name: "Recover add result", exact: true })
+    .getByRole("button", { name: actionName("Recover add result"), exact: true })
     .waitFor();
   await page
-    .getByRole("button", { name: "Recover add result", exact: true })
+    .getByRole("button", { name: actionName("Recover add result"), exact: true })
     .click();
   await page
     .getByText("1 selected proposed tests recorded as pending review.", {
@@ -334,7 +335,7 @@ try {
   const beforeDenial = requests.length;
   await page
     .getByRole("button", {
-      name: "Read retained session without navigation",
+      name: actionName("Read retained session without navigation"),
       exact: true,
     })
     .click();
@@ -346,7 +347,7 @@ try {
   });
   await page
     .getByRole("button", {
-      name: "Recheck original project access",
+      name: actionName("Recheck original project access"),
       exact: true,
     })
     .click();
@@ -375,13 +376,13 @@ try {
   stack.length = 0;
   await page.goto(origin);
   await page
-    .getByRole("button", { name: "Connect Android app", exact: true })
+    .getByRole("button", { name: actionName("Connect Android app"), exact: true })
     .click();
   await page
     .getByRole("combobox", { name: "Exploration device", exact: true })
     .selectOption("SYNTHETIC");
   await page
-    .getByRole("button", { name: "Use the open test app", exact: true })
+    .getByRole("button", { name: actionName("Use the open test app"), exact: true })
     .click();
   await page
     .getByRole("checkbox", { name: /I approve local screen observation/ })
@@ -392,10 +393,10 @@ try {
   holdNext = true;
   const beforePause = requests.filter((p) => p.endsWith("/next")).length;
   await page
-    .getByRole("button", { name: "Explore normal navigation", exact: true })
+    .getByRole("button", { name: actionName("Explore normal navigation"), exact: true })
     .click();
   await held;
-  await page.getByRole("button", { name: "Pause", exact: true }).click();
+  await page.getByRole("button", { name: actionName("Pause"), exact: true }).click();
   releaseNext();
   await page
     .getByRole("heading", { name: "Exploration paused", exact: true })
@@ -405,7 +406,7 @@ try {
     beforePause + 1,
   );
   await page
-    .getByRole("button", { name: "Resume exploration", exact: true })
+    .getByRole("button", { name: actionName("Resume exploration"), exact: true })
     .click();
   await page
     .getByRole("heading", { name: "Exploration completed", exact: true })
@@ -423,7 +424,7 @@ try {
   const beforeScopeReview = requests.length;
   await page
     .getByRole("button", {
-      name: "Use selected navigation in a new exploration",
+      name: actionName("Use selected navigation in a new exploration"),
       exact: true,
     })
     .click();
@@ -443,7 +444,7 @@ try {
   );
   assert.equal(
     await page
-      .getByRole("button", { name: "Explore normal navigation", exact: true })
+      .getByRole("button", { name: actionName("Explore normal navigation"), exact: true })
       .isDisabled(),
     true,
   );

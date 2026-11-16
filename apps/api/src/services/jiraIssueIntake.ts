@@ -1,6 +1,6 @@
 import { z } from "@vaettir/core/dist/validation.js";
 import { repositoryProviderJson } from "./repositoryProviderHttp.js";
-import { jiraSiteOrigin, type JiraSourceCredentials } from "./jiraSourceConnection.js";
+import { jiraSiteOrigin, jiraReadTransport, type JiraReadCredentials } from "./jiraSourceConnection.js";
 
 const nativeId = z.string().min(1).max(32).regex(/^[1-9][0-9]*$/);
 const issueKey = z.string().min(3).max(133).regex(/^[A-Z][A-Z0-9_]*-[1-9][0-9]*$/);
@@ -9,6 +9,17 @@ const printable = (max: number) => z.string().min(1).max(max).refine(value =>
     character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127));
 const cursorSchema = z.string().min(1).max(1024).regex(/^[\x21-\x7e]+$/);
 const isoTimestamp = z.string().datetime({ offset: true }).refine(value => Number.isFinite(Date.parse(value)));
+const jqlValue = (max: number) => z.string().trim().min(1).max(max).regex(/^[^"\\\p{Cc}\p{Zl}\p{Zp}]+$/u);
+export const jiraDefectFiltersSchema = z.object({
+  issueType: jqlValue(80),
+  labels: z.array(jqlValue(80).refine(value => !/\s/u.test(value))).max(5).default([]),
+}).strict();
+type JiraDefectFilters = z.infer<typeof jiraDefectFiltersSchema>;
+const jiraDefectContext = {
+  issueType: printable(200).optional(),
+  components: z.array(printable(200)).max(50).optional(),
+  labels: z.array(printable(255)).max(100).optional(),
+};
 
 /** Deliberately minimal issue summary. Imported strings remain data, not HTML or code. */
 export const jiraIssueSchema = z.object({
@@ -17,6 +28,7 @@ export const jiraIssueSchema = z.object({
   key: issueKey,
   title: printable(512),
   status: printable(200),
+  ...jiraDefectContext,
   updatedAt: isoTimestamp,
   url: z.string().url().max(1000),
 }).superRefine((issue, ctx) => {
@@ -29,11 +41,6 @@ export const jiraIssueSchema = z.object({
   }
 });
 
-const credentialsSchema = z.object({
-  siteUrl: z.string().max(300),
-  email: z.string().email().max(320).regex(/^[\x21-\x7e]+$/).refine(value => !value.includes(":")),
-  apiToken: z.string().min(1).max(10000).regex(/^[\x21-\x7e]+$/).refine(value => !value.includes(":")),
-});
 const projectScopeSchema = z.array(nativeId).min(1).max(20)
   .refine(ids => new Set(ids).size === ids.length);
 // Jira commonly emits +0000 rather than ISO's +00:00. Normalize that syntax,
@@ -49,6 +56,11 @@ const providerIssueSchema = z.object({
     status: z.object({ name: printable(200) }),
     project: z.object({ id: nativeId }),
     updated: providerTimestamp,
+    issuetype: z.object({ name: printable(200) }).optional(),
+    components: z.array(z.object({ name: printable(200) })).max(50).optional(),
+    labels: z.array(printable(255)).max(100).optional(),
+    fixVersions: z.array(z.object({ id: nativeId })).max(100).optional(),
+    description: z.unknown().optional(),
   }),
 });
 const providerPageSchema = z.object({
@@ -60,44 +72,63 @@ const providerPageSchema = z.object({
 /** Caller must authorize issue reading separately from metadata scope approval.
  * Exactly one read, never a legacy /search fallback or issue-detail fetch.
  * Public DNS/TLS pinning, 15s deadline, 1MiB response cap and no redirect following
- * are enforced by repositoryProviderJson. Descriptions/attachments/provider URLs
- * are neither requested nor retained. Run/page bounds and consent live upstream.
+ * are enforced by repositoryProviderJson. Only release planning requests
+ * descriptions, to extract acceptance criteria. Run/page bounds and consent live upstream.
  * https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-search/#api-rest-api-3-search-jql-get
  * Enhanced search is eventually consistent and returns only issues visible under
  * Browse Projects and any issue-level security permission; missing is not deleted.
  */
 export async function listJiraIssuePage(
-  credentials: JiraSourceCredentials,
+  credentials: JiraReadCredentials,
   projectIds: string[],
   nextPageToken: string | null = null,
+  options: { defectFilters?: JiraDefectFilters; releaseId?: string } = {},
 ) {
-  const input = credentialsSchema.parse(credentials);
-  const origin = jiraSiteOrigin(input.siteUrl);
+  const transport=jiraReadTransport(credentials);
+  const origin = transport.siteUrl;
   const scope = projectScopeSchema.parse(projectIds);
   const cursor = cursorSchema.nullable().parse(nextPageToken);
+  const filters = jiraDefectFiltersSchema.optional().parse(options.defectFilters);
+  const releaseId = nativeId.optional().parse(options.releaseId);
+  const includeContext = !!(filters || releaseId);
+  const clauses = [`project in (${scope.join(",")})`];
+  if (filters) {
+    clauses.push(`issuetype = "${filters.issueType}"`);
+    for (const label of filters.labels) clauses.push(`labels = "${label}"`);
+  }
+  if (releaseId) clauses.push(`fixVersion = ${releaseId}`);
+  const fields = ["summary", "status", "project", "updated"];
+  if (includeContext) fields.push("issuetype", "components", "labels");
+  if (releaseId) fields.push("fixVersions", "description");
   const query = new URLSearchParams({
-    jql: `project in (${scope.join(",")}) ORDER BY id ASC`,
-    fields: "summary,status,project,updated",
+    jql: `${clauses.join(" AND ")} ORDER BY id ASC`,
+    fields: fields.join(","),
     maxResults: "20",
   });
   if (cursor !== null) query.set("nextPageToken", cursor);
-  const page = providerPageSchema.parse(await repositoryProviderJson(origin,
-    `/rest/api/3/search/jql?${query.toString()}`,
-    { basic: { username: input.email, password: input.apiToken } }));
+  const page = providerPageSchema.parse(await repositoryProviderJson(transport.origin,
+    `${transport.prefix}/rest/api/3/search/jql?${query.toString()}`,transport.options));
   const next = page.nextPageToken ?? null;
   if ((page.isLast && next !== null) || (!page.isLast && (next === null || page.issues.length === 0)) ||
       (next !== null && next === cursor))
     throw new Error("Jira issue pagination is inconsistent. Retry the preview.");
   if (new Set(page.issues.map(issue => issue.id)).size !== page.issues.length ||
       new Set(page.issues.map(issue => issue.key)).size !== page.issues.length ||
-      page.issues.some(issue => !scope.includes(issue.fields.project.id)))
+      page.issues.some(issue => !scope.includes(issue.fields.project.id) || filters && (
+      issue.fields.issuetype?.name.toLowerCase() !== filters.issueType.toLowerCase() ||
+        filters.labels.some(label => !issue.fields.labels?.some(value => value.toLowerCase() === label.toLowerCase()))
+      ) || releaseId && !issue.fields.fixVersions?.some(version => version.id === releaseId)))
     throw new Error("Jira returned ambiguous or out-of-scope issue identities. Retry the preview.");
   return {
     issues: page.issues.map(issue => jiraIssueSchema.parse({
       id: issue.id, projectId: issue.fields.project.id, key: issue.key,
       title: issue.fields.summary, status: issue.fields.status.name,
+      ...(includeContext ? {issueType: issue.fields.issuetype?.name,
+        components: issue.fields.components?.map(component => component.name) ?? [],
+        labels: issue.fields.labels ?? []} : {}),
       updatedAt: issue.fields.updated, url: `${origin}/browse/${issue.key}`,
     })),
     nextPageToken: next,
+    ...(releaseId ? { descriptions: page.issues.map(issue => issue.fields.description) } : {}),
   };
 }

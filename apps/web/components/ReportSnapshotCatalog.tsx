@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import Link from "next/link";
@@ -333,22 +335,24 @@ function Catalog({ projectId }: { projectId: string }) {
               {currentSelected.length} of 2 reports selected for comparison.
               Selection stays across catalog pages.
             </p>
-            <button
+            <ActionButton
               type="button"
               className="btn-secondary"
               disabled={currentSelected.length !== 2}
               onClick={() => setCompareOpen(true)}
-            >
+             tooltip={<>
               Compare selected reports
-            </button>
+             </>}>
+               Compare </ActionButton>
             {!!currentSelected.length && (
-              <button
+              <ActionButton
                 type="button"
                 className="btn-secondary"
                 onClick={() => setSelected([])}
-              >
+               tooltip={<>
                 Clear comparison selection
-              </button>
+               </>}>
+                 Clear </ActionButton>
             )}
           </div>
           {!!currentSelected.length && (
@@ -540,10 +544,10 @@ function Catalog({ projectId }: { projectId: string }) {
             </button>
           </div>
           {data.total > 500 && (
-            <p className="text-muted">
+            <details><summary>Details</summary><p className="text-muted">
               Browsing is bounded to the first 500 matches. Narrow the title,
               purpose, audience or capture dates to reach older snapshots.
-            </p>
+            </p></details>
           )}
           <details style={{ marginTop: 12 }}>
             <summary>Catalog boundaries</summary>

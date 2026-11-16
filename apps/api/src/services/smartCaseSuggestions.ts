@@ -69,7 +69,7 @@ async function authorizeAnalysis(db: PrismaClient, actor: string, clerk: string 
     return permission;
   });
 }
-async function authorized<T>(db: PrismaClient, actor: string, clerk: string | null | undefined, scope: Scope, work: (tx: Prisma.TransactionClient) => Promise<T>) {
+async function authorized<T>(db: PrismaClient, actor: string, clerk: string | null | undefined, scope: Scope, work: (tx: Prisma.TransactionClient) => Promise<T>, timeout = 60_000) {
   if (!clerk || clerk !== scope.expectedClerkActorId) throw new TRPCError({ code: "FORBIDDEN", message: "Restore the original signed-in account before continuing this review." });
   for (let attempt = 0; ; attempt++) { try { return await db.$transaction(async tx => {
     await lockCaseFieldProject(tx, actor, scope.projectId);
@@ -79,7 +79,7 @@ async function authorized<T>(db: PrismaClient, actor: string, clerk: string | nu
     return work(tx);
   // Receipt predicates must also serialize when a reviewed selection changes no
   // case row. Row/advisory locks alone retain an older RR snapshot after waiting.
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 60_000 }); }
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout }); }
   catch (error) {
     // Only a documented, rolled-back serialization failure is retried. Unknown
     // transport outcomes keep their exact request for receipt reconciliation.
@@ -104,7 +104,10 @@ function once<T>(scope: string, requestId: string, input: unknown, run: () => Pr
   requests.set(key, { digest, work, expires: now + 30 * 60_000 });
   return work;
 }
-export const suggestionSelectionSchema = z.array(z.object({ id: z.string().min(1).max(500), suitePath: z.boolean(), priority: z.boolean(), testType: z.boolean() }).strict()).min(1).max(200)
+export const MAX_SAVED_SUGGESTION_CASES = 1_000;
+export const MAX_SAVED_SUGGESTION_REVIEWS = Math.ceil(MAX_SAVED_SUGGESTION_CASES / 20);
+
+export const suggestionSelectionSchema = z.array(z.object({ id: z.string().min(1).max(500), suitePath: z.boolean(), priority: z.boolean(), testType: z.boolean() }).strict()).min(1).max(MAX_SAVED_SUGGESTION_CASES)
   .refine(rows => new Set(rows.map(r => r.id)).size === rows.length && rows.every(r => r.suitePath || r.priority || r.testType), "Select distinct cases and at least one change per case.");
 
 export async function smartMapping(db: PrismaClient, actor: string, clerk: string | null | undefined, input: Scope & { expectedPolicyVersion: number; requestId: string; csvText: string; approved: true }, signal?: AbortSignal) {
@@ -170,7 +173,9 @@ export async function applySmartRecommendations(db: PrismaClient, actor: string,
     const selectedReviews = input.reviewIds.map(id => previews.get(id));
     if (selectedReviews.some(p => !p || p.scope !== key || p.expires < Date.now() || !p.cases.length)) return refuse("This organization review expired. Generate and review new suggestions; nothing was applied.");
     const preview = { cases: selectedReviews.flatMap(p => p!.cases), suggestions: selectedReviews.flatMap(p => p!.suggestions) };
-    if (new Set(preview.cases.map(c => c.id)).size !== preview.cases.length) return refuse("Review batches must contain distinct cases.");
+    const reviewedCases = new Map(preview.cases.map(c => [c.id, c]));
+    const reviewedSuggestions = new Map(preview.suggestions.map(s => [s.id, s]));
+    if (reviewedCases.size !== preview.cases.length) return refuse("Review batches must contain distinct cases.");
     const tree = await readSuggestionTree(tx, input.projectId);
     if (selectedReviews.some(p => hash(tree) !== p!.treeHash)) return refuse("Suite structure changed. Review current placement before applying suggestions.");
     const folders = new Map(tree.explicit.map(f => [f.path, f]));
@@ -178,7 +183,7 @@ export async function applySmartRecommendations(db: PrismaClient, actor: string,
     // Validate the complete selection before any case writes. Project lock also
     // serializes exact retry receipt creation and cooperating case/folder edits.
     for (const selection of input.selections) {
-      const before = preview.cases.find(c => c.id === selection.id), suggestion = preview.suggestions.find(s => s.id === selection.id);
+      const before = reviewedCases.get(selection.id), suggestion = reviewedSuggestions.get(selection.id);
       if (!before || !suggestion) return refuse("A selected case was not in this review.");
       // The same source bound is checked before materializing the current head.
       const [size] = await tx.$queryRaw<Array<{ bytes: bigint; shared: boolean }>>`SELECT (octet_length(row_to_json(c)::text) + coalesce((SELECT sum(octet_length(row_to_json(s)::text)) FROM "TestCaseStep" s WHERE s."testCaseId"=c.id),0))::bigint AS bytes, (c."sharedStepGroupId" IS NOT NULL) AS shared FROM "TestCase" c WHERE c.id=${before.id} AND c."projectId"=${input.projectId}`;
@@ -206,5 +211,5 @@ export async function applySmartRecommendations(db: PrismaClient, actor: string,
     if (folders.size !== tree.explicit.length) await tx.caseFolderState.upsert({ where: { projectId: input.projectId }, create: { projectId: input.projectId, revision: 1, folders: [...folders.values()] }, update: { revision: { increment: 1 }, folders: [...folders.values()] } });
     await tx.auditLog.create({ data: { organizationId: input.originalOrganizationId, projectId: input.projectId, actorId: actor, entityType: "SmartCaseSuggestionReceipt", entityId: input.requestId, action: "UPDATE", summary: `Applied suggestions to ${changes.length} cases`, metadata: { inputHash, changed: changes.length, reviewIds: input.reviewIds } } });
     return { changed: changes.length, replayed: false };
-  });
+  }, 90_000);
 }

@@ -1,4 +1,7 @@
 "use client";
+
+import { ActionHelp } from "@/components/ui/ActionHelp";
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useSearchParams } from "next/navigation";
@@ -71,7 +74,7 @@ export function AtlassianConnectWorkflow() {
     <div className="connection-symbol" aria-hidden="true">{acknowledgement.value.state === "APPROVED" ? "✓" : "—"}</div>
     <h1>{acknowledgement.value.state === "APPROVED" ? "Project connected" : "Connection is stopped"}</h1>
     <p>{acknowledgement.value.state === "APPROVED" ? `${acknowledgement.projectName} is connected. Return to your Jira or Confluence tab; it checks for the connection automatically.` : "The original connection was saved, then revoked. This retry has not restored its permissions."}</p>
-    <a className="btn-secondary" href={`/projects/${encodeURIComponent(acknowledgement.value.projectId)}/settings/integrations#atlassian-quality`}>Manage this project’s connection</a>
+    <ActionHelp tooltip={<>Manage this project’s connection</>}><a className="btn-secondary" href={`/projects/${encodeURIComponent(acknowledgement.value.projectId)}/settings/integrations#atlassian-quality`}>Manage connection</a></ActionHelp>
   </section>;
   return <section className="panel connection-workflow">
     <header><p className="eyebrow">Quality Intelligence · Project connection</p><h1>Connect your project</h1><p className="text-muted">Choose a Vaettir project to share with Jira or Confluence. You stay in control of what is visible.</p></header>
@@ -104,7 +107,7 @@ export function AtlassianConnectWorkflow() {
         <div className="connection-private"><strong>Stays private in Vaettir</strong><p>Draft reports, test procedures, source code, attachments and architecture mappings.</p></div>
         <p className="connection-caption">No editing tests, running tests, importing data or spending AI credits. Stop sharing anytime in project settings.</p>
       </aside><div className="connection-footer"><p>{chosen ? <>Ready to connect <strong>{chosen.name}</strong></> : "Select a project to continue. Nothing is connected yet."}</p><button type="button" className="btn-primary" disabled={!chosen || loading || connect.isPending || retained} onClick={() => void confirm()}>{connect.isPending ? "Connecting project…" : "Connect project"}</button></div></div>}
-      {retained && pendingMatches && <button type="button" className="btn-primary" disabled={connect.isPending || loading || !current} onClick={() => void confirm()}>{connect.isPending ? "Connecting project…" : "Confirm connection status"}</button>}
+      {retained && pendingMatches && <ActionButton type="button" className="btn-primary" disabled={connect.isPending || loading || !current} onClick={() => void confirm()} tooltip={<> {connect.isPending ? "Connecting project…" : "Confirm connection status"} </>}>{connect.isPending ? "Connecting project…" : "Confirm"}</ActionButton>}
     </>}
   </section>;
 }

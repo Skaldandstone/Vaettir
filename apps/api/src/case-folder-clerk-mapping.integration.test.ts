@@ -1,3 +1,4 @@
+import { fixtureProjectKey } from "./testProjectKey.js";
 // Authored native regressions; root executes on a fresh owned disposable DB.
 // Stale independently authenticated ctx A versus native Clerk B on the same
 // eligible User. This is not freshly authenticated B adopting A's intent.
@@ -79,7 +80,7 @@ describe("folder reads reviewed moves inverses and accepted copies independently
   async function fixture() {
     const project = await callerA.project.create({
       organizationId, name: `${tag}-${randomUUID()}`,
-      caseKey: `f${randomUUID().replaceAll("-", "").slice(0, 15)}`,
+      caseKey: fixtureProjectKey(),
     });
     const first = await callerA.testCases.create({
       projectId: project.id, ...literal, title: "Synthetic original | first\ncase", suitePath: "Source/Child",

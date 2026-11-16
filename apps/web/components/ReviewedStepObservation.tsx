@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useId, useState, type ReactNode } from "react";
 import { Modal } from "./Modal";
 import { StepObservationResources } from "./StepObservationResources";
@@ -44,14 +46,14 @@ export function StepObservationFields({ buffer, editingEnabled, correction, phys
     <label htmlFor={`${prefix}-note`}>What actually happened</label>
     <textarea id={`${prefix}-note`} value={buffer.note ?? ""} rows={4} maxLength={10000} onChange={event => change({ note: event.target.value })} style={{ display: "block", width: "100%", boxSizing: "border-box", margin: "6px 0" }} />
     <p>{buffer.note === null ? "NULL note retained. Typing explicitly changes it to text." : buffer.note === "" ? "Empty text note, distinct from NULL." : "Exact entered whitespace and line breaks are retained."}</p>
-    <button type="button" className="btn-secondary" disabled={buffer.note === null} onClick={() => change({ note: null })}>Use NULL note</button>
+    <ActionButton type="button" className="btn-secondary" disabled={buffer.note === null} onClick={() => change({ note: null })} tooltip={<> Use NULL note </>}> Use </ActionButton>
     {correction && <div style={{ marginTop: 12 }}><label htmlFor={`${prefix}-reason`}>Why is this observation being corrected?</label><textarea id={`${prefix}-reason`} value={buffer.correctionReason ?? ""} rows={3} maxLength={2000} onChange={event => change({ correctionReason: event.target.value })} style={{ display: "block", width: "100%", boxSizing: "border-box" }} /><p>A new reason is required. A previous revision&apos;s reason does not approve this correction.</p></div>}
     <details open={physical || undefined} style={{ marginTop: 12 }}><summary>{physical ? "Measurements and controlled context" : "Optional measured evidence"}</summary>
       <p>Operator-entered observations only. No instrument or device is controlled here.</p>
       {([["specimen", "Device / lot / controlled sample"], ["hardwareRevision", "Hardware revision"], ["firmwareVersion", "Firmware / software version"], ["environment", "Observed environment"]] as const).map(([key, label]) => <label key={key} style={{ display: "block", marginTop: 10 }}>{label}<input value={buffer.context[key]} maxLength={key === "specimen" ? 300 : key === "environment" ? 1000 : 200} onChange={event => change({ context: { ...buffer.context, [key]: event.target.value } })} style={{ display: "block", width: "100%", boxSizing: "border-box" }} /></label>)}
       {buffer.readings.map((reading, index) => <fieldset key={index} style={{ marginTop: 12, minWidth: 0 }}><legend>Measurement {index + 1}</legend>
         {([["name", "Measurement"], ["value", "Measured decimal"], ["unit", "Unit"], ["lowerLimit", "Approved lower limit (optional)"], ["upperLimit", "Approved upper limit (optional)"], ["instrument", "Instrument / calibration reference"]] as const).map(([key, label]) => <label key={key} style={{ display: "block", marginTop: 8 }}>{label}<input value={reading[key]} maxLength={key === "unit" ? 40 : 200} onChange={event => change({ readings: buffer.readings.map((value, at) => at === index ? { ...value, [key]: event.target.value } : value) })} style={{ display: "block", width: "100%", boxSizing: "border-box" }} /></label>)}
-        <button type="button" className="btn-secondary" onClick={() => change({ readings: buffer.readings.filter((_, at) => at !== index) })}>Remove measurement {index + 1}</button>
+        <ActionButton type="button" className="btn-secondary" onClick={() => change({ readings: buffer.readings.filter((_, at) => at !== index) })} tooltip={<> Remove measurement {index + 1} </>}>Remove measurement</ActionButton>
       </fieldset>)}
       <button type="button" className="btn-secondary" disabled={buffer.readings.length >= 100} onClick={() => change({ readings: [...buffer.readings, { name: "", value: "", unit: "", lowerLimit: "", upperLimit: "", instrument: "" }] })}>Add measurement</button>
     </details>
@@ -92,10 +94,10 @@ export function ReviewedStepObservation({ projectId, testRunId, testCaseId, step
     try { return workflow.change(stepObservationEvidence(buffer, id, selected)); } catch { return false; }
   };
   return <section aria-label={`Reviewed observation for step ${original.stepIndex + 1}`}>
-    <button type="button" className="btn-secondary" disabled={!active || !same || !parentReadable} onClick={() => { if (currentStepParent(parentCurrent, parentActivation)) setOpen(true); }}>Open / resume step {original.stepIndex + 1} observation</button>
+    <ActionButton type="button" className="btn-secondary" disabled={!active || !same || !parentReadable} onClick={() => { if (currentStepParent(parentCurrent, parentActivation)) setOpen(true); }} tooltip={<> Open / resume step {original.stepIndex + 1} observation </>}>View observation</ActionButton>
     <Modal size="wide" keepMounted open={open && active && same && parentReadable} title={`Review step ${original.stepIndex + 1} observation`} onClose={() => setOpen(false)} dismissible={!view.busy}>
       <p>Closing retains entries and identical uncertain requests on this page. Reload/route-away recovery is not supported.</p>
-      <button type="button" className="btn-secondary" disabled={view.busy} onClick={reads.refresh}>Refresh current native step</button>
+      <ActionButton type="button" className="btn-secondary" disabled={view.busy} onClick={reads.refresh} tooltip={<> Refresh current native step </>}> Refresh </ActionButton>
       {reads.error && <p role="alert">{reads.error}</p>}
       {!view.authorityReadable && <p role="status">Current original-reader access is not verified. Private fields are withheld; retained entries and requests were not rebound.</p>}
       {parentReadable && view.notice && <p role="status">{view.notice}</p>}
@@ -103,20 +105,20 @@ export function ReviewedStepObservation({ projectId, testRunId, testCaseId, step
         <StepFrozenObservation definition={fresh.frozenDefinition} stepIndex={original.stepIndex} labels={stepFieldLabels} />
         {fresh.current && <section><h4>Current saved observation</h4><p>{fresh.current.status} · {fresh.current.actorName} · {fresh.current.recordedAt}</p><p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>Actual: {exactStepText(fresh.current.note, true)}</p><p>Historical correction reason: {exactStepText(fresh.current.correctionReason, true)}</p><details><summary>Exact current observation and retained metadata</summary><pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{JSON.stringify(fresh.rawCurrent, null, 2)}</pre></details></section>}
         {view.baselineChanged && !view.acknowledgement && <p role="alert">The current native baseline changed. Your entered buffer is retained. Explicitly review it against the current frozen procedure before a new request.</p>}
-        {!buffer && view.canEdit && <button type="button" className="btn-primary" onClick={() => { if (fresh) workflow.change(stepObservationBuffer(fresh)); }}>Start a draft from this current step</button>}
+        {!buffer && view.canEdit && <ActionButton type="button" className="btn-primary" onClick={() => { if (fresh) workflow.change(stepObservationBuffer(fresh)); }} tooltip={<> Start a draft from this current step </>}> Start </ActionButton>}
         {buffer && <><StepObservationFields buffer={buffer} correction={view.draft?.expectedRevisionId !== null} physical={physical} editingEnabled={view.canEdit} onChange={workflow.change} />
           <details><summary>Exact retained entered buffer</summary><pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{JSON.stringify(buffer, null, 2)}</pre></details>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
-            <button type="button" className="btn-secondary" disabled={!view.canReview} onClick={workflow.reviewCurrent}>Review against current procedure</button>
-            <button type="button" className="btn-secondary" disabled={!view.canEdit} onClick={workflow.discardUnsaved}>Discard unsaved draft</button>
+            <ActionButton type="button" className="btn-secondary" disabled={!view.canReview} onClick={workflow.reviewCurrent} tooltip={<> Review against current procedure </>}> Review </ActionButton>
+            <ActionButton type="button" className="btn-secondary" disabled={!view.canEdit} onClick={workflow.discardUnsaved} tooltip={<> Discard unsaved draft </>}> Discard </ActionButton>
           </div>
         </>}
       </> : parentReadable && view.authorityReadable && <p>This stored representation is unsupported for editing. No procedure, observation or number was normalized into a new draft.</p>}
       {resources({ origin, expectedProcedureHash: parentReadable && view.readable ? fresh?.procedureHash ?? null : null, active: open && active && same && parentReadable && view.readable, selectedEvidenceIds: buffer?.evidenceAttachmentIds ?? [], selectedEvidenceNames: evidenceNames, editingEnabled: parentReadable && view.canEdit && !!buffer, onEvidenceToggle: toggle })}
       {parentReadable && view.authorityReadable && <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
-        <button type="button" className="btn-primary" disabled={!view.canSave} onClick={() => void workflow.save()}>{view.hasPending ? "Retry identical reviewed request" : "Record reviewed step"}</button>
+        <ActionButton type="button" className="btn-primary" disabled={!view.canSave} onClick={() => void workflow.save()} tooltip={<> {view.hasPending ? "Retry identical reviewed request" : "Record reviewed step"} </>}>{view.hasPending ? "Retry" : "Record step"}</ActionButton>
         {view.hasPending && <p>An uncertain submitted request stays frozen under its original UUID/body/hash. No replacement or duplicate request is created.</p>}
-        {view.acknowledgement && <><p>Exact request acknowledged. This does not certify a fix, execution completeness or release.</p><button type="button" className="btn-secondary" disabled={view.busy || !view.readable} onClick={() => void workflow.synchronizeAcknowledged()}>Refresh acknowledged views only</button><button type="button" className="btn-secondary" disabled={view.busy || !view.readable} onClick={workflow.finishAcknowledged}>Release acknowledged draft</button></>}
+        {view.acknowledgement && <><p>Exact request acknowledged. This does not certify a fix, execution completeness or release.</p><ActionButton type="button" className="btn-secondary" disabled={view.busy || !view.readable} onClick={() => void workflow.synchronizeAcknowledged()} tooltip={<> Refresh acknowledged views only </>}> Refresh </ActionButton><ActionButton type="button" className="btn-secondary" disabled={view.busy || !view.readable} onClick={workflow.finishAcknowledged} tooltip={<> Release acknowledged draft </>}> Release draft </ActionButton></>}
       </div>}
     </Modal>
   </section>;

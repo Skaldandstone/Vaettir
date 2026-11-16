@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useLayoutEffect, useRef, useState } from "react";
 import { DialogFrame } from "./ui/DialogFrame";
 import { trpcReact } from "@/lib/trpcReact";
@@ -205,7 +207,7 @@ function Export({
   }
   return (
     <>
-      <button
+      <ActionButton
         type="button"
         className="btn-secondary"
         disabled={!enabled}
@@ -213,9 +215,10 @@ function Export({
           setOpen(true);
           resetReview();
         }}
-      >
+       tooltip={<>
         Export whole query
-      </button>
+       </>}>
+         Export </ActionButton>
       <DialogFrame
         open={open}
         onClose={close}
@@ -405,26 +408,31 @@ function Export({
         <footer
           style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 16 }}
         >
-          <button
+          <ActionButton
             type="button"
             className="btn-secondary"
             disabled={!enabled || approval.isPending}
             onClick={resetReview}
-          >
+           tooltip={<>
             Review current whole query again
-          </button>
-          <button
+           </>}>
+             Review </ActionButton>
+          <ActionButton
             type="button"
             className="btn-primary"
             disabled={
               !fresh || !confirmed || approval.isPending || approval.isPaused
             }
             onClick={() => void download()}
-          >
+           tooltip={<>
             {approval.isPending
               ? "Rechecking whole query…"
               : "Confirm and download CSV"}
-          </button>
+           </>}>
+            {approval.isPending
+              ? "Rechecking…"
+              : "Download CSV"}
+          </ActionButton>
         </footer>
       </DialogFrame>
     </>

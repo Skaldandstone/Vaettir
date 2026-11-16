@@ -5,7 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 const source = (path) =>
   readFileSync(fileURLToPath(new URL(path, import.meta.url)), "utf8");
-test("release selectors preserve stored scope and explain current membership instead of historic readiness", () => {
+test("release selectors preserve stored scope and explain current plan membership", () => {
   for (const path of [
     "../components/ReportBuilder.tsx",
     "../components/ReportDefinitionSettingsEditor.tsx",
@@ -14,7 +14,7 @@ test("release selectors preserve stored scope and explain current membership ins
     assert.match(text, /executionScope\?\.releaseId/);
     assert.match(text, /releases\.map/);
     assert.match(text, /Stored release/);
-    assert.match(text, /historical|older runs/);
+    assert.match(text, /current plans/);
     assert.match(text, /releasesLimited/);
   }
 });

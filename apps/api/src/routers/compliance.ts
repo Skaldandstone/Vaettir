@@ -1,28 +1,174 @@
+import { assertComplianceAvailable } from "../services/complianceRecovery.js";
+import { randomUUID } from "node:crypto";
+import { Prisma } from "@vaettir/db";
+import type { Context } from "../trpc.js";
+import { lockCaseFieldProject } from "../services/caseFields.js";
+import { lockCurrentCaseFieldActor } from "../services/caseFieldReadScope.js";
+import {
+  complianceScope,
+  compliancePreview,
+  complianceDraftInput,
+  complianceSave,
+  complianceApply,
+  publicComplianceCatalog,
+  loadComplianceReference,
+  ownedComplianceFramework,
+  previewCompliance,
+  readComplianceDraft,
+  listComplianceDrafts,
+  saveComplianceSelection,
+  applyComplianceReview,
+} from "../services/complianceReview.js";
 import { z } from "@vaettir/core/dist/validation.js";
 import { TRPCError } from "@trpc/server";
-import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
+import {
+  router,
+  protectedProcedure,
+  requireProjectAccess,
+  requireOrgRole,
+  requireNotSuspended,
+} from "../trpc.js";
 import { recordAudit } from "../services/auditLog.js";
 import { dispatchWebhookEvent } from "../services/webhookDelivery.js";
 import { notifySlackEvent } from "../services/slackEventNotify.js";
 import { sendPushToUser } from "../services/pushNotify.js";
 
+// Recovery images must contain this code; old API67/68 ignore this switch and
+// remain unsafe after tenant catalog activation. One shared gate covers every
+// compliance query and mutation, including legacy routes and public metadata.
+const complianceProcedure = protectedProcedure.use(({ next }) => {
+  assertComplianceAvailable();
+  return next();
+});
+
 const SIGN_OFF_ROLES = ["COMPLIANCE_AUDITOR", "ADMIN", "OWNER"];
 
-// P3-01/P3-03: ComplianceFramework/ComplianceControl are shared reference
-// data across every org (same pattern as TestPlanType, not project- or
-// org-scoped) -- seeded frameworks exist (SOC 2, HIPAA, PCI DSS, GDPR,
-// ISO 27001) but with zero controls under them until an org adds its own,
-// or adds an entirely custom framework (isBuiltIn: false marks the
-// difference in the UI). Any authenticated user can add a custom
-// framework/control -- same "don't shoehorn, no code change required"
-// reasoning as a custom TestPlanType, and isBuiltIn keeps the seeded set
-// visually distinct regardless of who adds what.
+// Legacy globals retain their IDs/evidence but acquire no inferred tenant owner.
+function reviewActor(ctx: Context) {
+  if (!ctx.user || !ctx.authenticatedClerkSubject || ctx.authenticatedApiKeyId)
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "A current signed-in human account is required.",
+    });
+  return {
+    id: ctx.user.id,
+    clerkActorId: ctx.authenticatedClerkSubject,
+    workspaceOrganizationId: ctx.workspaceOrganizationId,
+  };
+}
+async function customScope(
+  ctx: Context & { user: NonNullable<Context["user"]> },
+  projectId?: string,
+) {
+  if (!projectId)
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Select a project for workspace-owned definitions.",
+    });
+  const { project } = await requireProjectAccess(ctx, projectId, "EDITOR");
+  return { project, actor: reviewActor(ctx) };
+}
+async function customWrite<T>(
+  ctx: Context & { user: NonNullable<Context["user"]> },
+  projectId: string | undefined,
+  work: (tx: Prisma.TransactionClient, organizationId: string) => Promise<T>,
+) {
+  const { project, actor } = await customScope(ctx, projectId);
+  return ctx.prisma.$transaction(async (tx) => {
+    await lockCaseFieldProject(tx, actor.id, project.id);
+    await lockCurrentCaseFieldActor(tx, actor.id, {
+      clerkActorId: actor.clerkActorId,
+    });
+    const current = await tx.project.findUniqueOrThrow({
+      where: { id: project.id },
+    });
+    if (current.organizationId !== project.organizationId)
+      throw new TRPCError({ code: "FORBIDDEN" });
+    const result = await work(tx, project.organizationId);
+    await tx.auditLog.create({
+      data: {
+        organizationId: project.organizationId,
+        projectId: project.id,
+        actorId: actor.id,
+        entityType: "ComplianceFramework",
+        entityId: project.id,
+        action: "UPDATE",
+        summary:
+          "Saved workspace-owned compliance definitions; legacy global ownership unchanged",
+      },
+    });
+    return result;
+  });
+}
+async function visibleControl(
+  ctx: Context & { user: NonNullable<Context["user"]> },
+  projectId: string,
+  controlId: string,
+  mapping = false,
+) {
+  const { project } = await requireProjectAccess(ctx, projectId);
+  const control = await ctx.prisma.complianceControl.findFirst({
+    where: {
+      id: controlId,
+      OR: [
+        { framework: { organizationId: project.organizationId } },
+        ...(!mapping
+          ? [
+              {
+                framework: { organizationId: null },
+                testCases: { some: { testCase: { projectId } } },
+              },
+            ]
+          : []),
+      ],
+    },
+  });
+  if (!control)
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message:
+        "Control unavailable in this workspace. Legacy evidence is retained; use a workspace-owned definition for new mappings.",
+    });
+  return control;
+}
 export const complianceRouter = router({
-  listFrameworks: protectedProcedure
+  catalog: complianceProcedure.query(() => publicComplianceCatalog()),
+  loadReference: complianceProcedure
+    .input(complianceScope.extend({ key: z.string().min(1).max(200) }))
+    .mutation(({ ctx, input }) =>
+      loadComplianceReference(ctx.prisma, reviewActor(ctx), input, input.key),
+    ),
+  preview: complianceProcedure
+    .input(compliancePreview)
+    .mutation(({ ctx, input }) =>
+      previewCompliance(ctx.prisma, reviewActor(ctx), input),
+    ),
+  reviewDraft: complianceProcedure
+    .input(complianceDraftInput)
+    .query(({ ctx, input }) =>
+      readComplianceDraft(ctx.prisma, reviewActor(ctx), input),
+    ),
+  reviewDrafts: complianceProcedure
+    .input(complianceScope)
+    .query(({ ctx, input }) =>
+      listComplianceDrafts(ctx.prisma, reviewActor(ctx), input),
+    ),
+  saveReview: complianceProcedure
+    .input(complianceSave)
+    .mutation(({ ctx, input }) =>
+      saveComplianceSelection(ctx.prisma, reviewActor(ctx), input),
+    ),
+  applyReview: complianceProcedure
+    .input(complianceApply)
+    .mutation(({ ctx, input }) =>
+      applyComplianceReview(ctx.prisma, reviewActor(ctx), input),
+    ),
+  listFrameworks: complianceProcedure
     .input(
       z
         .object({
-          projectId: z.string(),
+          projectId: z.string().optional(),
+          organizationId: z.string().optional(),
           includeHidden: z.boolean().default(false),
         })
         .optional(),
@@ -36,13 +182,20 @@ export const complianceRouter = router({
           version: z.string().nullable(),
           isBuiltIn: z.boolean(),
           controlCount: z.number(),
+          workspaceOwned: z.boolean(),
+          revision: z.number(),
+          catalogKey: z.string().nullable(),
         }),
       ),
     )
     .query(async ({ ctx, input }) => {
-      const scope = input
+      const scope = input?.projectId
         ? await requireProjectAccess(ctx, input.projectId)
         : null;
+      if (input?.organizationId) {
+        requireOrgRole(ctx, input.organizationId);
+        await requireNotSuspended(ctx.prisma, input.organizationId);
+      }
       const project = scope
         ? await ctx.prisma.project.findUniqueOrThrow({
             where: { id: scope.project.id },
@@ -50,11 +203,77 @@ export const complianceRouter = router({
           })
         : null;
       const frameworks = await ctx.prisma.complianceFramework.findMany({
-        where:
-          project && !input?.includeHidden
-            ? { id: { notIn: project.hiddenComplianceFrameworkIds } }
-            : undefined,
-        include: { _count: { select: { controls: true } } },
+        where: {
+          AND: [
+            {
+              OR: [
+                {
+                  organizationId: {
+                    in: scope
+                      ? [scope.project.organizationId]
+                      : input?.organizationId
+                        ? [input.organizationId]
+                        : ctx.user.memberships.map((m) => m.organizationId),
+                  },
+                },
+                { isBuiltIn: true, organizationId: null },
+                ...(scope
+                  ? [
+                      {
+                        organizationId: null,
+                        controls: {
+                          some: {
+                            testCases: {
+                              some: {
+                                testCase: { projectId: scope.project.id },
+                              },
+                            },
+                          },
+                        },
+                      },
+                    ]
+                  : []),
+              ],
+            },
+            ...(project && !input?.includeHidden
+              ? [{ id: { notIn: project.hiddenComplianceFrameworkIds } }]
+              : []),
+          ],
+        },
+        include: {
+          _count: {
+            select: {
+              controls: scope
+                ? {
+                    where: {
+                      OR: [
+                        {
+                          framework: {
+                            organizationId: scope.project.organizationId,
+                          },
+                        },
+                        {
+                          testCases: {
+                            some: { testCase: { projectId: scope.project.id } },
+                          },
+                        },
+                      ],
+                    },
+                  }
+                : {
+                    where: {
+                      framework: {
+                        organizationId: {
+                          in: input?.organizationId
+                            ? [input.organizationId]
+                            : ctx.user.memberships.map((m) => m.organizationId),
+                        },
+                      },
+                    },
+                  },
+            },
+          },
+        },
         orderBy: [{ isBuiltIn: "desc" }, { name: "asc" }],
       });
       return frameworks.map((f) => ({
@@ -64,40 +283,38 @@ export const complianceRouter = router({
         version: f.version,
         isBuiltIn: f.isBuiltIn,
         controlCount: f._count.controls,
+        workspaceOwned: f.organizationId !== null,
+        revision: f.revision,
+        catalogKey: f.catalogKey,
       }));
     }),
 
-  createFramework: protectedProcedure
+  createFramework: complianceProcedure
     .input(
       z.object({
+        projectId: z.string().optional(),
         key: z.string().min(1),
         name: z.string().min(1),
         version: z.string().optional(),
         description: z.string().optional(),
       }),
     )
-    .mutation(async ({ ctx, input }) => {
-      const existing = await ctx.prisma.complianceFramework.findUnique({
-        where: { key: input.key },
-      });
-      if (existing) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: `A framework with key "${input.key}" already exists`,
-        });
-      }
-      return ctx.prisma.complianceFramework.create({
-        data: {
-          key: input.key,
-          name: input.name,
-          version: input.version,
-          description: input.description,
-          isBuiltIn: false,
-        },
-      });
-    }),
+    .mutation(({ ctx, input }) =>
+      customWrite(ctx, input.projectId, (tx, organizationId) =>
+        tx.complianceFramework.create({
+          data: {
+            key: `workspace:${randomUUID()}:${input.key}`,
+            organizationId,
+            name: input.name,
+            version: input.version,
+            description: input.description,
+            isBuiltIn: false,
+          },
+        }),
+      ),
+    ),
 
-  setFrameworkVisibility: protectedProcedure
+  setFrameworkVisibility: complianceProcedure
     .input(
       z.object({
         projectId: z.string(),
@@ -111,9 +328,24 @@ export const complianceRouter = router({
         input.projectId,
         "ADMIN",
       );
-      const framework = await ctx.prisma.complianceFramework.findUniqueOrThrow({
-        where: { id: input.frameworkId },
+      const framework = await ctx.prisma.complianceFramework.findFirst({
+        where: {
+          id: input.frameworkId,
+          OR: [
+            { organizationId: project.organizationId },
+            { isBuiltIn: true, organizationId: null },
+            {
+              organizationId: null,
+              controls: {
+                some: {
+                  testCases: { some: { testCase: { projectId: project.id } } },
+                },
+              },
+            },
+          ],
+        },
       });
+      if (!framework) throw new TRPCError({ code: "FORBIDDEN" });
       await ctx.prisma.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT id FROM "Project" WHERE id = ${project.id} FOR UPDATE`;
         const current = await tx.project.findUniqueOrThrow({
@@ -148,9 +380,10 @@ export const complianceRouter = router({
   // (and silently going stale on) the text of external published standards.
   // skipDuplicates means re-importing an updated file is safe to run again:
   // existing (frameworkId, code) rows are left alone, not overwritten.
-  importControls: protectedProcedure
+  importControls: complianceProcedure
     .input(
       z.object({
+        projectId: z.string().optional(),
         frameworkId: z.string(),
         controls: z
           .array(
@@ -165,57 +398,56 @@ export const complianceRouter = router({
       }),
     )
     .output(z.object({ createdCount: z.number(), skippedCount: z.number() }))
-    .mutation(async ({ ctx, input }) => {
-      await ctx.prisma.complianceFramework.findUniqueOrThrow({
-        where: { id: input.frameworkId },
-      });
-      const result = await ctx.prisma.complianceControl.createMany({
-        data: input.controls.map((c) => ({
-          frameworkId: input.frameworkId,
-          code: c.code,
-          title: c.title,
-          description: c.description,
-        })),
-        skipDuplicates: true,
-      });
-      return {
-        createdCount: result.count,
-        skippedCount: input.controls.length - result.count,
-      };
-    }),
+    .mutation(({ ctx, input }) =>
+      customWrite(ctx, input.projectId, async (tx, organizationId) => {
+        await ownedComplianceFramework(
+          tx,
+          organizationId,
+          input.frameworkId,
+          true,
+        );
+        const result = await tx.complianceControl.createMany({
+          data: input.controls.map((c) => ({
+            ...c,
+            frameworkId: input.frameworkId,
+          })),
+          skipDuplicates: true,
+        });
+        return {
+          createdCount: result.count,
+          skippedCount: input.controls.length - result.count,
+        };
+      }),
+    ),
 
-  createControl: protectedProcedure
+  createControl: complianceProcedure
     .input(
       z.object({
+        projectId: z.string().optional(),
         frameworkId: z.string(),
         code: z.string().min(1),
         title: z.string().min(1),
         description: z.string().optional(),
       }),
     )
-    .mutation(async ({ ctx, input }) => {
-      const existing = await ctx.prisma.complianceControl.findUnique({
-        where: {
-          frameworkId_code: {
-            frameworkId: input.frameworkId,
-            code: input.code,
-          },
-        },
-      });
-      if (existing) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: `Control "${input.code}" already exists on this framework`,
-        });
-      }
-      return ctx.prisma.complianceControl.create({ data: input });
-    }),
+    .mutation(({ ctx, input }) =>
+      customWrite(ctx, input.projectId, async (tx, organizationId) => {
+        await ownedComplianceFramework(
+          tx,
+          organizationId,
+          input.frameworkId,
+          true,
+        );
+        const { projectId: _projectId, ...data } = input;
+        return tx.complianceControl.create({ data });
+      }),
+    ),
 
   // Per-control coverage within one project: how many of that project's
   // test cases are mapped to each control. A control with 0 is the gap
   // this whole feature exists to surface -- "which controls have zero
   // mapped test cases," straight from the roadmap ticket.
-  controlCoverage: protectedProcedure
+  controlCoverage: complianceProcedure
     .input(z.object({ projectId: z.string(), frameworkId: z.string() }))
     .output(
       z.array(
@@ -231,7 +463,22 @@ export const complianceRouter = router({
     .query(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
       const controls = await ctx.prisma.complianceControl.findMany({
-        where: { frameworkId: input.frameworkId },
+        where: {
+          frameworkId: input.frameworkId,
+          OR: [
+            {
+              framework: {
+                organizationId: (
+                  await requireProjectAccess(ctx, input.projectId)
+                ).project.organizationId,
+              },
+            },
+            {
+              framework: { organizationId: null },
+              testCases: { some: { testCase: { projectId: input.projectId } } },
+            },
+          ],
+        },
         include: {
           _count: {
             select: {
@@ -252,7 +499,7 @@ export const complianceRouter = router({
       }));
     }),
 
-  testCaseControls: protectedProcedure
+  testCaseControls: complianceProcedure
     .input(z.object({ testCaseId: z.string() }))
     .output(
       z.array(
@@ -269,9 +516,19 @@ export const complianceRouter = router({
         where: { id: input.testCaseId },
         select: { projectId: true },
       });
-      await requireProjectAccess(ctx, tc.projectId);
+      const { project } = await requireProjectAccess(ctx, tc.projectId);
       const mappings = await ctx.prisma.testCaseComplianceControl.findMany({
-        where: { testCaseId: input.testCaseId },
+        where: {
+          testCaseId: input.testCaseId,
+          control: {
+            framework: {
+              OR: [
+                { organizationId: project.organizationId },
+                { organizationId: null },
+              ],
+            },
+          },
+        },
         include: { control: { include: { framework: true } } },
       });
       return mappings.map((m) => ({
@@ -282,7 +539,7 @@ export const complianceRouter = router({
       }));
     }),
 
-  mapTestCase: protectedProcedure
+  mapTestCase: complianceProcedure
     .input(z.object({ testCaseId: z.string(), controlId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const [tc, control] = await Promise.all([
@@ -299,6 +556,7 @@ export const complianceRouter = router({
         tc.projectId,
         "EDITOR",
       );
+      await visibleControl(ctx, tc.projectId, input.controlId, true);
       await ctx.prisma.testCaseComplianceControl.upsert({
         where: {
           testCaseId_controlId: {
@@ -320,7 +578,7 @@ export const complianceRouter = router({
       });
     }),
 
-  unmapTestCase: protectedProcedure
+  unmapTestCase: complianceProcedure
     .input(z.object({ testCaseId: z.string(), controlId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const [tc, control] = await Promise.all([
@@ -337,6 +595,7 @@ export const complianceRouter = router({
         tc.projectId,
         "EDITOR",
       );
+      await visibleControl(ctx, tc.projectId, input.controlId);
       await ctx.prisma.testCaseComplianceControl.deleteMany({
         where: { testCaseId: input.testCaseId, controlId: input.controlId },
       });
@@ -354,11 +613,12 @@ export const complianceRouter = router({
   // Test cases already mapped to a control -- feeds the "record evidence"
   // picker (evidence only makes sense for a case actually mapped to the
   // control it's meant to prove).
-  mappedTestCases: protectedProcedure
+  mappedTestCases: complianceProcedure
     .input(z.object({ projectId: z.string(), controlId: z.string() }))
     .output(z.array(z.object({ id: z.string(), title: z.string() })))
     .query(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
+      await visibleControl(ctx, input.projectId, input.controlId);
       const mappings = await ctx.prisma.testCaseComplianceControl.findMany({
         where: {
           controlId: input.controlId,
@@ -374,11 +634,12 @@ export const complianceRouter = router({
 
   // Test cases in a project not yet mapped to a given control -- feeds a
   // "map an existing case to this control" picker.
-  unmappedTestCases: protectedProcedure
+  unmappedTestCases: complianceProcedure
     .input(z.object({ projectId: z.string(), controlId: z.string() }))
     .output(z.array(z.object({ id: z.string(), title: z.string() })))
     .query(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
+      await visibleControl(ctx, input.projectId, input.controlId);
       return ctx.prisma.testCase.findMany({
         where: {
           projectId: input.projectId,
@@ -396,7 +657,7 @@ export const complianceRouter = router({
   // "evidence exists and someone signed off on it." Returned as structured
   // data; the client renders it to CSV (no server-side file generation
   // needed for a report this shaped).
-  exportReport: protectedProcedure
+  exportReport: complianceProcedure
     .input(z.object({ projectId: z.string(), frameworkId: z.string() }))
     .output(
       z.object({
@@ -422,12 +683,47 @@ export const complianceRouter = router({
           where: { id: input.projectId },
           select: { name: true },
         }),
-        ctx.prisma.complianceFramework.findUniqueOrThrow({
-          where: { id: input.frameworkId },
+        ctx.prisma.complianceFramework.findFirstOrThrow({
+          where: {
+            id: input.frameworkId,
+            OR: [
+              {
+                organizationId: (
+                  await requireProjectAccess(ctx, input.projectId)
+                ).project.organizationId,
+              },
+              { isBuiltIn: true, organizationId: null },
+              {
+                organizationId: null,
+                controls: {
+                  some: {
+                    testCases: {
+                      some: { testCase: { projectId: input.projectId } },
+                    },
+                  },
+                },
+              },
+            ],
+          },
         }),
       ]);
       const controls = await ctx.prisma.complianceControl.findMany({
-        where: { frameworkId: input.frameworkId },
+        where: {
+          frameworkId: input.frameworkId,
+          OR: [
+            {
+              framework: {
+                organizationId: (
+                  await requireProjectAccess(ctx, input.projectId)
+                ).project.organizationId,
+              },
+            },
+            {
+              framework: { organizationId: null },
+              testCases: { some: { testCase: { projectId: input.projectId } } },
+            },
+          ],
+        },
         include: {
           testCases: {
             where: { testCase: { projectId: input.projectId } },
@@ -461,7 +757,7 @@ export const complianceRouter = router({
   // verify this control." No update/delete mutation exists for this model
   // anywhere in the API -- a wrong record is superseded by a new one, not
   // edited.
-  recordEvidence: protectedProcedure
+  recordEvidence: complianceProcedure
     .input(
       z.object({
         projectId: z.string(),
@@ -484,6 +780,26 @@ export const complianceRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId, "EDITOR");
+      await visibleControl(ctx, input.projectId, input.controlId);
+      const mapped = await ctx.prisma.testCaseComplianceControl.findFirst({
+        where: {
+          testCaseId: input.testCaseId,
+          controlId: input.controlId,
+          testCase: { projectId: input.projectId },
+        },
+      });
+      if (!mapped)
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Evidence requires a mapped case in this project.",
+        });
+      if (
+        input.testResultId &&
+        !(await ctx.prisma.testResult.findFirst({
+          where: { id: input.testResultId, testCaseId: input.testCaseId },
+        }))
+      )
+        throw new TRPCError({ code: "FORBIDDEN" });
       const evidence = await ctx.prisma.complianceEvidence.create({
         data: {
           projectId: input.projectId,
@@ -520,7 +836,7 @@ export const complianceRouter = router({
       };
     }),
 
-  listEvidence: protectedProcedure
+  listEvidence: complianceProcedure
     .input(z.object({ projectId: z.string(), controlId: z.string() }))
     .output(
       z.array(
@@ -537,6 +853,7 @@ export const complianceRouter = router({
     )
     .query(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
+      await visibleControl(ctx, input.projectId, input.controlId);
       const rows = await ctx.prisma.complianceEvidence.findMany({
         where: { projectId: input.projectId, controlId: input.controlId },
         include: {
@@ -563,7 +880,7 @@ export const complianceRouter = router({
   // in this app's general permission hierarchy (trpc.ts's ROLE_RANK), so
   // requireProjectAccess's minRole check can't express "must actually hold
   // this specific role," hence the explicit membership.role check below.
-  signOffControl: protectedProcedure
+  signOffControl: complianceProcedure
     .input(
       z.object({
         projectId: z.string(),
@@ -584,6 +901,7 @@ export const complianceRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const { membership } = await requireProjectAccess(ctx, input.projectId);
+      await visibleControl(ctx, input.projectId, input.controlId);
       if (!SIGN_OFF_ROLES.includes(membership.role)) {
         throw new TRPCError({
           code: "FORBIDDEN",
@@ -674,7 +992,7 @@ export const complianceRouter = router({
       };
     }),
 
-  listSignOffs: protectedProcedure
+  listSignOffs: complianceProcedure
     .input(z.object({ projectId: z.string(), controlId: z.string() }))
     .output(
       z.array(
@@ -689,6 +1007,7 @@ export const complianceRouter = router({
     )
     .query(async ({ ctx, input }) => {
       await requireProjectAccess(ctx, input.projectId);
+      await visibleControl(ctx, input.projectId, input.controlId);
       const rows = await ctx.prisma.complianceSignOff.findMany({
         where: { projectId: input.projectId, controlId: input.controlId },
         include: { signedBy: { select: { email: true } } },
@@ -710,7 +1029,7 @@ export const complianceRouter = router({
   // signOffControl), and only of another member who could also actually
   // fulfill it - requesting from a VIEWER would create a request nobody can
   // ever satisfy.
-  requestSignOff: protectedProcedure
+  requestSignOff: complianceProcedure
     .input(
       z.object({
         projectId: z.string(),
@@ -725,6 +1044,7 @@ export const complianceRouter = router({
         ctx,
         input.projectId,
       );
+      await visibleControl(ctx, input.projectId, input.controlId);
       if (!SIGN_OFF_ROLES.includes(membership.role)) {
         throw new TRPCError({
           code: "FORBIDDEN",
@@ -784,7 +1104,7 @@ export const complianceRouter = router({
   // Scoped to the CALLER's own pending asks, not project-scoped - this is
   // "what do I owe" from the signer's point of view (the mobile app's
   // primary use case), not an admin view of a project's requests.
-  myPendingSignOffRequests: protectedProcedure
+  myPendingSignOffRequests: complianceProcedure
     .output(
       z.array(
         z.object({
@@ -802,24 +1122,46 @@ export const complianceRouter = router({
     )
     .query(async ({ ctx }) => {
       const requests = await ctx.prisma.complianceSignOffRequest.findMany({
-        where: { requestedForId: ctx.user.id, fulfilledAt: null },
+        where: {
+          requestedForId: ctx.user.id,
+          fulfilledAt: null,
+          project: {
+            organizationId: ctx.workspaceOrganizationId ?? undefined,
+            organization: {
+              suspendedAt: null,
+              memberships: { some: { userId: ctx.user.id } },
+            },
+          },
+        },
         include: {
-          project: { select: { name: true } },
-          control: { select: { code: true, title: true } },
+          project: { select: { name: true, organizationId: true } },
+          control: {
+            select: {
+              code: true,
+              title: true,
+              framework: { select: { organizationId: true } },
+            },
+          },
           requestedBy: { select: { email: true } },
         },
         orderBy: { requestedAt: "desc" },
       });
-      return requests.map((r) => ({
-        id: r.id,
-        projectId: r.projectId,
-        projectName: r.project.name,
-        controlId: r.controlId,
-        controlCode: r.control.code,
-        controlTitle: r.control.title,
-        period: r.period,
-        requestedAt: r.requestedAt,
-        requestedByEmail: r.requestedBy.email,
-      }));
+      return requests
+        .filter(
+          (r) =>
+            r.control.framework.organizationId === null ||
+            r.control.framework.organizationId === r.project.organizationId,
+        )
+        .map((r) => ({
+          id: r.id,
+          projectId: r.projectId,
+          projectName: r.project.name,
+          controlId: r.controlId,
+          controlCode: r.control.code,
+          controlTitle: r.control.title,
+          period: r.period,
+          requestedAt: r.requestedAt,
+          requestedByEmail: r.requestedBy.email,
+        }));
     }),
 });

@@ -12,7 +12,7 @@ export type AiReadGrant = {
   projectId: string;
   principalId: string;
   recipient: "codex";
-  scope: "aggregate_counts";
+  scope: "aggregate_counts" | "approved_case_snapshot";
   policyVersion: number;
   classificationVersion: number;
   expiresAt: Date;
@@ -56,6 +56,7 @@ export interface AiReadTransaction {
   // Await a durable record before releasing any data. Never include content,
   // bearer tokens, raw request bodies, or aggregate values in the audit record.
   audit(event: AiReadAudit): Promise<void>;
+  readApprovedCases?(organizationId: string, projectId: string, grantId: string): Promise<unknown | null>;
 }
 
 export interface AiReadStore {
@@ -80,7 +81,7 @@ export class AiDisclosureDenied extends Error {
   }
 }
 
-function permitted(grant: AiReadGrant, projectId: string, now: Date) {
+export function permitted(grant: AiReadGrant, projectId: string, now: Date, scope: AiReadGrant["scope"] = "aggregate_counts") {
   return (
     grant.enabled &&
     !grant.revoked &&
@@ -89,11 +90,11 @@ function permitted(grant: AiReadGrant, projectId: string, now: Date) {
     grant.currentRole === "VIEWER" &&
     grant.approvingAdminActive &&
     grant.recipient === "codex" &&
-    grant.scope === "aggregate_counts" &&
+    grant.scope === scope &&
     grant.policyVersion === AI_READ_POLICY_VERSION &&
     grant.projectId === projectId &&
     grant.projectOrganizationId === grant.organizationId &&
-    grant.projectClassification === "SYNTHETIC" &&
+    (grant.projectClassification === "SYNTHETIC" || (scope === "approved_case_snapshot" && grant.projectClassification === "CUSTOMER_PROPRIETARY")) &&
     Number.isSafeInteger(grant.classificationVersion) &&
     grant.classificationVersion >= 1 &&
     grant.classificationVersion === grant.projectClassificationVersion &&

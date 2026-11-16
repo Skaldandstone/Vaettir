@@ -13,12 +13,15 @@ export function assertOwnedTestDatabase(
   try { url = new URL(configured); } catch { return refuse(); }
   if (!["postgresql:", "postgres:"].includes(url.protocol) ||
       !["localhost", "127.0.0.1"].includes(url.hostname) ||
-      (url.port !== "" && url.port !== "5432") || url.hash) return refuse();
+      url.hash) return refuse();
   const keys = [...url.searchParams.keys()];
   if (keys.some(key => !["schema", "connection_limit"].includes(key)) || new Set(keys).size !== keys.length ||
       (url.searchParams.has("schema") && url.searchParams.get("schema") !== "public") ||
       (url.searchParams.has("connection_limit") && !/^[1-5]$/.test(url.searchParams.get("connection_limit")!))) return refuse();
   if (/^\/vaettir_(?:day|away_full)_test_[0-9]{13}$/.test(url.pathname)) {
+    // Windows can reserve 5432 even with no listener. This alternate belongs
+    // only to the same generated-name disposable loopback test route.
+    if (!["", "5432", "55432"].includes(url.port)) return refuse();
     return { route: "LOCAL_DISPOSABLE", database: url.pathname.slice(1) };
   }
   const ref = env.GITHUB_REF ?? "";
@@ -27,7 +30,7 @@ export function assertOwnedTestDatabase(
   // This exact service is configured in .github/workflows/ci.yml. Local names
   // never admit it; flags alone cannot admit it. Require the build job's full
   // supplied GitHub identity and source-configured public schema/pool route.
-  if (url.pathname !== "/vaettir_test" ||
+  if (!["", "5432"].includes(url.port) || url.pathname !== "/vaettir_test" ||
       url.searchParams.get("schema") !== "public" || url.searchParams.get("connection_limit") !== "5" ||
       env.CI !== "true" || env.GITHUB_ACTIONS !== "true" ||
       env.GITHUB_REPOSITORY !== "Skaldandstone/Vaettir" ||

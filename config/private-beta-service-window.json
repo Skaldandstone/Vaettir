@@ -1,10 +1,11 @@
 {
+  "mode": "always-on",
   "timezone": "America/Los_Angeles",
   "start": "08:00",
   "stop": "01:00",
   "startExpression": "cron(0 8 * * ? *)",
   "stopExpression": "cron(0 1 * * ? *)",
-  "publicCopy": "Awake 8:00am – 1:00am Pacific",
+  "publicCopy": "Available 24/7",
   "schedulerGroup": "cost-audit-restop",
   "targets": [
     "rds-start-vaettir-postgres",

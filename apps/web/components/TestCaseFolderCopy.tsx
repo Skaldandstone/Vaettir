@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Modal } from "@/components/Modal";
@@ -377,12 +379,13 @@ export function TestCaseFolderCopy({
                 ? access.error.message
                 : "Checking current project access…"}
             </p>
-            <button
+            <ActionButton
               disabled={!scope.actorReady}
               onClick={() => void refreshAccess()}
-            >
+             tooltip={<>
               Retry current access
-            </button>
+             </>}>
+               Retry </ActionButton>
           </div>
         ) : !currentAccess.canEdit ? (
           <p role="alert">
@@ -397,16 +400,7 @@ export function TestCaseFolderCopy({
               overflowWrap: "anywhere",
             }}
           >
-            <p>
-              Copy up to 50 independent cases and their complete empty/nested
-              folder hierarchy in one atomic operation. The batch is limited to
-              8 MiB; each procedure to 512 KiB / 500 steps. Archived cases,
-              shared libraries, media and attachments block this copy rather
-              than being silently dropped. Parameter datasets require the
-              explicit supported-data review below. Prerequisites also block it
-              unless you explicitly review complete internal remapping below.
-              External links always block the entire copy.
-            </p>
+            <p>Copy up to 50 cases and their folders. Review any unsupported content before copying. <a className="inline-help" href="/guide#cases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
             <label>
               Source folder
               <select
@@ -497,7 +491,7 @@ export function TestCaseFolderCopy({
               </strong>
               .
             </p>
-            <button
+            <ActionButton
               className="btn-primary"
               disabled={!source || !name.trim()}
               onClick={() => {
@@ -516,9 +510,10 @@ export function TestCaseFolderCopy({
                 setApproved(false);
                 setReason("");
               }}
-            >
+             tooltip={<>
               Review complete copy
-            </button>
+             </>}>
+               Review </ActionButton>
           </div>
         ) : (
           <div
@@ -580,13 +575,7 @@ export function TestCaseFolderCopy({
                 {reviewed.copyParameterDatasets && (
                   <section aria-label="Complete parameter dataset review">
                     <h3>Parameter datasets ({reviewed.datasets.length})</h3>
-                    <p>
-                      Every declared parameter and row is copied exactly. Fresh
-                      row identity is the new dataset ID and the preserved row
-                      index, not a separate stable row ID. Source values stay
-                      unchanged; execution history and previous dataset
-                      approvals are not transferred.
-                    </p>
+                    <p>All parameter columns and rows are copied. <a className="inline-help" href="/guide#cases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
                     {!reviewed.datasets.length && (
                       <p>
                         No saved datasets are present in this complete
@@ -647,12 +636,7 @@ export function TestCaseFolderCopy({
                       Internal prerequisite links (
                       {reviewed.internalPrerequisites.length})
                     </h3>
-                    <p>
-                      These source links remain unchanged. Each dependent will
-                      require the newly copied prerequisite, not its original.
-                      This creates new relationships, not old execution or
-                      approval evidence.
-                    </p>
+                    <p>Copied cases use the copied prerequisites. <a className="inline-help" href="/guide#cases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
                     {!reviewed.internalPrerequisites.length && (
                       <p>
                         No internal prerequisite links are present in this
@@ -825,7 +809,7 @@ export function TestCaseFolderCopy({
               >
                 Back
               </button>
-              <button
+              <ActionButton
                 className="btn-primary"
                 disabled={
                   mutation.isPending ||
@@ -889,13 +873,19 @@ export function TestCaseFolderCopy({
                   setPending(input);
                   mutation.mutate(input);
                 }}
-              >
+               tooltip={<>
                 {mutation.isPending
                   ? "Copying…"
                   : pending
                     ? "Retry exact approved copy"
                     : "Approve folder copy"}
-              </button>
+               </>}>
+                {mutation.isPending
+                  ? "Copying…"
+                  : pending
+                    ? "Retry"
+                    : "Approve"}
+              </ActionButton>
             </div>
           </div>
         )}

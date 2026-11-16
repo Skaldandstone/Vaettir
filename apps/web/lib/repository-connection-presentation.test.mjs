@@ -1,3 +1,5 @@
+// Controller fixture treats the presentation-only wrapper as its native button.
+// Real hover/focus/form/ref/touch behavior is covered by action-button-ui.test.mjs.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -14,7 +16,7 @@ function harness(file, name, props, initial = []) {
   let cursor = 0;
   const boundary = role => () => React.createElement("p", null, role);
   const sandbox = {
-    React, gitlabInstanceOrigin,
+    React, ActionButton: "button", gitlabInstanceOrigin,
     useId: () => "synthetic-source",
     useState: value => { const i = cursor++; if (!(i in slots)) slots[i] = value; return [slots[i], next => { slots[i] = next; }]; },
     repositoryProviders: [["github", "GitHub"], ["gitlab", "GitLab"], ["git", "Self-hosted Git"]],
@@ -40,23 +42,24 @@ test("actual GitLab choices retain one footer primary with alternatives disclose
   assert.equal(primary(element).length, 1);
   assert.equal(primary(nodes.find(node => node.type === "footer")).length, 1);
   assert.equal(nodes.find(node => node.type === "details").props.open, undefined);
-  assert.match(renderToStaticMarkup(notice(element)), /read_api.*broader read access/);
-  assert.match(html, /Other connection methods/);
+  assert.match(renderToStaticMarkup(notice(element)), /no source files are read or sent to AI/);
+  assert.match(html, /read_api.*broader read access/);
+  assert.match(html, /Advanced/);
   primary(element)[0].props.onClick();
-  assert.match(renderToStaticMarkup(h.render()), /guided/);
+  assert.match(renderToStaticMarkup(h.render()), /oauth/);
 });
-test("existing GitLab OAuth replaces the primary action, without duplicating buttons or authorizing automatically",()=>{
+test("GitLab defaults to the real OAuth flow without authorization before explicit Continue",()=>{
   const h=harness("GitlabConnectionChoices","GitlabConnectionChoices",props());
   h.sandbox.trpcReact.repositoryConnections.mine.useQuery=()=>({isSuccess:true,isFetching:false,isPaused:false,data:[{provider:"gitlab",accessMethod:"oauth"}]});
   const element=h.render();assert.equal(primary(element).length,1);assert.equal(primary(primary(element)[0]).length,1);
-  assert.equal(primary(element)[0].props.children,"Manage existing GitLab access");
+  assert.equal(primary(element)[0].props.children,"Continue");
   primary(element)[0].props.onClick();assert.match(renderToStaticMarkup(h.render()),/oauth/);
 });
-test("fetching, paused or inactive saved access never substitutes an unverified connection action",()=>{
+test("GitLab choice dispatch does not claim cached access and inactive views cannot continue",()=>{
   for(const state of [{isFetching:true},{isPaused:true},{isSuccess:false}]){
     const h=harness("GitlabConnectionChoices","GitlabConnectionChoices",props());
     h.sandbox.trpcReact.repositoryConnections.mine.useQuery=()=>({isSuccess:true,isFetching:false,isPaused:false,data:[{provider:"gitlab",accessMethod:"oauth"}],...state});
-    assert.equal(primary(h.render())[0].props.children,"Connect self-hosted GitLab");
+    assert.equal(primary(h.render())[0].props.children,"Continue");
   }
   const h=harness("GitlabConnectionChoices","GitlabConnectionChoices",{...props(),active:false});
   assert.equal(primary(h.render())[0].props.disabled,true);
@@ -96,7 +99,7 @@ test("actual export fallback retains honest unsupported boundary and secondary p
   assert.match(html, /not implemented yet/);
   assert.equal(primary(element).length, 1);
   assert.equal(descendants(element).find(node => node.type === "details").props.open, undefined);
-  assert.match(html, /Import exported test cases/);
+  assert.match(html, /Import cases/);
   assert.match(html, /Add reference/);
   primary(element)[0].props.onClick();
   assert.match(renderToStaticMarkup(h.render()), /documents/);

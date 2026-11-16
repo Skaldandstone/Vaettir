@@ -111,7 +111,9 @@ export async function handleRequest(request, env, upstreamFetch = fetch) {
       const probe = new Request(request.url, { method: "GET" });
       const headers = await signatureHeaders(probe, env.VAETTIR_DOMAIN_INGRESS_SECRET, url.hostname, "/api/health");
       headers.delete("authorization"); headers.delete("cookie");
-      const result = await upstreamFetch(new Request(new URL("/api/health", origin), { headers, redirect: "manual" }), { cf: { cacheTtl: 0, cacheEverything: false } });
+      // A zero TTL still stores responses and can serve them stale. Bypass the
+      // fetch cache for signed tenant probes as well as workspace requests.
+      const result = await upstreamFetch(new Request(new URL("/api/health", origin), { headers, redirect: "manual" }), { cache: "no-store" });
       const expected = url.hostname === ENTRY ? "entry-v1" : "tenant-v1";
       if (!result.ok || result.headers.get("x-vaettir-workspace-verified") !== expected) {
         await result.body?.cancel(); return denied(result.status === 404 ? 404 : 503);
@@ -129,7 +131,7 @@ export async function handleRequest(request, env, upstreamFetch = fetch) {
     const target = new URL(url.pathname + url.search, origin);
     const response = await upstreamFetch(new Request(target, { method: request.method, headers,
       body: ["GET", "HEAD"].includes(request.method) ? undefined : request.body, redirect: "manual",
-      ...(request.body ? { duplex: "half" } : {}) }), { cf: { cacheTtl: 0, cacheEverything: false } });
+      ...(request.body ? { duplex: "half" } : {}) }), { cache: "no-store" });
     const out = new Response(response.body, response);
     out.headers.delete("x-vaettir-workspace-verified");
     for (const [key, value] of Object.entries(privateHeaders)) out.headers.set(key, value);

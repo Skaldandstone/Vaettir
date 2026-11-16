@@ -1,4 +1,7 @@
 "use client";
+
+import { ActionHelp } from "@/components/ui/ActionHelp";
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useState } from "react";
 import { DistributionBar } from "./MetricVisuals";
 import { downloadFile } from "@/lib/download";
@@ -105,31 +108,24 @@ export function RunOverview({
           <strong>{remaining}</strong>
           <span>Left to test</span>
         </div>
-        <button
+        <ActionButton
           type="button"
           className="btn-secondary"
-          onClick={exportOverview}
-        >
+          onClick={exportOverview} tooltip={<>
           Export displayed runs · CSV
-        </button>
+         </>}>Export CSV</ActionButton>
         <a className="btn-secondary" href={`/projects/${projectId}/reports`}>
           Project reports
         </a>
-        <a
+        <ActionHelp tooltip={<>Run trends and exports</>}><a
           className="btn-secondary"
           href={`/projects/${projectId}/execution-trends`}
-        >
-          Run trends and exports
-        </a>
-        <a
+        >Run trends</a></ActionHelp>
+        <ActionHelp tooltip={<>Compare recorded CI runs</>}><a
           className="btn-secondary"
           href={`/projects/${projectId}/recorded-run-comparison`}
-        >
-          Compare recorded CI runs
-        </a>
-        <a className="btn-secondary" href={`/projects/${projectId}/manual-run-comparison`}>
-          Compare saved manual runs
-        </a>
+        >Compare CI</a></ActionHelp>
+        <ActionHelp tooltip={<>Compare saved manual runs</>}><a className="btn-secondary" href={`/projects/${projectId}/manual-run-comparison`}>Compare manual</a></ActionHelp>
       </div>
       <p className="text-muted">
         This dashboard covers the displayed run-history page, not hidden pages.
@@ -245,12 +241,10 @@ export function RunOverview({
             </dl>
             <footer>
               {run.ciProvider === "manual" ? (
-                <a
+                <ActionHelp tooltip={<>View run and cases</>}><a
                   className="btn-secondary"
                   href={`/projects/${projectId}/test-runs/manual/${run.id}`}
-                >
-                  View run and cases
-                </a>
+                >View run</a></ActionHelp>
               ) : (
                 <button
                   type="button"
@@ -261,14 +255,16 @@ export function RunOverview({
                 </button>
               )}
               {run.ciProvider === "manual" && (
-                <a
+                <ActionHelp tooltip={<>{run.status === "RUNNING"
+                    ? "Resume execution"
+                    : "Open execution record"}</>}><a
                   className="btn-primary"
                   href={`/projects/${projectId}/test-runs/manual/${run.id}`}
                 >
                   {run.status === "RUNNING"
                     ? "Resume execution"
-                    : "Open execution record"}
-                </a>
+                    : "View execution"}
+                </a></ActionHelp>
               )}
             </footer>
           </article>

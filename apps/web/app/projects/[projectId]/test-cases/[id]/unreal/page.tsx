@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useState } from "react";
 import { useParams } from "next/navigation";
 import { trpcReact } from "@/lib/trpcReact";
@@ -99,7 +101,7 @@ export default function UnrealPlaytestPage() {
     <main style={{ maxWidth: 900, margin: "0 auto", padding: 24 }}>
       <p><a href={`/projects/${projectId}/test-cases/${id}`}>← Test case</a></p>
       <h1>Unreal playtest</h1>
-      <p style={{ color: "var(--muted)" }}>Technical preview: bind this Vaettir test to one level and ordered objectives from a local Unreal worker&apos;s catalog. Candidate matches need your confirmation. A live game round trip remains a release gate.</p>
+      <p style={{ color: "var(--muted)" }}>Preview. Choose a level and review the suggested objectives. <a className="inline-help" href="/guide#live-apps" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
       {error && <p role="alert" style={{ color: "var(--ember)" }}>{error}</p>}
       {message && <p role="status">{message}</p>}
       {saved.isLoading ? <p>Loading binding…</p> : (
@@ -114,7 +116,7 @@ export default function UnrealPlaytestPage() {
           <p><label><input type="checkbox" checked={binding.drivePlayer} onChange={(e) => setBinding({ ...binding, drivePlayer: e.target.checked })} /> Drive the project player pawn</label></p>
           <p><label><input type="checkbox" checked={binding.knowsObjectives} onChange={(e) => setBinding({ ...binding, knowsObjectives: e.target.checked })} /> Tell the playtester the objectives up front</label></p>
           <h2>Ordered objectives</h2>
-          <p><button type="button" onClick={suggestObjectives}>Draft goals from this case&apos;s When steps</button> Review each goal and target before saving.</p>
+          <p><ActionButton type="button" onClick={suggestObjectives} tooltip={<> Draft goals from this case&apos;s When steps </>}> Draft goals </ActionButton> Review each goal and target before saving.</p>
           {binding.objectives.map((objective, index) => (
             <div key={index} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 12, marginBottom: 12 }}>
               <strong>{index + 1}.</strong>
@@ -134,7 +136,7 @@ export default function UnrealPlaytestPage() {
           ))}
           <button type="button" onClick={() => setBinding({ ...binding, objectives: [...binding.objectives, newObjective()] })}>Add objective</button>
           {!catalogs.data?.length && <p>No local worker catalog has been published for this Vaettir project.</p>}
-          <p><button type="button" onClick={saveBinding} disabled={!selectedMap}>Save binding</button> {" "}<button type="button" onClick={queueRun} disabled={!saved.data || JSON.stringify(saved.data) !== JSON.stringify(binding)}>Queue saved playtest</button></p>
+          <p><button type="button" onClick={saveBinding} disabled={!selectedMap}>Save binding</button> {" "}<ActionButton type="button" onClick={queueRun} disabled={!saved.data || JSON.stringify(saved.data) !== JSON.stringify(binding)} tooltip={<> Queue saved playtest </>}> Queue playtest </ActionButton></p>
         </fieldset>
       )}
       <h2>Runs</h2>
