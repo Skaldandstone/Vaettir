@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "./validation.js";
 
 // These are identity contracts, not claims that a provider adapter is shipped.
 export const populationProviderSchema = z.enum([

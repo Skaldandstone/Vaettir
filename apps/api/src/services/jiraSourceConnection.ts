@@ -1,11 +1,11 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { repositoryProviderJson } from "./repositoryProviderHttp.js";
 
 // Cloud metadata only. Standard API tokens use site-local Basic authentication:
 // https://developer.atlassian.com/cloud/jira/platform/basic-auth-for-rest-apis/
 // Scoped tokens require a different gateway and are not supported by this adapter:
 // https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/
-// Identity and projects: REST v3 /myself and /project/search. No issue requests.
+// Identity, projects and release metadata. No issue requests.
 export function jiraSiteOrigin(raw: string): string {
   const value = raw.trim();
   // Match the input before URL parsing can normalize credentials, Unicode,
@@ -74,19 +74,28 @@ const pageSchema = z.object({
 });
 
 export type JiraSourceCredentials = z.infer<typeof credentialsSchema>;
+export const jiraOAuthCredentialsSchema=z.object({kind:z.literal("oauth"),siteUrl:canonicalSite,cloudId:z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i),accessToken:z.string().min(1).max(10000).regex(/^[!-~]+$/),accountId,accountName:label}).strict();
+export type JiraReadCredentials=JiraSourceCredentials|z.infer<typeof jiraOAuthCredentialsSchema>;
+export function jiraReadTransport(credentials:JiraReadCredentials){
+  const oauth=jiraOAuthCredentialsSchema.safeParse(credentials);
+  if(oauth.success)return {siteUrl:oauth.data.siteUrl,origin:"https://api.atlassian.com",prefix:`/ex/jira/${oauth.data.cloudId}`,options:{token:oauth.data.accessToken}};
+  const basic=credentialsSchema.parse(credentials);
+  return {siteUrl:jiraSiteOrigin(basic.siteUrl),origin:jiraSiteOrigin(basic.siteUrl),prefix:"",options:{basic:{username:basic.email,password:basic.apiToken}}};
+}
 
 /** At most two GETs, using the existing DNS-pinned TLS/response/deadline boundary.
  * Provider-supplied self, nextPage, avatar and external project links are neither
  * followed nor retained. Pagination is reconstructed from validated integers.
  */
-export async function listJiraProjects(credentials: JiraSourceCredentials, after = 0) {
-  const input = credentialsSchema.parse(credentials);
-  const origin = jiraSiteOrigin(input.siteUrl);
+export async function listJiraProjects(credentials: JiraReadCredentials, after = 0) {
+  const transport=jiraReadTransport(credentials);
+  const origin = transport.siteUrl;
   const startAt = offset.parse(after);
-  const options = { basic: { username: input.email, password: input.apiToken } };
-  const myself = myselfSchema.parse(await repositoryProviderJson(origin, "/rest/api/3/myself", options));
-  const page = pageSchema.parse(await repositoryProviderJson(origin,
-    `/rest/api/3/project/search?startAt=${startAt}&maxResults=50`, options));
+  const options=transport.options;
+  const myself = myselfSchema.parse(await repositoryProviderJson(transport.origin, `${transport.prefix}/rest/api/3/myself`, options));
+  if("kind" in credentials&&myself.accountId!==credentials.accountId)throw new Error("Jira identity changed");
+  const page = pageSchema.parse(await repositoryProviderJson(transport.origin,
+    `${transport.prefix}/rest/api/3/project/search?startAt=${startAt}&maxResults=50`, options));
   const next = page.startAt + page.maxResults;
   if (page.startAt !== startAt || page.values.length > page.maxResults ||
       (!page.isLast && (page.values.length === 0 || next > 1000000)) ||
@@ -101,4 +110,35 @@ export async function listJiraProjects(credentials: JiraSourceCredentials, after
     projects: page.values.map(project => ({ ...project, url: `${origin}/browse/${project.key}` })),
   });
   return { ...catalog, hasMore: !page.isLast, nextCursor: page.isLast ? null : next };
+}
+
+const releasePage = pageSchema.omit({values:true}).extend({
+  values:z.array(z.object({
+    id:nativeId,
+    name:label,
+    released:z.boolean(),
+    archived:z.boolean(),
+    releaseDate:z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    projectId:z.number().int().positive().safe(),
+  })).max(50),
+});
+
+/** Only read releases for the approved project; never follow Jira's links. */
+export async function listJiraReleases(credentials:JiraReadCredentials, projectId:string, after:number) {
+  const transport=jiraReadTransport(credentials);
+  const id=nativeId.parse(projectId);
+  const startAt=offset.parse(after);
+  const page=releasePage.parse(await repositoryProviderJson(transport.origin,
+    `${transport.prefix}/rest/api/3/project/${id}/version?startAt=${startAt}&maxResults=50`, transport.options));
+  const next=startAt+page.maxResults;
+  if(page.startAt!==startAt||page.values.length>page.maxResults||
+    page.values.some(version=>String(version.projectId)!==id)||
+    new Set(page.values.map(version=>version.id)).size!==page.values.length||
+    !page.isLast&&(!page.values.length||next>1000000)) {
+    throw new Error("Invalid Jira release page");
+  }
+  return {
+    releases:page.values.map(({id,name,released,archived,releaseDate})=>({id,name,released,archived,releaseDate})),
+    next:page.isLast?null:next,
+  };
 }

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { assertOwnedTestDatabase } from "../testOnlyDatabaseSafety.js";
 
 export const metadataFixturePath =

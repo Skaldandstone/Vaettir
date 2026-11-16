@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useState } from "react";
 import { useClerk, useUser, useReverification } from "@clerk/nextjs";
 
@@ -179,14 +181,16 @@ export default function AccountSecurityPage() {
               ))}
             </ul>
           )}
-          <button
+          <ActionButton
             type="button"
             className="btn-primary"
             onClick={startPasskey}
             disabled={pending !== null}
-          >
+           tooltip={<>
             {pending === "passkey" ? "Waiting for device…" : "+ Add a passkey"}
-          </button>
+           </>}>
+            {pending === "passkey" ? "Waiting…" : "Add passkey"}
+          </ActionButton>
         </section>
 
         <section className="panel security-method-card">
@@ -208,14 +212,15 @@ export default function AccountSecurityPage() {
             or another TOTP app after sign-in.
           </p>
           {!currentUser.totpEnabled && !totpSecret && (
-            <button
+            <ActionButton
               type="button"
               className="btn-primary"
               onClick={startTotp}
               disabled={pending !== null}
-            >
+             tooltip={<>
               Set up authenticator
-            </button>
+             </>}>
+               Set up </ActionButton>
           )}
           {totpSecret && (
             <div className="security-enrollment sentry-block" data-private>
@@ -239,26 +244,28 @@ export default function AccountSecurityPage() {
                   }
                 />
               </label>
-              <button
+              <ActionButton
                 type="button"
                 className="btn-primary"
                 disabled={totpCode.length !== 6 || pending !== null}
                 onClick={verifyTotp}
-              >
+               tooltip={<>
                 Verify and enable 2FA
-              </button>
+               </>}>
+                 Enable 2FA </ActionButton>
             </div>
           )}
           {currentUser.totpEnabled && (
             <div className="button-row">
-              <button
+              <ActionButton
                 type="button"
                 className="btn-secondary"
                 onClick={regenerateBackupCodes}
                 disabled={pending !== null}
-              >
+               tooltip={<>
                 New backup codes
-              </button>
+               </>}>
+                 New codes </ActionButton>
               <button
                 type="button"
                 className="btn-danger"
@@ -288,9 +295,10 @@ export default function AccountSecurityPage() {
               <code key={code}>{code}</code>
             ))}
           </div>
-          <button onClick={() => setBackupCodes([])}>
+          <ActionButton onClick={() => setBackupCodes([])} tooltip={<>
             I saved these codes; hide them
-          </button>
+           </>}>
+             Hide codes </ActionButton>
         </section>
       )}
 
@@ -303,13 +311,14 @@ export default function AccountSecurityPage() {
               : "No OAuth identity is currently visible on this account. Review the account manager before changing sign-in methods."}
           </p>
         </div>
-        <button
+        <ActionButton
           type="button"
           className="btn-secondary"
           onClick={() => clerk.openUserProfile()}
-        >
+         tooltip={<>
           Review account and devices
-        </button>
+         </>}>
+           Review </ActionButton>
       </section>
     </div>
   );

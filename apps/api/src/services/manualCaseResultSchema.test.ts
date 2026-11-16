@@ -1,10 +1,20 @@
 // SOURCE ONLY: authored, not executed tonight.
 import { describe, expect, it } from "vitest";
-import { manualCaseResultWriteSchema, manualCaseResultReadSchema, manualCaseResultHistorySchema, manualCaseResultWriteKey, manualCaseResultRevisionOutputSchema } from "./manualCaseResultSchema.js";
+import { manualCaseResultWriteSchema, manualCaseResultReadSchema, manualCaseResultHistorySchema, manualCaseResultWriteKey, manualCaseResultRevisionOutputSchema, manualCaseReviewedPreviewOutputSchema } from "./manualCaseResultSchema.js";
 const scope = { projectId: "project", organizationId: "org", clerkActorId: "clerk" };
 const read = { projectId: "project", testRunId: "run", testCaseId: "case", expectedScope: scope };
 const request = { ...read, expectedRevisionId: null, expectedCurrentFingerprint: "a".repeat(64), status: "FAIL" as const, note: "Literal old observation", observations: {}, correctionReason: "A human correction", idempotencyKey: "88c47b3b-d1f7-43b5-bd88-b49ddf14b8c0" };
 describe("whole-case native result strict reviewed schema", () => {
+  it("keeps the legacy optional unknown wire fields and exact retained values", () => {
+    const current = manualCaseReviewedPreviewOutputSchema.shape.current.unwrap();
+    const base = { resultId: "result", status: "FAIL", note: null };
+    expect(Object.hasOwn(current.parse(base), "observations")).toBe(false);
+    expect(Object.hasOwn(current.parse({ ...base, observations: undefined }), "observations")).toBe(true);
+    for (const observations of [null, false, 0, "", ["raw"], { unsupported: "retained exact metadata" }])
+      expect(current.parse({ ...base, observations }).observations).toBe(observations);
+    const evidence = manualCaseReviewedPreviewOutputSchema.shape.frozenEvidence.parse({ prerequisites: {} });
+    expect(Object.keys(evidence)).toEqual(["prerequisites"]);
+  });
   it("requires original actor/project/org and exact CAS without arbitrary permission fields", () => {
     expect(manualCaseResultReadSchema.safeParse({ projectId: "project", testRunId: "run", testCaseId: "case" }).success).toBe(false);
     expect(manualCaseResultReadSchema.safeParse({ ...read, role: "OWNER" }).success).toBe(false);

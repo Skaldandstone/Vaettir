@@ -208,4 +208,30 @@ describe("reviewed organization suggestions on real PostgreSQL", () => {
     await expect(smartSuggestionConfiguration(prisma, userId!, clerk, scope())).rejects.toThrow("full editor seat");
     await prisma.membership.update({ where: { organizationId_userId: { organizationId: orgId!, userId: userId! } }, data: { role: "OWNER" } });
   });
+  it("accepts all 981 approved selections in a single reviewed save", async () => {
+    const ids = Array.from({ length: 981 }, () => randomUUID());
+    await prisma.testCase.createMany({ data: ids.map(id => ({
+      id, projectId: projectId!, title: "Synthetic restore", given: ["Purchased access"],
+      when: ["Restore"], then: ["Access retained"], tags: [], testType: "FUNCTIONAL", priority: "MEDIUM",
+    })) });
+    const user = await prisma.user.findUniqueOrThrow({ where: { id: userId }, include: { memberships: true } });
+    const caller = appRouter.createCaller({ prisma, user, authenticatedClerkSubject: clerk });
+    const reviewIds: string[] = [];
+    for (let i = 0; i < ids.length; i += 20) {
+      const preview = await caller.caseSuggestions.recommend({
+        ...scope(), requestId: randomUUID(), approved: true, caseIds: ids.slice(i, i + 20),
+      });
+      reviewIds.push(preview.reviewId);
+    }
+    expect(reviewIds).toHaveLength(50);
+    expect(await prisma.testCase.count({ where: { id: { in: ids }, priority: "MEDIUM" } })).toBe(981);
+    const input = {
+      projectId: projectId!, originalOrganizationId: orgId!, expectedClerkActorId: clerk,
+      requestId: randomUUID(), approved: true as const, reviewIds,
+      selections: ids.map(id => ({ id, suitePath: false, priority: true, testType: false })),
+    };
+    await expect(caller.caseSuggestions.applyReviewed(input)).resolves.toEqual({ changed: 981, replayed: false });
+    await expect(caller.caseSuggestions.applyReviewed(input)).resolves.toEqual({ changed: 981, replayed: true });
+    expect(await prisma.testCase.count({ where: { id: { in: ids }, priority: "HIGH" } })).toBe(981);
+  }, 120_000);
 });

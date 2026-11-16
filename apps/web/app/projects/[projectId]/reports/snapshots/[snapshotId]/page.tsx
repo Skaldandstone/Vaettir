@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -230,16 +232,20 @@ function SnapshotDetail({
       {ready && (
         <div className="panel" style={{ marginTop: 16 }}>
           {ready.payload.state === "approved" ? (
-            <button
+            <ActionButton
               type="button"
               className="btn-secondary"
               disabled={copying}
               onClick={() => void copy()}
-            >
+             tooltip={<>
               {copying
                 ? "Verifying sharing access…"
                 : "Copy workspace sharing link"}
-            </button>
+             </>}>
+              {copying
+                ? "Verifying…"
+                : "Copy"}
+            </ActionButton>
           ) : (
             <p>
               Private preview. Approve it from the report builder before

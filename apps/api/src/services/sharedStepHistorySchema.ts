@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 
 const identity = z.string().min(1).max(200);
 export const sharedLibraryRefSchema = z

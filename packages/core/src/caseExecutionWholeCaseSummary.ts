@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "./validation.js";
 
 /** Read-time metadata from retained whole-case revisions, not an as-of verdict. */
 export const caseExecutionWholeCaseSummarySchema = z.object({

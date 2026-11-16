@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { type PrismaClient } from "@vaettir/db";
 import { requireProjectAccess, type Context } from "../trpc.js";
 import { lockedProcessingEditor } from "./repositoryProcessingApproval.js";

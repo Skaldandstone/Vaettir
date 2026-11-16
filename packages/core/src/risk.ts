@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "./validation.js";
 
 // Shared between the AI risk-assessment agent and its callers. Reuses the
 // same four-point scale as RiskFlag.severity (Prisma's RiskSeverity enum)

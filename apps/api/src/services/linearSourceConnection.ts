@@ -1,4 +1,4 @@
-import {z} from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import {linearProviderGraphql} from "./repositoryProviderHttp.js";
 
 // Official API: https://linear.app/developers/graphql and /pagination.

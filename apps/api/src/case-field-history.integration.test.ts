@@ -1,3 +1,4 @@
+import { fixtureProjectKey } from "./testProjectKey.js";
 // Authored only. Morning execution requires a migrated owned loopback test DB.
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -104,7 +105,7 @@ describe("captured typed metadata history and restore-as-new", () => {
     const p = await owner.project.create({
       organizationId: orgIds[0]!,
       name: `History ${randomUUID()}`,
-      caseKey: `h${randomUUID().replaceAll("-", "").slice(0, 15)}`,
+      caseKey: fixtureProjectKey(),
     });
     await define(p.id, fields);
     const state = await owner.caseFields.get({ projectId: p.id });
@@ -429,7 +430,7 @@ describe("captured typed metadata history and restore-as-new", () => {
     const other = await owner.project.create({
       organizationId: orgIds[0]!,
       name: `Choices ${randomUUID()}`,
-      caseKey: `o${randomUUID().replaceAll("-", "").slice(0, 15)}`,
+      caseKey: fixtureProjectKey(),
     });
     await define(other.id, [choices]);
     await expect(

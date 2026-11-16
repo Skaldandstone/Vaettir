@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { reportDateIntervalSchema } from "./reportDateIntervalSchema.js";
 
 // Pure browser/server input contract. No SQL, provider or database runtime.

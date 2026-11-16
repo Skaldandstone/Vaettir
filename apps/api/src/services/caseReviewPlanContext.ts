@@ -1,7 +1,7 @@
 import { Prisma } from "@vaettir/db";
 import { DEFAULT_STEP_FIELD_LABELS } from "@vaettir/core";
 import { TRPCError } from "@trpc/server";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { caseFieldPresentationJsonBytes } from "./caseFieldPresentationSchema.js";
 
 type Scope = { projectId: string; caseId: string; organizationId: string };

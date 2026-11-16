@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import type { FrozenReportPayload } from "../routers/reportSnapshots.js";
 
 export const reportComparisonInput = z

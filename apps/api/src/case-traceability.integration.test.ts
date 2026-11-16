@@ -55,7 +55,7 @@ describe("manually confirmed case traceability", () => {
           slug: stamp,
           // Distinct stable keys let the later reparenting fixture reach its
           // tenant-isolation assertions instead of a key uniqueness failure.
-          caseKey: "trace-primary",
+          caseKey: "prim",
         },
       })
     ).id;
@@ -65,7 +65,7 @@ describe("manually confirmed case traceability", () => {
           organizationId: otherOrgId,
           name: "Other",
           slug: `${stamp}-other`,
-          caseKey: "trace-other",
+          caseKey: "other",
         },
       })
     ).id;

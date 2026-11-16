@@ -1,3 +1,5 @@
+import { ActionHelp } from "./test-support/action-button";
+import { controllerTranspile } from "./controller-transpile.fixture";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
@@ -53,7 +55,7 @@ function harness() {
   let cursor = 0, dirty = false, tree: React.ReactElement;
   function slot() { const index = cursor++; return slots[index] ?? (slots[index] = {}); }
   function sameDeps(a: readonly unknown[] | undefined, b: readonly unknown[] | undefined) { return !!a && !!b && a.length === b.length && a.every((value, index) => Object.is(value, b[index])); }
-  const context = vm.createContext({ React, Object, Error, sameCaseFieldOrigin, currentSessionScope, sameAuthScope, assertGovernanceAcknowledgement, planGovernanceRequestHash, retainedGovernancePending,
+  const context = vm.createContext({ ActionHelp, React, Object, Error, sameCaseFieldOrigin, currentSessionScope, sameAuthScope, assertGovernanceAcknowledgement, planGovernanceRequestHash, retainedGovernancePending,
     crypto: { randomUUID: uuid }, window: { Clerk: sdk }, useAuth: () => auth, usePlanGovernance: hook,
     trpcReact: { testPlanGovernance: { detachAttachedPlan: { useMutation: () => save } } },
     useState: (initial: unknown) => { const held = slot(); if (!Object.hasOwn(held, "value")) held.value = initial; return [held.value, (next: unknown) => { const value = typeof next === "function" ? next(held.value) : next; if (!Object.is(value, held.value)) { held.value = value; dirty = true; } }]; },
@@ -63,7 +65,7 @@ function harness() {
   });
   const source = readFileSync(new URL("../components/PlanReleaseDetach.tsx", import.meta.url), "utf8"), ast = ts.createSourceFile("controller.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX), printer = ts.createPrinter();
   const body = ast.statements.filter(node => !ts.isImportDeclaration(node)).map(node => printer.printNode(ts.EmitHint.Unspecified, node, ast).replace(/^export\s+/gm, "")).join("\n");
-  vm.runInContext(ts.transpileModule(`${body}\nthis.actual=PlanReleaseDetach`, { compilerOptions: { target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } }).outputText, context);
+  vm.runInContext(controllerTranspile(`${body}\nthis.actual=PlanReleaseDetach`, { compilerOptions: { target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } }).outputText, context);
   function render() { let turns = 0; do { if (++turns > 30) throw Error("Unsettled synthetic render"); dirty = false; cursor = 0; tree = (context as unknown as { actual: (props: Props) => React.ReactElement }).actual(props); while (effects.length) effects.shift()!(); } while (dirty); return tree; }
   render();
   function button(label: string) { return required(nodes(tree).find(node => node.type === "button" && text(node) === label)); }
@@ -198,7 +200,7 @@ describe("retained release-detail plan detach actual controller", () => {
     const readiness = query({ score: 0, label: "PENDING", criteria: { met: 0, atRisk: 0, notMet: 0, pending: 0 }, riskFlags: { openTotal: 0, critical: 0, high: 0 } });
     const plans = query([{ id: "synthetic-plan", name: "Synthetic plan", testPlanType: { name: "Synthetic type" }, acceptanceCriteria: [] }]);
     const detachBoundary = () => null, child = () => null;
-    const context = vm.createContext({ React, useParams: () => ({ projectId: origin.projectId, releaseId: "synthetic-release" }), useState: (value: unknown) => [value, vi.fn()], useReadOnlySeat: () => false,
+    const context = vm.createContext({ ActionHelp, React, useParams: () => ({ projectId: origin.projectId, releaseId: "synthetic-release" }), useState: (value: unknown) => [value, vi.fn()], useReadOnlySeat: () => false,
       PlanReleaseDetach: detachBoundary, ReadinessBadge: child, DistributionBar: child, ScoreRing: child, ReleaseSnapshotExport: child, Modal: child, CriterionDescriptionEditor: child, CriterionVerdictEditor: child, AttachUnassignedPlan: child, PlanGovernanceHistory: child, GovernedCriterionCollection: child,
       releasePlanChoices: () => ({ available: [], assignedElsewhere: [] }),
       trpcReact: { useUtils: () => ({ releases: { invalidate: vi.fn() }, testPlans: { list: { invalidate: vi.fn() } } }),
@@ -208,7 +210,7 @@ describe("retained release-detail plan detach actual controller", () => {
       },
     });
     const body = ast.statements.filter(node => !ts.isImportDeclaration(node)).map(node => printer.printNode(ts.EmitHint.Unspecified, node, ast).replace(/^export\s+(?:default\s+)?/gm, "")).join("\n");
-    vm.runInContext(ts.transpileModule(`${body}\nthis.actual=ReleaseReadinessPage`, { compilerOptions: { target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } }).outputText, context);
+    vm.runInContext(controllerTranspile(`${body}\nthis.actual=ReleaseReadinessPage`, { compilerOptions: { target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } }).outputText, context);
     function render() { return (context as unknown as { actual: () => React.ReactElement<{ children: React.ReactNode }> }).actual(); }
     for (const phase of ["loaded", "rows-removed", "loading", "error"]) {
       if (phase === "rows-removed") plans.data = [];

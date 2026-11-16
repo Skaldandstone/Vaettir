@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { TRPCError } from "@trpc/server";
 import { caseFieldPresentationJsonBytes } from "./caseFieldPresentationSchema.js";
 import { qualityProfileHash } from "./qualityExperienceProfile.js";

@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { qualityProfileHash, testPlanExecutionTemplateSchema } from "./qualityExperienceProfile.js";
 import { inspectExactPlanExecutionJson } from "./planExecutionTemplateExactSchema.js";
 

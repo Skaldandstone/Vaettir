@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, requireOrgRole } from "../trpc.js";
 import { WEBHOOK_EVENT_TYPES, generateWebhookSecret, dispatchWebhookEvent } from "../services/webhookDelivery.js";

@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { CASE_QUERY_COLUMNS, caseQuerySchema } from "./caseQuerySchema.js";
 
 export const caseQueryColumnsSchema = z

@@ -1,9 +1,42 @@
 import { createHash } from "node:crypto";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import type { Prisma } from "@vaettir/db";
 import type { ForgeIdentity } from "./forgeInvocation.js";
 import { forgeReleaseLink } from "./forgeReleaseSchema.js";
-import { buildQualityVisualReport } from "@vaettir/core";
+import {
+  buildQualityVisualReport,
+  workspaceHostname,
+  workspaceNameError,
+} from "@vaettir/core";
+
+/** Called only after Forge sharing resolves and authorizes the immutable org ID.
+ * A permanent claim and rollout activation are separate requirements. */
+export async function forgeWorkspaceOrigin(
+  tx: Prisma.TransactionClient,
+  orgId: string,
+) {
+  const fallback = "https://app.vaettir.app";
+  if (process.env.VAETTIR_WORKSPACE_DOMAINS_ENABLED !== "1") return fallback;
+  const claim = await tx.workspaceDomain.findUnique({
+    where: { organizationId: orgId },
+    select: { name: true, organizationId: true },
+  });
+  const active = new Set(
+    (process.env.VAETTIR_ACTIVE_WORKSPACE_NAMES ?? "")
+      .split(",")
+      .map((name) => name.trim())
+      .filter(Boolean),
+  );
+  if (
+    !claim ||
+    claim.organizationId !== orgId ||
+    claim.name !== claim.name.trim().toLowerCase() ||
+    workspaceNameError(claim.name) ||
+    !(active.has(claim.name) || active.has("*"))
+  )
+    return fallback;
+  return `https://${workspaceHostname(claim.name)}`;
+}
 
 export const forgeQualityBinding = z
   .object({
@@ -47,6 +80,7 @@ export const forgeSharingRecord = z.object({
   snapshotIds: z.array(z.string().length(64)).max(50),
   shareTicketTests: z.boolean().default(false),
   shareApprovedProjectQuality: z.boolean().default(false),
+  shareLiveProjectQuality: z.boolean().default(false),
   releaseLinks: z.array(forgeReleaseLink).max(50).default([]),
   closureSnapshotIds: z.array(z.string().length(64)).max(50).default([]),
 });
@@ -232,11 +266,12 @@ export async function readSharedQuality(
   }));
   if (snapshotId && !available.length)
     throw new Error("No approved shared snapshot available");
+  const origin = await forgeWorkspaceOrigin(tx, orgId);
   if (!available.length && sharing.shareApprovedProjectQuality)
     return {
       protocol: "vaettir-quality-empty/v1" as const,
       projectId,
-      reportUrl: `https://vaettir.skaldandstone.com/projects/${encodeURIComponent(projectId)}/reports`,
+      reportUrl: `${origin}/projects/${encodeURIComponent(projectId)}/reports`,
       notice:
         "Connected. This project has no approved quality captures yet. Create and approve a report in Vaettir; it will appear here without reconnecting.",
     };
@@ -255,14 +290,14 @@ export async function readSharedQuality(
       title: s.title,
       asOf: s.asOf,
     })),
-    reportUrl: `https://vaettir.skaldandstone.com/projects/${encodeURIComponent(projectId)}/reports`,
+    reportUrl: `${origin}/projects/${encodeURIComponent(projectId)}/reports`,
     runLinks: (available[0]!.evidence?.runs ?? []).map((run) => ({
       id: run.id,
       startedAt: run.startedAt,
       href:
         run.provider === "manual"
-          ? `https://vaettir.skaldandstone.com/projects/${encodeURIComponent(projectId)}/test-runs/manual/${encodeURIComponent(run.id)}`
-          : `https://vaettir.skaldandstone.com/projects/${encodeURIComponent(projectId)}/test-runs#run-${encodeURIComponent(run.id)}`,
+          ? `${origin}/projects/${encodeURIComponent(projectId)}/test-runs/manual/${encodeURIComponent(run.id)}`
+          : `${origin}/projects/${encodeURIComponent(projectId)}/test-runs#run-${encodeURIComponent(run.id)}`,
     })),
     notice:
       "Approved project/release summary, not issue-specific execution proof. Private evidence requires Vaettir access. Latest approved is not a real-time run feed.",
@@ -309,6 +344,7 @@ export async function listForgeSharing(
     projectName: string;
     shareTicketTests: boolean;
     hasSnapshots: boolean;
+    hasLive: boolean;
     hasReleases: boolean;
     hasClosures: boolean;
   }> = [];
@@ -324,7 +360,8 @@ export async function listForgeSharing(
     if (
       identity.moduleKey === "vaettir-issue-quality"
         ? !sharing.shareTicketTests
-        : !sharing.shareApprovedProjectQuality &&
+        : !sharing.shareLiveProjectQuality &&
+          !sharing.shareApprovedProjectQuality &&
           !sharing.snapshotIds.length &&
           !sharing.releaseLinks.length &&
           !sharing.closureSnapshotIds.length
@@ -338,6 +375,8 @@ export async function listForgeSharing(
       key,
       projectName: project.name,
       shareTicketTests: sharing.shareTicketTests,
+      hasLive:
+        identity.product === "confluence" && sharing.shareLiveProjectQuality,
       hasSnapshots:
         sharing.shareApprovedProjectQuality || !!sharing.snapshotIds.length,
       hasReleases: !!sharing.releaseLinks.length,

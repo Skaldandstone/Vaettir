@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "./validation.js";
 
 // Metadata-only contract: unknown fields (raw traces, users, credentials) fail closed.
 const identity = z

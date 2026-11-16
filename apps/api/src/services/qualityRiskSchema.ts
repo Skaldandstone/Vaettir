@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 
 // Deliberately qualitative human categories, not a validated risk score/matrix.
 export const qualityLikelihood = z.enum(["UNKNOWN", "RARE", "POSSIBLE", "FREQUENT"]);

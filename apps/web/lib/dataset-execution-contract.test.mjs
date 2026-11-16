@@ -13,7 +13,7 @@ test("dataset modal makes concrete procedure review and zero-cost approval separ
   assert.match(modal, /0 AI credits/);
   assert.match(modal, /type="checkbox"/);
   assert.match(modal, /independent row runs/);
-  assert.match(modal, /never unlocks this row/);
+  assert.match(modal, /Each dataset row starts a separate run/);
   assert.match(modal, /!approved \|\| busy \|\| rejected/);
   assert.doesNotMatch(modal, /router\.push|window\.location|setTimeout/);
 });

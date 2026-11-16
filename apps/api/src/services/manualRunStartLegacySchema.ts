@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { runConfigurationSchema } from "./qualityExperienceProfile.js";
 import { planReferenceSchema } from "./testPlanExecution.js";
 

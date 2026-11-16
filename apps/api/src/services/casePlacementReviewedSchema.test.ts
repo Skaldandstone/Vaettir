@@ -96,7 +96,7 @@ describe("reviewed placement exact native metadata (pure)", () => {
       ts.forEachChild(node, visit);
     };
     visit(ast);
-    expect(imports).toEqual(["zod"]);
+    expect(imports).toEqual(["@vaettir/core/dist/validation.js"]);
     expect(source).not.toMatch(
       /@vaettir\/db|node:crypto|caseFieldReadScope\.js|Prisma|process\.env/,
     );

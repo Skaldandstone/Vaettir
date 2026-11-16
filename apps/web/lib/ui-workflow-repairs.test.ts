@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 // Actual React component declarations with synthetic RPC/access/controller
 // boundaries. These tests do not establish browser geometry or live acceptance.
 import { readFileSync } from "node:fs";
@@ -10,7 +11,7 @@ import { inspectorLabel } from "./case-inspector";
 
 function compile(file: string, dependencies: Record<string, unknown>) {
   const source = readFileSync(new URL(file, import.meta.url), "utf8");
-  const code = ts.transpileModule(source, { compilerOptions: {
+  const code = controllerTranspile(source, { compilerOptions: {
     target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.React,
   } }).outputText;
   const exports: Record<string, (props: Record<string, unknown>) => React.ReactElement> = {};
@@ -100,7 +101,8 @@ it("shows the actual guidance cards openly rather than a collapsed bullet-point 
   expect(html.match(/class="experience-guidance-card"/g)).toHaveLength(4);
   expect(html).toContain("Save and close");
   expect(html).not.toContain("Close and keep draft");
-  expect(html).not.toContain("<summary>");
+  // Guidance cards remain visible; supporting prose can be expanded separately.
+  expect(html).toContain("<details><summary>Details</summary>");
 });
 it("Save and close waits for the exact ACK and refuses duplicate same-render submission", async () => {
   const h = wizard(), click = button(h.render(), "Save and close");
@@ -139,7 +141,7 @@ function dataset(saved: Dataset = { parameterNames: [], rows: [] }) {
   const ast = ts.createSourceFile("Detail.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const fn = ast.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === "DatasetSection");
   if (!fn) throw Error("Actual dataset declaration missing");
-  const code = ts.transpileModule(ts.createPrinter().printNode(ts.EmitHint.Unspecified, fn, ast), {
+  const code = controllerTranspile(ts.createPrinter().printNode(ts.EmitHint.Unspecified, fn, ast), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React },
   }).outputText;
   const state: unknown[] = [null, false, false, false, null, ""];

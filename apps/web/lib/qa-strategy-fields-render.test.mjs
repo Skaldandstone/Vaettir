@@ -1,3 +1,5 @@
+// Controller fixture treats the presentation-only wrapper as its native button.
+// Real hover/focus/form/ref/touch behavior is covered by action-button-ui.test.mjs.
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
@@ -18,7 +20,7 @@ function harness() {
   let cursor = 0;
   const pendingRequests = [];
   const auth = { isLoaded: true, isSignedIn: true, userId: "synthetic-actor", sessionId: "synthetic-session" };
-  const sandbox = { React, ...helpers, describeRetainedPlanValue, useId: () => "synthetic-opaque", useAuth: () => auth,
+  const sandbox = { React, ActionButton: "button", ...helpers, describeRetainedPlanValue, useId: () => "synthetic-opaque", useAuth: () => auth,
     useRef: value => { const index = cursor++; return hooks[index] ??= { current: value }; },
     useState: initial => { const index = cursor++; if (!Object.hasOwn(hooks, index)) hooks[index] = typeof initial === "function" ? initial() : initial; return [hooks[index], value => { hooks[index] = value; }]; },
     useLayoutEffect: callback => { const index = cursor++; cleanups[index]?.(); cleanups[index] = callback(); },

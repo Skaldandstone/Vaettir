@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { manualRetestExpectedScopeSchema } from "./manualRetestScopeSchema.js";
 
 // Authoritative legacy constructors extracted without changing field order,

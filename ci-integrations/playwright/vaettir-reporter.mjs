@@ -18,6 +18,7 @@
 // failed tests' attachment files for report.mjs to upload afterward.
 import { writeFileSync } from "node:fs";
 import { relative } from "node:path";
+import { stripVTControlCharacters } from "node:util";
 
 function xmlEscape(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -55,7 +56,7 @@ export default class VaettirReporter {
     const { classname, name, externalTestId: id } = externalTestId(test);
     const status = result.status === "passed" ? "PASS" : result.status === "skipped" ? "SKIP" : "FAIL";
 
-    this.cases.push({ classname, name, status, durationMs: result.duration, error: result.error?.message });
+    this.cases.push({ classname, name, status, durationMs: result.duration, error: result.error?.message === undefined ? undefined : stripVTControlCharacters(result.error.message).replace(/[^\u0009\u000A\u000D\u0020-\uD7FF\uE000-\uFFFD\u{10000}-\u{10FFFF}]/gu, "") });
 
     if (status === "FAIL") {
       const files = result.attachments

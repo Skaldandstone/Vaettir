@@ -1,3 +1,4 @@
+import { fixtureProjectKey } from "./testProjectKey.js";
 // Authored source only; NOT RUN. Root owns disposable migration/native execution.
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -73,7 +74,7 @@ describe("current actor-bound ephemeral case-field authoring CAS", () => {
     const p = await owner.project.create({
       organizationId,
       name: `Actor fields ${randomUUID()}`,
-      caseKey: `a${randomUUID().replaceAll("-", "").slice(0, 15)}`,
+      caseKey: fixtureProjectKey(),
     });
     const schema = {
       version: 1 as const,
