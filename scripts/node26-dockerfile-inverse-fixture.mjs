@@ -8,7 +8,7 @@ export const NODE26_API_DOCKERFILE_SHA256 =
 export const PRE_NODE26_API_DOCKERFILE_SHA256 =
   "d15d3ecbecc3ea49f1af7f30805ef56815bac98a73b47a75a71357ea4495d3c0";
 export const NODE26_WEB_DOCKERFILE_SHA256 =
-  "156db08f7c1525894f0caaec0bc5700c6aabc9dc12a90a44e2230a74a26c07d2";
+  "5ee5578bf841bdfa913d7153eaa7828e075acc7cf0aa7ec88ae889e47361c44a";
 export const PRE_NODE26_WEB_DOCKERFILE_SHA256 =
   "3ef10df06706d0f45e4d0b1946a727b24faa38e27f861c99dc9541932dd9265b";
 
@@ -33,6 +33,12 @@ export function restorePreNode26DockerfileFixture(raw) {
   assert.ok(text.includes(node26));
   const restoredText = text
     .replaceAll(node26, node22)
+    .replace(
+      hash === NODE26_WEB_DOCKERFILE_SHA256
+        ? "ENV NODE_OPTIONS=--max-old-space-size=4096\n"
+        : "\u0000",
+      "",
+    )
     .replaceAll(
       "RUN npm install --global --no-audit --no-fund pnpm@11.23.0",
       "RUN corepack enable",
