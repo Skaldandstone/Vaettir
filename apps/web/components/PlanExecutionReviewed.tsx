@@ -132,7 +132,7 @@ export function PlanExecutionReviewed({ projectId, testPlanId, organizationId, o
         {recovery && view.canAnother && <ActionButton type="button" className="btn-secondary" onClick={() => { if (exactFrame()) controller.another(); }} tooltip={<> Prepare another run </>}> New run </ActionButton>}
       </div>
       {privateNotice && <p role="status">{view.notice}</p>}
-      {view.pending && <p role="status">An original request is retained while this component stays mounted. Close or access loss does not reset its body or key. Reload/route replacement recovery is not provided here.</p>}
+      {view.pending && <p role="status">Keep this page open until the run is confirmed. Retry uses the same request. <a className="inline-help" href="/guide#runs" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>}
       {recovery && view.confirmedRunId && <p>Exact original receipt confirmed. <ActionButton type="button" className="btn-secondary" onClick={() => {
         if (!exactFrame() || !recovery || controller.view().confirmedRunId !== view.confirmedRunId) return;
         router.push(`/projects/${encodeURIComponent(projectId)}/test-runs/manual/${encodeURIComponent(view.confirmedRunId!)}`);

@@ -199,7 +199,7 @@ describe("actual custom-field presentation controller source", () => {
     const host = harness(); host.render(); host.click("Configure custom-field presentation");
     expect(host.html()).not.toContain("Load current settings for review"); expect(host.reads()).toBe(1);
     host.query.dataUpdatedAt++; host.render(); host.click("Load current settings for review");
-    let html = host.html(); for (const text of [" Exact native label ", "Single-line text", "Multiline paragraph", "Radio choices", "Tri-state: unset / yes / no", "Unknown saved mapping", "Hide only when native value is absent", "Null, empty text, whitespace, false and zero"]) expect(html).toContain(text);
+    let html = host.html(); for (const text of [" Exact native label ", "Single-line text", "Multiline paragraph", "Radio choices", "Tri-state: unset / yes / no", "Unknown saved mapping", "Hide only when native value is absent", "Hidden fields remain available in the editor"]) expect(html).toContain(text);
     host.close(); host.click("Configure custom-field presentation"); expect(host.html()).toContain("Cached settings cannot authorize"); expect(host.button("Review unsaved presentation").disabled).toBe(true);
     host.query.dataUpdatedAt++; expect(host.html()).not.toContain("Awaiting a fresh");
     host.auth.isSignedIn = false; html = host.html(); expect(html).not.toContain(" Exact native label ");

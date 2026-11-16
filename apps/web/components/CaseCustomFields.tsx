@@ -559,11 +559,7 @@ function CaseFieldEditor({
             {pending ? "Resume" : "Edit"}
           </ActionButton>
         )}
-      <details><summary>Details</summary><p className="text-muted">
-        Metadata saves retain an actor-attributed before/after audit. Procedure
-        version comparison and restore preserve current metadata. Supported
-        metadata snapshots can be reviewed and restored separately below.
-      </p></details>
+      <details><summary>Details</summary><p className="text-muted">Metadata edits are recorded in the audit history. <a className="inline-help" href="/guide#cases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p></details>
       <CaseFieldHistory projectId={projectId} caseId={caseId} />
       {access.readable && notice && <p role="status">{notice}</p>}
       <Modal

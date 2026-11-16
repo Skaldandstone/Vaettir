@@ -241,21 +241,8 @@ export function CaseHistoryPageExport({ page, input, pageNumber }: Props) {
                   ),
               )}
             </dl>
-            <p>
-              Includes native run identities, case label, recorded
-              configuration, current outcomes and available original observation
-              recorder names/times. Stored labels or configuration text may
-              themselves contain identifying information; review them and
-              recipients before sharing. No procedure text, private
-              observations, artifact URL fields, current account/email fields or
-              actor IDs are exported.
-            </p>
-            <p>
-              Corrections are not new retests. Partial steps are not completed
-              cases; imported results are not verified automation.
-              Spreadsheet-leading text is protected, but re-saving or importing
-              elsewhere can remove that protection.
-            </p>
+              <p>Export the selected case’s execution history, tester names and recorded configuration. <a className="inline-help" href="/guide#reports" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
+            <p>Corrections and retests are listed separately. <a className="inline-help" href="/guide#reports" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
             <details>
               <summary>Retained page evidence limits</summary>
               <ul>

@@ -2,6 +2,7 @@
 export async function runCaseActionBatches<T>(
   selectedIds: readonly string[],
   execute: (ids: string[]) => Promise<T>,
+  confirmed?: (result: T, ids: readonly string[]) => boolean,
 ) {
   const ids = [...new Set(selectedIds)];
   const results: T[] = [];
@@ -9,7 +10,11 @@ export async function runCaseActionBatches<T>(
   for (let offset = 0; offset < ids.length; offset += 200) {
     const batch = ids.slice(offset, offset + 200);
     try {
-      results.push(await execute(batch));
+      const result = await execute(batch);
+      results.push(result);
+      // A resolved request can still contain partial refusals. Keep its known
+      // counts, but do not guess which identities succeeded or send more writes.
+      if (confirmed && !confirmed(result, batch)) throw Error("Case changes were not fully confirmed.");
       completed += batch.length;
     } catch (error) {
       // Never replay an ambiguous failed write automatically. Retain that batch

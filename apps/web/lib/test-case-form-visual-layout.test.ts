@@ -1,3 +1,4 @@
+import { CaseCreateRecovery } from "./case-create-recovery";
 import { controllerTranspile } from "./controller-transpile.fixture";
 // Installed React SSR of the actual form and its real presentation/authoring
 // helpers. RPC/access and child components are explicitly synthetic boundaries.
@@ -66,11 +67,11 @@ function render(options: { locked?: boolean; active?: boolean; hide?: boolean; s
     react: React, "next/navigation": { useRouter: () => ({ push: refuse }) }, "@vaettir/core": core,
     "@/lib/trpcReact": { trpcReact: {
       useUtils: () => ({}), project: { experience: query({ experience: null }) }, casePresentation: { get: query(data) },
-      testCases: { list: query([]), create: mutation, update: mutation }, sharedStepGroups: { list: query([]) },
+      testCases: { list: query([]), create: mutation, createDurable: mutation, update: mutation }, sharedStepGroups: { list: query([]) },
       testCaseAttachments: { list: query([]), requestUpload: mutation, confirmUpload: mutation, delete: mutation },
     } },
     "@/components/TestCaseTree": { collectKnownSuitePaths: () => [] },
-    "@/lib/use-case-field-access": { useCaseFieldAccess: () => ({ origin, readable: options.active !== false, current: options.active === false ? null : origin }) },
+    "@/lib/case-create-recovery": { CaseCreateRecovery }, "@/lib/use-case-field-access": { useCaseFieldAccess: () => ({ origin, readable: options.active !== false, current: options.active === false ? null : origin }) },
     "@/lib/case-presentation-read": { freshCasePresentation }, "@/lib/case-authoring-fields": authoring,
     "@/lib/move-list-item": { moveListItem },
     "@/lib/case-inspector": { inspectorLabel },
@@ -132,7 +133,7 @@ it.each([undefined, ...core.CASE_PROCEDURE_FORMATS])("keeps scenario phrasing op
   const scenario = /<details([^>]*)><summary>Optional Given \/ When \/ Then<\/summary>/.exec(html);
   expect(scenario).not.toBeNull();
   expect(scenario![1]!.includes('open=""')).toBe(format === "GHERKIN" || format === "MIXED");
-  expect(html).toContain("Given/When/Then is not required");
+  expect(html).toContain("About procedure steps");
   expect(html).toContain(format === "CHECKLIST" ? "Procedure checklist" : format === "NARRATIVE" ? "Narrative procedure" : "Procedure");
   expect(pairs(html).map(pair => pair.kind)).toEqual(["action-technical", "result-response", "action-technical", "result-response"]);
   expect(html).toContain('aria-label="Step 1 images and video"');

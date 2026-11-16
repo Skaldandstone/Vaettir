@@ -73,6 +73,26 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      # The migration restore proof must use PostgreSQL 16 tools, matching the
+      # immutable service image. Current hosted runners only package newer
+      # clients, so wrappers run the tools from that exact already-pulled image.
+      - name: Provision PostgreSQL 16 client
+        env:
+          VAETTIR_POSTGRES_16_IMAGE: docker.io/library/postgres@sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d
+        run: |
+          set -euo pipefail
+          tools="$RUNNER_TEMP/vaettir-postgres16/bin"
+          mkdir -p "$tools"
+          for tool in psql pg_dump pg_restore; do
+            cat > "$tools/$tool" <<EOF
+          #!/usr/bin/env bash
+          set -euo pipefail
+          exec docker run --rm --network host -e PGPASSWORD --mount type=bind,src="$RUNNER_TEMP",dst="$RUNNER_TEMP",readonly "$VAETTIR_POSTGRES_16_IMAGE" $tool "\$@"
+          EOF
+            chmod 0755 "$tools/$tool"
+          done
+          "$tools/pg_dump" --version | grep -E '^pg_dump \(PostgreSQL\) 16\.'
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 

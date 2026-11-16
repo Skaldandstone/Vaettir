@@ -391,10 +391,7 @@ function JiraIntegrationSection({ organizationId }: { organizationId: string }) 
   return (
     <div className="panel" style={{ marginTop: 24 }}>
       <h2 style={{ marginTop: 0 }}>Jira integration</h2>
-      <details><summary>Details</summary><p className="text-muted" style={{ fontSize: 13 }}>
-        Link requirements to Jira issues and pull their status back. Create an API token in your Atlassian account
-        (id.atlassian.com → Security → API tokens) and enter it below with your Jira site URL and account email.
-      </p></details>
+      <details><summary>Details</summary><p className="text-muted" style={{ fontSize: 13 }}>Connect Jira to keep requirement statuses up to date. <a className="inline-help" href="/guide#integrations" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p></details>
       <div style={{ display: "grid", gap: 12, maxWidth: 480 }}>
         <div>
           <label style={{ fontSize: 13 }}>
@@ -745,11 +742,7 @@ function PlanTypesSection() {
           {formOpen ? "Cancel" : "New type"}
         </ActionButton>
       </div>
-      <p style={{ color: "var(--muted)", fontSize: 13 }}>
-        Define a new test plan shape - a compliance acceptance form, an internal audit checklist, whatever your team
-        needs - by listing its fields below. It's usable from every project's "New test plan" picker immediately, no
-        code change or migration required.
-      </p>
+      <p style={{ color: "var(--muted)", fontSize: 13 }}>Create a reusable plan type with your team’s fields. <a className="inline-help" href="/guide#plans" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
 
       {(error ?? loadError) && <p style={{ color: "var(--ember)" }}>{error ?? loadError}</p>}
       {loading && <p>Loading…</p>}
@@ -876,10 +869,7 @@ function AiCreditsSection({ organizationId }: { organizationId: string }) {
   return (
     <div style={{ marginTop: 32 }}>
       <h2>AI credits</h2>
-      <p style={{ color: "var(--muted)", fontSize: 13 }}>
-        Covers the real cost of AI-powered features (reverse-engineering, PR-scan recommendations, risk assessment,
-        strategy generation). Resets monthly per your plan tier; top-off purchases aren't available yet.
-      </p>
+      <p style={{ color: "var(--muted)", fontSize: 13 }}>Your plan determines the monthly AI allowance. <a className="inline-help" href="/guide#credits" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
       <div className="panel" style={{ marginBottom: 12 }}>
         <div style={{ fontSize: 28, fontWeight: 700 }}>{status.balance}</div>
         <div className="text-muted" style={{ fontSize: 12 }}>
@@ -1175,12 +1165,7 @@ export default function OrganizationSettingsPage() {
       {dataRetentionYears !== null && (
         <div style={{ marginTop: 32 }}>
           <h2>Data retention</h2>
-          <p style={{ color: "var(--muted)", fontSize: 13 }}>
-            How long evidence, audit-log, and test-result data is kept before it's eligible for deletion. Different
-            compliance frameworks mandate different minimums - check what your framework requires before lowering
-            this. This sets the org's configured policy; there's no automated purge job yet, so nothing is actually
-            deleted as a result of this setting today.
-          </p>
+          <p style={{ color: "var(--muted)", fontSize: 13 }}>Set how long evidence is retained. Check your required retention period first. <a className="inline-help" href="/guide#settings" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <input
               type="number"
@@ -1203,11 +1188,7 @@ export default function OrganizationSettingsPage() {
       {releaseGatePolicy !== null && (
         <div style={{ marginTop: 32 }}>
           <h2>Release gates</h2>
-          <p style={{ color: "var(--muted)", fontSize: 13 }}>
-            What happens when someone tries to mark a release READY while an acceptance criterion is unmet or a
-            CRITICAL risk flag is still open. Soft warning surfaces the gap but lets them proceed; hard block refuses
-            the status change until it's resolved (enforced by the API, not just the UI).
-          </p>
+          <p style={{ color: "var(--muted)", fontSize: 13 }}>Choose whether unresolved criteria and critical risks warn or block release readiness. <a className="inline-help" href="/guide#releases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <select value={releaseGatePolicy} onChange={(e) => setReleaseGatePolicy(e.target.value)}>
               <option value="SOFT_WARNING">Soft warning</option>

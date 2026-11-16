@@ -837,10 +837,8 @@ function ProjectReportBuilder({ projectId }: { projectId: string }) {
                         </ReadableSelect>
                       </label>
                       <p className="text-muted">
-                        The report saves the tests currently linked to this
-                        release, including tests without results. This does not
-                        prove older runs belonged to this release. All selected
-                        filters must match.
+                        Uses current plans and selected cases for this release.
+                        <a className="inline-help" href="/guide#reports" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a>
                       </p>
                       {scopeChoices?.releasesLimited && (
                         <p>

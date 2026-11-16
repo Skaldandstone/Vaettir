@@ -86,7 +86,7 @@ export function WorkspacePreview() {
         </span>
         <div className="preview-actions">
           <button
-            className="text-button"
+            className="btn-secondary"
             type="button"
             onClick={() => setResetOpen(true)}
           >
@@ -222,7 +222,7 @@ export function WorkspacePreview() {
                   Review the CI mapping before signing off this release.
                 </p>
                 <button
-                  className="text-button"
+                  className="btn-secondary"
                   type="button"
                   onClick={() => changeView("Release readiness")}
                 >
@@ -601,7 +601,7 @@ export function WorkspacePreview() {
               <StatusPill tone={gate.tone}>{gate.state}</StatusPill>
               {gate.action && (
                 <button
-                  className="text-button"
+                  className="btn-secondary"
                   type="button"
                   onClick={() => {
                     changeView(

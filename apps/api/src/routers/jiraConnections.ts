@@ -7,6 +7,8 @@ import {hashOAuthState} from "../services/gitlabRepositoryOAuth.js";
 import {jiraCatalogSchema,jiraProjectSchema,listJiraProjects,listJiraReleases} from "../services/jiraSourceConnection.js";
 import {jiraOAuthCredentials,atlassianStorageReady,disconnectAtlassian} from "../services/atlassianOAuthConnection.js";
 import {atlassianApplication} from "../services/atlassianOAuth.js";
+import {listJiraIssuePage} from "../services/jiraIssueIntake.js";
+import {jiraPlanningTags,suggestJiraReleaseChecks} from "../services/jiraReleasePlanning.js";
 
 const projectInput=z.object({projectId:z.string()});
 const cursor=z.number().int().min(1).max(1000000);
@@ -75,6 +77,53 @@ export const jiraConnectionsRouter=router({
     if(current.oauthConnectionId)await ticketCredentials(ctx,current);
     await ctx.prisma.$transaction(tx=>liveEditor(tx,row.organizationId,ctx.user.id));
     return page;
+  }),
+  releasePlanPreview:protectedProcedure.input(projectInput.extend({
+    id:z.string(),
+    jiraProjectId:z.string().regex(/^[1-9]\d{0,31}$/),
+    releaseId:z.string().regex(/^[1-9]\d{0,31}$/),
+    approveIssueRead:z.literal(true),
+  })).mutation(async({ctx,input})=>{
+    const row=await own(ctx,input.id);
+    if(row.projectId!==input.projectId||!z.array(jiraProjectSchema).parse(row.approvedProjects)
+      .some(project=>project.id===input.jiraProjectId&&new URL(project.url).origin===row.providerOrigin)){
+      throw new TRPCError({code:"NOT_FOUND"});
+    }
+    const authorize=async()=>{
+      const current=await own(ctx,row.id);
+      if(current.version!==row.version)throw new TRPCError({code:"CONFLICT",message:"Jira access changed. Refresh and try again."});
+      verified(current);
+      await ctx.prisma.$transaction(tx=>liveEditor(tx,row.organizationId,ctx.user.id));
+      return ticketCredentials(ctx,current);
+    };
+    const issues=new Map<string,{issue:Awaited<ReturnType<typeof listJiraIssuePage>>["issues"][number];description:unknown}>();
+    const cursors=new Set<string>();
+    let next:string|null=null;
+    for(let index=0;index<5;index++){
+      const credentials=await authorize();
+      const page:Awaited<ReturnType<typeof listJiraIssuePage>>=await listJiraIssuePage(credentials,[input.jiraProjectId],next,{releaseId:input.releaseId})
+        .catch(()=>{throw new TRPCError({code:"BAD_REQUEST",message:"Could not read Jira release tickets. Check project access and retry."});});
+      page.issues.forEach((issue,i)=>issues.set(issue.id,{issue,description:page.descriptions?.[i]}));
+      next=page.nextPageToken;
+      if(!next)break;
+      if(cursors.has(next))throw new TRPCError({code:"BAD_REQUEST",message:"Jira returned a repeated page. Retry the preview."});
+      cursors.add(next);
+    }
+    const rows=[...issues.values()];
+    const tags=[...new Set(rows.flatMap(({issue})=>jiraPlanningTags(issue)))];
+    const candidates=tags.length ? await ctx.prisma.$queryRaw<Array<{id:string;title:string;tags:string[]}>>`
+      SELECT "id", "title", "tags" FROM "TestCase"
+      WHERE "projectId" = ${input.projectId} AND NOT "archived" AND "reviewStatus" = 'APPROVED'
+        AND EXISTS (SELECT 1 FROM unnest("tags") AS tag(value)
+          WHERE lower(btrim(tag.value)) IN (${Prisma.join(tags)}))
+      ORDER BY "id" LIMIT 2001
+    ` : [];
+    await authorize();
+    return {
+      tickets:rows.map(({issue,description})=>suggestJiraReleaseChecks(issue,description,candidates.slice(0,2000))),
+      moreTickets:next!==null,
+      moreCandidates:candidates.length>2000,
+    };
   }),
   // Retained wire shape for stale clients. New API-token registrations are retired.
   verify:protectedProcedure.input(projectInput.merge(credentialSchema).extend({requestId:z.string().uuid(),approveMetadataAccess:z.literal(true)})).mutation(async({ctx,input}):Promise<{id:string}>=>{

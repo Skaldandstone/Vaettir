@@ -134,7 +134,7 @@ export function SmartCaseSuggestions({ projectId, cases, caseIds, onApplyImport,
   return <details className="panel smart-case-suggestions" open>
     <summary>Suggest suites, subsuites, priorities and test types</summary>
     {notice?.identity === identity && <p role="status">{notice.text}</p>}
-    <p>Vaettir proposes placement based on each case’s complete procedure and expected outcome, using existing suites first. Review the explanations and select changes before applying. Suggestions do not verify the tests.</p>
+    <p>Review suggestions for suites, priorities and test types before applying them. <a className="inline-help" href="/guide#cases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
     {!draft && <>
       {blocked && <p role="status">{blocked}</p>}
       {(!availability?.canAnalyze || access.error) && <p><a href={`/projects/${encodeURIComponent(projectId)}/settings/integrations#ai-sharing`} target="_blank" rel="noopener noreferrer">AI sharing</a>{" · "}<ActionButton type="button" disabled={busy || access.checking} onClick={() => { setConsentKey(null); access.refresh(); }} tooltip="Check the current project classification and your AI access">Refresh</ActionButton></p>}
@@ -145,7 +145,7 @@ export function SmartCaseSuggestions({ projectId, cases, caseIds, onApplyImport,
     </>}
     {visible && draft && <>
       <p role="status">Review {draft.reviews.reduce((n, r) => n + r.before.length, 0)} cases. New paths create the named suite and subsuite levels when applied. Uncertain values remain unchanged.</p>
-      {draft.reviews.some(r => r.legacySuitePaths?.length) && <p>Older imported suite labels remain unchanged and are included in this review’s source checks. They are not converted into folders. Only the selected case placements below can change.</p>}
+      {draft.reviews.some(r => r.legacySuitePaths?.length) && <p>Review each proposed placement. Existing suite labels remain available. <a className="inline-help" href="/guide#cases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>}
       <ActionButton type="button" className="btn-secondary" disabled={busy || hasPending} onClick={() => setDraft({ ...draft, selected: Object.fromEntries(draft.reviews.flatMap(changes).map(s => [s.id, s])) })} tooltip={<> Select all proposed changes </>}> Select all </ActionButton>{" "}
       <button type="button" className="btn-secondary" disabled={busy || hasPending} onClick={() => setDraft({ ...draft, selected: {} })}>Clear selection</button>
       <div className="smart-suggestion-list">{draft.reviews.flatMap(review => review.suggestions.map(s => {

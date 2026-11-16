@@ -741,14 +741,7 @@ export function AndroidAppExploration(props: Props) {
                   />
                 </label>
               </details>
-              <p className="text-muted">
-                One exact label per line. Vaettir will follow matching
-                navigation controls, scroll and go back. Ordinary search/filter
-                fields are left untouched and their contents are excluded.
-                Unrecognized forms, sign-in, payments, embedded content and
-                destructive actions stop exploration or are excluded. A label
-                cannot guarantee an app’s behavior; use a test account.
-              </p>
+              <p className="text-muted">Enter navigation labels, one per line. Search and filter fields stay untouched. <a className="inline-help" href="/guide#live-apps" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
               <label>
                 <input
                   type="checkbox"
@@ -845,25 +838,14 @@ export function AndroidAppExploration(props: Props) {
                   </>
                 )}
               </div>
-              <p className="text-muted">
-                The current command may finish after Pause or Stop. No
-                background exploration continues when this page stops requesting
-                actions. Unapproved controls and unexplored areas have no
-                coverage claim.
-              </p>
+              <p className="text-muted">The current action may finish after you pause or stop. <a className="inline-help" href="/guide#live-apps" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
               {!exploring &&
                 ["COMPLETED", "STOPPED"].includes(shown.status) && (
                   <details>
                     <summary>
                       Review detected navigation for another exploration
                     </summary>
-                    <p>
-                      Select only controls that navigate ordinary screens in
-                      this test account. Labels can describe actions with side
-                      effects; selection does not make them safe. Known
-                      sensitive labels are still refused. The controls stay on
-                      this computer until selected journey disclosure.
-                    </p>
+                    <p>Choose only controls that safely navigate your test account. <a className="inline-help" href="/guide#live-apps" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
                     {Array.from(
                       new Set(
                         shown.screens.flatMap((screen) =>
@@ -918,11 +900,7 @@ export function AndroidAppExploration(props: Props) {
                   </details>
                 )}
               <h3>Review proposed tests</h3>
-              <p>
-                These suggestions describe reached navigation paths. Expected
-                behavior and business rules need review. Adding creates
-                pending-review cases and does not record a test pass.
-              </p>
+              <p>Review expected behavior before adding these pending test cases. <a className="inline-help" href="/guide#live-apps" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
               {shown.journeys.map((j) => {
                 const proposal = navigationProposal(j);
                 return (

@@ -46,7 +46,7 @@ export default function BetaGuidePage() {
           <li>Use non-regulated project data and test code only.</li>
           <li>Do not upload secrets, credentials, or regulated personal data.</li>
           <li>AI features send the submitted case or review context to the configured AI provider. Only use content your team is allowed to share for processing.</li>
-          <li>The beta includes 500 non-rolling AI credits per team each month, with no automatic overage charges.</li>
+          <li>See your AI credit balance and allowance in Organization settings.</li>
         </ul>
       </section>
 

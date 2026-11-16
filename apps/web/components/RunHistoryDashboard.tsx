@@ -409,12 +409,7 @@ export function RunHistoryDashboard({
              Review </ActionButton>
         </div>
       </div>
-      <details><summary>Details</summary><p className="text-muted">
-        This history page is not a whole-project dashboard. Manual completion
-        counts recorded planned run-case instances, not pass rate. CI counts
-        ingested observations, not planned completion. Each page is a fresh
-        current read inside a run-start anchor, not a globally frozen snapshot.
-      </p></details>
+      <details><summary>Details</summary><p className="text-muted">This chart summarizes the runs on this page. <a className="inline-help" href="/guide#runs" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p></details>
       {!page ? (
         <p role="status">
           {reader.loading

@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { buildDefectMap, emptyDefectDocument, defectRecordKey } from "@vaettir/core";
 const project={id:"synthetic-project",organizationId:"synthetic-org"};
 const source={id:"10001",key:"SYN",name:"Synthetic tracker",url:"https://synthetic.atlassian.net/browse/SYN"};
-const issues=[1,2].map(n=>({id:String(20000+n),projectId:source.id,key:`SYN-${n}`,title:`Synthetic defect ${n}`,status:n===1?"To do":"Done",updatedAt:"2026-10-20T00:00:00Z",url:`https://synthetic.atlassian.net/browse/SYN-${n}`,classification:n===1?"new":"unchanged",requirementId:n===1?null:"existing-requirement"}));
+const issues=[1,2].map(n=>({id:String(20000+n),projectId:source.id,key:`SYN-${n}`,title:`Synthetic defect ${n}`,issueType:"Bug",labels:["crash"],components:["Mobile"],status:n===1?"To do":"Done",updatedAt:"2026-10-20T00:00:00Z",url:`https://synthetic.atlassian.net/browse/SYN-${n}`,classification:n===1?"new":"unchanged",requirementId:n===1?null:"existing-requirement"}));
 let run=null,readCount=0,requirements=0,pending=null,loseFirst=true,getError=false,conflictNext=false,sourceWrites=0,connectionListError=false;
 const writes=[],receipts=new Map();
 const reject=()=>{requirements++;throw Error("Requirement writes and unrelated provider calls are forbidden in this fixture");};
@@ -34,9 +34,9 @@ export const trpcReact={
   verify:mutation(["jiraConnections","verify"],reject),approve:mutation(["jiraConnections","approve"],reject),forget:mutation(["jiraConnections","forget"],reject),
  },
  jiraIssueIntake:{
-  mine:query(["jiraIssueIntake","mine"],()=>run?[{id:run.id,status:run.status,issueCount:run.issues.length,completedCount:0}]:[]),
+  mine:query(["jiraIssueIntake","mine"],()=>run?[{id:run.id,status:run.status,filters:run.filters,issueCount:run.issues.length,completedCount:0}]:[]),
   get:query(["jiraIssueIntake","get"],()=>{if(getError)throw Error("Synthetic status outage");return structuredClone(run);}),
-  start:mutation(["jiraIssueIntake","start"],input=>{if(!input.approveIssueRead)throw Error("Read approval missing");run={id:"synthetic-run",version:1,status:"PREVIEW",projects:[source],issues:[],readInFlight:false,nextPageAvailable:true,pageCount:0,bounded:false,results:[]};return{id:run.id};}),
+  start:mutation(["jiraIssueIntake","start"],input=>{if(!input.approveIssueRead||input.defectFilters?.issueType!=="Bug"||input.defectFilters.labels.join()!=="crash")throw Error("Approved defect filters missing");run={id:"synthetic-run",version:1,status:"PREVIEW",projects:[source],filters:input.defectFilters,issues:[],readInFlight:false,nextPageAvailable:true,pageCount:0,bounded:false,results:[]};return{id:run.id};}),
   nextPage:mutation(["jiraIssueIntake","nextPage"],()=>{readCount++;run={...run,version:2,issues,status:"PREVIEW",nextPageAvailable:false,pageCount:1};return{id:run.id};}),
   finishPreview:mutation(["jiraIssueIntake","finishPreview"],()=>{run={...run,status:"REVIEW",version:3};return{id:run.id};}),
   approve:mutation(["jiraIssueIntake","approve"],reject),processBatch:mutation(["jiraIssueIntake","processBatch"],reject),cancel:mutation(["jiraIssueIntake","cancel"],reject),

@@ -21,7 +21,7 @@ export function PlanStatusEditor({ projectId, testPlanId, organizationId, readOn
     {(!readOnly || editor.pending) && <ActionButton type="button" className="btn-secondary" onClick={editor.show} tooltip={<> {editor.pending ? "Reconcile planning status request" : "Change planning status"} </>}>{editor.pending ? "Recover" : "Change status"}</ActionButton>}
     <Modal open={editor.open} onClose={editor.close} title="Review planning status" keepMounted>
       {!editor.readable ? <p>Restore the original project, plan and native signed-in reader with current full-editor access. Retained drafts and uncertain requests stay mounted but private.</p> : <div style={{ display: "grid", gap: 12 }}>
-        <p>Changes the plan’s saved planning status only. Header text, metadata, procedures, criteria, requirement links and assignment are not submitted. This is not a quality/readiness verdict or qualified approval.</p>
+        <p>Update the planning status. This does not record a quality review. <a className="inline-help" href="/guide#plans" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
         {editor.reads.fresh?.statusActions.blockedReason && <p role="alert">{editor.reads.fresh.statusActions.blockedReason}</p>}
         {editor.pending ? <>
           <p>The original request is retained. Reconcile it without changing its UUID, reviewed status, intent, reason or revision.</p>

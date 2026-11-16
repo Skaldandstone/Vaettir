@@ -14,7 +14,8 @@ import {
 import { Drawer } from "@/components/Drawer";
 import { Modal } from "@/components/Modal";
 import { TestPlanDetailContent } from "@/components/TestPlanDetailContent";
-import { JiraReleasePicker } from "@/components/JiraReleasePicker";
+import { JiraReleasePicker, type JiraReleaseSelection } from "@/components/JiraReleasePicker";
+import { JiraPlanPreview, jiraReleaseStrategy } from "@/components/JiraPlanPreview";
 import { resolveQualityExperience } from "@vaettir/core";
 import { useCaseFieldAccess } from "@/lib/use-case-field-access";
 import { currentSessionScope, sameAuthScope } from "@/lib/auth-query-cache";
@@ -24,6 +25,7 @@ import { Icon, StatusPill } from "@/components/ui/Workspace";
 import { inspectorLabel } from "@/lib/case-inspector";
 
 const STATUSES = ["DRAFT", "ACTIVE", "IN_REVIEW", "APPROVED"];
+type ReleasePreview = RouterOutputs["jiraConnections"]["releasePlanPreview"];
 
 /** Manual creation is independent of AI generation and global reference seeds.
  * The legacy create transport has no receipt/UUID: UNKNOWN must not be retried. */
@@ -31,6 +33,11 @@ function ManualPlanCreate({projectId,readOnly,onCreated}:{projectId:string;readO
   const access=useCaseFieldAccess(projectId),auth=useAuth();
   const typesQuery=trpcReact.testPlans.types.useQuery(undefined,{retry:false,staleTime:0});
   const create=trpcReact.testPlans.create.useMutation();
+  const readRelease=trpcReact.jiraConnections.releasePlanPreview.useMutation();
+  const [release,setRelease]=useState<JiraReleaseSelection|null>(null);
+  const [preview,setPreview]=useState<ReleasePreview|null>(null);
+  const [caseIds,setCaseIds]=useState<string[]>([]);
+  const [reading,setReading]=useState(false);
   const [name,setName]=useState("");
   const [typeId,setTypeId]=useState("");
   const [notice,setNotice]=useState("");
@@ -54,19 +61,49 @@ function ManualPlanCreate({projectId,readOnly,onCreated}:{projectId:string;readO
   const types=typesReady?typesQuery.data:[];
   const event=generation.current;
   function edit(change:()=>void){if(event!==generation.current||inFlight.current||held.current||!owns())return;generation.current++;if(!privateOwner)setPrivateOwner(frame);setKnownId("");setNotice("");change();}
+  async function readTickets(){
+    if(!release||event!==generation.current||inFlight.current||held.current||!owns())return;
+    inFlight.current=true;setReading(true);setNotice("");
+    try{
+      const data=await readRelease.mutateAsync({projectId,id:release.connectionId,jiraProjectId:release.jiraProjectId,releaseId:release.id,approveIssueRead:true});
+      if(!owns())return;
+      const directMatches=data.tickets.flatMap(ticket=>ticket.cases
+        .filter(candidate=>ticket.cases.length===1||candidate.matches.includes(ticket.key.toLowerCase()))
+        .map(candidate=>candidate.id));
+      generation.current++;
+      setPreview(data);setCaseIds([...new Set(directMatches)].slice(0,500));
+    }catch{
+      if(owns())setNotice("Could not read tickets. Check Jira access and retry.");
+    }finally{inFlight.current=false;setReading(false);}
+  }
   async function submit(){
     if(event!==generation.current||inFlight.current||held.current)return;
     if(!owns()){setNotice("Current full editor access is required to create a plan. Your draft is retained.");return;}
+    if(release&&!preview){setNotice("Read the Jira tickets or clear the release.");return;}
     if(!name.trim()){setNotice("Enter a plan name before creating it.");return;}
     if(name.trim().length>200){setNotice("Use a plan name of 200 characters or fewer.");return;}
     if(typeId&&(!typesReady||!types.some(type=>type.id===typeId))){setNotice("The selected plan type is unavailable. Refresh types or choose Functional (default).");return;}
-    const input:RouterInputs["testPlans"]["create"]=Object.freeze({projectId,name:name.trim(),...(typeId?{testPlanTypeId:typeId}:{})});
+    const gaps=preview?.tickets.filter(ticket=>!ticket.cases.some(candidate=>caseIds.includes(candidate.id))).map(ticket=>ticket.key)??[];
+    const partial=preview?.moreTickets||preview?.moreCandidates||preview?.tickets.some(ticket=>ticket.moreCases);
+    const input:RouterInputs["testPlans"]["create"]=Object.freeze({
+      projectId,name:name.trim(),...(typeId?{testPlanTypeId:typeId}:{}),
+      ...(preview&&release?{
+        description:[
+          `Jira release ${release.name} · ${preview.tickets.length} tickets reviewed.`,
+          jiraReleaseStrategy(preview.tickets),
+          gaps.length?`Add coverage for ${gaps.join(", ")}.`:"",
+          partial?"Review remaining Jira tickets and case matches separately.":"",
+        ].filter(Boolean).join("\n"),
+        acceptanceChecks:preview.tickets.flatMap(ticket=>ticket.checks.map(check=>check.trim()).filter(Boolean).map(check=>`${ticket.key} · ${check}`)),
+        executionCaseIds:caseIds,
+      }:{}),
+    });
     const attempt={input,uncertain:false};held.current=attempt;inFlight.current=true;setPending(true);setNotice("");if(!privateOwner)setPrivateOwner(frame);
     try{
       const result=await create.mutateAsync(input);
       if(!result||Object.keys(result).length!==2||!Object.hasOwn(result,"id")||!Object.hasOwn(result,"name")||typeof result.id!=="string"||!result.id||result.id.length>200||result.name!==input.name)throw Error("Plan acknowledgement did not match the original create.");
       if(!owns()){attempt.uncertain=true;setUnknown(true);return;}
-      held.current=null;generation.current++;setName("");setTypeId("");setKnownId(result.id);setNotice("Test plan created.");
+      held.current=null;generation.current++;setName("");setTypeId("");setRelease(null);setPreview(null);setCaseIds([]);setKnownId(result.id);setNotice("Test plan created.");
       try{await onCreated();}catch{if(owns())setNotice("Test plan created, but the list could not be refreshed. Open the saved plan; do not create it again.");}
     }catch(cause){
       const original=held.current;
@@ -75,18 +112,31 @@ function ManualPlanCreate({projectId,readOnly,onCreated}:{projectId:string;readO
     }finally{inFlight.current=false;setPending(false);}
   }
   const visible=frame.eligible&&(!privateOwner||sameOwner(privateOwner));
+  const disabled=pending||unknown||reading;
   return <section aria-label="Manual test plan creation" style={{margin:"16px 0",minWidth:0}}>
     {visible?<>
-      <h2 style={{fontSize:18,marginBottom:10}}>Create test plan</h2>
+      <h2 style={{fontSize:18,marginBottom:10}}>Create plan <a className="btn-secondary" href="/guide#jira-plans">Help</a></h2>
       <JiraReleasePicker key={`${frame.projectId}:${frame.organizationId}:${frame.clerkActorId}:${frame.sessionId}`}
-        projectId={projectId} disabled={pending||unknown} onSelect={releaseName=>edit(()=>setName(releaseName.slice(0,200)))}/>
+        projectId={projectId} disabled={disabled} onSelect={selected=>edit(()=>{
+          setName(selected.name.slice(0,200));setRelease(selected);setPreview(null);setCaseIds([]);
+        })}/>
+      {release&&<div className="workspace-panel" style={{padding:12,margin:"12px 0"}}>
+        <p><strong>{release.name}</strong></p>
+        {!preview&&<ActionButton type="button" className="btn-primary" disabled={disabled} onClick={()=>void readTickets()}
+          tooltip="Read Jira descriptions for acceptance criteria and labels for case matches">
+          {reading?"Reading…":"Read tickets"}
+        </ActionButton>}{" "}
+        <button type="button" className="btn-secondary" disabled={disabled} onClick={()=>edit(()=>{setRelease(null);setPreview(null);setCaseIds([]);})}>Clear Jira</button>
+        {preview&&<JiraPlanPreview tickets={preview.tickets} partial={preview.moreTickets||preview.moreCandidates} caseIds={caseIds} disabled={disabled}
+          onCases={ids=>edit(()=>setCaseIds(ids))}
+          onChecks={(key,checks)=>edit(()=>setPreview({...preview,tickets:preview.tickets.map(ticket=>ticket.key===key?{...ticket,checks}:ticket)}))}/>}
+      </div>}
       <form onSubmit={async event=>{event.preventDefault();await submit();}} style={{display:"flex",flexWrap:"wrap",gap:10,alignItems:"end"}}>
         <label style={{display:"grid",gap:6,flex:"2 1 220px",minWidth:0}}>Plan name<input value={name} maxLength={200} disabled={pending||unknown} onChange={event=>edit(()=>setName(event.target.value))} placeholder="e.g. Release regression" style={{width:"100%",minWidth:0,boxSizing:"border-box"}}/></label>
         <label style={{display:"grid",gap:6,flex:"1 1 190px",minWidth:0}}>Plan type<select value={typeId} disabled={pending||unknown} onChange={event=>edit(()=>setTypeId(event.target.value))} style={{width:"100%",minWidth:0}}><option value="">Functional (default)</option>{typeId&&!types.some(type=>type.id===typeId)&&<option value={typeId}>Selected type (refresh required)</option>}{types.map(type=><option key={type.id} value={type.id}>{type.name}</option>)}</select></label>
-        <ActionButton type="submit" className="btn-primary" disabled={pending||unknown||!name.trim()||!!typeId&&(!typesReady||!types.some(type=>type.id===typeId))} tooltip={<> {pending?"Creating test plan…":"Create test plan"} </>}>{pending?"Creating…":"Create plan"}</ActionButton>
+        <ActionButton type="submit" className="btn-primary" disabled={disabled||!!release&&!preview||!name.trim()||!!typeId&&(!typesReady||!types.some(type=>type.id===typeId))} tooltip={pending?"Creating test plan…":"Save a draft test plan"}>{pending?"Creating…":"Create plan"}</ActionButton>
       </form>
       {typesQuery.error?<p role="alert" style={{fontSize:13}}>Plan types could not be loaded. Functional (default) is still available. <ActionButton type="button" className="btn-secondary" disabled={typesQuery.isFetching||pending} onClick={()=>{if(owns())void typesQuery.refetch();}} tooltip={<> Retry plan types </>}> Retry </ActionButton></p>:!typesReady?<p role="status" style={{fontSize:13}}>Checking plan types… Functional (default) is available.</p>:!types.length?<p role="status" style={{fontSize:13}}>No other plan types are available. Functional (default) can be created now.</p>:null}
-      <details style={{fontSize:13,marginTop:8}}><summary>Plan type help</summary><p>A manual plan needs a name. Functional is the standard case-planning format; other types add their own fields. Creating a manual plan does not generate AI content or start a test run.</p></details>
       {notice&&<p role={unknown?"alert":"status"}>{notice}</p>}
       {unknown&&!notice&&<p role="alert">The original creation remains unacknowledged. Check the plan list; do not submit this draft again.</p>}
       {knownId&&<a href={`/projects/${encodeURIComponent(projectId)}/test-plans/${encodeURIComponent(knownId)}`}>Open created plan</a>}

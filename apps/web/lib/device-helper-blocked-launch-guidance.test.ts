@@ -66,7 +66,7 @@ describe("actual public blocked-helper guidance renderer: no native or device ac
     expect(page).toContain('import { DeviceHelperBlockedLaunchGuidance } from "@/components/DeviceHelperBlockedLaunchGuidance"');
     expect(page).toContain('connectorStatus === "blocked" && <div role="status"><DeviceHelperBlockedLaunchGuidance reportedBlocked={true} />');
     expect(page).toContain('onClick={showPolicyPermittedManualSetup} tooltip={<> Show manual instructions only if policy permits </>}');
-    expect(page).toContain("Your private pairing draft remains retained");
+    expect(page).toContain("Your pairing draft is retained");
     expect(page).toContain("launch outcome remains unverified");
     expect(page).not.toContain("not started. Do not disable");
   });

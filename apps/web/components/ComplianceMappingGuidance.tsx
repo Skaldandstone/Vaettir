@@ -14,12 +14,7 @@ export function ComplianceFrameworkGuidance({
     >
       <h3>Choose evidence that demonstrates the requirement</h3>
       {guide && <p>{guide.summary}</p>}
-      <p>
-        Open a control’s mapping guide, choose a test that checks the stated
-        behavior, then record its actual result and review period. A linked case
-        shows coverage; it does not show that the test passed or that the
-        requirement is satisfied.
-      </p>
+      <p>Map a test that checks the control’s expected behavior. <a className="inline-help" href="/guide#compliance" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
       <p>
         {guide?.review ??
           "Use your authoritative framework and its current version to confirm applicability, expected behavior and evidence with the responsible reviewer. Custom controls keep their saved wording; no regulatory interpretation is inferred from their code."}

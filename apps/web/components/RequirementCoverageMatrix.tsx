@@ -651,12 +651,7 @@ function Matrix({ projectId }: { projectId: string }) {
         </label>
         <details>
           <summary>Use an older exact plan or run reference</summary>
-          <p className="text-muted">
-            Suggestions are bounded, not the full history. Enter an existing
-            native reference only when it is absent from the dropdown. The
-            server verifies that it belongs to this project; no configuration
-            metadata is filled automatically.
-          </p>
+          <p className="text-muted">Choose an existing reference. Enter its ID if it is missing from the list. <a className="inline-help" href="/guide#requirements" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
           {(["planId", "runId"] as const).map((key) => (
             <label style={label} key={key}>
               {key === "planId"

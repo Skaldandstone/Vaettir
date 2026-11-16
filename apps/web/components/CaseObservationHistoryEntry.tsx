@@ -17,7 +17,7 @@ export function CaseObservationHistoryEntry({ projectId, testCaseId, displayId, 
       aria-label={`${entry.label} for ${displayId}, opens in a new tab`} style={{ display: "inline-block", overflowWrap: "anywhere" }}>
       {entry.label} ↗
     </Link>
-    <details><summary>Details</summary><p className="text-muted">Opens in a new tab to preserve this case-history selection, filters and mounted drafts. The native run rechecks current workspace access; this link is not an authorization grant. This does not record or correct anything automatically.</p></details>
+    <details><summary>Details</summary><p className="text-muted">Opens the run in a new tab. <a className="inline-help" href="/guide#runs" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p></details>
     <details><summary>Execution, correction and legacy evidence limits</summary><ul>{entry.limitations.map(note => <li key={note}>{note}</li>)}</ul></details>
   </section>;
 }

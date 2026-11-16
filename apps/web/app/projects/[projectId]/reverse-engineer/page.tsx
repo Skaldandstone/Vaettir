@@ -522,7 +522,7 @@ export default function ReverseEngineerPage() {
             >
               <h2 style={{ margin: 0 }}>Scan the repository</h2>
               <ConnectedRepositoryPicker projectId={projectId} selectedId={selectedRepositoryId} onSelect={repo=>setSelectedRepositoryId(repo?.id??"")} disabled={scanning}/>
-              <p className="text-muted">Use an existing project repository, review the file scope and credit estimate, then approve reading and AI processing. Connected GitLab source reads reuse your verified grant; connecting alone never starts a scan.</p>
+              <p className="text-muted">Choose a repository and review the scope and credit estimate. <a className="inline-help" href="/guide#automation" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
               <ActionButton type="button" onClick={()=>setRepoReview(true)} disabled={scanning} tooltip={<> Choose repository and review processing </>}> Choose </ActionButton>
               {scanResult && (
                 <p style={{ color: "var(--frost)" }}>
@@ -649,12 +649,7 @@ export default function ReverseEngineerPage() {
           {sourceMode === "gherkin" && (
             <div style={{ maxWidth: 720 }}>
               <h2>Import a Gherkin/.feature file</h2>
-              <p style={{ color: "var(--muted)", margin: "0 0 8px" }}>
-                Already BDD, so this just parses and validates rather than
-                inferring — each Scenario becomes its own test case, landing
-                pre-approved (no AI to double-check). A Scenario Outline&apos;s
-                Examples table expands into one case per row.
-              </p>
+              <p style={{ color: "var(--muted)", margin: "0 0 8px" }}>Import Gherkin scenarios directly. <a className="inline-help" href="/guide#automation" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
               <div style={{ display: "grid", gap: 8, maxWidth: 720 }}>
                 <label>
                   File path
@@ -706,12 +701,7 @@ export default function ReverseEngineerPage() {
           {sourceMode === "postman" && (
             <div style={{ maxWidth: 720 }}>
               <h2>Import a Postman collection</h2>
-              <p style={{ color: "var(--muted)", margin: "0 0 8px" }}>
-                Request/assertion pairs, not functions — this extracts each
-                request&apos;s <code>pm.test(...)</code> checks rather than
-                inferring anything. A request with no test script has nothing to
-                verify and is skipped.
-              </p>
+              <p style={{ color: "var(--muted)", margin: "0 0 8px" }}>Import Postman requests that include test assertions. <a className="inline-help" href="/guide#automation" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
               <div style={{ display: "grid", gap: 8, maxWidth: 720 }}>
                 <label>
                   File path
@@ -761,14 +751,7 @@ export default function ReverseEngineerPage() {
           {sourceMode === "custom" && (
             <div style={{ maxWidth: 720 }}>
               <h2>Teach Vaettir a custom framework</h2>
-              <p style={{ color: "var(--muted)", margin: "0 0 8px" }}>
-                For a bespoke/internal framework with no built-in support: give
-                2-3 example test files and the agent infers how test names,
-                assertions, and setup/teardown are expressed in it. That pattern
-                is then included as context on every later reverse-engineer call
-                for this project&apos;s files in that same framework, instead of
-                guessing from scratch each time.
-              </p>
+              <p style={{ color: "var(--muted)", margin: "0 0 8px" }}>Add two or three sample files to teach Vaettir your test framework. <a className="inline-help" href="/guide#automation" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
               <div style={{ display: "grid", gap: 8, maxWidth: 720 }}>
                 {exampleFiles.map((f, i) => (
                   <div

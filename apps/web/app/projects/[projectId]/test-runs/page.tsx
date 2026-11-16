@@ -50,6 +50,14 @@ function CoverageSection({ projectId }: { projectId: string }) {
   const reportsQuery = trpcReact.coverage.list.useQuery({ projectId });
   const reports = reportsQuery.data ?? [];
 
+  if (reportsQuery.error || reportsQuery.isPaused) return (
+    <section aria-label="Coverage" style={{ marginTop: 32 }}>
+      <h2>Coverage</h2>
+      <p role="alert">Coverage unavailable.</p>
+      <ActionButton type="button" className="btn-secondary" disabled={reportsQuery.isFetching}
+        onClick={() => void reportsQuery.refetch()} tooltip="Reload coverage reports">Retry</ActionButton>
+    </section>
+  );
   if (reportsQuery.isLoading || reports.length === 0) return null;
 
   return (

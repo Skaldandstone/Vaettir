@@ -20,6 +20,8 @@ export function JiraIssueIntake({connectionId,projects,onBack,projectId,purpose=
   const process=trpcReact.jiraIssueIntake.processBatch.useMutation();
   const cancel=trpcReact.jiraIssueIntake.cancel.useMutation();
   const [chosenProjects,setChosenProjects]=useState<string[]>([]);
+  const [issueType,setIssueType]=useState("Bug");
+  const [labelText,setLabelText]=useState("");
   const [permission,setPermission]=useState(false);
   const [selected,setSelected]=useState<string[]>([]);
   const [error,setError]=useState("");
@@ -32,7 +34,13 @@ export function JiraIssueIntake({connectionId,projects,onBack,projectId,purpose=
   const busy=requestBusy||defectWorking;
   const cancelBusy=start.isPending||finish.isPending||approve.isPending||process.isPending||cancel.isPending||defectWorking||defectHeld;
   const current=run.isSuccess?run.data:undefined;
-  const canRead=current&&(current.status==="PREVIEW"||current.status==="PARTIAL"||current.status==="READING"&&!current.readInFlight);
+  const defects=purpose==="defects";
+  const priorRuns=history.data?.filter(item=>defects ? !["IMPORTING","COMPLETE"].includes(item.status) : !item.filters)??[];
+  const labels=[...new Set(labelText.split(",").map(label=>label.trim()).filter(Boolean))];
+  const unsafeJql=/["\\\p{Cc}\p{Zl}\p{Zp}]/u;
+  const validFilters=!!issueType.trim()&&!unsafeJql.test(issueType)&&labels.length<=5&&
+    labels.every(label=>label.length<=80&&!unsafeJql.test(label)&&!/\s/u.test(label));
+  const canRead=current&&(!defects||current.filters)&&(current.status==="PREVIEW"||current.status==="PARTIAL"||current.status==="READING"&&!current.readInFlight);
   async function refresh(){await Promise.all([run.refetch(),history.refetch()]);}
   function resetAttempt(){setStartRequest(null);setPermission(false);}
   async function loadPage(){
@@ -42,21 +50,25 @@ export function JiraIssueIntake({connectionId,projects,onBack,projectId,purpose=
     catch{setError("This issue page could not be read. Retry the same request, or refresh to check its saved status. Previously staged evidence is retained.");await refresh();}
   }
   return <div style={{display:"grid",gap:16,minWidth:0}}>
-    <h3>{purpose==="defects"?"Read Jira issues for the defect map":"Import Jira issue summaries"}</h3>
-    <details><summary>Details</summary><p className="text-muted">Cost: 0 AI credits. No AI service is used. Only issue identity, title, status, updated time and source link are read; descriptions, comments, attachments and code are excluded.</p></details>
+    <h3>{defects?"Jira defects":"Jira issues"} {defects&&<a className="btn-secondary" href="/guide#defects">Help</a>}</h3>
     {(error||history.error||run.error)&&<p role="alert">{error||"Saved intake state could not be loaded. Refresh before continuing; no success is assumed."}</p>}
     {!runId&&<>
-      <p>Choose from the approved project scope, then allow issue reads for this run. Saving connection scope did not grant this permission.</p>
       {history.isLoading&&<p role="status">Loading previous runs…</p>}
       {history.error&&<ActionButton type="button" className="btn-secondary" disabled={busy||defectHeld} onClick={()=>void history.refetch()} tooltip={<> Retry saved runs </>}> Retry </ActionButton>}
-      {!!history.data?.length&&<details><summary>Previous intake runs ({history.data.length})</summary><ul style={{paddingLeft:20,overflowWrap:"anywhere"}}>{history.data.filter(item=>purpose==="requirements"||!["IMPORTING","COMPLETE"].includes(item.status)).map(item=><li key={item.id} style={{marginTop:8}}><button type="button" className="btn-secondary" onClick={()=>{setRunId(item.id);setSelected([]);setError("");}}>{item.status.toLowerCase()} · {item.issueCount} staged · {item.completedCount} processed</button>{item.lastError&&<span> · Last attempt needs attention</span>}</li>)}</ul></details>}
+      {!!priorRuns.length&&<details><summary>Previous previews ({priorRuns.length})</summary><ul style={{paddingLeft:20,overflowWrap:"anywhere"}}>{priorRuns.map(item=><li key={item.id} style={{marginTop:8}}><button type="button" className="btn-secondary" onClick={()=>{setRunId(item.id);setSelected([]);setError("");}}>{item.status.toLowerCase()} · {item.issueCount} staged{defects?item.filters?` · ${[item.filters.issueType,...item.filters.labels].join(" · ")}`:" · Unfiltered":` · ${item.completedCount} processed`}</button>{item.lastError&&<span> · Last attempt needs attention</span>}</li>)}</ul></details>}
       <div className="source-chip-list" role="group" aria-label="Approved Jira projects for issue intake">{projects.map(p=><button key={p.id} type="button" className="source-connection-chip" aria-pressed={chosenProjects.includes(p.id)} disabled={busy||defectHeld||chosenProjects.length>=20&&!chosenProjects.includes(p.id)} style={{maxWidth:"100%",overflowWrap:"anywhere"}} onClick={()=>{resetAttempt();setChosenProjects(prior=>prior.includes(p.id)?prior.filter(x=>x!==p.id):[...prior,p.id]);}}><span><strong>{p.key}</strong><small>{p.name}</small></span>{chosenProjects.includes(p.id)&&<span aria-hidden="true">✓</span>}</button>)}</div>
       {!projects.length&&<p>No approved projects are available. Return to connection scope and approve projects first.</p>}
-      <p>Up to 20 projects, five pages and 100 issue summaries per run. You choose each page to read. This is a bounded snapshot, not an exhaustive import or automatic sync.</p>
+      {defects&&<fieldset disabled={busy||defectHeld} style={{display:"grid",gap:8}}>
+        <legend>Defect filters</legend>
+        <label>Issue type <input value={issueType} maxLength={80} onChange={event=>{resetAttempt();setIssueType(event.target.value);}}/></label>
+        <label>Labels <input value={labelText} maxLength={410} placeholder="e.g. crash, android" aria-describedby="defect-label-hint" onChange={event=>{resetAttempt();setLabelText(event.target.value);}}/></label>
+        <small id="defect-label-hint">Optional. Separate up to five labels with commas. Tickets must match every label.</small>
+        {!validFilters&&<p role="status">Enter a Jira issue type and valid labels before approving the read.</p>}
+      </fieldset>}
       <label style={{display:"flex",gap:8,alignItems:"flex-start"}}><input type="checkbox" checked={permission} disabled={busy||defectHeld} onChange={event=>setPermission(event.target.checked)}/><span>I approve reading issue summaries only from these {chosenProjects.length} selected Jira projects for this run.</span></label>
-      <div style={actions}><ActionButton type="button" className="btn-secondary" disabled={busy||defectHeld} onClick={onBack} tooltip={<> Back to connection </>}> Back </ActionButton><ActionButton type="button" disabled={busy||defectHeld||!permission||!chosenProjects.length||!history.isSuccess} onClick={async()=>{
-        if(!permission||!chosenProjects.length)return;const request=startRequest??crypto.randomUUID();setStartRequest(request);setError("");
-        try{const result=await start.mutateAsync({connectionId,projectIds:chosenProjects,requestId:request,approveIssueRead:true});setRunId(result.id);setPermission(false);setStartRequest(null);setSelected([]);await history.refetch();}
+      <div style={actions}><ActionButton type="button" className="btn-secondary" disabled={busy||defectHeld} onClick={onBack} tooltip={<> Back to connection </>}> Back </ActionButton><ActionButton type="button" className="btn-primary" disabled={busy||defectHeld||!permission||!chosenProjects.length||!history.isSuccess||defects&&!validFilters} onClick={async()=>{
+        if(!permission||!chosenProjects.length||defects&&!validFilters)return;const request=startRequest??crypto.randomUUID();setStartRequest(request);setError("");
+        try{const result=await start.mutateAsync({connectionId,projectIds:chosenProjects,requestId:request,approveIssueRead:true,...(defects?{defectFilters:{issueType:issueType.trim(),labels}}:{})});setRunId(result.id);setPermission(false);setStartRequest(null);setSelected([]);await history.refetch();}
         catch{setError("Could not save this read approval. Retry the same request. No issue read or import success is assumed.");await history.refetch();}
       }} tooltip={<> {start.isPending?"Saving permission…":"Approve issue reads and start preview"} </>}>{start.isPending?"Saving permission…":"Approve reads"}</ActionButton></div>
     </>}
@@ -65,15 +77,36 @@ export function JiraIssueIntake({connectionId,projects,onBack,projectId,purpose=
       <ActionButton type="button" className="btn-secondary" disabled={busy} onClick={()=>{setError("");setPageRequest(null);void refresh();}} tooltip={<> Refresh saved status </>}> Refresh </ActionButton>
       {current&&<>
         <p role="status">{current.status.toLowerCase()} · {current.issues.length} summaries staged · {current.pageCount}/5 pages · {current.results.length} processed</p>
-        <p style={{overflowWrap:"anywhere"}}>Selected scope: {current.projects.map(p=>p.key).join(", ")}</p>
+        <p style={{overflowWrap:"anywhere"}}>Projects {current.projects.map(p=>p.key).join(", ")}{current.filters&&` · ${[current.filters.issueType,...current.filters.labels].join(" · ")}`}</p>
+        {defects&&!current.filters&&["PREVIEW","PARTIAL","READING"].includes(current.status)&&<p role="status">Start a new preview to read issues with defect filters.</p>}
         {current.lastError&&<p role="alert">Last attempt could not finish. Saved evidence and completed imports remain available. Retry the relevant action or cancel this run.</p>}
         {current.bounded&&<p role="status">The run reached its intake limit. Unread Jira issues have not been removed or imported.</p>}
         {current.status==="READING"&&<p role="status">{current.readInFlight?"A page read is in progress. Refresh its saved status; do not start a second read.":"The previous read lease expired. Retry this page or finish the saved partial preview."}</p>}
         {canRead&&<>
-          <p>Read another page or finish this snapshot for review. No requirements have been written.</p>
           <div style={actions}><ActionButton type="button" disabled={busy||defectHeld||!current.nextPageAvailable&&!pageRequest} onClick={()=>void loadPage()} tooltip={<> {next.isPending?"Reading summaries…":pageRequest?"Retry issue page":"Read next issue page"} </>}>{next.isPending?"Reading summaries…":pageRequest?"Retry":"Read"}</ActionButton><ActionButton type="button" className="btn-secondary" disabled={busy||defectHeld||!!pageRequest} onClick={async()=>{setError("");try{await finish.mutateAsync({runId,version:current.version});setSelected(current.issues.filter(i=>purpose==="defects"||i.classification==="new").map(i=>i.id));await refresh();}catch{setError("Could not finish preview. Refresh and retry; staged summaries are retained.");await refresh();}}} tooltip={<> Finish preview and review </>}> Finish preview </ActionButton></div>
         </>}
-        {!!current.issues.length&&<div style={{maxHeight:320,overflow:"auto",minWidth:0}}><table style={{width:"100%",tableLayout:"fixed"}}><caption>Issue summary preview</caption><thead><tr>{current.status==="REVIEW"&&<th scope="col" style={{width:40}}>Add</th>}<th scope="col" style={{overflowWrap:"anywhere"}}>Issue</th><th scope="col" style={{overflowWrap:"anywhere"}}>Status / evidence</th></tr></thead><tbody>{current.issues.map(issue=><tr key={issue.id}>{current.status==="REVIEW"&&<td><input type="checkbox" aria-label={`Import ${issue.key}`} checked={selected.includes(issue.id)} disabled={busy||defectHeld||!!approvalRequest||purpose==="requirements"&&issue.classification!=="new"} onChange={event=>setSelected(prior=>event.target.checked?[...prior,issue.id]:prior.filter(id=>id!==issue.id))}/></td>}<td style={{overflowWrap:"anywhere"}}><a href={issue.url} target="_blank" rel="noopener noreferrer">{issue.key}</a><div>{issue.title}</div></td><td style={{overflowWrap:"anywhere"}}>{issue.status}<div>{purpose==="defects"?"Staged source summary":issue.classification==="conflicting"?"Conflict: retained for human review":issue.classification==="unchanged"?"Unchanged: no duplicate":"New: addition available"}</div><small>Updated: <time dateTime={issue.updatedAt} title={issue.updatedAt}>{issue.updatedAt.slice(0,10)}</time></small></td></tr>)}</tbody></table></div>}
+        {!!current.issues.length&&<div style={{maxHeight:320,overflow:"auto",minWidth:0}}>
+          <table style={{width:"100%",tableLayout:"fixed",overflowWrap:"anywhere"}}>
+            <caption>Issue summary preview</caption>
+            <thead><tr>{current.status==="REVIEW"&&<th scope="col" style={{width:40}}>Add</th>}
+              <th scope="col">Issue</th>
+              <th scope="col">{defects?"Type, components and labels":"Status / evidence"}</th>
+            </tr></thead>
+            <tbody>{current.issues.map(issue=><tr key={issue.id}>
+              {current.status==="REVIEW"&&<td><input type="checkbox" aria-label={`Import ${issue.key}`} checked={selected.includes(issue.id)} disabled={busy||defectHeld||!!approvalRequest||purpose==="requirements"&&issue.classification!=="new"} onChange={event=>setSelected(prior=>event.target.checked?[...prior,issue.id]:prior.filter(id=>id!==issue.id))}/></td>}
+              <td><a href={issue.url} target="_blank" rel="noopener noreferrer">{issue.key}</a><div>{issue.title}</div></td>
+              {defects?<td>
+                {issue.issueType??"Type unavailable"}
+                {!!issue.components?.length&&<div>Components · {issue.components.join(", ")}</div>}
+                {!!issue.labels?.length&&<div>Labels · {issue.labels.join(", ")}</div>}
+              </td>:<td>
+                {issue.status}
+                <div>{issue.classification==="conflicting"?"Conflict: retained for human review":issue.classification==="unchanged"?"Unchanged: no duplicate":"New: addition available"}</div>
+                <small>Updated: <time dateTime={issue.updatedAt} title={issue.updatedAt}>{issue.updatedAt.slice(0,10)}</time></small>
+              </td>}
+            </tr>)}</tbody>
+          </table>
+        </div>}
         {current.status==="REVIEW"&&purpose==="requirements"&&<>
           <p>Add {selected.length} selected issue summaries as requirements? Existing records, approvals and human edits stay unchanged. Conflicting evidence is retained for review, never silently applied.</p>
           <p>Approval locks this selection. Import then proceeds in batches of up to 10, with progress saved after every batch. Cost: 0 AI credits.</p>
@@ -93,7 +126,7 @@ export function JiraIssueIntake({connectionId,projects,onBack,projectId,purpose=
         {current.status!=="CANCELLED"&&current.status!=="COMPLETE"&&(purpose==="requirements"||current.status!=="IMPORTING")&&!confirmCancel&&<ActionButton type="button" className="btn-secondary" disabled={cancelBusy} onClick={()=>setConfirmCancel(true)} tooltip={<> Cancel this run </>}> Cancel </ActionButton>}
         {confirmCancel&&<section role="group" aria-label="Confirm intake cancellation"><p>Stop further reads and imports? This keeps every completed requirement and all staged evidence.</p><div style={actions}><ActionButton type="button" className="btn-secondary" disabled={cancelBusy} onClick={()=>setConfirmCancel(false)} tooltip={<> Keep this run </>}> Keep </ActionButton><button type="button" disabled={cancelBusy} onClick={async()=>{setError("");try{await cancel.mutateAsync({runId,confirmed:true});setConfirmCancel(false);await refresh();}catch{setError("Cancellation could not be confirmed. Refresh the saved run and retry.");await refresh();}}}>Confirm cancellation</button></div></section>}
       </>}
-      {purpose==="defects"&&projectId&&run.data&&<div hidden={!run.isSuccess}><JiraDefectReview key={runId} projectId={projectId} runId={runId} runVersion={run.data.version} issueIds={selected} disabled={requestBusy||!defectHeld&&run.data.status!=="REVIEW"} onHeldChange={setDefectHeld} onWorkingChange={value=>{setDefectWorking(value);onDefectWorkingChange?.(value);}} onSaved={()=>onDefectsSaved?.()}/></div>}
+      {defects&&projectId&&run.data&&(run.data.status==="REVIEW"||defectHeld)&&<div hidden={!run.isSuccess}><JiraDefectReview key={runId} projectId={projectId} runId={runId} runVersion={run.data.version} issueIds={selected} disabled={requestBusy||!defectHeld&&run.data.status!=="REVIEW"} onHeldChange={setDefectHeld} onWorkingChange={value=>{setDefectWorking(value);onDefectWorkingChange?.(value);}} onSaved={()=>onDefectsSaved?.()}/></div>}
       <div style={actions}><ActionButton type="button" className="btn-secondary" disabled={busy||defectHeld} onClick={()=>{setRunId("");setPageRequest(null);setApprovalRequest(null);setConfirmCancel(false);setError("");}} tooltip={<> Back to intake runs </>}> Back </ActionButton><ActionButton type="button" className="btn-secondary" disabled={busy||defectHeld} onClick={onBack} tooltip={<> Save state and return to connection </>}> Save </ActionButton></div>
     </>}
   </div>;

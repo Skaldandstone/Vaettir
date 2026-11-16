@@ -55,7 +55,7 @@ try {
   await page.getByRole("button", { name: actionName("Generate suggestions"), exact: true }).click();
   await page.getByRole("button", { name: actionName("Apply selected changes"), exact: true }).waitFor();
   await page.getByText("Restore purchase · high confidence", { exact: true }).click();
-  check("legacy labels are explained before review", await page.getByText(/Older imported suite labels remain unchanged/).isVisible());
+  check("existing suite labels stay available during review", await page.getByText(/Existing suite labels remain available/).isVisible());
   await page.evaluate(() => document.documentElement.dataset.theme = "light");
   await page.screenshot({ path: path.join(output, "existing-review-light-390.png"), fullPage: true });
   await page.getByRole("button", { name: actionName("Apply selected changes"), exact: true }).click();

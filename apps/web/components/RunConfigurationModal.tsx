@@ -622,11 +622,7 @@ export function RunConfigurationModal({
     >
       {!access.ready || !completion.authorized || !native ? (
         <section role="status">
-          <p>
-            Verify the original account, workspace and full editor seat before
-            configuring or retrying. Private configuration is hidden; drafts and
-            identical requests remain retained.
-          </p>
+          <p>Restore editor access to this workspace to continue. Your draft is retained. <a className="inline-help" href="/guide#runs" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
           <ActionButton
             type="button"
             className="btn-secondary"
@@ -640,12 +636,7 @@ export function RunConfigurationModal({
         </section>
       ) : legacyOpaque ? (
         <section role="status">
-          <p>
-            This older request or confirmation has no recorded submission-time
-            native author. Its original body, UUID and known record remain
-            retained privately. No current native identity was adopted and no
-            replacement or recovery was sent.
-          </p>
+          <p>This older request cannot be retried here. Your original request is retained; no new run was started. <a className="inline-help" href="/guide#runs" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
         </section>
       ) : accessError ? (
         <div>

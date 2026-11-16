@@ -20,14 +20,7 @@ export function RunAllPagesDashboard({ projectId }: { projectId: string }) {
           {opened ? "Collapse dashboard" : visibility === "UNOPENED" ? "Open" : "Open dashboard"}
         </ActionButton>
       </div>
-      <details><summary>Details</summary><p className="text-muted">
-        Compare recorded outcomes across every history page in an explicitly applied window of up to 90 inclusive UTC days.
-        Days and weeks use stored run-start timestamps, not individual result observation times.
-        The recorded-outcome section counts result observations, including repeated records, not global manual planned cases, work left or release readiness.
-        A separate manual section reconciles trusted frozen run-case instances with current verdict heads, with explicit exclusions and remaining work.
-        Neither section represents release readiness or completion of excluded runs.
-        The cards below still cover only the current history page.
-      </p></details>
+      <details><summary>Details</summary><p className="text-muted">Compare recorded results across a date range. <a className="inline-help" href="/guide#runs" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p></details>
       {visibility === "UNOPENED" && <p>No aggregate is requested until you open the dashboard and choose Show recorded outcomes to apply a scope.</p>}
       <div id={contentId} hidden={!opened}>
         {visibility !== "UNOPENED" && (

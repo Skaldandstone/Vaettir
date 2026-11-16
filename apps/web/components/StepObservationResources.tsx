@@ -611,11 +611,7 @@ export function StepObservationResources({
       {pickerOpen && (
         <section aria-label="Confirmed project evidence picker">
           <h3>Confirmed stored files</h3>
-          <details><summary>Details</summary><p className="text-muted">
-            Same-project confirmed uploads only. Literal search; up to 25 rows
-            per page and 10,000 candidates within native byte bounds. Selected
-            references stay retained when unavailable.
-          </p></details>
+          <details><summary>Details</summary><p className="text-muted">Select confirmed uploads from this project. <a className="inline-help" href="/guide#cases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p></details>
           <label htmlFor={`${prefix}-search`}>
             Find confirmed files
             <input

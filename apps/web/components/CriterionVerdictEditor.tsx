@@ -183,11 +183,7 @@ export function CriterionVerdictEditor({
           </p>
         ) : (
           <div style={{ display: "grid", gap: 12 }}>
-            <details><summary>Details</summary><p className="text-muted">
-              Change only this native criterion verdict. Wording, linked
-              requirements and all other criteria stay unchanged. A manual
-              decision does not constitute executed test evidence.
-            </p></details>
+            <details><summary>Details</summary><p className="text-muted">Record your decision for this criterion. <a className="inline-help" href="/guide#plans" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p></details>
             {query.error && (
               <p role="alert">
                 {query.error.message}

@@ -23,6 +23,25 @@ test("run export includes all 851 current cases including untested and unknown v
   assert.equal((html.match(/<article>/g) ?? []).length, 851);
   assert.ok(html.includes("TC-850"));
 });
+
+test("printable reports retain saved background and verification context without merging them into procedure phases", () => {
+  const current = { ...record, cases: [{ ...record.cases[0],
+    background: " Saved background\r\n<not HTML> ",
+    verificationProfile: { setup: "Synthetic bench setup", safety: "Stop at the red indicator", instruments: "Meter <A>", acceptanceCriteria: "5 ± 0.1 units" },
+  }] };
+  const before = structuredClone(current);
+  const html = renderCurrentManualRunPortableHtml(current);
+  for (const value of ["Saved background&#13;\n&lt;not HTML&gt;", "Synthetic bench setup", "Stop at the red indicator", "Meter &lt;A&gt;", "5 ± 0.1 units"])
+    assert.ok(html.includes(value), `Missing saved case context: ${value}`);
+  for (const heading of ["Background", "Setup", "Safety", "Instruments", "Acceptance criteria"])
+    assert.ok(html.includes(`<dt>${heading}</dt>`));
+  assert.ok(html.indexOf("Case context") < html.indexOf("<h3>Given</h3>"));
+  assert.deepEqual(current, before);
+  const empty = renderCurrentManualRunPortableHtml({ ...record, cases: [{ ...record.cases[0], background: null, verificationProfile: { setup: "", safety: "", instruments: "", acceptanceCriteria: "" } }] });
+  assert.ok(empty.includes("<dt>Background</dt><dd><em>Not supplied (NULL)</em>"));
+  assert.ok(empty.includes("<dt>Setup</dt><dd><em>Explicit empty text</em>"));
+  assert.ok(!renderCurrentManualRunPortableHtml(record).includes("<h3>Case context</h3>"));
+});
 test("legacy and zero-case reports never invent frozen evidence or acceptance", () => {
   const html = renderCurrentManualRunPortableHtml({ ...record, executionContext: null, cases: [] });
   assert.ok(html.includes("may reflect later case edits"));

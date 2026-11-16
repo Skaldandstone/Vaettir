@@ -44,7 +44,7 @@ export function LinearSourceConnection({projectId,onClose}:{projectId:string;onC
     <p role="status">{{access:"1. Verify Linear access",projects:"2. Choose Linear projects",review:"3. Review source scope",done:"Source scope saved"}[step]}</p>
     {(error||capabilities.error)&&<p role="alert">{error||"Connection availability could not be checked. Retry before entering a key."}</p>}
     {step==="access"&&<>
-      <p>Connect a Linear workspace, then choose the projects that belong here. This checks account and project metadata only; it does not read issues, import requirements or use AI credits.</p>
+      <p>Connect Linear and choose projects. This reads account and project metadata only. <a className="inline-help" href="/guide#integrations" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
       {capabilities.isLoading&&<p role="status">Checking connection availability…</p>}
       {capabilities.data&&!capabilities.data.canConnect&&<p role="alert">A full editor seat is required. Ask a workspace owner or admin to connect Linear.</p>}
       {capabilities.data&&!capabilities.data.credentialStorageReady&&<p role="alert">Secure credential storage is unavailable. Ask Vaettir support to enable Linear connections.</p>}
@@ -79,7 +79,7 @@ export function LinearSourceConnection({projectId,onClose}:{projectId:string;onC
       <p>Add {choices.length} selected project{choices.length===1?"":"s"} from <strong>{listing.workspace.name}</strong> to this project&apos;s source scope?</p>
       <ul style={{maxHeight:240,overflowY:"auto",overflowWrap:"anywhere"}}>{choices.map(p=><li key={p.id}><a href={p.url} target="_blank" rel="noopener noreferrer">{p.name}</a>{existing.some(x=>x.id===p.id)?" · already approved":" · new"}</li>)}</ul>
       <p>{existing.length} previously approved project{existing.length===1?"":"s"} will be retained. Nothing is removed when an input disappears or access fails.</p>
-      <p>Save scope only. Issue import and automatic sync are not implemented by this connection flow; no requirements or test cases will be created or changed. Cost: 0 AI credits.</p>
+      <p>Save the selected projects. Issue import and automatic sync are not available here. <a className="inline-help" href="/guide#integrations" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
       <div style={actions}><button type="button" className="btn-secondary" disabled={busy} onClick={()=>setStep("projects")}>Back</button><ActionButton type="button" disabled={busy} onClick={async()=>{const request=approvalId??crypto.randomUUID();setApprovalId(request);try{await approve.mutateAsync({id,version:listing.version,projectIds:choices.map(p=>p.id),requestId:request,approved:true});await recent.refetch();setStep("done");}catch{setError("Scope could not be saved. Retry, or refresh the list and review if access or choices changed.");}}} tooltip={<> {approve.isPending?"Saving…":"Approve and save source scope"} </>}>{approve.isPending?"Saving…":"Approve scope"}</ActionButton></div>
     </>}
     {step==="done"&&<><p role="status">Linear source scope saved. Issues have not been read or imported.</p><button type="button" onClick={onClose}>Done</button></>}

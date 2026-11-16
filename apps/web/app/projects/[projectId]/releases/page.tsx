@@ -8,6 +8,7 @@ import { useParams } from "next/navigation";
 import { trpcReact, type RouterInputs } from "@/lib/trpcReact";
 import { Modal } from "@/components/Modal";
 import { RepositoryReleaseDiscovery } from "@/components/RepositoryReleaseDiscovery";
+import { JiraReleasePicker } from "@/components/JiraReleasePicker";
 import { ReadinessBadge } from "@/components/ReadinessBadge";
 import { TrendChart } from "@/components/TrendChart";
 import { DistributionBar, ScoreRing } from "@/components/MetricVisuals";
@@ -124,10 +125,15 @@ export default function ReleasesPage() {
   const sdk = creationSession(), sdkActor = sdk?.userId, sdkId = sdk?.sessionId,
     session = useMemo(() => auth.userId && auth.sessionId ? { userId: auth.userId, sessionId: auth.sessionId } : null, [auth.userId, auth.sessionId]);
   const organizationId = access.origin?.organizationId ?? "", clerkActorId = access.origin?.clerkActorId ?? "";
+  const canStartRelease = canEdit && access.canWrite && !!organizationId && !!clerkActorId &&
+    auth.isLoaded && !!auth.isSignedIn && !!session && session.userId === clerkActorId &&
+    session.userId === sdkActor && session.sessionId === sdkId;
+  const hasReleaseDraft = Boolean(name || targetDate || selectedPlanIds.length || releaseGoals.length ||
+    goalDraft || newPlanName || newCriteria.length || criterionDraft);
   const draft = JSON.stringify([name, targetDate, selectedPlanIds, releaseGoals, goalDraft, newPlanName, newCriteria, criterionDraft, editingCriterion]);
   const createFrame = useMemo<CreateFrame>(() => Object.freeze({ projectId, organizationId, clerkActorId, session, draft,
-    eligible: createOpen && canEdit && access.canWrite && !!organizationId && !!clerkActorId && auth.isLoaded && !!auth.isSignedIn && !!session && session.userId === clerkActorId && session.userId === sdkActor && session.sessionId === sdkId,
-  }), [projectId, organizationId, clerkActorId, session, draft, createOpen, canEdit, access.canWrite, auth.isLoaded, auth.isSignedIn, sdkActor, sdkId]);
+    eligible: createOpen && canStartRelease,
+  }), [projectId, organizationId, clerkActorId, session, draft, createOpen, canStartRelease]);
   const createStamp = createOwner.observe(createFrame);
   useLayoutEffect(() => {
     createOwner.publish(createFrame, createStamp);
@@ -289,6 +295,18 @@ export default function ReleasesPage() {
         <a href={`/projects/${projectId}/test-strategy`}>test strategy</a>.
       </p>
 
+      {canStartRelease && !createOpen && (
+        <JiraReleasePicker key={JSON.stringify([projectId, organizationId, clerkActorId, session?.sessionId])}
+          projectId={projectId} disabled={false} showUnavailable
+          onSelect={hasReleaseDraft || createRequest ? undefined : release => {
+            if (!createOwner.canClose(createGeneration, createFrame, createStamp) ||
+                createOwner.request() || !sameAuthScope(session, creationSession())) return;
+            setName(release.name.slice(0, 200));
+            setTargetDate(release.releaseDate ?? "");
+            setReleaseStep(0);
+            setCreateOpen(true);
+          }}/>
+      )}
       <details className="release-provider-discovery"><summary>Repository releases</summary><RepositoryReleaseDiscovery projectId={projectId}/></details>
       {loading && <p>Loading…</p>}
       {error && <p style={{ color: "var(--ember)" }}>{error}</p>}

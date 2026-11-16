@@ -228,11 +228,7 @@ export function ReportDefinitionSettingsEditor({
       )}
       {screen === 2 && (
         <>
-          <p>
-            All filters are optional. A blank scope is project-wide; selected
-            values match recorded run context, not current project labels.
-            Saving settings does not capture or verify results.
-          </p>
+          <p>Leave filters blank for a project-wide report, or narrow the recorded run context. <a className="inline-help" href="/guide#reports" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
           <label>
             Release (optional, current linked plans)
             <select
@@ -258,12 +254,7 @@ export function ReportDefinitionSettingsEditor({
               ))}
             </select>
           </label>
-          <p>
-            Release scope uses current plan associations and complete
-            saved/linked case selection, not historical release certification.
-            Other filters intersect; incompatible plan references are refused,
-            not silently replaced.
-          </p>
+          <p>Release scope uses current plans and their selected cases. Other filters further narrow the results. <a className="inline-help" href="/guide#reports" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
           {options?.releasesLimited && (
             <p>
               Release suggestions show at most 100 records; stored older

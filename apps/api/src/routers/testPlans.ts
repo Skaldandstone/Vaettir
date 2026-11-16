@@ -382,6 +382,9 @@ export const testPlansRouter = router({
         name: z.string().trim().min(1).max(200),
         description: z.string().optional(),
         customFields: z.record(z.unknown()).default({}),
+        acceptanceChecks: z.array(z.string().trim().min(1).max(800)).max(800).optional(),
+        executionCaseIds: testPlanExecutionTemplateSchema.shape.testCaseIds
+          .refine(ids => new Set(ids).size === ids.length).optional(),
       }),
     )
     // .output() bounds the inferred type (TS2589 under react-query's
@@ -413,6 +416,14 @@ export const testPlansRouter = router({
           throw new TRPCError({ code: "NOT_FOUND", message: "Plan type is unavailable. Refresh and choose another type." });
         if (!input.testPlanTypeId && (!planType.isBuiltIn || planType.category !== "FUNCTIONAL"))
           throw new TRPCError({ code: "PRECONDITION_FAILED", message: "The default plan type needs administrator review. Select an existing plan type instead." });
+        const caseIds = input.executionCaseIds ?? [];
+        if (caseIds.length) {
+          const count = await tx.testCase.count({
+            where: { id: { in: caseIds }, projectId: input.projectId, archived: false, reviewStatus: "APPROVED" },
+          });
+          if (count !== caseIds.length)
+            throw new TRPCError({ code: "CONFLICT", message: "A selected case is unavailable. Refresh the preview and review it again." });
+        }
         const plan = await tx.testPlan.create({
           data: {
             projectId: input.projectId,
@@ -420,6 +431,10 @@ export const testPlansRouter = router({
             name: input.name,
             description: input.description,
             customFields: input.customFields as never,
+            executionTemplate: caseIds.length ? { version: 1, testCaseIds: caseIds, configurations: [] } : undefined,
+            acceptanceCriteria: input.acceptanceChecks?.length ? {
+              create: input.acceptanceChecks.map(description => ({ description })),
+            } : undefined,
             createdById: ctx.user.id,
             updatedById: ctx.user.id,
           },

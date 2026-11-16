@@ -85,13 +85,13 @@ describe("compliance reference guidance", () => {
     expect(html).toContain("no curated interpretation");
     expect(html).not.toContain("privacy-protective sharing");
   });
-  it("distinguishes linked coverage from passed execution or compliance", () => {
+  it("keeps mapping guidance with legal context and its help link", () => {
     const html = renderToStaticMarkup(
       React.createElement(ComplianceFrameworkGuidance, {
         frameworkKey: "gdpr",
       }),
     );
-    expect(html).toContain("it does not show that the test passed");
+    expect(html).toContain("/guide#compliance");
     expect(html).toContain("six selected articles");
     expect(html).toContain("legal basis");
     expect(html).toContain("eur-lex.europa.eu");

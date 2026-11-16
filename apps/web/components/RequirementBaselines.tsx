@@ -137,7 +137,7 @@ function Register({ projectId }: { projectId: string }) {
     <p>{readableMetric(current.comparison.status)}. {current.baseline ? `${current.baseline.displayId} · version ${current.baseline.version}` : "No baseline recorded"}.</p>
     {!current.selectedIsLatest && <p role="status">Comparing a historical baseline. Return to latest before reviewing a new capture.</p>}
     {current.captureUnavailableReason && <p role="status">{current.captureUnavailableReason} No history has been replaced or removed.</p>}
-    <p>Captured wording belongs to the selected immutable baseline; current wording is a read-time native comparison. Unchanged displayed text is not proof of unchanged procedure, execution, external issue status or requirement fulfillment.</p>
+    <p>Compare the saved baseline with current wording. Review linked tests separately. <a className="inline-help" href="/guide#requirements" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
     {wordingGroups && <>
       {wordingGroups.changed.length > 0 && <section><h4>Changed recorded fields ({wordingGroups.changed.length})</h4>{wordingTable(wordingGroups.changed, "Changed requirement wording and metadata")}</section>}
       {wordingGroups.unchanged.length > 0 && <details><summary>Unchanged recorded fields ({wordingGroups.unchanged.length})</summary>{wordingTable(wordingGroups.unchanged, "Unchanged displayed requirement fields")}</details>}
@@ -165,7 +165,7 @@ function Register({ projectId }: { projectId: string }) {
         <p style={{ overflowWrap: "anywhere" }}>{c.title}{c.titleIsExcerpt ? "… (label excerpt)" : ""}{c.archived ? " · Archived in the displayed label snapshot" : ""}</p>
         <p>{c.isLinked ? "Label from the current linked snapshot at read time." : "Label retained from the selected captured baseline."} Neither label records the case's full procedure, current execution outcome or verified fulfillment.</p>
         {href ? <Link className="btn-secondary" href={href} aria-label={`Open current native test case ${c.displayId}`}>Open {c.displayId}</Link> : <p>No currently available same-project native case route. The retained label is not a replacement identity.</p>}
-        {href && <p className="text-muted">This opens the current native case, not the historical procedure at baseline capture. Case identity availability does not restore a removed direct link or verify execution.</p>}
+        {href && <p className="text-muted">Opens the current case. <a className="inline-help" href="/guide#requirements" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>}
       </details>;
     })}</div>
     {!current.affected.items.length && <p>No direct cases on this page. No execution verification is inferred from plan-wide criteria.</p>}
@@ -182,10 +182,10 @@ function Register({ projectId }: { projectId: string }) {
       <ActionButton type="button" className="btn-secondary" onClick={() => void Promise.all([project.refetch(), organizations.refetch(), permissions.refetch(), list.refetch()])} tooltip={<> Refresh current access and requirements </>}> Refresh </ActionButton>
       {pending && <ActionButton type="button" className="btn-primary" onClick={() => setOpen(true)} tooltip={<> Recover unconfirmed capture </>}> Recover </ActionButton>}
     </div>
-    <p>Compare current native requirement wording and explicit case links with a retained human-reviewed baseline. Changes are review candidates, not defects, verified coverage or formal regulatory sign-off.</p>
+    <p>Compare requirement wording and case links with a saved baseline. <a className="inline-help" href="/guide#requirements" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
     <label style={label}>Find current or captured requirement by title<input type="search" style={control} value={search} maxLength={80} onChange={e => { setSearch(e.target.value); setOffset(0); }} /></label>
-    <details><summary>Details</summary><p className="text-muted">Case-insensitive literal title search; %, _ and backslash are text, not wildcard patterns. Surrounding whitespace is ignored. A match in older captured wording can display the current title or newest retained title on this register.</p></details>
-    {!ready ? <p role="alert">Original organization and current signed-in membership are unavailable. Local rationale, selections and any exact pending capture are retained; cached wording, chips and history are hidden.</p> : list.error ? <div role="alert"><p>Requirement comparison unavailable; cached or incomplete results are not substituted.</p><button type="button" className="btn-secondary" onClick={() => void list.refetch()}>Retry register</button></div>
+    <details><summary>Details</summary><p className="text-muted">Search requirement titles. <a className="inline-help" href="/guide#requirements" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p></details>
+    {!ready ? <p role="alert">Restore access to this workspace to view baselines. Your draft is retained. <a className="inline-help" href="/guide#requirements" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p> : list.error ? <div role="alert"><p>Requirement comparison unavailable; cached or incomplete results are not substituted.</p><button type="button" className="btn-secondary" onClick={() => void list.refetch()}>Retry register</button></div>
       : !catalog ? <p role="status">{list.isPaused ? "Waiting to verify current access…" : "Checking bounded requirement scope…"}</p>
         : <>
           {!catalog.canWrite && <p>Read-only. A current full editor seat is required for a new reviewed baseline.</p>}
@@ -214,7 +214,7 @@ function Register({ projectId }: { projectId: string }) {
             {!reviewed && <div role="alert"><p>The reviewed wording, baseline or current access changed. No stale capture can be submitted.</p><ActionButton type="button" className="btn-secondary" disabled={frozen} onClick={() => { setReviewing(false); setApproval(null); void detail.refetch(); }} tooltip={<> Reload and review again </>}> Refresh </ActionButton></div>}
             {screen === 0 ? wording : screen === 1 ? cases : <fieldset disabled={frozen || !reviewed} style={{ minWidth: 0 }}>
               <legend>Explicit reviewed capture</legend><p>{current.current?.title}. Latest version {approval?.version ?? 0}; {current.currentDirectCases ?? "Unavailable"} current direct cases.</p>
-              <p>New capture restarts the comparison against this wording and direct link scope. Earlier snapshots remain intact. It does not clear defects, attest mitigation, approve coverage or resolve an independently tracked suspect.</p>
+              <p>Save a new baseline to compare against the current wording. <a className="inline-help" href="/guide#requirements" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
               <label style={label}>Why record this baseline now?<textarea style={control} maxLength={600} value={rationale} onChange={e => setRationale(e.target.value)} /></label>
               <label style={{ display: "flex", gap: 8, alignItems: "flex-start" }}><input type="checkbox" checked={acknowledged} onChange={e => setAcknowledged(e.target.checked)} />I reviewed the wording and bounded current direct case scope. This is not verified coverage, a qualified signature or regulatory approval.</label>
             </fieldset>}

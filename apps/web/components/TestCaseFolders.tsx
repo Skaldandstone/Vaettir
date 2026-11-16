@@ -404,11 +404,7 @@ export function TestCaseFolders({
           </p>
         )}
         {scopeChanged || (isLoaded && !actorReady) ? (
-          <p role="alert">
-            Folder paths, impact and draft controls are hidden after an account
-            or workspace change. Your original draft and exact request are
-            retained; return to that verified identity to continue.
-          </p>
+          <p role="alert">Restore access to the original workspace to continue. Your draft is retained. <a className="inline-help" href="/guide#cases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
         ) : !ready ? (
           <div role="status">
             <p>Checking current project access…</p>
@@ -522,13 +518,8 @@ export function TestCaseFolders({
                       " Choose a different destination parent to move this folder."}
                   </p>
                 )}
-                <p>
-                  Empty folders are saved independently of cases. A rename or
-                  move includes all descendant cases, including archived cases.
-                  Existing case IDs, within-suite order and frozen runs remain
-                  unchanged.
-                </p>
-                <p>Source-derived groups are test-case presentation, not filesystem folders. A reviewed move/rename to a different destination assigns saved suite paths and can create a new saved folder identity; original source paths/files are unchanged. Same-path promotion is not supported. The server review includes hidden, unreviewed and archived descendant cases, not just this page&apos;s visible lane or filters.</p>
+                <p>Moving or renaming a folder includes all its cases and subfolders. Case IDs and saved runs are preserved. <a className="inline-help" href="/guide#cases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
+                <p>Move cases into a saved suite to organize them. <a className="inline-help" href="/guide#cases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
                 <button
                   className="btn-primary"
                   disabled={
@@ -618,12 +609,7 @@ export function TestCaseFolders({
                         </div>
                       </details>
                     )}
-                    <p>
-                      A new procedure version is retained for each moved case.
-                      The folder receipt stores old/new placement and version
-                      numbers; previous history and run evidence are not
-                      rewritten.
-                    </p>
+                    <p>Folder changes are recorded in history. <a className="inline-help" href="/guide#cases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
                     <label>
                       Reason (required)
                       <textarea

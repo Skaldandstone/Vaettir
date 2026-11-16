@@ -91,7 +91,7 @@ function Overview({ projectId }: { projectId: string }) {
         <ActionButton type="button" className="btn-secondary" onClick={refresh} tooltip={<> Refresh current register </>}> Refresh </ActionButton>
         <QualityRiskAggregateExport current={current} filters={filter} available={!!current && ready && !denied && !paused} revision={summary.dataUpdatedAt} /></div>
     </div>
-    <p>Manual qualitative categories and ordinary recorded decisions. Version matching and available references do not establish verified mitigation, safety or regulatory acceptance.</p>
+    <p>Review recorded risks, references and decisions. A matching version does not verify mitigation. <a className="inline-help" href="/guide#reports" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
     {denied ? <div role="alert"><p>Current project access or original register ownership could not be verified. Retained counts and native links are hidden.</p><ActionButton type="button" className="btn-secondary" onClick={refresh} tooltip={<> Recheck current access </>}> Refresh </ActionButton></div>
       : paused ? <p role="status">Waiting for a connection to verify current access. Retained counts and native chips are hidden.</p>
       : summary.error ? <div role="alert"><p>The full risk overview could not be verified. No empty population or partial counts were substituted. {summary.error.message}</p><ActionButton type="button" className="btn-secondary" onClick={refresh} tooltip={<> Retry risk overview </>}> Retry </ActionButton></div>
@@ -163,7 +163,7 @@ function Overview({ projectId }: { projectId: string }) {
           <p>{reviewLabel(record.entry.review)}. Latest disposition: {readableMetric(record.entry.disposition)}.</p>
           {record.entry.residual && <p>Latest human residual categories: {readableMetric(record.entry.residual.likelihood)} likelihood · {readableMetric(record.entry.residual.consequence)} consequence.
             Ordinary decision recorded {new Date(record.entry.residual.recordedAt).toLocaleString()} from assessed entry version {record.entry.residual.assessedVersion}; resulting entry version {record.entry.residual.createdVersion}.</p>}
-          <p>Version matching checks only this risk entry. Later results, case procedures and requirements are not automatically reverified. This is not an effectiveness, safety or qualified approval finding.</p>
+          <p>Review the latest results and linked tests before accepting this risk. <a className="inline-help" href="/guide#reports" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
           <details><summary>Captured evidence references ({record.entry.evidence.total})</summary>
             {!record.evidence.length ? <p>{record.entry.review === "NO_REVIEW" ? "No ordinary review is recorded." : "This human decision recorded no evidence references."} No verification is implied.</p> : <>
               <p>Captured statuses and dates remain historical observations. Available means the original result/case/run tuple still resolves in this project—not that its status or procedure has been reverified.</p>

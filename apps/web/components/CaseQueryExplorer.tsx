@@ -905,12 +905,7 @@ function Explorer({ projectId }: { projectId: string }) {
                     frozen report. Updated records are excluded until you
                     restart; page anchors expire after 15 minutes.
                   </p>
-                  <p>
-                    Existing saved views, selected cases, bulk actions and
-                    existing exports stay unchanged. This explorer has a
-                    separate reviewed whole-query metadata export, not a
-                    procedure backup.
-                  </p>
+                  <p>Build a query, then apply it to your case list. <a className="inline-help" href="/guide#cases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
                 </details>
                 <div
                   style={{

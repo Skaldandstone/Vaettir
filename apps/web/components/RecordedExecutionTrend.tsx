@@ -462,12 +462,7 @@ function ExecutionTrend({ projectId, active }: { projectId: string; active: bool
             (["platform", "environment", "build"] as const).some(
               (key) => filters[key] !== (applied[key] ?? ""),
             ) && (
-              <p role="status">
-                Configuration filter edits have not been applied. The current
-                view, refresh and export still use the last applied
-                configuration filters. Choose Show recorded outcomes to replace
-                this view.
-              </p>
+              <p role="status">Select Show outcomes to apply these filters. <a className="inline-help" href="/guide#reports" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
             )}
           <details>
             <summary>Recorded configuration filters (optional)</summary>
@@ -877,11 +872,7 @@ function ExecutionTrend({ projectId, active }: { projectId: string; active: bool
               </select>
             </label>
             {exportFormat === "HTML" && (
-              <p>
-                Offline text-only report with common-scale bars and complete
-                numeric tables. Use your browser's Print command after opening
-                the downloaded file. Vaettir does not generate or deliver a PDF.
-              </p>
+              <p>Download HTML with charts and tables, then use your browser’s Print command for PDF. <a className="inline-help" href="/guide#reports" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
             )}
             <label
               style={{ display: "flex", gap: 8, alignItems: "flex-start" }}
@@ -899,12 +890,7 @@ function ExecutionTrend({ projectId, active }: { projectId: string; active: bool
               additional columns)
             </label>
             {includeRecordedDuration && (
-              <p>
-                The export preserves valid duration sums in milliseconds,
-                missing/invalid counts and incomplete completion evidence. It
-                does not estimate human effort, normalize throughput, compare
-                performance or certify completed tests.
-              </p>
+              <p>Exports recorded durations and missing data. Durations do not measure testing effort. <a className="inline-help" href="/guide#reports" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
             )}
             <label
               style={{ display: "flex", gap: 8, alignItems: "flex-start" }}
@@ -1008,12 +994,7 @@ function TrendRunDrilldown({
       label={`Recorded runs on ${day}`}
     >
       <h2>Runs on {day} UTC</h2>
-      <p>
-        Fresh metadata drill-down using the same applied filters. Counts may
-        have changed since the daily view; this is not a frozen report or
-        equivalent-run certification. Labels are recorded, not provider/device
-        verification.
-      </p>
+      <p>Shows current records using the applied filters. Counts may have changed. <a className="inline-help" href="/guide#reports" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
       {query.error && (
         <p role="alert">
           Runs could not be read: {query.error.message}. No empty result is

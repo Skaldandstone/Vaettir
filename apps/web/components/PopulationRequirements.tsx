@@ -10,11 +10,7 @@ export function PopulationRequirements({ projectId }: { projectId: string }) {
   return (
     <section className="population-wizard">
       <h1>Review requirement suggestions</h1>
-      <p>
-        Find explicit “must”, “shall” and “required to” statements in approved
-        documents. This is a literal first pass, not a complete or AI-inferred
-        specification. No AI credits are used.
-      </p>
+      <p>Find explicit requirements in approved documents, then review the extracted statements. <a className="inline-help" href="/guide#requirements" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
       {documents.error && (
         <p role="alert">Could not load documents: {documents.error.message}</p>
       )}

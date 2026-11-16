@@ -401,13 +401,7 @@ function CaseCloneWorkflow({ projectId, caseId, onChanged }: CloneProps) {
                 {baseline.copyParameterDataset && baseline.dataset && (
                   <section aria-label="Complete independent dataset review">
                     <h3>Parameter dataset</h3>
-                    <p>
-                      Exact names, ordered rows and concrete string values are
-                      copied. Fresh row identity is (new dataset ID, row index),
-                      not a separate persistent row ID. Empty strings and unused
-                      declared values remain unchanged; no execution evidence is
-                      copied.
-                    </p>
+                    <p>Copies the dataset values into new rows. Test results are not copied. <a className="inline-help" href="/guide#cases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
                     <div style={{ maxHeight: 360, overflow: "auto" }}>
                       <table>
                         <thead>
