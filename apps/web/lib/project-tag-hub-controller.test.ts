@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
@@ -31,7 +32,7 @@ function harness(tag: string | null = " spaced ", bootstrapReady = true) {
     useRef: (initial: unknown) => { const index = cursor++; if (!Object.hasOwn(hooks, index)) hooks[index] = { current: initial }; return hooks[index]; },
     useEffect: (effect: () => void, deps: unknown[]) => { const index = cursor++, prior = hooks[index] as unknown[] | undefined; if (!prior || deps.some((value, n) => !Object.is(value, prior[n]))) { hooks[index] = deps; effects.push(effect); } },
   };
-  const compiled = ts.transpileModule(`${printed}\nthis.hub = ProjectTagHubView;`, { compilerOptions: { target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } }).outputText;
+  const compiled = controllerTranspile(`${printed}\nthis.hub = ProjectTagHubView;`, { compilerOptions: { target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } }).outputText;
   const context = vm.createContext(globals); vm.runInContext(compiled, context);
   const component = (context as unknown as { hub: (props: { projectId: string; tag: string | null }) => React.ReactNode }).hub;
   let tree: React.ReactNode;
@@ -47,7 +48,7 @@ function harness(tag: string | null = " spaced ", bootstrapReady = true) {
 it("shows no cached body until a completed exact current read; approved/active is default and tags stay raw", () => {
   const host = harness(); expect(host.enabled()).toBe(true); expect(host.input()).toMatchObject({ tag: " spaced ", archive: "ACTIVE", review: "APPROVED" });
   expect(host.html()).not.toContain("Secret tagged title"); host.receive(); expect(host.html()).toContain("Secret tagged title");
-  expect(host.html()).toContain("not a frozen all-sections snapshot"); expect(host.html()).toContain("current tags do not describe historical run evidence");
+  expect(host.html()).toContain("not a frozen all-sections snapshot"); expect(host.html()).toContain("Find cases by tag and explore their linked records");
   host.click("Linked plans"); expect(host.html()).not.toContain("Secret tagged title"); expect(host.input().section).toBe("PLANS");
 });
 

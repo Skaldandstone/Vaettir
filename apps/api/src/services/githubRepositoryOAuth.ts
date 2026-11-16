@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { repositoryProviderJson, repositoryProviderOrigin, repositoryProviderRevokeGithubToken } from "./repositoryProviderHttp.js";
 import type { RepositorySelection } from "./gitlabRepositoryOAuth.js";
 

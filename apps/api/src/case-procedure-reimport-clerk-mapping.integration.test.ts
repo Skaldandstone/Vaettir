@@ -1,3 +1,4 @@
+import { fixtureProjectKey } from "./testProjectKey.js";
 // Native execution evidence is recorded by root on fresh owned disposable DBs.
 // Stale independently authenticated ctx A versus native Clerk B, not a fresh B
 // caller using A's old review. Explicit expectedScope tests are controls.
@@ -64,7 +65,7 @@ describe("procedure reimport verifies independent authenticated Clerk before pre
   async function eligible(scoped: boolean) {
     const project = await callerA.project.create({
       organizationId, name: `${tag}-${randomUUID()}`,
-      caseKey: `r${randomUUID().replaceAll("-", "").slice(0, 15)}`,
+      caseKey: fixtureProjectKey(),
     });
     const created = await callerA.testCases.create({ projectId: project.id, ...exportedContent });
     const bundle = await callerA.testCases.exportProcedure({

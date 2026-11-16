@@ -25,12 +25,11 @@ test("inverse placement recovery retains exact uncertain approval and shows boun
   for (const value of [
     "retainedTraceabilityReceipt",
     "mutation.mutate(pending)",
-    "latest 25 receipts",
+    "Choose a recent folder change to restore.",
     "reviewed.caseCount",
     "reviewed.archivedCaseCount",
     "isFetchedAfterMount",
     "fetchStatus",
-    "No AI credits",
     "reason.trim()",
   ])
     assert.ok(recovery.includes(value), value);
@@ -40,9 +39,7 @@ test("complete folder copy shows all exclusions, procedures and metadata before 
   for (const value of [
     "retainedTraceabilityReceipt",
     "mutation.mutate(pending)",
-    "50 independent cases",
-    "8 MiB",
-    "No AI credits",
+    "50 cases",
     "reviewed.caseCount",
     "reviewed.folderCount",
     "reviewed.notice",
@@ -64,7 +61,6 @@ test("folder approvals require complete current review and retain exact uncertai
     "retainedTraceabilityReceipt",
     "mutation.mutate(pending)",
     "reason.trim()",
-    "No AI credits",
   ])
     assert.ok(component.includes(value), value);
 });

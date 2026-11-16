@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useEffect, useId, useState } from "react";
 import { describeRetainedPlanValue, finitePlanNumber, planCustomFields, removePlanField, replacePlanField } from "@/lib/plan-custom-fields";
 import { editStrategyRow, removeStrategyRow, sameStrategyRowValues, strategyRows } from "@/lib/qa-strategy-fields";
@@ -21,7 +23,7 @@ export function PlanStringListField({ label, hint, placeholder = "", values, onC
       <label style={{ flex: 1, minWidth: 0 }}>{label} {index + 1}<textarea rows={2} value={row.value} placeholder={placeholder} style={{ width: "100%" }} onChange={event => change(editStrategyRow(rows, row.id, event.target.value))} /></label>
       <button type="button" className="btn-secondary" aria-label={`Remove ${label} row ${index + 1}`} onClick={() => change(removeStrategyRow(rows, row.id))}>Remove</button>
     </div>)}
-    <button type="button" className="btn-secondary" onClick={() => { const added = planStringRowState([""], prefix, rowState.nextId); change([...rows, ...added.rows], added.nextId); }}>Add {label} row</button>
+    <ActionButton type="button" className="btn-secondary" onClick={() => { const added = planStringRowState([""], prefix, rowState.nextId); change([...rows, ...added.rows], added.nextId); }} tooltip={<> Add {label} row </>}>Add row</ActionButton>
   </fieldset>;
 }
 function FiniteNumberField({ label, value, onChange }: { label: string; value: number | undefined; onChange: (value: number) => void }) {
@@ -39,10 +41,10 @@ export function PlanCustomFieldsForm({ schema, values, onChange }: { schema: unk
       {!field.present && <p className="text-muted">Not set. No value will be added until you edit or explicitly initialize this field.</p>}
       {field.kind === "string" && <label>{field.label}<textarea rows={3} style={{ width: "100%" }} value={field.present ? field.value as string : ""} onChange={event => onChange(replacePlanField(values, field.key, event.target.value))} /></label>}
       {field.kind === "number" && <FiniteNumberField label={field.label} value={field.present ? field.value as number : undefined} onChange={value => onChange(replacePlanField(values, field.key, value))} />}
-      {field.kind === "boolean" && <div><label><input type="checkbox" checked={field.present ? field.value as boolean : false} onChange={event => onChange(replacePlanField(values, field.key, event.target.checked))} /> {field.label}</label>{!field.present && <button type="button" className="btn-secondary" onClick={() => onChange(replacePlanField(values, field.key, false))}>Set false explicitly</button>}</div>}
+      {field.kind === "boolean" && <div><label><input type="checkbox" checked={field.present ? field.value as boolean : false} onChange={event => onChange(replacePlanField(values, field.key, event.target.checked))} /> {field.label}</label>{!field.present && <ActionButton type="button" className="btn-secondary" onClick={() => onChange(replacePlanField(values, field.key, false))} tooltip={<> Set false explicitly </>}>Set false</ActionButton>}</div>}
       {field.kind === "string-array" && <PlanStringListField label={field.label} hint="Keep the exact list order." values={field.present ? field.value as string[] : []} onChange={value => onChange(replacePlanField(values, field.key, value))} />}
-      {!field.present && (field.kind === "string" || field.kind === "string-array") && <button type="button" className="btn-secondary" onClick={() => onChange(replacePlanField(values, field.key, field.kind === "string" ? "" : []))}>Set empty {field.kind === "string" ? "text" : "list"} explicitly</button>}
-      {field.present && <button type="button" className="btn-secondary" onClick={() => onChange(removePlanField(values, field.key))}>Remove value for {field.label}</button>}
+      {!field.present && (field.kind === "string" || field.kind === "string-array") && <ActionButton type="button" className="btn-secondary" onClick={() => onChange(replacePlanField(values, field.key, field.kind === "string" ? "" : []))} tooltip={<> Set empty {field.kind === "string" ? "text" : "list"} explicitly </>}>Set empty</ActionButton>}
+      {field.present && <ActionButton type="button" className="btn-secondary" onClick={() => onChange(removePlanField(values, field.key))} tooltip={<> Remove value for {field.label} </>}>Remove value</ActionButton>}
     </>}
   </section>)}</div>;
 }

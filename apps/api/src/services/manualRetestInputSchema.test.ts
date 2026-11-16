@@ -41,8 +41,22 @@ describe("browser-pure exact legacy retest input extraction; source/mock only",(
   it("legacy public service and reviewed transport reference the same authoritative constructor instances",()=>{
     expect(servicePreview).toBe(retestPreviewInputSchema);expect(serviceStart).toBe(retestStartInputSchema);
     expect(retestAccessReviewedInput.shape.request).toBe(retestPreviewInputSchema);
-    expect(retestPreviewReviewedInput.shape.request.innerType()).toBe(retestPreviewInputSchema);
-    expect(retestStartReviewedInput.shape.request.innerType()).toBe(retestStartInputSchema);
+    // Zod 4 refinements live on a clone of the object, rather than a ZodEffects
+    // wrapper. Its fields must still be the authoritative constructor fields.
+    for (const [reviewed, original] of [
+      [retestPreviewReviewedInput.shape.request, retestPreviewInputSchema],
+      [retestStartReviewedInput.shape.request, retestStartInputSchema],
+    ] as const) {
+      expect(Object.keys(reviewed.shape)).toEqual(Object.keys(original.shape));
+      for (const [key, field] of Object.entries(original.shape))
+        expect(reviewed.shape[key as keyof typeof reviewed.shape]).toBe(field);
+    }
+    const request = raw(), actor = { expectedNativeActorId: "native-actor" };
+    expect(retestStartReviewedInput.safeParse({ ...actor, request }).success).toBe(true);
+    const { expectedScope: discarded, ...withoutScope } = request;
+    expect(discarded.projectId).toBe(request.projectId);
+    expect(retestStartReviewedInput.safeParse({ ...actor, request: withoutScope }).success).toBe(false);
+    expect(retestStartReviewedInput.safeParse({ ...actor, request: { ...request, expectedScope: { ...request.expectedScope, projectId: "other-project" } } }).success).toBe(false);
   });
   it("reversed raw insertion order becomes the same parsed original field order without trimming or modifying raw input",()=>{
     const original=goldenOracle(),r=raw(),before=JSON.stringify(r),parsed=retestStartInputSchema.parse(r);
@@ -71,7 +85,7 @@ describe("browser-pure exact legacy retest input extraction; source/mock only",(
     const inputs=load("./manualRetestInputSchema.ts"),reviewed=load("./manualRetestReviewedSchema.ts");
     for(const ast of [inputs,reviewed])for(const node of ast.statements.filter(ts.isImportDeclaration)){
       const path=(node.moduleSpecifier as ts.StringLiteral).text;
-      expect(["zod","./manualRetestScopeSchema.js","./manualRetestInputSchema.js","./caseFieldPresentationSchema.js"]).toContain(path);
+      expect(["@vaettir/core/dist/validation.js","./manualRetestScopeSchema.js","./manualRetestInputSchema.js","./caseFieldPresentationSchema.js"]).toContain(path);
     }
     const source=readFileSync(new URL("./manualRetestReviewedSchema.ts",import.meta.url),"utf8");expect(source).not.toContain('from "./manualRetest.js"');expect(source).not.toContain("node:crypto");expect(source).not.toContain("@vaettir/db");
   });

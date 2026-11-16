@@ -1,5 +1,27 @@
 # Synthetic connection release review
 
+## 0.2.0 selected-case candidate
+
+The historical counts-only review below does not certify this new source.
+Selected-case grants use additive migration `20261102194500_ai_approved_snapshots`
+and retain existing grant, command, audit and permanent withdrawal machinery.
+Only immutable approval metadata and a content digest are stored; customer text
+is read from its original case and must still match the preview. Regulated and
+unclassified projects stay denied. A customer-proprietary classification alone
+does not authorize disclosure: exact preview approval and a separate attestation
+are required. One-day default, seven-day maximum, twenty cases, four allowlisted
+fields, 128 KiB response projection. Counts-only grants remain isolated.
+
+Before rollout: complete isolated PostgreSQL migration/withdrawal/idempotency
+checks, actual UI stale-preview/identity checks, full CI and immutable-image
+security/runtime gates. Enable only the sandbox pair for customer-driven
+approval and actual packaged read/revoke/denial acceptance. No production access
+flag, grant, external credential or public submission is authorized by this file.
+Remote OAuth and ChatGPT provider acceptance are unfinished. Full launch remains
+held until all requested feature work and applicable acceptance is complete.
+
+## Historical 0.1.x review
+
 Scope: customer disclosure controls and a local Codex plugin for a dedicated
 synthetic tenant. This does not authorize customer data access, public listing,
 other AI hosts, writes, or general availability.

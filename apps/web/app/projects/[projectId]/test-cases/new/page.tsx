@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import TestCaseForm from "@/components/TestCaseForm";
@@ -19,7 +21,7 @@ function NewCaseSession({ projectId }: { projectId: string }) {
     return (
       <div role="alert">
         <p>{accessError}</p>
-        <button onClick={retryAccess}>Retry project access</button>
+        <ActionButton onClick={retryAccess} tooltip={<> Retry project access </>}> Retry </ActionButton>
       </div>
     );
   if (!opened && !loaded) return <p>Checking project access…</p>;
@@ -43,7 +45,7 @@ function NewCaseSession({ projectId }: { projectId: string }) {
             Your unsaved draft is retained. Editing and saving are paused until
             access is verified.
           </p>
-          <button onClick={retryAccess}>Retry project access</button>
+          <ActionButton onClick={retryAccess} tooltip={<> Retry project access </>}> Retry </ActionButton>
         </div>
       )}
       <TestCaseForm mode="create" projectId={projectId} locked={locked} />

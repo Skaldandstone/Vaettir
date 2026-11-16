@@ -42,7 +42,7 @@ test("each quick outcome only seeds one reviewed editor, never records or conver
   assert.doesNotMatch(source, /manualExecution\.recordResult|recordMutation|handleRecord|Number\(m\./);
   assert.equal((source.match(/<ManualCaseResultHistory\b/g) ?? []).length, 1);
   assert.match(source, /reviewIntent=\{reviewIntent\}/);
-  assert.match(source, /This\s+does not save a result/);
+  assert.match(source, /then review and save the result/);
 });
 test("stale hidden/read-only/mode/uncertain rows and existing observations cannot seed new work", () => {
   for (const [field, value] of [["readable", false], ["disabled", true], ["hidden", true], ["stepMode", true], ["wholeCasePending", true]]) {

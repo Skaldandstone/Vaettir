@@ -1,8 +1,10 @@
+import { actionName } from "../apps/web/e2e/action-name.mjs";
 import { reactBrowserScripts } from "./test-support/react-browser-runtime.mjs";
 // Real ReactDOM controls, synthetic RPC only, with all external network blocked.
-/* global React,ReactDOM,document */
+/* global document,window,innerWidth */
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
+import { join } from "node:path";
 import { readFileSync, mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { before, after, test } from "node:test";
@@ -46,30 +48,30 @@ async function page(){const p=await browser.newPage();p.setDefaultTimeout(5000);
 test("requires availability check, exact-address preview and explicit final confirmation",async()=>{
  const p=await page();try{
  await p.getByLabel("Workspace name",{exact:true}).fill("Synthetic-Team");
- assert.equal(await p.getByRole("button",{name:"Confirm address",exact:true}).isEnabled(),false);
- await p.getByRole("button",{name:"Check availability",exact:true}).click();
+ assert.equal(await p.getByRole("button",{name:actionName("Confirm address"),exact:true}).isEnabled(),false);
+ await p.getByRole("button",{name:actionName("Check availability"),exact:true}).click();
  await p.getByText("This address is available. Review it before confirming.",{exact:true}).waitFor();
  assert.equal(await p.getByText("https://synthetic-team.vaettir.app",{exact:true}).count(),1);
- await p.getByRole("checkbox").check();assert.equal(await p.getByRole("button",{name:"Confirm address",exact:true}).isEnabled(),true);
+ await p.getByRole("checkbox").check();assert.equal(await p.getByRole("button",{name:actionName("Confirm address"),exact:true}).isEnabled(),true);
  await p.getByLabel("Workspace name",{exact:true}).fill("another-team");
  assert.equal(await p.getByRole("checkbox").isChecked(),false);
- assert.equal(await p.getByRole("button",{name:"Confirm address",exact:true}).isEnabled(),false);
+ assert.equal(await p.getByRole("button",{name:actionName("Confirm address"),exact:true}).isEnabled(),false);
  }finally{await p.close()}
 });
 test("unavailable names and failed lookups cannot be confirmed",async()=>{
  const p=await page();try{
- await p.getByLabel("Workspace name",{exact:true}).fill("taken-team");await p.getByRole("button",{name:"Check availability",exact:true}).click();
+ await p.getByLabel("Workspace name",{exact:true}).fill("taken-team");await p.getByRole("button",{name:actionName("Check availability"),exact:true}).click();
  await p.getByText("This address is unavailable. Choose another name.",{exact:true}).waitFor();assert.equal(await p.getByRole("checkbox").isEnabled(),false);
- await p.evaluate(()=>window.mode="error");await p.getByLabel("Workspace name",{exact:true}).fill("new-team");await p.getByRole("button",{name:"Check availability",exact:true}).click();
+ await p.evaluate(()=>window.mode="error");await p.getByLabel("Workspace name",{exact:true}).fill("new-team");await p.getByRole("button",{name:actionName("Check availability"),exact:true}).click();
  await p.getByRole("alert").waitFor();assert.equal(await p.getByRole("checkbox").isEnabled(),false);
  }finally{await p.close()}
 });
 test("a late availability reply cannot confirm a name edited while the check was pending",async()=>{
  const p=await page();try{
  await p.evaluate(()=>window.mode="deferred");await p.getByLabel("Workspace name",{exact:true}).fill("first-team");
- await p.getByRole("button",{name:"Check availability",exact:true}).click();await p.getByLabel("Workspace name",{exact:true}).fill("second-team");
+ await p.getByRole("button",{name:actionName("Check availability"),exact:true}).click();await p.getByLabel("Workspace name",{exact:true}).fill("second-team");
  await p.evaluate(()=>window.finish());assert.equal(await p.getByRole("checkbox").isEnabled(),false);
- assert.equal(await p.getByRole("button",{name:"Confirm address",exact:true}).isEnabled(),false);
+ assert.equal(await p.getByRole("button",{name:actionName("Confirm address"),exact:true}).isEnabled(),false);
  }finally{await p.close()}
 });
 test("the full permanent address and confirmation text remain visible in mobile and desktop application styles", async()=>{
@@ -78,7 +80,7 @@ test("the full permanent address and confirmation text remain visible in mobile 
   await p.setViewportSize({width,height:900});
   await p.evaluate(theme=>document.documentElement.dataset.theme=theme,theme);
   await p.getByLabel("Workspace name",{exact:true}).fill("synthetic"+"x".repeat(54));
-  await p.getByRole("button",{name:"Check availability",exact:true}).click();
+  await p.getByRole("button",{name:actionName("Check availability"),exact:true}).click();
   await p.getByRole("status").waitFor();
   const result=await p.evaluate(()=>{
    const field=document.querySelector("fieldset");
@@ -92,7 +94,7 @@ test("the full permanent address and confirmation text remain visible in mobile 
   if(screenshots)await p.screenshot({path:join(screenshots,`address-long-${width}-${theme}.png`),fullPage:true,animations:"disabled"});
  }
  await p.setViewportSize({width:390,height:900});await p.evaluate(()=>document.documentElement.dataset.theme="light");
- await p.getByLabel("Workspace name",{exact:true}).fill("skaldandstone");await p.getByRole("button",{name:"Check availability",exact:true}).click();await p.getByRole("status").waitFor();
+ await p.getByLabel("Workspace name",{exact:true}).fill("skaldandstone");await p.getByRole("button",{name:actionName("Check availability"),exact:true}).click();await p.getByRole("status").waitFor();
  await p.getByRole("checkbox").check();
  if(screenshots)await p.screenshot({path:join(screenshots,"address-preview-390.png"),fullPage:true,animations:"disabled"});
  }finally{await p.close()}

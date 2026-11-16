@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type { PrismaClient } from "@vaettir/db";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import {
   verifyForgeInvocation,
   verifyForgeViewer,
@@ -23,10 +23,13 @@ import {
   publicReleaseEvidence,
 } from "./jiraReleaseEvidence.js";
 
+import { readForgeLiveQuality } from "./forgeLiveQuality.js";
+
 const input = z.discriminatedUnion("action", [
   z.object({ action: z.literal("IDENTITY") }).strict(),
   z.object({ action: z.literal("CONNECT") }).strict(),
   z.object({ action: z.literal("LIST") }).strict(),
+  z.object({ action: z.literal("READ_LIVE"), connectionKey: z.string().regex(/^forge-sharing-[a-f0-9]{64}$/) }).strict(),
   z
     .object({
       action: z.literal("RELEASES"),
@@ -190,6 +193,7 @@ export function registerForgeQualityRoute(
                 closureIds: sharing.closureSnapshotIds,
               };
             }
+            if (value.action === "READ_LIVE") return readForgeLiveQuality(tx, connectionKey, identity);
             if (identity.moduleKey === "vaettir-issue-quality")
               return await readJiraTicketVerification(
                 tx,

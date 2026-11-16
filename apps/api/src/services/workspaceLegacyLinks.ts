@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import type { Context } from "../trpc.js";
 import { requireProjectAccess, requireOrgRole, requireNotSuspended } from "../trpc.js";
 import { workspaceHostname } from "@vaettir/core";

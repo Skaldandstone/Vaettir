@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { caseFieldKey, type CaseFieldDefinition } from "./caseFieldSchema.js";
 
 export const CASE_FIELD_PRESENTATION_WIDGETS = ["AUTO", "TEXT_INPUT", "PARAGRAPH", "DROPDOWN", "RADIO", "TRI_STATE", "CHECKBOX"] as const;
@@ -9,7 +9,11 @@ export const caseFieldPresentationSettingSchema = z.object({
 }).strict();
 export const caseFieldPresentationSchema = z.object({
   version: z.literal(1),
-  fields: z.record(caseFieldKey, caseFieldPresentationSettingSchema).refine(fields => Object.keys(fields).length <= 20, "At most 20 existing field presentation mappings are supported."),
+  // Native Zod 4 skips __proto__ record keys. Explicitly refuse the raw own key
+  // before parsing so an unsupported mapping cannot disappear silently.
+  fields: z.custom<Record<string, unknown>>(value => value !== null && typeof value === "object" && !Array.isArray(value) && !Object.hasOwn(value, "__proto__"))
+    .pipe(z.record(caseFieldKey, caseFieldPresentationSettingSchema))
+    .refine(fields => Object.keys(fields).length <= 20, "At most 20 existing field presentation mappings are supported."),
 }).strict();
 export type CaseFieldPresentation = z.infer<typeof caseFieldPresentationSchema>;
 export type CaseFieldPresentationSetting = z.infer<typeof caseFieldPresentationSettingSchema>;

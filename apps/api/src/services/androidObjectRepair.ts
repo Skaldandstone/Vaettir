@@ -1,7 +1,7 @@
 // Pure local review logic. This is not a replay endpoint or an authorization
 // grant. The caller must obtain the case and native observation under fresh
 // original authority; nothing here performs a command or changes a case.
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import {
   androidExplorationScope,
   observedAndroidObject,

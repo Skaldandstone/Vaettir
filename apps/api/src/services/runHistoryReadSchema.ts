@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { supportedManualExecutionIdentity } from "./manualExecutionReadScopeSchema.js";
 const id = z.string().min(1).max(200).refine(supportedManualExecutionIdentity);
 // Browser-safe DTO schema: do not import native authorization/Prisma modules.

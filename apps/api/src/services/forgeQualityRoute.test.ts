@@ -14,7 +14,9 @@ const mocks = vi.hoisted(() => ({
   connections: vi.fn(),
   capture: vi.fn(),
   product: vi.fn(),
+  live: vi.fn(),
 }));
+vi.mock("./forgeLiveQuality.js", () => ({ readForgeLiveQuality: mocks.live }));
 vi.mock("./forgeInvocation.js", () => ({
   verifyForgeInvocation: mocks.invocation,
   verifyForgeViewer: mocks.viewer,
@@ -68,6 +70,18 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllEnvs());
 describe("Forge quality HTTP authorization boundary", () => {
+  it("reauthorizes every live refresh and never falls back to a cached approved report after denial", async () => {
+    const f = fixture();
+    const viewer = { ...identity, product: "confluence", moduleKey: "vaettir-release-quality" };
+    mocks.invocation.mockResolvedValue(viewer); mocks.viewer.mockResolvedValue(viewer);
+    mocks.live.mockResolvedValue({ protocol: "vaettir-quality-live/v1", mode: "LIVE" });
+    const send = (body: object = { action: "READ_LIVE", connectionKey: key }) => f.app.inject({ method: "POST", url: "/api/integrations/forge/quality", headers, payload: body });
+    const first = await send(); expect(first.statusCode).toBe(200); expect(first.headers["cache-control"]).toBe("no-store, private"); expect(mocks.live).toHaveBeenCalledWith(f.tx, key, viewer);
+    mocks.viewer.mockRejectedValue(new Error("Page access revoked"));
+    expect((await send()).statusCode).toBe(403); expect(mocks.live).toHaveBeenCalledTimes(1); expect(mocks.snapshot).not.toHaveBeenCalled();
+    expect((await send({ action: "READ_LIVE", connectionKey: key, snapshotId: "a".repeat(64) })).statusCode).toBe(400);
+    await f.app.close();
+  });
   it("issues a direct opaque setup link only for the verified product destination, without a sharing write", async () => {
     const viewer = {
       ...identity,

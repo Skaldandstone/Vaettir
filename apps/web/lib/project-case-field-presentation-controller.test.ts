@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
@@ -45,7 +46,7 @@ function harness() {
   };
   const effect = (callback: () => (() => void) | undefined, deps: unknown[]) => { const index = cursor++, previous = effects[index]; if (!previous || deps.some((value, i) => !Object.is(value, previous.deps[i]))) scheduledEffects.push(() => { previous?.cleanup?.(); effects[index] = { deps, cleanup: callback() }; }); };
   h.useEffect = effect; h.useLayoutEffect = effect;
-  vm.createContext(h); vm.runInContext(ts.transpileModule(component, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText, h);
+  vm.createContext(h); vm.runInContext(controllerTranspile(component, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText, h);
   let tree: React.ReactElement;
   function render(commit = true) { for (let i = 0; i < 15; i++) { dirty = false; cursor = 0; scheduledEffects = []; tree = (h.ProjectCaseFieldPresentationControl as (props: { projectId: string }) => React.ReactElement)({ projectId: origin.projectId }); if (commit) scheduledEffects.splice(0).forEach(run => run()); if (!dirty) return tree; } throw Error("Synthetic hook controller did not settle."); }
   // React can discard render-phase state of an abandoned update. The already
@@ -64,7 +65,7 @@ function harness() {
 }
 describe("actual custom-field presentation controller source", () => {
   it("actual capability observes only revocation; forged/stale observation handles cannot publish or revive a committed callback", () => {
-    const actualClass = ts.transpileModule(printer.printNode(ts.EmitHint.Unspecified, capabilityDeclaration, ast), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText;
+    const actualClass = controllerTranspile(printer.printNode(ts.EmitHint.Unspecified, capabilityDeclaration, ast), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText;
     type Token = Readonly<{ stamp: number; readStamp: number }>;
     const capability = vm.runInNewContext(actualClass + "\nnew FieldPresentationCallbackCapability()") as { observe: (key: string, authorityKey?: string) => Token; publish: (token: Token) => Token | null; owns: (token: Token | null) => boolean; revoke: (token: Token | null) => void };
     const a = capability.observe("A"); expect(Object.isFrozen(a)).toBe(true); expect(capability.owns(a)).toBe(false);
@@ -198,7 +199,7 @@ describe("actual custom-field presentation controller source", () => {
     const host = harness(); host.render(); host.click("Configure custom-field presentation");
     expect(host.html()).not.toContain("Load current settings for review"); expect(host.reads()).toBe(1);
     host.query.dataUpdatedAt++; host.render(); host.click("Load current settings for review");
-    let html = host.html(); for (const text of [" Exact native label ", "Single-line text", "Multiline paragraph", "Radio choices", "Tri-state: unset / yes / no", "Unknown saved mapping", "Hide only when native value is absent", "Null, empty text, whitespace, false and zero"]) expect(html).toContain(text);
+    let html = host.html(); for (const text of [" Exact native label ", "Single-line text", "Multiline paragraph", "Radio choices", "Tri-state: unset / yes / no", "Unknown saved mapping", "Hide only when native value is absent", "Hidden fields remain available in the editor"]) expect(html).toContain(text);
     host.close(); host.click("Configure custom-field presentation"); expect(host.html()).toContain("Cached settings cannot authorize"); expect(host.button("Review unsaved presentation").disabled).toBe(true);
     host.query.dataUpdatedAt++; expect(host.html()).not.toContain("Awaiting a fresh");
     host.auth.isSignedIn = false; html = host.html(); expect(html).not.toContain(" Exact native label ");

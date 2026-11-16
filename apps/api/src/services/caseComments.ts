@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { Prisma, type PrismaClient } from "@vaettir/db";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { lockCaseFieldReadScope, caseFieldReadScopeSchema, type CaseFieldReadAuthorization } from "./caseFieldReadScope.js";
 
 const scope = z.object({ projectId: z.string().min(1).max(200), caseId: z.string().min(1).max(200), originalOrganizationId: z.string().min(1).max(200), expectedClerkActorId: z.string().min(1).max(200) });

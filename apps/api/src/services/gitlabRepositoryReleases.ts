@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import type { ConnectedSourceBinding } from "./connectedRepositoryAccess.js";
 import type { GitlabJsonRead } from "./connectedGitlabScan.js";
 

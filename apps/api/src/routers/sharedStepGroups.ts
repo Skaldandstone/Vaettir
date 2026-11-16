@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { TRPCError } from "@trpc/server";
 import { TestCaseStepInputSchema } from "@vaettir/core";
 import { router, protectedProcedure } from "../trpc.js";

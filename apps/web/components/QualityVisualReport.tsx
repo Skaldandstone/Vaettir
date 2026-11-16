@@ -36,7 +36,7 @@ export function QualityVisualReport({ model }: { model: Model }) {
                   strokeWidth="24"
                 />
                 {chart.rows.map((row) => {
-                  const length = (row.value / total) * 100;
+                  const length = total ? (row.value / total) * 100 : 0;
                   const start = offset;
                   offset += length;
                   return (

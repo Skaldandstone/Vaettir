@@ -1,4 +1,5 @@
 import { protectedProcedure, router } from "../trpc.js";
+import { aiCasePreviewInput, aiCaseIssueInput, aiCasePickerInput, listAiCaseChoices, previewAiCases, issueAiCaseGrant } from "../services/aiCaseDisclosureAdmin.js";
 import {
   aiAdminScope,
   aiClassificationInput,
@@ -12,6 +13,9 @@ import {
 } from "../services/aiDisclosureAdmin.js";
 
 export const aiDisclosureRouter = router({
+  caseChoices: protectedProcedure.input(aiCasePickerInput).query(({ ctx, input }) => listAiCaseChoices(ctx, input)),
+  previewCases: protectedProcedure.input(aiCasePreviewInput).query(({ ctx, input }) => previewAiCases(ctx, input)),
+  issueCases: protectedProcedure.input(aiCaseIssueInput).mutation(({ ctx, input }) => issueAiCaseGrant(ctx, input)),
   settings: protectedProcedure
     .input(aiAdminScope)
     .query(({ ctx, input }) => readAiSettings(ctx, input)),

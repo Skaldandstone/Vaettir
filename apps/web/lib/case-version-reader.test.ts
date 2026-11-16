@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
 import React from "react";
+import { ActionButton } from "./test-support/action-button";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { currentVersionRead, sameVersionReader } from "./case-version-draft";
@@ -317,6 +318,7 @@ describe("actual version reader/renderer synthetic fixtures, not authenticated r
     });
     const context = vm.createContext({
       React,
+      ActionButton,
       currentVersionRead,
       currentCaseVersionPreview,
       inspectorLabel: (value: string) => value,

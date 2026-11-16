@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 // Pure shared contract. Keep database filtering in reportSnapshotScope.ts.
 export const reportExecutionScopeSchema = z
   .object({

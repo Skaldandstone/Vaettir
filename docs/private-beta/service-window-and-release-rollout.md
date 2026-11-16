@@ -1,8 +1,26 @@
 # Private-beta service window and immutable release rollout
 
-## Canonical service window
+## Production availability
 
-`config/private-beta-service-window.json` is the source of truth for both the customer-facing promise and the six AWS Scheduler entries. The beta window is 08:00 through 01:00 in `America/Los_Angeles`; Scheduler must therefore use `cron(0 8 * * ? *)` for the three start entries and `cron(0 1 * * ? *)` for the three stop entries.
+The production contract in `config/private-beta-service-window.json` now declares
+`mode: "always-on"` and `Available 24/7`. All six retained Vaettir start/stop
+schedules must be **DISABLED**. Their original times, targets, payloads and roles
+remain intact for reviewed rollback. Disabling only stop entries is insufficient:
+the start entries would still reset an intentionally changed service count.
+Other products' schedules are outside this change.
+
+`node scripts/private-beta-service-window.mjs --actual <six-schedule-json>` checks
+the exact inventory and disabled states as well as the retained times and timezone.
+Source configuration is desired state; fresh AWS reads establish whether it is
+applied. Stable services, database availability, backups, alert delivery and
+authenticated customer workflows remain separate production acceptance checks.
+
+The explicit `scheduled` mode retains the old beta contract for reviewed rollback;
+never re-enable sleep merely because an older release receipt expected it.
+
+## Historical private-beta service window
+
+The former beta window was 08:00 through 01:00 in `America/Los_Angeles`, with `cron(0 8 * * ? *)` for the three start entries and `cron(0 1 * * ? *)` for the three stop entries. These expressions remain retained while production mode disables their execution.
 
 Run `pnpm test:operations` to reject drift between the times, expressions, public copy, and expected schedule inventory. Run `node scripts/private-beta-service-window.mjs` to render the exact desired public copy and schedule contract for review.
 

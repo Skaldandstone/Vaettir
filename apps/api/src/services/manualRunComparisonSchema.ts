@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { reportDateIntervalSchema } from "./reportDateIntervalSchema.js";
 import { supportedManualExecutionIdentity } from "./manualExecutionReadScopeSchema.js";
 const identity = z.string().min(1).max(200).refine(supportedManualExecutionIdentity);

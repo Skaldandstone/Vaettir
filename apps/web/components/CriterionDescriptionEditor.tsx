@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useState } from "react";
 import { trpcReact, type RouterInputs } from "@/lib/trpcReact";
 import { usePlanGovernance } from "@/lib/use-plan-governance";
@@ -166,11 +168,7 @@ export function CriterionDescriptionEditor({
           </p>
         ) : (
           <div style={{ display: "grid", gap: 12 }}>
-            <p className="text-muted">
-              Changes only the wording. Native verdicts, linked requirements and
-              release assignment are preserved. Approved or archived plans and
-              ready or shipped releases must be explicitly reopened first.
-            </p>
+            <details><summary>Details</summary><p className="text-muted">Edit this criterion’s wording. <a className="inline-help" href="/guide#plans" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p></details>
             {query.error && (
               <p role="alert">
                 {query.error.message}{" "}
@@ -181,11 +179,15 @@ export function CriterionDescriptionEditor({
               <p role="alert">{fresh.editBlockedReason}</p>
             )}
             {!draft && !pending && (
-              <button disabled={!fresh?.canEdit} onClick={review}>
+              <ActionButton disabled={!fresh?.canEdit} onClick={review} tooltip={<>
                 {fresh
                   ? "Load current wording for review"
                   : "Loading current plan…"}
-              </button>
+               </>}>
+                {fresh
+                  ? "Load"
+                  : "Loading…"}
+              </ActionButton>
             )}
             {draft && !pending && (
               <>
@@ -225,7 +227,7 @@ export function CriterionDescriptionEditor({
                   I reviewed the wording; the existing verdict and requirement
                   association stay unchanged.
                 </label>
-                <button
+                <ActionButton
                   onClick={() => void commit()}
                   disabled={
                     preparing ||
@@ -235,16 +237,18 @@ export function CriterionDescriptionEditor({
                     !reason.trim() ||
                     !draft.text.trim()
                   }
-                >
+                 tooltip={<>
                   Save reviewed wording
-                </button>
-                <button
+                 </>}>
+                   Save </ActionButton>
+                <ActionButton
                   className="btn-secondary"
                   disabled={preparing || save.isPending}
                   onClick={review}
-                >
+                 tooltip={<>
                   Reload current wording (replaces unsaved text)
-                </button>
+                 </>}>
+                   Replace draft </ActionButton>
               </>
             )}
             {pending && (
@@ -256,12 +260,13 @@ export function CriterionDescriptionEditor({
                 <p style={{ whiteSpace: "pre-wrap" }}>
                   {pending.input.description}
                 </p>
-                <button
+                <ActionButton
                   disabled={save.isPending || !access.canEdit}
                   onClick={() => void commit()}
-                >
+                 tooltip={<>
                   Retry same wording request
-                </button>
+                 </>}>
+                   Retry </ActionButton>
               </>
             )}
             {notice && <p role="status">{notice}</p>}

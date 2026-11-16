@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import {
@@ -384,13 +386,12 @@ function PresetEditor({
               </button>
             </div>
           ))}
-          <button
+          <ActionButton
             type="button"
             disabled={value[phase].length >= 100}
-            onClick={() => set(phase, [...value[phase], ""])}
-          >
+            onClick={() => set(phase, [...value[phase], ""])} tooltip={<>
             Add {inspectorLabel(phase)} item
-          </button>
+           </>}>Add item</ActionButton>
         </section>
       ))}
       <section>
@@ -488,7 +489,7 @@ function PresetEditor({
             </div>
           </fieldset>
         ))}
-        <button
+        <ActionButton
           type="button"
           disabled={value.steps.length >= 100}
           onClick={() =>
@@ -502,9 +503,10 @@ function PresetEditor({
               },
             ])
           }
-        >
+         tooltip={<>
           Add structured step
-        </button>
+         </>}>
+           Add step </ActionButton>
       </section>
       <section>
         <h4>Tags</h4>
@@ -649,13 +651,7 @@ function PresetEditor({
             ),
         ) && (
           <div role="alert">
-            <p>
-              Retained defaults include an unavailable field. Edit its
-              compatible active definition, or explicitly remove its default
-              from the next preset revision before reviewing. Existing cases and
-              prior receipts remain unchanged; no default will be silently
-              removed.
-            </p>
+            <p>Update or remove the unavailable field default before reviewing this preset. <a className="inline-help" href="/guide#cases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
             {Object.entries(value.customFields)
               .filter(
                 ([key]) =>
@@ -668,16 +664,16 @@ function PresetEditor({
                   <p>
                     {key}: {retained === null ? "Not set" : String(retained)}
                   </p>
-                  <button
+                  <ActionButton
                     type="button"
                     onClick={() => {
                       const next = { ...value.customFields };
                       delete next[key];
                       set("customFields", next);
                     }}
-                  >
+                   tooltip={<>
                     Remove {key} default only from proposed revision
-                  </button>
+                   </>}>Remove default</ActionButton>
                 </div>
               ))}
           </div>
@@ -693,13 +689,14 @@ function PresetEditor({
         ) : (
           <p>Generic authoring scaffold.</p>
         )}
-        <button
+        <ActionButton
           type="button"
           disabled={!catalog.experience}
           onClick={() => set("applicability", catalog.experience)}
-        >
+         tooltip={<>
           Use current project&apos;s complete profile
-        </button>{" "}
+         </>}>
+           Use </ActionButton>{" "}
         <button type="button" onClick={() => set("applicability", null)}>
           Make generic
         </button>
@@ -874,16 +871,17 @@ export function CaseAuthoringPresets({ projectId, organizationId }: { projectId:
   };
   return (
     <>
-      <button
+      <ActionButton
         type="button"
         onClick={() => {
           setFresh(false);
           setReviewFresh(false);
           setOpen(true);
         }}
-      >
+       tooltip={<>
         Manage authoring presets
-      </button>
+       </>}>
+         Manage presets </ActionButton>
       {access.ready && savedMessage && <p role="status">{savedMessage}</p>}
       <Modal
         open={open}
@@ -898,15 +896,16 @@ export function CaseAuthoringPresets({ projectId, organizationId }: { projectId:
                 ? catalog.error.message
                 : "Checking current project access…"}
             </p>
-            <button
+            <ActionButton
               onClick={() =>
                 void access.retry().then(() => catalog.refetch()).then((r) => {
                   if (!r.isError) setFresh(true);
                 })
               }
-            >
+             tooltip={<>
               Retry current access
-            </button>
+             </>}>
+               Retry </ActionButton>
           </div>
         ) : !current.canManage ? (
           <p role="alert">
@@ -916,13 +915,7 @@ export function CaseAuthoringPresets({ projectId, organizationId }: { projectId:
         ) : !prepared ? (
           <div style={{ display: "grid", gap: 14, minWidth: 0 }}>
             <p>{current.notice}</p>
-            <p>
-              Up to 50 retained presets, including archived identities; each
-              complete definition is limited to 256 KiB, 100 items per Given /
-              When / Then phase and 100 structured steps. Typed defaults retain
-              the separate 64 KiB case metadata limit. History shows the latest
-              25 immutable changes; no prior records are deleted.
-            </p>
+            <p>Save up to 50 presets, including archived presets. <a className="inline-help" href="/guide#cases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
             <label>
               Preset
               <select
@@ -946,21 +939,22 @@ export function CaseAuthoringPresets({ projectId, organizationId }: { projectId:
             {!loaded ? (
               <>
                 {!selection ? (
-                  <button
+                  <ActionButton
                     onClick={() => {
                       setName("");
                       setDefinition(blank());
                       setLoaded(true);
                     }}
-                  >
+                   tooltip={<>
                     Start separate empty definition
-                  </button>
+                   </>}>
+                     Start </ActionButton>
                 ) : (
                   <>
                     {preset.isError && (
                       <p role="alert">{preset.error.message}</p>
                     )}
-                    <button
+                    <ActionButton
                       disabled={!currentPreset || currentPreset.value.archived}
                       onClick={() => {
                         if (currentPreset) {
@@ -969,9 +963,10 @@ export function CaseAuthoringPresets({ projectId, organizationId }: { projectId:
                           setLoaded(true);
                         }
                       }}
-                    >
+                     tooltip={<>
                       Load retained definition for editing
-                    </button>
+                     </>}>
+                       Load </ActionButton>
                     {currentPreset && (
                       <>
                         <p>
@@ -1023,7 +1018,7 @@ export function CaseAuthoringPresets({ projectId, organizationId }: { projectId:
                                     definition={item.receipt.after.definition}
                                     fieldSchema={current.fieldSchema}
                                   />
-                                  <button
+                                  <ActionButton
                                     onClick={() =>
                                       prepare({
                                         projectId,
@@ -1032,9 +1027,10 @@ export function CaseAuthoringPresets({ projectId, organizationId }: { projectId:
                                         restoreReceiptId: item.receiptId,
                                       })
                                     }
-                                  >
+                                   tooltip={<>
                                     Review this content as a new revision
-                                  </button>
+                                   </>}>
+                                     Review </ActionButton>
                                 </details>
                               ))}
                             </>
@@ -1065,7 +1061,7 @@ export function CaseAuthoringPresets({ projectId, organizationId }: { projectId:
                   onChange={setDefinition}
                   catalog={current}
                 />
-                <button
+                <ActionButton
                   className="btn-primary"
                   disabled={!name.trim() || !!currentPreset?.value.archived}
                   onClick={() =>
@@ -1077,9 +1073,10 @@ export function CaseAuthoringPresets({ projectId, organizationId }: { projectId:
                       definition,
                     })
                   }
-                >
+                 tooltip={<>
                   Review complete preset
-                </button>
+                 </>}>
+                   Review </ActionButton>
                 <label>
                   <input
                     type="checkbox"
@@ -1107,15 +1104,16 @@ export function CaseAuthoringPresets({ projectId, organizationId }: { projectId:
             {review.isError ? (
               <div role="alert">
                 <p>{review.error.message}</p>
-                <button
+                <ActionButton
                   onClick={() =>
                     void review.refetch().then((r) => {
                       if (!r.isError) setReviewFresh(true);
                     })
                   }
-                >
+                 tooltip={<>
                   Retry complete review
-                </button>
+                 </>}>
+                   Retry </ActionButton>
               </div>
             ) : !reviewed ? (
               <p role="status">
@@ -1198,17 +1196,18 @@ export function CaseAuthoringPresets({ projectId, organizationId }: { projectId:
               </p>
             )}
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button
+              <ActionButton
                 disabled={!!pending}
                 onClick={() => {
                   setPrepared(null);
                   setReviewFresh(false);
                   mutation.reset();
                 }}
-              >
+               tooltip={<>
                 Back to retained draft
-              </button>
-              <button
+               </>}>
+                 Back </ActionButton>
+              <ActionButton
                 className="btn-primary"
                 disabled={
                   !current?.canManage || mutation.isPending ||
@@ -1232,13 +1231,19 @@ export function CaseAuthoringPresets({ projectId, organizationId }: { projectId:
                   setPending(input);
                   mutation.mutate(input);
                 }}
-              >
+               tooltip={<>
                 {mutation.isPending
                   ? "Saving…"
                   : pending
                     ? "Retry exact approved change"
                     : "Approve new preset revision"}
-              </button>
+               </>}>
+                {mutation.isPending
+                  ? "Saving…"
+                  : pending
+                    ? "Retry"
+                    : "Approve revision"}
+              </ActionButton>
             </div>
           </div>
         )}
@@ -1350,15 +1355,17 @@ export function NewCaseFromAuthoringPreset({
   };
   return (
     <>
-      <button
+      <ActionButton
         onClick={() => {
           setFresh(false);
           setReviewFresh(false);
           setOpen(true);
         }}
-      >
+       tooltip={<>
         {draft ? "Resume preset case draft" : "New case from preset"}
-      </button>
+       </>}>
+        {draft ? "Resume" : "New case"}
+      </ActionButton>
       <Modal
         open={open}
         onClose={close}
@@ -1372,7 +1379,7 @@ export function NewCaseFromAuthoringPreset({
       >
         {draft ? (
           <>
-            {!draftActive && <div role="alert"><p>Current original-organization editor access is unavailable. The human draft is retained but hidden; retry access without replacing it.</p><button onClick={() => void access.retry().then(() => catalog.refetch()).then(r => { if (!r.isError) setFresh(true); })}>Retry original draft access</button></div>}
+            {!draftActive && <div role="alert"><p>Current original-organization editor access is unavailable. The human draft is retained but hidden; retry access without replacing it.</p><ActionButton onClick={() => void access.retry().then(() => catalog.refetch()).then(r => { if (!r.isError) setFresh(true); })} tooltip={<> Retry original draft access </>}> Retry </ActionButton></div>}
             <div hidden={!draftActive} ref={(element) => { if (element) element.inert = !draftActive; }} style={!draftActive ? { display: "none" } : undefined}>
             <p>
               Separate local draft from {draft.value.value.name}, revision{" "}
@@ -1381,7 +1388,7 @@ export function NewCaseFromAuthoringPreset({
               overwrite this human draft.
             </p>
             {draft.value.warnings.map((warning, index) => <p key={index}>{warning}</p>)}
-            {current && draft.value.profileHash !== current.profileHash && <p role="alert">The project profile changed after this separate draft was reviewed. Its original prefill and your edits remain unchanged; review current applicability again. This is not a regulatory or console TRC qualification.</p>}
+            {current && draft.value.profileHash !== current.profileHash && <p role="alert">Project settings changed. Review the draft again; your edits are retained. <a className="inline-help" href="/guide#cases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>}
             {current && draft.value.fieldSchemaHash !== current.fieldSchemaHash && <p role="alert">The current human field schema changed. Retained defaults are not silently reapplied or discarded; review the form&apos;s current field compatibility before saving.</p>}
             {current && <CurrentProfile experience={current.experience} />}
             <TestCaseForm
@@ -1415,13 +1422,9 @@ export function NewCaseFromAuthoringPreset({
               Case creation remains a separate existing workflow. No template
               usage link or execution proof is asserted.
             </p>
-            <p>
-              Closing this module retains edits in this open workspace only.
-              Reloading or leaving the page can lose an unsaved draft; no
-              durable case-save or reload guarantee is claimed.
-            </p>
+            <p>Keep this page open to retain your draft. <a className="inline-help" href="/guide#cases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
             </div>
-            <button
+            <ActionButton
               onClick={() => {
                 if (
                   window.confirm(
@@ -1438,9 +1441,10 @@ export function NewCaseFromAuthoringPreset({
                   mutation.reset();
                 }
               }}
-            >
+             tooltip={<>
               Discard only local case draft
-            </button>
+             </>}>
+               Discard draft </ActionButton>
           </>
         ) : !current ? (
           <div role={catalog.isError ? "alert" : "status"}>
@@ -1449,15 +1453,16 @@ export function NewCaseFromAuthoringPreset({
                 ? catalog.error.message
                 : "Checking current full-editor access…"}
             </p>
-            <button
+            <ActionButton
               onClick={() =>
                 void access.retry().then(() => catalog.refetch()).then((r) => {
                   if (!r.isError) setFresh(true);
                 })
               }
-            >
+             tooltip={<>
               Retry current access
-            </button>
+             </>}>
+               Retry </ActionButton>
           </div>
         ) : !current.canEdit ? (
           <p role="alert">
@@ -1490,7 +1495,7 @@ export function NewCaseFromAuthoringPreset({
             {!current.items.some((item) => !item.archived) && (
               <p>No active presets. Ask an Owner/Admin to author one.</p>
             )}
-            <button
+            <ActionButton
               disabled={!selected}
               onClick={() => {
                 setPrepared(selected);
@@ -1498,24 +1503,26 @@ export function NewCaseFromAuthoringPreset({
                 setReviewFresh(false);
                 mutation.reset();
               }}
-            >
+             tooltip={<>
               Review complete prefill
-            </button>
+             </>}>
+               Review </ActionButton>
           </>
         ) : (
           <div style={{ display: "grid", gap: 12, minWidth: 0 }}>
             {review.isError ? (
               <div role="alert">
                 <p>{review.error.message}</p>
-                <button
+                <ActionButton
                   onClick={() =>
                     void review.refetch().then((r) => {
                       if (!r.isError) setReviewFresh(true);
                     })
                   }
-                >
+                 tooltip={<>
                   Retry fresh review
-                </button>
+                 </>}>
+                   Retry </ActionButton>
               </div>
             ) : !reviewed ? (
               <p role="status">
@@ -1575,7 +1582,7 @@ export function NewCaseFromAuthoringPreset({
               >
                 Back
               </button>
-              <button
+              <ActionButton
                 className="btn-primary"
                 disabled={!reviewed || !approved || mutation.isPending}
                 onClick={() => {
@@ -1589,17 +1596,22 @@ export function NewCaseFromAuthoringPreset({
                     confirmed: true,
                   });
                 }}
-              >
+               tooltip={<>
                 {mutation.isPending
                   ? "Rechecking…"
                   : "Start separate reviewed draft"}
-              </button>
+               </>}>
+                {mutation.isPending
+                  ? "Rechecking…"
+                  : "Start"}
+              </ActionButton>
             </div>
           </div>
         )}
-        <button onClick={close} style={{ marginTop: 12 }}>
+        <ActionButton onClick={close} style={{ marginTop: 12 }} tooltip={<>
           Close and retain local draft
-        </button>
+         </>}>
+           Keep draft </ActionButton>
       </Modal>
     </>
   );

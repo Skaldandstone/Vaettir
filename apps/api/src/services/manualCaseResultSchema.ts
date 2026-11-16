@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { observationsSchema } from "./physicalValidation.js";
 import {
   manualRetestExpectedScopeSchema,
@@ -261,7 +261,9 @@ const exactObservation = z
     resultId: identity,
     status: manualCaseOutcomeSchema,
     note: z.string().max(10000).nullable(),
-    observations: z.unknown(),
+    // Zod 3 unknown object fields permitted omission. Keep that wire contract
+    // explicit in Zod 4; retained JSON is still passed through without coercion.
+    observations: z.unknown().optional(),
   })
   .strict();
 export const manualCaseReviewedPreviewOutputSchema = z
@@ -275,9 +277,9 @@ export const manualCaseReviewedPreviewOutputSchema = z
     frozenEvidenceHash: hash,
     frozenEvidence: z
       .object({
-        procedure: z.unknown(),
+        procedure: z.unknown().optional(),
         prerequisites: z.record(z.array(identity).max(1000)),
-        context: z.unknown(),
+        context: z.unknown().optional(),
       })
       .strict(),
     canWrite: z.boolean(),
@@ -300,7 +302,7 @@ export const manualCaseReviewedHistoryOutputSchema = z
             recordedAt: z.date(),
             correctionReason: z.string().max(2000).nullable(),
             previousRevisionId: identity.nullable(),
-            legacyPrior: z.unknown(),
+            legacyPrior: z.unknown().optional(),
             legacyPriorKind: z.enum(["SQL_NULL", "JSON_NULL", "VALUE"]),
           })
           .strict(),

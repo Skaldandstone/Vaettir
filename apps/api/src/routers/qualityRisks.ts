@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { protectedProcedure, requireProjectAccess, router } from "../trpc.js";
 import { qualityRiskWriteInput, qualityRiskLookupInput } from "../services/qualityRiskSchema.js";
 import { withQualityRiskAccess, withQualityRiskReadAccess, qualityRiskList, qualityRiskDetail, writeQualityRisk, lookupQualityRiskLinks } from "../services/qualityRisks.js";

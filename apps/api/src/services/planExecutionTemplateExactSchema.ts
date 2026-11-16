@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 
 /** Literal-value codecs only. They neither authorize a save nor reinterpret a
  * v1 template/run/UUID. Native JSONB admission and writer integration are separate. */

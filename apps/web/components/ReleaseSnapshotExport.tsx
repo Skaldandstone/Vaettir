@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useLayoutEffect, useMemo, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useQueryClient, type QueryClient, type QueryKey } from "@tanstack/react-query";
@@ -183,12 +185,16 @@ function ReleaseSnapshotExportSession({ projectId, releaseId, organizationId, ac
   }
   const visible = display && owner.currentFrame(display.frame, display.stamp), busy = !!(visible && display.attempt && owner.current(display.attempt));
   return <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-    <button type="button" className="btn-secondary" style={{ fontSize: 13 }} onClick={() => void exportSnapshot("html")} disabled={!frame.eligible || busy}>
+    <ActionButton type="button" className="btn-secondary" style={{ fontSize: 13 }} onClick={() => void exportSnapshot("html")} disabled={!frame.eligible || busy} tooltip={<>
       {busy && display?.format === "html" ? "Exporting…" : "Export interactive HTML snapshot"}
-    </button>
-    <button type="button" className="btn-secondary" style={{ fontSize: 13 }} onClick={() => void exportSnapshot("markdown")} disabled={!frame.eligible || busy}>
+     </>}>
+      {busy && display?.format === "html" ? "Exporting…" : "HTML"}
+    </ActionButton>
+    <ActionButton type="button" className="btn-secondary" style={{ fontSize: 13 }} onClick={() => void exportSnapshot("markdown")} disabled={!frame.eligible || busy} tooltip={<>
       {busy && display?.format === "markdown" ? "Exporting…" : "Export Markdown snapshot"}
-    </button>
+     </>}>
+      {busy && display?.format === "markdown" ? "Exporting…" : "Markdown"}
+    </ActionButton>
     {visible && display.notice && <p role="status">{display.notice}</p>}
   </div>;
 }

@@ -2,6 +2,11 @@ packages:
   - "apps/*"
   - "packages/*"
 overrides:
+  # PptxGenJS 4.0.1 declares image-size but its distributed ES/CJS builds do not
+  # call it. Scope the fixed major to that exact parent; recheck on parent upgrade.
+  'pptxgenjs@4.0.1>image-size': '2.0.3'
+  # ExcelJS archive readers reach minimatch 3; retain its compatible brace 1 API.
+  'minimatch@3.1.5>brace-expansion': '1.1.21'
   'shell-quote@>=1.8.4 <1.11.0': '1.11.0'
   'undici@>=6.0.0 <6.28.1': '6.28.1'
   'source-map-js@>=1.0.0 <1.2.2': '1.2.2'

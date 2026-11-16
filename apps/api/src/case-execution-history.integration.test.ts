@@ -81,14 +81,14 @@ describe.skipIf(!isolated)("case-centric execution history", () => {
       await owner.project.create({
         organizationId,
         name: "Execution history",
-        caseKey: "history",
+        caseKey: "hist",
       })
     ).id;
     otherProjectId = (
       await outsider.project.create({
         organizationId: otherOrgId,
         name: "Other history",
-        caseKey: "outside",
+        caseKey: "outer",
       })
     ).id;
   });
@@ -279,7 +279,7 @@ describe.skipIf(!isolated)("case-centric execution history", () => {
     );
     expect(new Set(ids).size).toBe(45);
     expect(third.nextCursor).toBeNull();
-    expect(first.testCase.displayId).toMatch(/^history-\d+$/);
+    expect(first.testCase.displayId).toMatch(/^hist-\d+$/);
   });
   it("keeps case verdict separate from overall run and groups mixed parameter results, including flaky", async () => {
     const c = await newCase();
@@ -645,7 +645,7 @@ describe.skipIf(!isolated)("case-centric execution history", () => {
     const sibling = await owner.project.create({
       organizationId,
       name: "Sibling",
-      caseKey: "sibling",
+      caseKey: "sib",
     });
     await expect(
       viewer.caseExecutionHistory.list({

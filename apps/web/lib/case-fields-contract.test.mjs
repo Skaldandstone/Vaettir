@@ -58,7 +58,7 @@ test("typed native case fields use fresh scoped definitions and retain uncertain
   assert.match(controls, /inputMode="decimal"/);
   assert.match(
     source,
-    /Procedure\s+version comparison and restore preserve current\s+metadata/,
+    /Metadata edits are recorded in the audit history/,
   );
 });
 test("project schema changes require current Owner Admin, impact, reason and explicit confirmation", () => {
@@ -78,10 +78,10 @@ test("project schema changes require current Owner Admin, impact, reason and exp
 test("authoring and inspector mount required metadata without replacing procedures or prerequisites", () => {
   const form = file("../components/TestCaseForm.tsx");
   assert.match(form, /!caseFieldsDraft\?\.ready/);
-  assert.match(form, /customFields: caseFieldsDraft\.customFields/);
+  assert.match(form, /customFields: caseFieldsDraft\?\.customFields/);
   assert.match(
     form,
-    /expectedFieldSchemaHash: caseFieldsDraft\.expectedFieldSchemaHash/,
+    /expectedFieldSchemaHash: caseFieldsDraft\?\.expectedFieldSchemaHash/,
   );
   assert.match(form, /onChange=\{setCaseFieldsDraft\}/);
   const inspector = file("../components/TestCaseDetailContent.tsx");

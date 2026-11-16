@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { createHash } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
@@ -21,9 +21,10 @@ import { workbookReads, workbookPreview } from "../services/xlsxWorkbookReads.js
 import { importTypeCaseSchema, importTypeRecommendationSchema } from "@vaettir/ai-agent";
 import { importTypeAnalysis } from "../services/importTypeAnalysis.js";
 import { googleSheetsImportConfig, googleSheetSourceSchema, prepareGoogleSheetsImport } from "../services/googleSheetsImport.js";
+import { importMappingProcedures } from "./importMappingRoutes.js";
 
 const fieldMappingSchema = z
-  .record(z.enum(TARGET_FIELDS), z.string())
+  .partialRecord(z.enum(TARGET_FIELDS), z.string())
   .refine((m) => Boolean(m.title), {
     message: 'The "title" field must be mapped to a CSV column',
   });
@@ -155,6 +156,7 @@ function toFilePreviewRow(
 }
 
 export const importJobsRouter = router({
+  ...importMappingProcedures,
   historicalWorkbook: protectedProcedure.input(z.object({ projectId: z.string(), fileBase64: xlsxContentSchema }).strict())
     .mutation(async ({ ctx, input, signal }) => {
       const { project } = await requireProjectAccess(ctx, input.projectId, "EDITOR");

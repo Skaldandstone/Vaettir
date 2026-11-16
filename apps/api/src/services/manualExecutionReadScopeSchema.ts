@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 
 /** UTF-16 length matches native query identities; lone surrogates and controls
  * cannot acquire a different transport encoding or invisible read scope. */

@@ -72,10 +72,8 @@ test("review discloses original labels, literal applied scope, private-data excl
     "page.observedAt",
     "page.window",
     'whiteSpace: "pre-wrap"',
-    "recorder names/times",
-    "Stored labels or configuration text may themselves contain identifying information",
-    "No procedure text, private observations, artifact URL fields, current account/email fields or actor IDs",
-    "Corrections are not new retests",
+    "Export the selected case’s execution history, tester names and recorded configuration.",
+    "Corrections and retests are listed separately.",
     "not an approval or access grant",
   ])
     assert.ok(component.includes(value), value);

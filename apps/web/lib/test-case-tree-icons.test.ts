@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 // Actual tree, shared Icon and IconButton declarations with synthetic folder
 // metadata/events. No browser, native persistence or authorization acceptance.
 import { readFileSync } from "node:fs";
@@ -18,7 +19,7 @@ function declarations(file: string, names: readonly string[]) {
 }
 function installIcons(scope: vm.Context) {
   for (const [file, name] of [["../components/ui/Workspace.tsx", "Icon"], ["../components/ui/IconButton.tsx", "IconButton"]] as const) {
-    vm.runInContext(ts.transpileModule(declarations(file, [name]), {
+    vm.runInContext(controllerTranspile(declarations(file, [name]), {
       compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React },
     }).outputText, scope);
   }
@@ -62,7 +63,7 @@ function treeHarness(path = "Native", reader: helpers.CaseFolderCatalog | null =
     },
     document: { getElementById: (id: string) => ({ focus: () => focused.push(id) }) },
   });
-  vm.runInContext(ts.transpileModule(declarations("../components/TestCaseTree.tsx", ["TreeNodeView", "countCases"]), {
+  vm.runInContext(controllerTranspile(declarations("../components/TestCaseTree.tsx", ["TreeNodeView", "countCases"]), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React },
   }).outputText, scope);
   function render() {

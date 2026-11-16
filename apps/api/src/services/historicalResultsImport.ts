@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { TRPCError } from "@trpc/server";
 import type { PrismaClient, Prisma } from "@vaettir/db";
 import { splitCsvRows } from "./csvFieldMapping.js";
