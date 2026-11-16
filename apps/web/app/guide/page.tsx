@@ -27,6 +27,7 @@ const topics = [
     id: "runs", label: "Test runs", title: "Run tests and report", steps: [
       "Open a plan and use Configure cases to choose cases and a run configuration.",
       "Select Run plan and record the outcome and evidence for each case.",
+      "In a manual run, choose CSV for outcomes, JSON for the current run record, or HTML for a printable report.",
       "Open Reports to review results and choose what to share.",
     ],
   },
@@ -39,6 +40,7 @@ const topics = [
   {
     id: "cases", label: "Test cases", title: "Write and organize cases", steps: [
       "Open Test Cases to create a case, import cases or browse suites.",
+      "If a new case save is unconfirmed, select Retry. Your original draft stays unchanged until the result is confirmed.",
       "Describe the starting conditions, actions and expected results. Use steps or Given, When and Then.",
       "Add tags to connect related cases. Jira planning matches issue keys, labels and component names against these tags.",
       "Use suggestions to review suite, subsuite, priority and test-type changes before applying them.",

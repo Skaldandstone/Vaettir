@@ -72,9 +72,8 @@ test("four supported free actions use bounded execution; reviewed decisions and 
   assert.match(page, /onReview=\{\(\) => router.push/);
   assert.match(page, /test-cases\/review/);
   assert.match(page, /<TestCaseBulkActionReview/);
-  assert.match(page, /setOrganizeAction\(\{ kind: "move", ids: \[\.\.\.selected\] \}\)/);
-  assert.match(page, /setOrganizeAction\(\{ kind: "tag", ids: \[\.\.\.selected\] \}\)/);
-  assert.equal((page.match(/organizeAction.ids/g) ?? []).length, 3);
+  assert.match(page, /requestOrganize\("move", \[\.\.\.selected\]\)/);
+  assert.match(page, /requestOrganize\("tag", \[\.\.\.selected\]\)/);
   assert.match(page, /setBulkError\(/);
   assert.match(page, /bulkError &&\s*\(?\s*<p role="alert"/);
   assert.match(page, /new Set\(outcome\.completedIds\)/);

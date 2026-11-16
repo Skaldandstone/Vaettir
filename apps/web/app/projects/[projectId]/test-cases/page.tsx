@@ -5,7 +5,7 @@ import { ActionButton } from "@/components/ui/ActionButton";
 
 import { CompactSidebar } from "@/components/ui/CompactSidebar";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@clerk/nextjs";
 import { useParams, useRouter } from "next/navigation";
@@ -41,6 +41,7 @@ import {
   spreadsheetText,
 } from "@/lib/test-case-export";
 import { runCaseActionBatches } from "@/lib/case-action-batches";
+import { currentSessionScope } from "@/lib/auth-query-cache";
 import {
   RunConfigurationModal,
 } from "@/components/RunConfigurationModal";
@@ -229,6 +230,17 @@ export default function TestCasesPage() {
   const permissions = useProjectPermissions(projectId);
   const folderActor = useAuth();
   const readOnly = !permissions.canEdit || Boolean(permissions.accessError);
+  const reviewScope = useMemo(() => ({
+    projectId, organizationId: permissions.organizationId,
+    userId: folderActor.userId, sessionId: folderActor.sessionId,
+    eligible: folderActor.isLoaded && folderActor.isSignedIn && !readOnly,
+  }), [projectId, permissions.organizationId, folderActor.userId, folderActor.sessionId,
+    folderActor.isLoaded, folderActor.isSignedIn, readOnly]);
+  const activeReviewScope = useRef<typeof reviewScope | null>(null);
+  useLayoutEffect(() => {
+    activeReviewScope.current = reviewScope.eligible ? reviewScope : null;
+    return () => { if (activeReviewScope.current === reviewScope) activeReviewScope.current = null; };
+  }, [reviewScope]);
   const [runConfigurationOpen, setRunConfigurationOpen] = useState(false);
   const [runSelection, setRunSelection] = useState<string[]>([]);
 
@@ -328,7 +340,7 @@ export default function TestCasesPage() {
     setShowArchived(filters.showArchived);
   }
   async function saveNewView() {
-    if (!newViewName.trim()) return;
+    if (!newViewName.trim() || !currentViewFrame()) return;
     setError(null);
     try {
       const saved = await createView.mutateAsync({
@@ -336,15 +348,17 @@ export default function TestCasesPage() {
         name: newViewName.trim(),
         filters: viewFilters(),
       });
-      await utils.testCaseViews.list.invalidate({ projectId });
+      const refreshed = await refreshSavedViews();
+      if (!currentViewFrame()) return;
       setActiveViewId(saved.id);
       setNewViewName("");
+      if (!refreshed) setError("View saved. Refresh the list.");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not save view.");
+      if (currentViewFrame()) setError(cause instanceof Error ? cause.message : "Could not save view.");
     }
   }
   async function saveCurrentView() {
-    if (!currentView) return;
+    if (!currentView || !currentViewFrame()) return;
     setError(null);
     try {
       await updateView.mutateAsync({
@@ -354,9 +368,10 @@ export default function TestCasesPage() {
         version: currentView.version,
         filters: viewFilters(),
       });
-      await utils.testCaseViews.list.invalidate({ projectId });
+      const refreshed = await refreshSavedViews();
+      if (currentViewFrame() && !refreshed) setError("View saved. Refresh the list.");
     } catch (cause) {
-      setError(
+      if (currentViewFrame()) setError(
         cause instanceof Error ? cause.message : "Could not update view.",
       );
     }
@@ -364,9 +379,11 @@ export default function TestCasesPage() {
   async function deleteCurrentView() {
     if (
       !currentView ||
+      !currentViewFrame() ||
       !window.confirm(`Delete your saved view “${currentView.name}”?`)
     )
       return;
+    if (!currentViewFrame()) return;
     setError(null);
     try {
       await removeView.mutateAsync({
@@ -374,10 +391,12 @@ export default function TestCasesPage() {
         id: currentView.id,
         version: currentView.version,
       });
+      const refreshed = await refreshSavedViews();
+      if (!currentViewFrame()) return;
       setActiveViewId("");
-      await utils.testCaseViews.list.invalidate({ projectId });
+      if (!refreshed) setError("View deleted. Refresh the list.");
     } catch (cause) {
-      setError(
+      if (currentViewFrame()) setError(
         cause instanceof Error ? cause.message : "Could not delete view.",
       );
     }
@@ -392,6 +411,28 @@ export default function TestCasesPage() {
   }
   const [showArchived, setShowArchived] = useState(false);
   const currentFilters = viewFilters();
+  const viewFrameKey = JSON.stringify([activeViewId, newViewName, tagFilter, currentFilters]);
+  // Personal views are available to readers too; do not reuse editor admission.
+  const viewFrame = useMemo(() => ({
+    projectId, organizationId: permissions.organizationId, key: viewFrameKey,
+    userId: folderActor.userId, sessionId: folderActor.sessionId,
+    eligible: folderActor.isLoaded && folderActor.isSignedIn && permissions.loaded && !permissions.accessError,
+  }), [projectId, permissions.organizationId, folderActor.userId, folderActor.sessionId,
+    folderActor.isLoaded, folderActor.isSignedIn, permissions.loaded, permissions.accessError, viewFrameKey]);
+  const activeViewFrame = useRef<typeof viewFrame | null>(null);
+  useLayoutEffect(() => {
+    activeViewFrame.current = viewFrame.eligible ? viewFrame : null;
+    return () => { if (activeViewFrame.current === viewFrame) activeViewFrame.current = null; };
+  }, [viewFrame]);
+  function currentViewFrame() {
+    const session = currentSessionScope(window.Clerk?.loaded ? window.Clerk.session : null);
+    return activeViewFrame.current === viewFrame && !!session &&
+      session.userId === viewFrame.userId && session.sessionId === viewFrame.sessionId;
+  }
+  async function refreshSavedViews() {
+    try { await utils.testCaseViews.list.invalidate({ projectId }); return true; }
+    catch { return false; }
+  }
   const viewHasChanges =
     currentView != null &&
     (Object.keys(currentFilters) as (keyof typeof currentFilters)[]).some(
@@ -400,16 +441,17 @@ export default function TestCasesPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkError, setBulkError] = useState<string | null>(null);
-  const [bulkMovePlanId, setBulkMovePlanId] = useState("");
-  const [bulkTag, setBulkTag] = useState("");
   const [exporting, setExporting] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
-  const [organizeAction, setOrganizeAction] = useState<{ kind: "move" | "tag"; ids: string[] } | null>(null);
+  const [organizeAction, setOrganizeAction] = useState<{
+    kind: "move" | "tag"; ids: string[]; draft: string; scope: typeof reviewScope;
+  } | null>(null);
   const [reviewAction, setReviewAction] = useState<{
     kind: "archive" | "restore" | "delete";
     ids: string[];
+    scope: typeof reviewScope;
   } | null>(null);
 
   // What the original load() refetched after every mutation.
@@ -549,7 +591,7 @@ export default function TestCasesPage() {
     beforeCaseId: string | null,
   ) {
     const placement = placements.get(caseId);
-    if (!placement || readOnly || moveMutation.isPending) return;
+    if (!placement || readOnly || moveMutation.isPending || !currentReviewScope() || !currentViewFrame()) return;
     setError(null);
     try {
       await moveMutation.mutateAsync({
@@ -560,10 +602,12 @@ export default function TestCasesPage() {
         targetSuitePath,
         beforeCaseId,
       });
+      if (!currentReviewScope()) return;
       reload();
-      setSortBy("manual");
+      if (currentViewFrame()) setSortBy("manual");
     } catch (cause) {
-      setError(
+      if (!currentReviewScope()) return;
+      if (currentViewFrame()) setError(
         cause instanceof Error ? cause.message : "Could not move test case.",
       );
       await structureQuery.refetch();
@@ -593,12 +637,17 @@ export default function TestCasesPage() {
   async function runBulkAction<T>(
     execute: (ids: string[]) => Promise<T>,
     reviewedIds = [...selected],
+    confirmed?: (result: T, ids: readonly string[]) => boolean,
   ) {
-    if (readOnly || bulkBusy || reviewedIds.length === 0) return null;
+    if (readOnly || bulkBusy || reviewedIds.length === 0 || !currentReviewScope()) return null;
     setBulkBusy(true);
     setBulkError(null);
     try {
-      const outcome = await runCaseActionBatches(reviewedIds, execute);
+      const outcome = await runCaseActionBatches(reviewedIds, (ids) => {
+        if (!currentReviewScope()) throw Error("The case action scope changed.");
+        return execute(ids);
+      }, confirmed);
+      if (!currentReviewScope()) return outcome;
       const completedIds = new Set(outcome.completedIds);
       setSelected(
         (current) =>
@@ -620,8 +669,9 @@ export default function TestCasesPage() {
     const outcome = await runBulkAction(
       (ids) => bulkDeleteMutation.mutateAsync({ projectId, ids }),
       reviewedIds,
+      (result, ids) => result.blockedCount === 0 && result.deletedCount === ids.length,
     );
-    if (outcome) {
+    if (outcome && currentReviewScope()) {
       const totals = outcome.results.reduce(
         (sum, result) => ({
           deletedCount: sum.deletedCount + result.deletedCount,
@@ -645,29 +695,40 @@ export default function TestCasesPage() {
   }
 
   async function bulkMove() {
-    if (organizeAction?.kind !== "move") return;
+    const intent = organizeAction;
+    if (intent?.kind !== "move" || intent.scope !== reviewScope || !currentReviewScope()) return;
     const outcome = await runBulkAction((ids) =>
       bulkMoveMutation.mutateAsync({
         projectId,
         ids,
-        testPlanId: bulkMovePlanId || null,
-      }), organizeAction.ids,
+        testPlanId: intent.draft || null,
+      }), intent.ids,
     );
-    if (outcome && !outcome.error) { setBulkMovePlanId(""); setOrganizeAction(null); }
+    if (outcome && !outcome.error && currentReviewScope()) setOrganizeAction(current => current === intent ? null : current);
   }
 
   async function bulkAddTag() {
-    if (!bulkTag.trim() || organizeAction?.kind !== "tag") return;
+    const intent = organizeAction;
+    if (intent?.kind !== "tag" || !intent.draft.trim() || intent.scope !== reviewScope || !currentReviewScope()) return;
     const outcome = await runBulkAction((ids) =>
       bulkTagMutation.mutateAsync({
         projectId,
         ids,
-        tags: [bulkTag.trim()],
-      }), organizeAction.ids,
+        tags: [intent.draft.trim()],
+      }), intent.ids,
     );
-    if (outcome && !outcome.error) { setBulkTag(""); setOrganizeAction(null); }
+    if (outcome && !outcome.error && currentReviewScope()) setOrganizeAction(current => current === intent ? null : current);
   }
 
+  const exportFrame = useMemo(() => ({ viewFrame, selected, visibleCases }), [viewFrame, selected, visibleCases]);
+  const activeExportFrame = useRef<typeof exportFrame | null>(null);
+  useLayoutEffect(() => {
+    activeExportFrame.current = exportFrame;
+    return () => { if (activeExportFrame.current === exportFrame) activeExportFrame.current = null; };
+  }, [exportFrame]);
+  function currentExportFrame() {
+    return currentViewFrame() && activeExportFrame.current === exportFrame;
+  }
   const selectedExportCount = caseExportIds(
     visibleCases,
     selected,
@@ -675,7 +736,7 @@ export default function TestCasesPage() {
   ).length;
   async function exportCsv(scope: "filtered" | "selected", exactIds?: string[]) {
     const ids = caseExportIds(visibleCases, exactIds ? new Set(exactIds) : selected, scope);
-    if (exporting || ids.length === 0) return;
+    if (exporting || ids.length === 0 || !currentExportFrame()) return;
     setExporting(true);
     setError(null);
     try {
@@ -683,6 +744,7 @@ export default function TestCasesPage() {
         projectId,
         includeArchived: showArchived,
       });
+      if (!currentExportFrame()) return;
       const rows = scopeCaseExport(available, ids);
       const header = [
         "caseId",
@@ -717,9 +779,10 @@ export default function TestCasesPage() {
       downloadCsv(
         `${project?.name ?? "test-cases"}-${scope}-${rows.length}.csv`,
         [header, ...body.map((row) => row.map(spreadsheetText))],
+        currentExportFrame,
       );
     } catch (e) {
-      setError(
+      if (currentExportFrame()) setError(
         e instanceof Error ? e.message : "Export failed. Please try again.",
       );
     } finally {
@@ -729,7 +792,7 @@ export default function TestCasesPage() {
 
   async function exportProcedure(scope: "filtered" | "selected", exactIds?: string[]) {
     const ids = caseExportIds(visibleCases, exactIds ? new Set(exactIds) : selected, scope);
-    if (exporting || ids.length === 0) return;
+    if (exporting || ids.length === 0 || !currentExportFrame()) return;
     setExporting(true);
     setError(null);
     try {
@@ -739,13 +802,15 @@ export default function TestCasesPage() {
         scope,
         includeArchived: showArchived,
       });
+      if (!currentExportFrame()) return;
       downloadFile(
         `${bundle.project.caseKey}-${scope}-${bundle.cases.length}-procedures.json`,
         encodeCaseProcedureExport(bundle),
         "application/json",
+        currentExportFrame,
       );
     } catch (cause) {
-      setError(
+      if (currentExportFrame()) setError(
         cause instanceof Error
           ? cause.message
           : "Procedure export failed. No file was downloaded.",
@@ -812,22 +877,37 @@ export default function TestCasesPage() {
     setShowArchived(false);
     setActiveViewId("");
   }
-  function requestReview(kind: "archive" | "restore" | "delete") {
+  function requestOrganize(kind: "move" | "tag", ids: string[]) {
+    if (readOnly || bulkBusy || !currentReviewScope()) return;
+    setOrganizeAction({ kind, ids: [...ids], draft: "", scope: reviewScope });
+  }
+  function editOrganizeDraft(draft: string) {
+    if (!organizeAction || organizeAction.scope !== reviewScope || !currentReviewScope()) return;
+    setOrganizeAction(current => current === organizeAction ? { ...current, draft } : current);
+  }
+  function currentReviewScope() {
+    const session = currentSessionScope(window.Clerk?.loaded ? window.Clerk.session : null);
+    return activeReviewScope.current === reviewScope && !!session && session.userId === reviewScope.userId &&
+      session.sessionId === reviewScope.sessionId;
+  }
+  function requestReview(kind: "archive" | "restore" | "delete", exactIds?: string[]) {
+    if (readOnly || bulkBusy || !currentReviewScope()) return;
     setReviewAction({
       kind,
-      ids:
+      ids: exactIds ?? (
         kind === "archive"
           ? activeSelectedIds
           : kind === "restore"
             ? archivedSelectedIds
-            : [...selected],
+            : [...selected]),
+      scope: reviewScope,
     });
   }
   async function confirmReviewedAction() {
-    if (!reviewAction || readOnly || bulkBusy) return;
+    if (!reviewAction || readOnly || bulkBusy || reviewAction.scope !== reviewScope || !currentReviewScope()) return;
     if (reviewAction.kind === "delete") await bulkDelete(reviewAction.ids);
     else await bulkArchive(reviewAction.kind === "archive", reviewAction.ids);
-    setReviewAction(null);
+    setReviewAction(current => current === reviewAction ? null : current);
   }
 
   return (
@@ -1113,8 +1193,8 @@ export default function TestCasesPage() {
                   canRun={activeSelectedIds.length > 0} canArchive={activeSelectedIds.length > 0} canRestore={archivedSelectedIds.length > 0}
                   onRun={() => { setRunSelection(activeSelectedIds); setRunConfigurationOpen(true); }}
                   onEdit={selected.size === 1 ? () => router.push(`/projects/${projectId}/test-cases/${[...selected][0]}/edit`) : undefined}
-                  onMove={() => setOrganizeAction({ kind: "move", ids: [...selected] })}
-                  onTag={() => setOrganizeAction({ kind: "tag", ids: [...selected] })}
+                  onMove={() => requestOrganize("move", [...selected])}
+                  onTag={() => requestOrganize("tag", [...selected])}
                   onCsv={() => void exportCsv("selected")} onJson={() => void exportProcedure("selected")}
                   onReview={() => router.push(`/projects/${projectId}/test-cases/review`)}
                   onArchive={() => requestReview("archive")} onRestore={() => requestReview("restore")} onDelete={() => requestReview("delete")} />
@@ -1325,13 +1405,13 @@ export default function TestCasesPage() {
                               canRun={!tc.archived} canArchive={!tc.archived} canRestore={tc.archived}
                               onRun={() => { setRunSelection([tc.id]); setRunConfigurationOpen(true); }}
                               onEdit={() => router.push(`/projects/${projectId}/test-cases/${tc.id}/edit`)}
-                              onMove={() => setOrganizeAction({ kind: "move", ids: [tc.id] })}
-                              onTag={() => setOrganizeAction({ kind: "tag", ids: [tc.id] })}
+                              onMove={() => requestOrganize("move", [tc.id])}
+                              onTag={() => requestOrganize("tag", [tc.id])}
                               onCsv={() => void exportCsv("selected", [tc.id])} onJson={() => void exportProcedure("selected", [tc.id])}
                               onReview={() => router.push(`/projects/${projectId}/test-cases/review`)}
-                              onArchive={() => setReviewAction({ kind: "archive", ids: [tc.id] })}
-                              onRestore={() => setReviewAction({ kind: "restore", ids: [tc.id] })}
-                              onDelete={() => setReviewAction({ kind: "delete", ids: [tc.id] })} />
+                              onArchive={() => requestReview("archive", [tc.id])}
+                              onRestore={() => requestReview("restore", [tc.id])}
+                              onDelete={() => requestReview("delete", [tc.id])} />
 
                             <a
                               href={`/projects/${projectId}/test-cases/${tc.id}`}
@@ -1791,7 +1871,7 @@ export default function TestCasesPage() {
                  tooltip={<>
                   Save changes to {currentView.name}
                  </>}>
-                   Save {currentView.name}
+                   Save
                 </ActionButton>
                 <button
                   className="btn-secondary"
@@ -1856,23 +1936,23 @@ export default function TestCasesPage() {
           >Full editor</a></ActionHelp>
         </Modal>
       )}
-      {!readOnly && organizeAction && <Modal open title={organizeAction.kind === "move" ? "Move cases to a test plan" : "Tag cases"}
-        onClose={() => setOrganizeAction(null)} dismissible={!bulkBusy}>
+      {!readOnly && organizeAction && organizeAction.scope === reviewScope && reviewScope.eligible && <Modal open title={organizeAction.kind === "move" ? "Move cases to a test plan" : "Tag cases"}
+        onClose={() => setOrganizeAction(current => current === organizeAction ? null : current)} dismissible={!bulkBusy}>
         <p className="text-muted">{organizeAction.ids.length} cases. Only this captured selection will change.</p>
         {organizeAction.kind === "move" ? <>
-          <label>Test plan<select value={bulkMovePlanId} onChange={event => setBulkMovePlanId(event.target.value)} style={{ width: "100%", display: "block", marginTop: 6 }}>
+          <label>Test plan<select value={organizeAction.draft} onChange={event => editOrganizeDraft(event.target.value)} style={{ width: "100%", display: "block", marginTop: 6 }}>
             <option value="">Choose a plan</option>{plans.map(plan => <option key={plan.id} value={plan.id}>{plan.name}</option>)}
           </select></label>
-          <ActionButton className="btn-primary" disabled={bulkBusy || !bulkMovePlanId} onClick={() => void bulkMove()} tooltip={<> Move to plan </>}> Move </ActionButton>
+          <ActionButton className="btn-primary" disabled={bulkBusy || !organizeAction.draft} onClick={() => void bulkMove()} tooltip={<> Move to plan </>}> Move </ActionButton>
         </> : <>
-          <label>Tag<input value={bulkTag} onChange={event => setBulkTag(event.target.value)} placeholder="regression" style={{ width: "100%", display: "block", marginTop: 6 }} /></label>
-          <button className="btn-primary" disabled={bulkBusy || !bulkTag.trim()} onClick={() => void bulkAddTag()}>Add tag</button>
+          <label>Tag<input value={organizeAction.draft} onChange={event => editOrganizeDraft(event.target.value)} placeholder="regression" style={{ width: "100%", display: "block", marginTop: 6 }} /></label>
+          <button className="btn-primary" disabled={bulkBusy || !organizeAction.draft.trim()} onClick={() => void bulkAddTag()}>Add tag</button>
         </>}
         {bulkError && <p role="alert">{bulkError}</p>}
       </Modal>}
       {!readOnly && (
         <Modal
-          open={reviewAction !== null}
+          open={reviewAction !== null && reviewAction.scope === reviewScope && reviewScope.eligible}
           title={`Review ${reviewAction?.kind ?? "action"}`}
           onClose={() => setReviewAction(null)}
           dismissible={!bulkBusy}

@@ -201,6 +201,8 @@ function harness() {
     context = vm.createContext({
       React,
       useState: React.useState,
+      useEffect: React.useEffect,
+      useRef: React.useRef,
       trpcReact: { useUtils: () => ({}) },
       ActionButton: ({ tooltip, ...props }: React.ComponentProps<"button"> & { tooltip: React.ReactNode }) =>
         React.createElement("button", {
@@ -369,7 +371,7 @@ it("closed current-source and artifact disclosures contain readable full support
     "Current framework family",
     "Current source last-synced commit",
     "Current source last-synced UTC",
-    "1 evidence file on this result",
+    "File details",
   ])
     expect(html).toContain(label);
 });
@@ -409,4 +411,20 @@ it("source scope is protected read-only CI detail; never auto-classifies/heals/l
   expect(source).not.toMatch(
     /testRuns\.byId|HealingSuggestionPanel|LinkResultPicker|\.useMutation\(|downloadFile|location\.assign|createViewUrl|dangerouslySetInnerHTML|\.trim\(/,
   );
+});
+it("screenshot and video actions are available without opening metadata first", () => {
+  const h = harness(), row = fixture().page.rows[0]!;
+  for (const type of ["SCREENSHOT", "VIDEO"]) {
+    row.artifacts = [{ ...row.artifacts[0]!, type }];
+    let found = 0;
+    function visit(value: React.ReactNode, hidden = false) {
+      if (Array.isArray(value)) { value.forEach(child => visit(child, hidden)); return; }
+      if (!React.isValidElement<{ children?: React.ReactNode; open?: boolean }>(value)) return;
+      if (typeof value.type === "function" && value.type.name === "CiArtifactViewer") {
+        found++; expect(hidden).toBe(false);
+      }
+      visit(value.props.children, hidden || value.type === "details" && !value.props.open);
+    }
+    visit(h.card({ row })); expect(found).toBe(1);
+  }
 });

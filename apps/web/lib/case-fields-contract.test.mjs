@@ -78,10 +78,10 @@ test("project schema changes require current Owner Admin, impact, reason and exp
 test("authoring and inspector mount required metadata without replacing procedures or prerequisites", () => {
   const form = file("../components/TestCaseForm.tsx");
   assert.match(form, /!caseFieldsDraft\?\.ready/);
-  assert.match(form, /customFields: caseFieldsDraft\.customFields/);
+  assert.match(form, /customFields: caseFieldsDraft\?\.customFields/);
   assert.match(
     form,
-    /expectedFieldSchemaHash: caseFieldsDraft\.expectedFieldSchemaHash/,
+    /expectedFieldSchemaHash: caseFieldsDraft\?\.expectedFieldSchemaHash/,
   );
   assert.match(form, /onChange=\{setCaseFieldsDraft\}/);
   const inspector = file("../components/TestCaseDetailContent.tsx");

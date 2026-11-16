@@ -186,6 +186,10 @@ export function FrozenReport({
   }
   function download(format: "html" | "csv") {
     if (!exportAllowed || !reviewed) return;
+    const captured = exportScope.current;
+    if (!captured.ready || captured.report !== report ||
+      captured.presentation !== presentation || captured.projectId !== projectId ||
+      captured.snapshotId !== snapshotId) return;
     let content: string;
     try {
       content =
@@ -198,6 +202,7 @@ export function FrozenReport({
       );
       return;
     }
+    if (exportScope.current !== captured || !captured.ready) return;
     setExportMessage("");
     const url = URL.createObjectURL(
       new Blob([content], {
@@ -217,6 +222,8 @@ export function FrozenReport({
   }
   function print() {
     if (!exportAllowed || !reviewed) return;
+    const captured = exportScope.current;
+    if (!captured.ready) return;
     // Print only the portable snapshot, not the surrounding workspace/sidebar.
     const frame = document.createElement("iframe");
     frame.title = "Printable frozen report";
@@ -225,6 +232,12 @@ export function FrozenReport({
       "position:fixed;width:1px;height:1px;bottom:0;left:0;border:0";
     const cleanup = () => frame.remove();
     frame.onload = () => {
+      // Loading the print document is asynchronous. A later report/review or
+      // unmount must not let the old frame open a print dialog.
+      if (exportScope.current !== captured || !captured.ready) {
+        cleanup();
+        return;
+      }
       frame.contentWindow?.addEventListener("afterprint", cleanup, {
         once: true,
       });

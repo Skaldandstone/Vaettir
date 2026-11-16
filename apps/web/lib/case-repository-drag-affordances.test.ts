@@ -29,6 +29,28 @@ function find(node: ts.Node, match: (node: ts.Node) => boolean): ts.Node | undef
   if (match(node)) return node;
   let result: ts.Node | undefined; ts.forEachChild(node, child => { if (!result) result = find(child, match); }); return result;
 }
+it.each(["late-success", "late-refusal", "current", "current-refusal", "obsolete"])("actual ordering handler preserves the current view for %s", async outcome => {
+  const node = find(pageAst, node => ts.isFunctionDeclaration(node) && node.name?.text === "moveCase");
+  if (!node) throw Error("Actual ordering handler missing");
+  let resolve!: () => void, reject!: (value: unknown) => void, current = outcome !== "obsolete";
+  const response = new Promise<void>((yes, no) => { resolve = yes; reject = no; });
+  const state = { sort: "updated", error: null as string | null };
+  const mutation = vi.fn((_input: unknown) => response), reload = vi.fn(), refresh = vi.fn(async () => {});
+  const bindings = { placements: new Map([["case", { suitePath: "Suite", sortPosition: 4 }]]), readOnly: false, projectId: "p",
+    moveMutation: { isPending: false, mutateAsync: mutation }, reload, structureQuery: { refetch: refresh }, casesQuery: { refetch: refresh },
+    currentReviewScope: () => true, currentViewFrame: () => current,
+    setError: (value: string | null) => { state.error = value; }, setSortBy: (value: string) => { state.sort = value; } };
+  const move = new Function(...Object.keys(bindings), ts.transpileModule(node.getText(pageAst), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText + ";return moveCase;")(...Object.values(bindings)) as (id: string, suite: string, before: string) => Promise<void>;
+  const done = move("case", "Target", "anchor");
+  if (outcome.startsWith("late")) { current = false; state.sort = "title"; state.error = "New view notice"; }
+  if (outcome.endsWith("refusal")) reject(Error("synthetic CAS refusal")); else resolve();
+  await done;
+  if (outcome === "current") { expect(state).toEqual({ sort: "manual", error: null }); expect(reload).toHaveBeenCalledOnce(); }
+  else if (outcome === "current-refusal") { expect(state).toEqual({ sort: "updated", error: "synthetic CAS refusal" }); expect(refresh).toHaveBeenCalledTimes(2); }
+  else if (outcome.startsWith("late")) expect(state).toEqual({ sort: "title", error: "New view notice" });
+  else expect(mutation).not.toHaveBeenCalled();
+  if (outcome !== "obsolete") expect(mutation).toHaveBeenCalledExactlyOnceWith({ projectId: "p", caseId: "case", expectedSuitePath: "Suite", expectedSortPosition: 4, targetSuitePath: "Target", beforeCaseId: "anchor" });
+});
 function descendants(node: unknown): React.ReactElement[] {
   if (Array.isArray(node)) return node.flatMap(descendants);
   if (!React.isValidElement(node)) return [];
