@@ -5,7 +5,9 @@ import {restorePreSqliteDockerfileFixture} from './sqlite-dockerfile-inverse-fix
 import {restorePreNode26DockerfileFixture} from './node26-dockerfile-inverse-fixture.mjs';
 test('Expat proof is the exact production component recipe with only original test-log capture and an ineligible export',()=>{
   const read=name=>readFileSync(new URL('../'+name,import.meta.url),'utf8').replaceAll('\r\n','\n');
-  const source=restorePreSqliteDockerfileFixture(restorePreNode26DockerfileFixture(Buffer.from(read('Dockerfile.api')))).toString('utf8').split('COPY scripts/build-dash-runtime.sh')[0].trimEnd();
+  const node22='public.ecr.aws/docker/library/node:22-trixie-slim@sha256:b26b04c123d9ff8ab646ceb18b9d75a1173acf64b9a401094b906d27b29338d4';
+  const node26='public.ecr.aws/docker/library/node:26-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39';
+  const source=restorePreSqliteDockerfileFixture(restorePreNode26DockerfileFixture(Buffer.from(read('Dockerfile.api')))).toString('utf8').replaceAll(node22,node26).split('COPY scripts/build-dash-runtime.sh')[0].trimEnd();
   const proof=read('Dockerfile.expat-security');
   const prefix=proof.split('\nFROM scratch AS expat-security-proof\n')[0].trimEnd();
   const log='    && (timeout 600 make -C build check > /build/expat-upstream-check.log 2>&1 || { cat /build/expat-upstream-check.log; exit 1; }) ';
