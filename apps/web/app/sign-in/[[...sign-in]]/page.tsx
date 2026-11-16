@@ -6,13 +6,12 @@ export default function SignInPage() {
     <div className="auth-workspace">
       <section className="auth-introduction">
         <p className="workspace-breadcrumb">VAETTIR / PRIVATE BETA</p>
-        <h1>Welcome back to your quality workspace.</h1>
-        <p>Review cases, connect execution evidence, and keep every release decision explainable.</p>
-        <Link href="/">Explore the example workspace</Link>
+        <h1>Sign in</h1>
+        <Link className="btn-secondary" href="/">View demo</Link>
       </section>
       <div className="auth-form">
         <SignIn />
-        <p className="auth-help">Anyone can sign in to the sales demo. Protected workspaces and advanced features require explicit access.</p>
+        <p className="auth-help">Use the email your team invited.</p>
       </div>
     </div>
   );

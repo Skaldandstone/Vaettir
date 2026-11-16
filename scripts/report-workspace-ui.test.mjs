@@ -1,3 +1,4 @@
+import { actionName } from "../apps/web/e2e/action-name.mjs";
 /* global document, window, requestAnimationFrame, innerWidth */
 import { createServer } from "node:http";
 import assert from "node:assert/strict";
@@ -104,7 +105,7 @@ test("report workspace saves, retries, validates and reorders through real brows
       .fill("Release quality overview");
     await page.getByText("Customize charts", { exact: true }).click();
     await page
-      .getByRole("button", { name: "Move Execution coverage up", exact: true })
+      .getByRole("button", { name: actionName("Move Execution coverage up"), exact: true })
       .focus();
     await page.keyboard.press("Enter");
     assert.match(
@@ -114,7 +115,7 @@ test("report workspace saves, retries, validates and reorders through real brows
     assert.equal(
       await page
         .getByRole("button", {
-          name: "Move Execution coverage up",
+          name: actionName("Move Execution coverage up"),
           exact: true,
         })
         .evaluate((node) => node === document.activeElement),
@@ -130,11 +131,11 @@ test("report workspace saves, retries, validates and reorders through real brows
       window.harness.failNext = true;
     });
     await page
-      .getByRole("button", { name: "Save dashboard", exact: true })
+      .getByRole("button", { name: actionName("Save dashboard"), exact: true })
       .click();
     await page.getByText(/Save was not confirmed/).waitFor();
     await page
-      .getByRole("button", { name: "Retry same save", exact: true })
+      .getByRole("button", { name: actionName("Retry same save"), exact: true })
       .click();
     await page.getByText("Dashboard saved.", { exact: true }).waitFor();
     const requests = await page.evaluate(() => window.harness.requests);
@@ -177,10 +178,10 @@ test("report workspace saves, retries, validates and reorders through real brows
           });
         }
       }
-    await page.getByRole("button", { name: "Schedules", exact: true }).click();
+    await page.getByRole("button", { name: actionName("Schedules"), exact: true }).click();
     await page.getByLabel("Time zone", { exact: true }).fill("Mars/Olympus");
     await page
-      .getByRole("button", { name: "Save paused schedule", exact: true })
+      .getByRole("button", { name: actionName("Save paused schedule"), exact: true })
       .click();
     await page
       .getByText("Choose a supported time zone", { exact: true })
@@ -198,7 +199,7 @@ test("report workspace saves, retries, validates and reorders through real brows
       )
       .check();
     await page
-      .getByRole("button", { name: "Enable schedule", exact: true })
+      .getByRole("button", { name: actionName("Enable schedule"), exact: true })
       .click();
     await page.getByText(/Schedule enabled/).waitFor();
     const scheduleRequest = await page.evaluate(() =>

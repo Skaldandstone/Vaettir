@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionButton } from "./ui/ActionButton";
 import { StatusPill } from "./ui/Workspace";
 
 type ReviewKind = "archive" | "restore" | "delete";
@@ -61,7 +62,7 @@ export function TestCaseBulkActionReview({ kind, ids, cases, busy, onCancel, onC
     </p>
     <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "flex-end" }}>
       <button type="button" className="btn-secondary" disabled={busy} onClick={onCancel}>Cancel</button>
-      <button type="button" className={kind === "delete" ? "btn-danger" : "btn-primary"} disabled={busy || count === 0} onClick={onConfirm}>{busy ? "Applying…" : `${action} ${count} ${count === 1 ? "case" : "cases"}`}</button>
+      <ActionButton type="button" className={kind === "delete" ? "btn-danger" : "btn-primary"} disabled={busy || count === 0} onClick={onConfirm} tooltip={<>{busy ? "Applying…" : `${action} ${count} ${count === 1 ? "case" : "cases"}`}</>}>{busy ? "Applying…" : `${action} (${count})`}</ActionButton>
     </div>
   </section>;
 }

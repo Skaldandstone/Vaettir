@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useEffect, useId, useState } from "react";
 import { CompactTabs } from "@/components/ui/CompactTabs";
 import { useParams } from "next/navigation";
@@ -14,7 +16,7 @@ export default function ProjectIntegrationsPage() {
   const tabId = useId();
   const [tab, setTab] = useState<"Repositories" | "Jira & Confluence" | "AI sharing">("Repositories");
   useEffect(() => {
-    const readHash = () => { if (location.hash === "#atlassian-quality") setTab("Jira & Confluence"); };
+    const readHash = () => { if (location.hash === "#atlassian-quality") setTab("Jira & Confluence"); else if (location.hash === "#ai-sharing") setTab("AI sharing"); };
     readHash(); window.addEventListener("hashchange", readHash);
     return () => window.removeEventListener("hashchange", readHash);
   }, []);
@@ -27,12 +29,10 @@ export default function ProjectIntegrationsPage() {
       <a href={"/projects/" + encodeURIComponent(projectId)}>Project overview</a>{" / Settings / "}
       <span aria-current="page">Integrations</span>
     </nav>
-    <h1>Project integrations</h1>
-    <p className="text-muted">Manage this project’s repository, tracker and sharing connections.</p>
-    <details style={{marginBottom:16}}><summary>Connection and source access</summary><p>Account authorization and saved repository membership are separate. Source reads and AI processing still require their own approval.</p></details>
+    <h1>Integrations</h1>
     {!ready && <p role={query.error || access.query.error ? "alert" : "status"}>
       Project access could not yet be verified. Existing connection drafts remain mounted but withheld.
-      <button type="button" className="btn-secondary" disabled={!access.authReady || access.query.isFetching || query.isFetching} onClick={() => { void access.query.refetch(); void query.refetch(); }}>Retry project access</button>
+      <ActionButton type="button" className="btn-secondary" disabled={!access.authReady || access.query.isFetching || query.isFetching} onClick={() => { void access.query.refetch(); void query.refetch(); }} tooltip={<> Retry project access </>}> Retry </ActionButton>
     </p>}
     {/* Never unmount credential/UNKNOWN controllers during an access refresh. */}
     <fieldset disabled={!ready} hidden={!ready} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
@@ -43,8 +43,7 @@ export default function ProjectIntegrationsPage() {
       </section>
       <section role="tabpanel" id={`${tabId}-panel-${encodeURIComponent("Jira & Confluence")}`} aria-labelledby={`${tabId}-tab-${encodeURIComponent("Jira & Confluence")}`} hidden={tab !== "Jira & Confluence"}>
       <section className="panel" aria-label="Jira defect tracker connection">
-        <h2>Connect a Jira defect tracker</h2>
-        <p>Start here to verify Jira Cloud access, choose projects, and review issue summaries as defect-map tasks. No requirements are created, and Jira is not modified. Sharing Vaettir quality information back to Jira or Confluence is managed separately below.</p>
+        <h2>Jira tracker <a className="btn-secondary" href="/guide#defects">Help</a></h2>
         <JiraTrackerConnection projectId={projectId} canEdit={ready && access.canEdit} />
       </section>
       {access.origin && <AtlassianQualitySettings key={`${projectId}:${access.origin.clerkActorId}`} projectId={projectId} organizationId={access.origin.organizationId} canConfigure={ready && access.canConfigure} />}
@@ -55,7 +54,7 @@ export default function ProjectIntegrationsPage() {
       {ready && query.data.repoUrl && <section className="panel" aria-label="Legacy primary repository reference">
         <h2>Legacy primary reference</h2>
         <p><code>{repositoryDisplayName(query.data.repoUrl)}</code>{" · branch "}{query.data.defaultBranch}</p>
-        <p className="text-muted">Retained legacy metadata, not verified provider access and not a registered multi-repository selection.</p>
+        <details><summary>Details</summary><p className="text-muted">Retained legacy metadata, not verified provider access and not a registered multi-repository selection.</p></details>
         <a href={"/projects/" + encodeURIComponent(projectId) + "/reverse-engineer"}>Review legacy source scope</a>
       </section>}
       </div>

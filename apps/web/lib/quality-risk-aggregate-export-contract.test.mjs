@@ -44,12 +44,12 @@ test("aggregate export binds exact response, scope and availability epoch before
 test("portable format choice cancels exact scope review and uses local text-only download", () => {
   assert.match(source, /renderQualityRiskAggregateHtml\(plan\)/);
   assert.match(source, /File format/);
-  assert.match(source, /No approved snapshot, PDF or\s+delivery is created/);
+  assert.match(source, /Download HTML/);
   assert.match(source, /text\/html;charset=utf-8/);
 });
 test("read-time aggregate dialog discloses whole-population and search omission without an external permission claim", () => {
-  assert.match(source, /not just the visible twenty-row page/);
-  assert.match(source, /literal search text is exported/);
+  assert.match(source, /all matching entries/);
+  assert.match(source, /without entry content or search text/);
   assert.match(source, /no external access was granted/);
   assert.match(source, /disabled={!canExport}/);
   assert.match(source, /riskAggregateBoundaries.map/);

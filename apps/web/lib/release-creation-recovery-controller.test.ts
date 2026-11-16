@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
@@ -15,7 +16,7 @@ import * as planning from "./release-planning-draft";
 // hook commits/RPC responses only, not server writes or native SDK acceptance.
 const source = readFileSync(new URL("../app/projects/[projectId]/releases/page.tsx", import.meta.url), "utf8"),
   ast = ts.createSourceFile("release.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX),
-  code = ts.transpileModule(ast.statements.filter(node => !ts.isImportDeclaration(node)).map(node =>
+  code = controllerTranspile(ast.statements.filter(node => !ts.isImportDeclaration(node)).map(node =>
     ts.createPrinter().printNode(ts.EmitHint.Unspecified, node, ast).replace(/^export\s+(?:default\s+)?/gm, "")).join("\n") +
     "\nthis.page=ReleasesPage;", { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
 type Input = RouterInputs["releases"]["create"];
@@ -53,7 +54,7 @@ function harness() {
     useParams: () => params, useAuth: () => auth, useProjectPermissions: () => ({ canEdit: true }), useManualExecutionAccess: () => access,
     currentSessionScope, sameAuthScope, RunHistoryRenderGuard, retainAnalysisRequest, ...planning,
     Modal, CreationWizard, ReleaseDraftEvidenceReview, WizardChoices,
-    ReadinessBadge: () => null, TrendChart: () => null, ScoreRing: () => null, DistributionBar: () => null, RepositoryReleaseDiscovery: () => null,
+    ReadinessBadge: () => null, TrendChart: () => null, ScoreRing: () => null, DistributionBar: () => null, RepositoryReleaseDiscovery: () => null, JiraReleasePicker: () => null,
     trpcReact: { useUtils: () => ({ releases: { list: { invalidate: invalidated }, trend: { invalidate: invalidated } }, testPlans: { list: { invalidate: invalidated } } }),
       releases: { create: { useMutation: () => ({ mutateAsync, isPending: false }) }, list: { useQuery: () => ({ data: [], isLoading: false, error: null }) }, trend: { useQuery: () => ({ data: [] }) } },
       testPlans: { list: { useQuery: () => ({ data: [{ id: "plan", name: "Existing synthetic plan", releaseId: null, acceptanceCriteria: [] }], isLoading: false }) } } },

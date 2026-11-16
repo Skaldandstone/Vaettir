@@ -1,3 +1,4 @@
+import { fixtureProjectKey } from "./testProjectKey.js";
 // Run only on a fresh migrated owned disposable database. Root owns validation.
 // These test a changed native Clerk mapping vs unchanged
 // authenticated ctx, NOT fresh actor B using actor A's review intent/hashes.
@@ -59,7 +60,7 @@ describe("case authoring and reviewed version recovery require current native Cl
   async function fixture(required: boolean) {
     const project = await owner.project.create({
       organizationId, name: `${tag}-${randomUUID()}`,
-      caseKey: `c${randomUUID().replaceAll("-", "").slice(0, 15)}`,
+      caseKey: fixtureProjectKey(),
     });
     if (required) {
       const impact = await owner.caseFields.reviewSchema({ projectId: project.id, schema: requiredSchema });

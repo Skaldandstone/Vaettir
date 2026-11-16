@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { roleLabel } from "@/lib/membership";
 
 import { useEffect, useState } from "react";
@@ -116,9 +118,11 @@ function ApiKeysSection({ organizationId }: { organizationId: string }) {
             </option>
           ))}
         </select>
-        <button className="btn-primary" onClick={create} disabled={creating || !name.trim()}>
+        <ActionButton className="btn-primary" onClick={create} disabled={creating || !name.trim()} tooltip={<>
           {creating ? "Creating…" : "+ New key"}
-        </button>
+         </>}>
+          {creating ? "Creating…" : "New key"}
+        </ActionButton>
       </div>
     </div>
   );
@@ -246,11 +250,11 @@ function LinearIntegrationSection({ organizationId }: { organizationId: string }
   return (
     <div className="panel" style={{ marginTop: 24 }}>
       <h2 style={{ marginTop: 0 }}>Linear integration</h2>
-      <p className="text-muted" style={{ fontSize: 13 }}>
+      <details><summary>Details</summary><p className="text-muted" style={{ fontSize: 13 }}>
         Link requirements to Linear issues and pull their status back automatically. Create a personal API key in
         Linear (Settings → Security & access → Personal API keys), and, for real-time sync, a webhook in Linear
         pointed at this deployment&apos;s <code>/webhooks/linear/{organizationId}</code> with its own signing secret.
-      </p>
+      </p></details>
       <div style={{ display: "grid", gap: 12, maxWidth: 480 }}>
         <div>
           <label style={{ fontSize: 13 }}>
@@ -309,7 +313,7 @@ function DatadogIntegrationSection({ organizationId }: { organizationId: string 
   return (
     <div className="panel" style={{ marginTop: 24 }}>
       <h2 style={{ marginTop: 0 }}>Datadog integration</h2>
-      <p className="text-muted" style={{ fontSize: 13 }}>
+      <details><summary>Details</summary><p className="text-muted" style={{ fontSize: 13 }}>
         Closes the loop from a real production alert to a coverage gap - a triggered monitor creates a risk flag on
         the tagged project&apos;s most recently shipped release. On each monitor you want connected, add the tag{" "}
         <code>vaettir_project:&lt;a value you choose&gt;</code>, then set that same value on the project&apos;s
@@ -318,7 +322,7 @@ function DatadogIntegrationSection({ organizationId }: { organizationId: string 
         <code>/webhooks/datadog/{organizationId}</code>, a custom header{" "}
         <code>X-Vaettir-Datadog-Secret</code> set to the secret below, and this JSON payload:{" "}
         <code>{`{"transition": "$ALERT_TRANSITION", "priority": "$ALERT_PRIORITY", "title": "$ALERT_TITLE", "projectTag": "$TAGS[vaettir_project]"}`}</code>.
-      </p>
+      </p></details>
       <div style={{ display: "flex", gap: 8, maxWidth: 480 }}>
         <input type="password" value={webhookSecret} onChange={(e) => setWebhookSecret(e.target.value)} style={{ flex: 1 }} />
         <button className="btn-secondary" onClick={saveWebhookSecret} disabled={webhookSecretMutation.isPending}>
@@ -387,10 +391,7 @@ function JiraIntegrationSection({ organizationId }: { organizationId: string }) 
   return (
     <div className="panel" style={{ marginTop: 24 }}>
       <h2 style={{ marginTop: 0 }}>Jira integration</h2>
-      <p className="text-muted" style={{ fontSize: 13 }}>
-        Link requirements to Jira issues and pull their status back. Create an API token in your Atlassian account
-        (id.atlassian.com → Security → API tokens) and enter it below with your Jira site URL and account email.
-      </p>
+      <details><summary>Details</summary><p className="text-muted" style={{ fontSize: 13 }}>Connect Jira to keep requirement statuses up to date. <a className="inline-help" href="/guide#integrations" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p></details>
       <div style={{ display: "grid", gap: 12, maxWidth: 480 }}>
         <div>
           <label style={{ fontSize: 13 }}>
@@ -409,12 +410,12 @@ function JiraIntegrationSection({ organizationId }: { organizationId: string }) 
           <label style={{ fontSize: 13 }}>
             Webhook shared secret {org.jiraWebhookConfigured && <span style={{ color: "var(--frost)" }}>(configured)</span>}
           </label>
-          <p className="text-muted" style={{ fontSize: 12, margin: "2px 0 6px" }}>
+          <details><summary>Details</summary><p className="text-muted" style={{ fontSize: 12, margin: "2px 0 6px" }}>
             For real-time sync, add a Jira Automation rule (When: issue transitions → Then: Send web request) posting
             to <code>/webhooks/jira/{organizationId}</code> with header <code>X-Vaettir-Jira-Secret</code> set to this
             value, and a JSON body of{" "}
             <code>{`{"issueKey": "{{issue.key}}", "status": "{{issue.status.name}}"}`}</code>.
-          </p>
+          </p></details>
           <div style={{ display: "flex", gap: 8 }}>
             <input type="password" value={webhookSecret} onChange={(e) => setWebhookSecret(e.target.value)} style={{ flex: 1 }} />
             <button className="btn-secondary" onClick={saveWebhookSecret} disabled={webhookSecretMutation.isPending}>
@@ -589,9 +590,11 @@ function WebhooksSection({ organizationId }: { organizationId: string }) {
             </label>
           ))}
         </div>
-        <button className="btn-primary" onClick={create} disabled={creating || !url.trim() || selectedEvents.length === 0}>
+        <ActionButton className="btn-primary" onClick={create} disabled={creating || !url.trim() || selectedEvents.length === 0} tooltip={<>
           {creating ? "Creating…" : "+ New webhook"}
-        </button>
+         </>}>
+          {creating ? "Creating…" : "New webhook"}
+        </ActionButton>
       </div>
     </div>
   );
@@ -733,15 +736,13 @@ function PlanTypesSection() {
     <div style={{ marginTop: 32 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <h2 style={{ marginBottom: 4 }}>Custom plan types</h2>
-        <button className="btn-secondary" onClick={() => setFormOpen((v) => !v)}>
+        <ActionButton className="btn-secondary" onClick={() => setFormOpen((v) => !v)} tooltip={<>
           {formOpen ? "Cancel" : "+ New plan type"}
-        </button>
+         </>}>
+          {formOpen ? "Cancel" : "New type"}
+        </ActionButton>
       </div>
-      <p style={{ color: "var(--muted)", fontSize: 13 }}>
-        Define a new test plan shape - a compliance acceptance form, an internal audit checklist, whatever your team
-        needs - by listing its fields below. It's usable from every project's "New test plan" picker immediately, no
-        code change or migration required.
-      </p>
+      <p style={{ color: "var(--muted)", fontSize: 13 }}>Create a reusable plan type with your team’s fields. <a className="inline-help" href="/guide#plans" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
 
       {(error ?? loadError) && <p style={{ color: "var(--ember)" }}>{error ?? loadError}</p>}
       {loading && <p>Loading…</p>}
@@ -840,14 +841,17 @@ function PlanTypesSection() {
                 </button>
               </div>
             ))}
-            <button className="btn-secondary" style={{ fontSize: 13 }} onClick={() => setFields([...fields, { key: "", type: "string" }])}>
+            <ActionButton className="btn-secondary" style={{ fontSize: 13 }} onClick={() => setFields([...fields, { key: "", type: "string" }])} tooltip={<>
               + Add field
-            </button>
+             </>}>
+               Add field </ActionButton>
           </div>
 
-          <button className="btn-primary" onClick={create} disabled={creating || !key.trim() || !name.trim()}>
+          <ActionButton className="btn-primary" onClick={create} disabled={creating || !key.trim() || !name.trim()} tooltip={<>
             {creating ? "Creating…" : "Create plan type"}
-          </button>
+           </>}>
+            {creating ? "Creating…" : "Create type"}
+          </ActionButton>
         </div>
       )}
     </div>
@@ -865,10 +869,7 @@ function AiCreditsSection({ organizationId }: { organizationId: string }) {
   return (
     <div style={{ marginTop: 32 }}>
       <h2>AI credits</h2>
-      <p style={{ color: "var(--muted)", fontSize: 13 }}>
-        Covers the real cost of AI-powered features (reverse-engineering, PR-scan recommendations, risk assessment,
-        strategy generation). Resets monthly per your plan tier; top-off purchases aren't available yet.
-      </p>
+      <p style={{ color: "var(--muted)", fontSize: 13 }}>Your plan determines the monthly AI allowance. <a className="inline-help" href="/guide#credits" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
       <div className="panel" style={{ marginBottom: 12 }}>
         <div style={{ fontSize: 28, fontWeight: 700 }}>{status.balance}</div>
         <div className="text-muted" style={{ fontSize: 12 }}>
@@ -1164,12 +1165,7 @@ export default function OrganizationSettingsPage() {
       {dataRetentionYears !== null && (
         <div style={{ marginTop: 32 }}>
           <h2>Data retention</h2>
-          <p style={{ color: "var(--muted)", fontSize: 13 }}>
-            How long evidence, audit-log, and test-result data is kept before it's eligible for deletion. Different
-            compliance frameworks mandate different minimums - check what your framework requires before lowering
-            this. This sets the org's configured policy; there's no automated purge job yet, so nothing is actually
-            deleted as a result of this setting today.
-          </p>
+          <p style={{ color: "var(--muted)", fontSize: 13 }}>Set how long evidence is retained. Check your required retention period first. <a className="inline-help" href="/guide#settings" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <input
               type="number"
@@ -1192,11 +1188,7 @@ export default function OrganizationSettingsPage() {
       {releaseGatePolicy !== null && (
         <div style={{ marginTop: 32 }}>
           <h2>Release gates</h2>
-          <p style={{ color: "var(--muted)", fontSize: 13 }}>
-            What happens when someone tries to mark a release READY while an acceptance criterion is unmet or a
-            CRITICAL risk flag is still open. Soft warning surfaces the gap but lets them proceed; hard block refuses
-            the status change until it's resolved (enforced by the API, not just the UI).
-          </p>
+          <p style={{ color: "var(--muted)", fontSize: 13 }}>Choose whether unresolved criteria and critical risks warn or block release readiness. <a className="inline-help" href="/guide#releases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <select value={releaseGatePolicy} onChange={(e) => setReleaseGatePolicy(e.target.value)}>
               <option value="SOFT_WARNING">Soft warning</option>

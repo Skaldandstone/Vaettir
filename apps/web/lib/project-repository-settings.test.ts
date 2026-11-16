@@ -1,3 +1,5 @@
+import { ActionHelp } from "./test-support/action-button";
+import { controllerTranspile } from "./controller-transpile.fixture";
 // Actual complete JSX/controllers with synthetic hooks/RPC/child boundaries.
 // Does not authorize a provider, read source, spend credits or prove deployment.
 import { readFileSync } from "node:fs";
@@ -13,9 +15,9 @@ type Element = React.ReactElement<Record<string, unknown>>;
 function elements(value: unknown, list: Element[] = []): Element[] { if (React.isValidElement(value)) { const element = value as Element; list.push(element); elements(element.props.children, list); } else if (Array.isArray(value)) value.forEach(child => elements(child, list)); return list; }
 function text(value: unknown): string { return typeof value === "string" || typeof value === "number" ? String(value) : React.isValidElement(value) ? text((value as Element).props.children) : Array.isArray(value) ? value.map(text).join("") : ""; }
 function controller(path: string, modules: Record<string, unknown>, extra = "", browser: unknown = undefined) {
-  const source = readFileSync(new URL(path, import.meta.url), "utf8"), output = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.React } }).outputText;
+  const source = readFileSync(new URL(path, import.meta.url), "utf8"), output = controllerTranspile(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.React } }).outputText;
   const exports: Record<string, unknown> = {};
-  new Function("require", "exports", "React", "window", output + extra)((name: string) => { if (!(name in modules)) throw Error("Unreviewed fixture dependency: " + name); return modules[name]; }, exports, React, browser);
+  new Function("require", "exports", "React", "window", output + extra)((name: string) => { if (name === "@/components/ui/ActionHelp") return { ActionHelp }; if (!(name in modules)) throw Error("Unreviewed fixture dependency: " + name); return modules[name]; }, exports, React, browser);
   return exports;
 }
 function states() { const slots: unknown[] = []; let cursor = 0; return { reset: () => { cursor = 0; }, hooks: { ...React, useState: (initial: unknown) => { const index = cursor++; if (!(index in slots)) slots[index] = typeof initial === "function" ? (initial as () => unknown)() : initial; return [slots[index], (next: unknown) => { slots[index] = typeof next === "function" ? (next as (prior: unknown) => unknown)(slots[index]) : next; }]; } } }; }

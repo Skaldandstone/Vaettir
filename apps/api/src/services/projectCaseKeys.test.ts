@@ -14,7 +14,7 @@ vi.mock("./caseFieldReadScope.js", () => ({
   lockCurrentCaseFieldActor: locks.actor, lockCaseFieldReadScope: locks.read,
 }));
 const input = { projectId: "project", originalOrganizationId: "org", expectedClerkActorId: "clerk", expectedNativeActorId: "actor",
-  requestId: "12345678-1234-4234-8234-123456789012", expectedCaseKey: "old-key", expectedRevision: 3, caseKey: "new-key" };
+  requestId: "12345678-1234-4234-8234-123456789012", expectedCaseKey: "old-key", expectedRevision: 3, caseKey: "new" };
 const authorized = { clerkActorId: "clerk" };
 function receipt(body = input) {
   return { projectId: body.projectId, organizationId: body.originalOrganizationId, actorId: "actor", actorClerkUserId: body.expectedClerkActorId,
@@ -118,9 +118,22 @@ describe("project key aliases and original requests (synthetic service callbacks
     expect(tx.$queryRaw.mock.calls.some(call => Array.isArray(call[0]) && call[0].join("").includes('FROM "ProjectCaseKeyWrite"'))).toBe(false);
   });
   it("records unchanged-key requests without incrementing revision or touching cases", async () => {
-    const { db, calls } = fixture(); const body = { ...input, caseKey: input.expectedCaseKey };
+    const { db, calls } = fixture({ key: "old" }); const body = { ...input, expectedCaseKey: "old", caseKey: "old" };
     expect(await saveProjectCaseKey(db, "actor", body, authorized)).toEqual({ ...receipt(body), replayed: false });
     expect(calls.some(v => v.startsWith('UPDATE "Project"'))).toBe(false);
+  });
+  it("requires 3-5 letters for new writes without narrowing legacy labels or acknowledged retries", async () => {
+    for (const key of ["a", "ab", "long-key9", "ab1", "abcdef"]) {
+      const { db, tx } = fixture();
+      await expect(saveProjectCaseKey(db, "actor", { ...input, caseKey: key }, authorized)).rejects.toMatchObject({ code: "BAD_REQUEST" });
+      expect(tx.$executeRaw).not.toHaveBeenCalled();
+      expect(liveCaseDisplayId(key, 12)).toBe(`${key}-12`);
+    }
+    const body = { ...input, caseKey: "legacy-key9" };
+    const prior = { projectId: "project", organizationId: "org", actorId: "actor", clerkActorId: "clerk", requestHash: receipt(body).requestHash, receipt: receipt(body) };
+    const { db, tx } = fixture({ prior });
+    expect(await saveProjectCaseKey(db, "actor", body, authorized)).toEqual({ ...receipt(body), replayed: true });
+    expect(tx.$executeRaw).not.toHaveBeenCalled();
   });
   it("resolves old aliases only after current read authorization within the exact project", async () => {
     const { db, tx, calls } = fixture();

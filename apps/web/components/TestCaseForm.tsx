@@ -1,6 +1,8 @@
 "use client";
 
-import { type ChangeEvent, type CSSProperties, useEffect, useId, useMemo, useRef, useState } from "react";
+import { ActionButton } from "@/components/ui/ActionButton";
+
+import { type ChangeEvent, type CSSProperties, useEffect, useLayoutEffect, useId, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { trpcReact, type RouterOutputs } from "@/lib/trpcReact";
 import { collectKnownSuitePaths } from "@/components/TestCaseTree";
@@ -8,6 +10,7 @@ import { moveListItem } from "@/lib/move-list-item";
 import { resolveQualityExperience, defaultCasePresentation, casePresentationVisible, retainedCaseChoices } from "@vaettir/core";
 import { useCaseFieldAccess } from "@/lib/use-case-field-access";
 import { freshCasePresentation } from "@/lib/case-presentation-read";
+import { CaseCreateRecovery } from "@/lib/case-create-recovery";
 import { CaseDesignGuide } from "./CaseDesignGuide";
 import { CaseProcedureColumns } from "./CaseProcedureColumns";
 import { IconButton } from "./ui/IconButton";
@@ -24,6 +27,12 @@ const FIELD_LABEL_STYLE: CSSProperties = { display: "grid", gap: 6, minWidth: 0,
 const PROSE_EDITOR_STYLE: CSSProperties = { display: "block", width: "100%", minWidth: 0, resize: "vertical", lineHeight: 1.55, borderRadius: 6 };
 const SECONDARY_ACTION_STYLE: CSSProperties = { padding: "6px 10px", minHeight: 36, fontSize: 12, borderRadius: 3 };
 const STEP_PAIR_STYLE: CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(280px, 100%), 1fr))", gap: 14, alignItems: "start" };
+type NewCaseScope = { projectId: string; originalOrganizationId: string; expectedClerkActorId: string };
+function ownsCaseCreate(frame: { projectId: string; active: boolean; locked: boolean; access: ReturnType<typeof useCaseFieldAccess> }, input: NewCaseScope) {
+  return frame.active && !frame.locked && frame.projectId === input.projectId && frame.access.owns({
+    projectId: input.projectId, organizationId: input.originalOrganizationId, clerkActorId: input.expectedClerkActorId, caseId: null,
+  }, "edit");
+}
 /** Revocation-only display guard. This cannot authorize a save or private read;
  * it merely rejects an old reveal callback after the form becomes unavailable. */
 class OptionalRevealFrame {
@@ -159,9 +168,9 @@ function StringListEditor({
           {item.text === "" && !item.editorPlaceholder && <span className="text-muted" style={{ flexBasis: "100%", fontSize: 12 }}>Retained empty entry. It stays in this phase unless you explicitly remove it.</span>}
         </div>
       ))}
-      <button type="button" className="btn-secondary" style={SECONDARY_ACTION_STYLE} onClick={() => { const key = `${prefix}-${nextKey.current++}`; onChange([...items, { text: "", editorKey: key, editorPlaceholder: true }]); }}>
+      <ActionButton type="button" className="btn-secondary" style={SECONDARY_ACTION_STYLE} onClick={() => { const key = `${prefix}-${nextKey.current++}`; onChange([...items, { text: "", editorKey: key, editorPlaceholder: true }]); }} tooltip={<>
         + Add {label} item
-      </button>
+       </>}>Add item</ActionButton>
       <span role="status" className="sr-only">{announcement}</span>
     </div>
   );
@@ -177,6 +186,11 @@ export default function TestCaseForm({
   active = true,
   stepFieldLabels,
 }: TestCaseFormProps) {
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
   // Keep the concurrency baseline bound to this draft, not a later refetch.
   const [baseline] = useState(initial);
   const router = useRouter();
@@ -201,6 +215,12 @@ export default function TestCaseForm({
   }));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const mediaPreviewGeneration = useRef(0);
+  useEffect(() => () => { mediaPreviewGeneration.current++; }, [projectId, testCaseId]);
+  const [createRecovery] = useState(() => new CaseCreateRecovery());
+  const [createPending, setCreatePending] = useState(false);
+  const createMounted = useRef(true);
+  useEffect(() => { createMounted.current = true; return () => { createMounted.current = false; }; }, []);
   const [caseFieldsDraft, setCaseFieldsDraft] = useState<CaseFieldFormDraft | null>(null);
   // P1-15: both reads share the cache with the test-cases list page and the
   // shared-steps page, so opening the form right after either is free.
@@ -209,6 +229,12 @@ export default function TestCaseForm({
   const experience = experienceQuery.data?.experience;
   const workspace = experience ? resolveQualityExperience(experience) : null;
   const presentationAccess = useCaseFieldAccess(projectId, testCaseId, active);
+  const currentCreateFrame = { projectId, active, locked, access: presentationAccess };
+  const createFrame = useRef(currentCreateFrame);
+  useLayoutEffect(() => { createFrame.current = currentCreateFrame; });
+  function ownsCreate(input: NewCaseScope) {
+    return createMounted.current && ownsCaseCreate(createFrame.current, input);
+  }
   const presentationQuery = trpcReact.casePresentation.get.useQuery({ projectId, originalOrganizationId: presentationAccess.origin?.organizationId, expectedClerkActorId: presentationAccess.origin?.clerkActorId }, { enabled: active && presentationAccess.readable, retry: false });
   const freshPresentation = freshCasePresentation(presentationQuery, presentationAccess.current);
   const presentation = freshPresentation?.configuration ?? freshPresentation?.defaults ?? defaultCasePresentation(null);
@@ -243,7 +269,7 @@ export default function TestCaseForm({
   },{enabled:active, staleTime:0, refetchOnMount:"always"});
   const sharedGroups = active && sharedGroupsQuery.isFetchedAfterMount && !sharedGroupsQuery.error &&
     !sharedGroupsQuery.isFetching && !sharedGroupsQuery.isPaused ? sharedGroupsQuery.data ?? [] : [];
-  const createMutation = trpcReact.testCases.create.useMutation();
+  const createMutation = trpcReact.testCases.createDurable.useMutation({ retry: false });
   const updateMutation = trpcReact.testCases.update.useMutation();
   const attachmentsQuery = trpcReact.testCaseAttachments.list.useQuery(
     { testCaseId: testCaseId ?? "" },
@@ -317,16 +343,19 @@ export default function TestCaseForm({
   }
 
   async function viewStepMedia(attachmentId: string) {
+    const generation = ++mediaPreviewGeneration.current;
+    setError(null);
     try {
       const { viewUrl } = await utils.testCaseAttachments.getViewUrl.fetch({ attachmentId });
-      window.open(viewUrl, "_blank", "noopener,noreferrer");
+      if (generation === mediaPreviewGeneration.current) window.open(viewUrl, "_blank", "noopener,noreferrer");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      if (generation === mediaPreviewGeneration.current) setError(cause instanceof Error ? cause.message : String(cause));
     }
   }
 
   async function submit() {
-    if (!active || locked || saving || uploadingStepKey !== null || !value.title.trim() || !caseFieldsDraft?.ready) return;
+    if (!active || locked || saving || uploadingStepKey !== null || !value.title.trim() || (!caseFieldsDraft?.ready && !createRecovery.pending)) return;
+    if (mode === "create" && createRecovery.createdId) return;
     const preparedSteps = prepareCaseStepsForSave(value.sharedStepGroupId ? [] : value.steps);
     if (!preparedSteps.ok) { setError(preparedSteps.error); return; }
     const preparedGiven = prepareCasePhaseForSave("Given", value.given), preparedWhen = prepareCasePhaseForSave("When", value.when), preparedThen = prepareCasePhaseForSave("Then", value.then);
@@ -351,19 +380,32 @@ export default function TestCaseForm({
         validationDomain: value.validationDomain,
         verificationProfile: value.verificationProfile,
         priority: value.priority as "CRITICAL" | "HIGH" | "MEDIUM" | "LOW",
-        suitePath: value.suitePath || undefined,
-        customFields: caseFieldsDraft.customFields,
-        expectedFieldSchemaHash: caseFieldsDraft.expectedFieldSchemaHash,
-        expectedCustomFieldRevision: caseFieldsDraft.expectedCustomFieldRevision,
+        suitePath: value.suitePath,
+        customFields: caseFieldsDraft?.customFields,
+        expectedFieldSchemaHash: caseFieldsDraft?.expectedFieldSchemaHash,
+        expectedCustomFieldRevision: caseFieldsDraft?.expectedCustomFieldRevision,
       };
 
-      const result =
-        mode === "create"
-          ? await createMutation.mutateAsync({ ...payload, projectId })
-          : await updateMutation.mutateAsync({ ...payload, id: testCaseId!, expectedSuitePath: baseline?.suitePath || null,
+      let result: { id: string };
+      if (mode === "create") {
+        const origin = presentationAccess.origin;
+        if (!createRecovery.pending && (!origin || !presentationAccess.owns(origin, "edit")))
+          throw new Error("Refresh current case access before saving. Your draft is retained.");
+        const input = createRecovery.pending ?? createRecovery.prepare({ ...payload, projectId,
+          originalOrganizationId: origin!.organizationId, expectedClerkActorId: origin!.clerkActorId });
+        if (!ownsCreate(input)) return;
+        setCreatePending(true);
+        const saved = await createMutation.mutateAsync(input);
+        createRecovery.acknowledge(saved);
+        setCreatePending(false);
+        if (!ownsCreate(input)) return;
+        result = saved;
+      } else {
+        result = await updateMutation.mutateAsync({ ...payload, id: testCaseId!, expectedSuitePath: baseline?.suitePath || null,
               expectedPriority: baseline?.priority as "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | undefined,
               expectedStepRevision: baseline?.stepRevision || undefined,
               expectedCaseRevision: baseline?.caseRevision || undefined });
+      }
 
       // The detail page + list read from the cache; make sure they see the
       // saved row rather than the pre-edit copy.
@@ -371,8 +413,13 @@ export default function TestCaseForm({
       void utils.caseFields.get.invalidate({ projectId, caseId: testCaseId });
       if (mode === "edit")
         void utils.testCases.byId.invalidate({ id: testCaseId! });
-      router.push(`/projects/${projectId}/test-cases/${result.id}`);
+      // A completed old save must not displace another case's unsaved draft.
+      if (mounted.current) router.push(`/projects/${projectId}/test-cases/${result.id}`);
     } catch (e) {
+      if (mode === "create") {
+        createRecovery.failed(e);
+        setCreatePending(Boolean(createRecovery.pending));
+      }
       setError(e instanceof Error ? e.message : String(e));
       // Definitions may have changed after the draft loaded. Refresh without
       // replacing the authored draft or accepting stale cached metadata.
@@ -383,7 +430,7 @@ export default function TestCaseForm({
   }
 
   return (
-    <fieldset className="test-case-editor" disabled={locked || saving || uploadingStepKey !== null} onChangeCapture={() => { interacted.current = true; }} aria-label={mode === "edit" ? "Edit test case draft" : "New test case draft"} style={{ border: 0, padding: 0, margin: 0, width: "100%", minWidth: 0, overflowWrap: "anywhere" }}>
+    <><fieldset className="test-case-editor" disabled={locked || saving || uploadingStepKey !== null || createPending || Boolean(createRecovery.createdId)} onChangeCapture={() => { interacted.current = true; }} aria-label={mode === "edit" ? "Edit test case draft" : "New test case draft"} style={{ border: 0, padding: 0, margin: 0, width: "100%", minWidth: 0, overflowWrap: "anywhere" }}>
       <div style={{ display: "grid", gap: 12, marginBottom: 20 }}>
         {active && <CaseDesignGuide />}
         {presentationQuery.error && <p role="status">Current built-in field preferences could not be verified. The generic editor retains all fields and values. <button type="button" onClick={() => void presentationQuery.refetch()}>Refresh preferences</button></p>}
@@ -549,9 +596,7 @@ export default function TestCaseForm({
 
       <details open={presentation.procedureFormat === "GHERKIN" || presentation.procedureFormat === "MIXED" || value.given.length > 0 || value.when.length > 0 || value.then.length > 0} style={{ marginTop: 24 }}>
       <summary>Optional Given / When / Then</summary>
-      <p style={{ color: "var(--muted)", fontSize: 13, margin: "0 0 14px" }}>
-        Use scenario phrasing if it suits this project, or write a procedure below. Given/When/Then is not required. Existing scenario text is retained when you choose a different layout.
-      </p>
+      <p style={{ color: "var(--muted)", fontSize: 13, margin: "0 0 14px" }}>Write steps or use Given, When and Then. <a className="inline-help" href="/guide#cases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(240px, 100%), 1fr))", gap: 16 }}>
         <StringListEditor label="Given" items={value.given} onChange={(given) => setValue((v) => ({ ...v, given }))} />
         <StringListEditor label="When" items={value.when} onChange={(when) => setValue((v) => ({ ...v, when }))} />
@@ -612,7 +657,7 @@ export default function TestCaseForm({
       )}
       {value.sharedStepGroupId && !selectedGroup && <div role={sharedGroupsQuery.error ? "alert" : "status"}>
         <p>The selected shared procedure could not currently be verified. Its reference is retained; no empty or action-only replacement is shown.</p>
-        <button type="button" disabled={!active || sharedGroupsQuery.isFetching || sharedGroupsQuery.isPaused} onClick={() => void sharedGroupsQuery.refetch()}>Refresh current shared procedure</button>
+        <ActionButton type="button" disabled={!active || sharedGroupsQuery.isFetching || sharedGroupsQuery.isPaused} onClick={() => void sharedGroupsQuery.refetch()} tooltip={<> Refresh current shared procedure </>}> Refresh </ActionButton>
       </div>}
       {!value.sharedStepGroupId && <div role="list" aria-label="Ordered test steps">
         {value.steps.map((step, i) => {
@@ -734,7 +779,7 @@ export default function TestCaseForm({
           );
         })}</div>}
       {!value.sharedStepGroupId && (
-        <button
+        <ActionButton
           type="button"
           className="btn-secondary"
           style={SECONDARY_ACTION_STYLE}
@@ -743,9 +788,10 @@ export default function TestCaseForm({
             setValue((v) => ({ ...v, steps: [...v.steps, { ...EMPTY_STEP, editorKey }] }));
             setOpenSteps(previous => new Set([...previous, editorKey]));
           }}
-        >
+         tooltip={<>
           + Add step
-        </button>
+         </>}>
+           Add step </ActionButton>
       )}
       <span role="status" className="sr-only">{stepAnnouncement}</span>
 
@@ -759,15 +805,27 @@ export default function TestCaseForm({
       />
 
       <div className="case-editor-footer">
-        <button className="btn-primary" onClick={submit} disabled={saving || !value.title || !caseFieldsDraft?.ready}>
+        <ActionButton className="btn-primary" onClick={submit} disabled={saving || createPending || Boolean(createRecovery.createdId) || !value.title || !caseFieldsDraft?.ready} tooltip={<>
           {saving
             ? "Saving…"
             : mode === "create"
               ? "Create test case"
               : "Save changes"}
-        </button>
+         </>}>
+          {saving
+            ? "Saving…"
+            : mode === "create"
+              ? "Create case"
+              : "Save changes"}
+        </ActionButton>
         {error && <p role="alert" style={{ color: "var(--ember)" }}>{error}</p>}
       </div>
     </fieldset>
+    {mode === "create" && createRecovery.pending && <div role="status">
+      <p>Save unconfirmed. Your original draft is retained. <a href="/guide#cases" target="_blank" rel="noopener noreferrer">Help</a></p>
+      <ActionButton type="button" disabled={saving || !ownsCaseCreate(currentCreateFrame, createRecovery.pending)} onClick={submit} tooltip="Retry original case save">Retry</ActionButton>
+    </div>}
+    {mode === "create" && createRecovery.createdId && createRecovery.confirmed && ownsCaseCreate(currentCreateFrame, createRecovery.confirmed) && <ActionButton type="button" onClick={() => { if (createRecovery.confirmed && ownsCreate(createRecovery.confirmed)) router.push(`/projects/${createRecovery.confirmed.projectId}/test-cases/${createRecovery.createdId}`); }} tooltip="Open the confirmed saved case">Open case</ActionButton>}
+    </>
   );
 }

@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useLayoutEffect, useRef, useState } from "react";
 import type { CaseExecutionHistoryPage } from "@vaettir/core";
 import {
@@ -170,14 +172,15 @@ export function CaseHistoryPageExport({ page, input, pageNumber }: Props) {
   }
   return (
     <>
-      <button
+      <ActionButton
         type="button"
         className="btn-secondary"
         disabled={!page}
         onClick={reviewPage}
-      >
+       tooltip={<>
         Export this page
-      </button>
+       </>}>
+         Export </ActionButton>
       <Modal
         open={open}
         onClose={close}
@@ -189,14 +192,15 @@ export function CaseHistoryPageExport({ page, input, pageNumber }: Props) {
               This page changed or current access could not be verified. The
               earlier review is not valid. No cached export is available.
             </p>
-            <button
+            <ActionButton
               type="button"
               className="btn-secondary"
               disabled={!page}
               onClick={reviewPage}
-            >
+             tooltip={<>
               Review current page again
-            </button>
+             </>}>
+               Review </ActionButton>
           </>
         ) : (
           <>
@@ -237,21 +241,8 @@ export function CaseHistoryPageExport({ page, input, pageNumber }: Props) {
                   ),
               )}
             </dl>
-            <p>
-              Includes native run identities, case label, recorded
-              configuration, current outcomes and available original observation
-              recorder names/times. Stored labels or configuration text may
-              themselves contain identifying information; review them and
-              recipients before sharing. No procedure text, private
-              observations, artifact URL fields, current account/email fields or
-              actor IDs are exported.
-            </p>
-            <p>
-              Corrections are not new retests. Partial steps are not completed
-              cases; imported results are not verified automation.
-              Spreadsheet-leading text is protected, but re-saving or importing
-              elsewhere can remove that protection.
-            </p>
+              <p>Export the selected case’s execution history, tester names and recorded configuration. <a className="inline-help" href="/guide#reports" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
+            <p>Corrections and retests are listed separately. <a className="inline-help" href="/guide#reports" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
             <details>
               <summary>Retained page evidence limits</summary>
               <ul>
@@ -279,14 +270,15 @@ export function CaseHistoryPageExport({ page, input, pageNumber }: Props) {
                 export, not an approval or access grant.
               </span>
             </label>
-            <button
+            <ActionButton
               type="button"
               className="btn-primary"
               disabled={!confirmed}
               onClick={download}
-            >
+             tooltip={<>
               Prepare reviewed page CSV
-            </button>
+             </>}>
+               Download CSV </ActionButton>
           </>
         )}
         {message &&

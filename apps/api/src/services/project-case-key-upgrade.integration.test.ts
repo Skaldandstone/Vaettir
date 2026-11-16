@@ -166,13 +166,10 @@ describe.skipIf(process.platform !== "linux" || (process.env.CI !== "true" && pr
     const urls = databases.map(name => { const url = new URL(baseUrl); url.pathname = "/" + name; assertOwnedTestDatabase(url.toString()); return url.toString(); });
     const clients: PrismaClient[] = [], created = new Set<string>();
     const bootstrap = new PrismaClient({ datasources: { db: { url: baseUrl.toString() } } });
-    // The server image is16, not necessarily the runner's client installation.
-    // Prefer16; a newer installed trio must report one matching actual major.
-    // No package installation, Docker bootstrap or mismatch fallback.
-    const toolDirectory = readdirSync("/usr/lib/postgresql").filter(v => /^[0-9]+$/.test(v) && Number(v) >= 16)
-      .sort((a, b) => Number(a) - Number(b)).map(v => "/usr/lib/postgresql/" + v + "/bin")
-      .find(path => ["psql", "pg_dump", "pg_restore"].every(name => existsSync(join(path, name))));
-    assert.ok(toolDirectory);
+    // CI provisions wrappers backed by the exact immutable PostgreSQL 16 image
+    // used for the server. Do not accept the runner's newer client tools.
+    const toolDirectory = join(process.env.RUNNER_TEMP!, "vaettir-postgres16/bin");
+    assert.ok(["psql", "pg_dump", "pg_restore"].every(name => existsSync(join(toolDirectory, name))));
     const tools = ["psql", "pg_dump", "pg_restore"].map(name => join(toolDirectory, name));
     const run = (command: string, args: string[], env = process.env, binary = false) => {
       assert.ok(Date.now() - started < 210000);
@@ -199,7 +196,8 @@ describe.skipIf(process.platform !== "linux" || (process.env.CI !== "true" && pr
     try {
       const clientVersions = tools.map(tool => String(run(tool, ["--version"])));
       const clientMajors = clientVersions.map(v => /PostgreSQL\) ([0-9]+)\./.exec(v)?.[1]);
-      assert.ok(clientMajors.every(v => v === clientMajors[0]) && Number(clientMajors[0]) >= 16);
+      assert.ok(clientMajors.every(v => v === clientMajors[0]));
+      assert.equal(clientMajors[0], "16");
       const [identity] = await bootstrap.$queryRaw<Array<{ database: string; role: string; owner: string; version: string }>>`
         SELECT current_database()::text AS database,current_user::text AS role,
           pg_get_userbyid(datdba)::text AS owner,current_setting('server_version_num')::text AS version
@@ -220,6 +218,7 @@ describe.skipIf(process.platform !== "linux" || (process.env.CI !== "true" && pr
       for (const file of files.slice(0, 97)) { mkdirSync(join(staged, "migrations", file.name)); writeFileSync(join(staged, "migrations", file.name, "migration.sql"), file.sql); }
       const cliEnv = { ...process.env, DATABASE_URL: urls[0]!, PRISMA_GENERATE_SKIP_AUTOINSTALL: "1", NODE_PATH: join(ROOT, "packages/db/node_modules") };
       const dbRequire = createRequire(join(ROOT, "packages/db/package.json"));
+      const prismaCli = dbRequire.resolve("prisma");
       const installedPackageJson = realpathSync(dbRequire.resolve("@prisma/client/package.json"));
       const installedPackageDirectory = admitInstalledClient(realpathSync(join(ROOT, "node_modules/.pnpm")), dirname(installedPackageJson));
       const installedRequire = createRequire(installedPackageJson);
@@ -236,7 +235,7 @@ describe.skipIf(process.platform !== "linux" || (process.env.CI !== "true" && pr
       symlinkSync(installedPackageDirectory, stagedClient, "dir");
       assert.equal(realpathSync(stagedClient), installedPackageDirectory);
       assert.equal(realpathSync(createRequire(join(staged, "schema.prisma")).resolve("@prisma/client/package.json")), installedPackageJson);
-      run("pnpm", ["exec", "prisma", "generate", "--schema", join(staged, "schema.prisma")], cliEnv);
+      run(process.execPath, [prismaCli, "generate", "--schema", join(staged, "schema.prisma")], cliEnv);
       assert.deepEqual(workspaceClientFiles.map(name => ({ name, sha256: sha(readFileSync(join(installedDirectory, name))) })), workspaceClientPins);
       assert.equal(sha(oldSchema), OLD_SCHEMA_SHA);
       assertSchemaFormattingOnly(readFileSync(join(oldOutput, "schema.prisma"), "utf8"), generatedSchema);
@@ -244,7 +243,7 @@ describe.skipIf(process.platform !== "linux" || (process.env.CI !== "true" && pr
       assert.ok(oldIndex.includes("./runtime/library.js")); assert.ok(!/caseKeyRevision|ProjectCaseKeyAlias|ProjectCaseKeyWrite/.test(oldIndex));
       const oldRuntime = readFileSync(join(oldOutput, "runtime/library.js"));
       assert.equal(sha(oldRuntime), sha(readFileSync(dbRequire.resolve("@prisma/client/runtime/library.js"))));
-      run("pnpm", ["exec", "prisma", "migrate", "deploy", "--schema", join(staged, "schema.prisma")], cliEnv);
+      run(process.execPath, [prismaCli, "migrate", "deploy", "--schema", join(staged, "schema.prisma")], cliEnv);
       const require = createRequire(import.meta.url);
       const oldModule = require(join(oldOutput, "index.js")) as { PrismaClient: typeof PrismaClient };
       const oldClient = new oldModule.PrismaClient({ datasources: { db: { url: urls[0]! } } }); clients.push(oldClient);
@@ -266,7 +265,7 @@ describe.skipIf(process.platform !== "linux" || (process.env.CI !== "true" && pr
       const dump97 = run(tools[1]!, [...pgArgs(databases[0]!), "--format=custom", "--no-owner", "--no-privileges"], pgEnv, true) as Buffer;
       writeFileSync(join(work, "backup97.dump"), dump97);
       mkdirSync(join(staged, "migrations", NEW_MIGRATION)); writeFileSync(join(staged, "migrations", NEW_MIGRATION, "migration.sql"), files[97]!.sql);
-      run("pnpm", ["exec", "prisma", "migrate", "deploy", "--schema", join(staged, "schema.prisma")], cliEnv);
+      run(process.execPath, [prismaCli, "migrate", "deploy", "--schema", join(staged, "schema.prisma")], cliEnv);
       const current = client(0), after = await inventory(current, true), afterLedger = await ledger(current);
       assert.equal(afterLedger.length, 98); assert.deepEqual(afterLedger.slice(0, 97), beforeLedger);
       const newLedger = afterLedger[97]!; assert.equal(newLedger.checksum, NEW_MIGRATION_SHA); assert.ok(newLedger.finished_at && !newLedger.rolled_back_at && newLedger.applied_steps_count === 1);
@@ -279,13 +278,13 @@ describe.skipIf(process.platform !== "linux" || (process.env.CI !== "true" && pr
       }
       const oldRead = await oldClient.testCase.findUniqueOrThrow({ where: { id: tc.id }, include: { steps: true, source: true, versions: true } });
       assert.equal(oldRead.displayId, "upgrade-old-01"); assert.equal(oldRead.source?.externalTestId, "SOURCE-97");
-      const request = { projectId: project.id, originalOrganizationId: org.id, expectedNativeActorId: actor.id, expectedClerkActorId: token, requestId: randomUUID(), expectedCaseKey: "upgrade-old", expectedRevision: 0, caseKey: "upgrade-new" };
+      const request = { projectId: project.id, originalOrganizationId: org.id, expectedNativeActorId: actor.id, expectedClerkActorId: token, requestId: randomUUID(), expectedCaseKey: "upgrade-old", expectedRevision: 0, caseKey: "unew" };
       await saveProjectCaseKey(current, actor.id, request, { clerkActorId: token });
       assert.deepEqual(await oldClient.testCase.findUniqueOrThrow({ where: { id: tc.id }, include: { steps: true, source: true, versions: true } }), oldRead);
       await expect(oldClient.project.update({ where: { id: project.id }, data: { caseKey: "bare-old-write" } })).rejects.toThrow();
       const issued = await oldClient.testCase.create({ data: { projectId: project.id, title: "Old client after upgrade", testType: "FUNCTIONAL" } });
-      assert.equal(issued.caseNumber, 2); assert.equal(issued.displayId, "upgrade-new-02");
-      for (const prefix of ["upgrade-old", "upgrade-new"]) assert.equal((await resolveProjectCaseReference(current, actor.id, project.id, prefix + "-01", { clerkActorId: token }))?.id, tc.id);
+      assert.equal(issued.caseNumber, 2); assert.equal(issued.displayId, "unew-02");
+      for (const prefix of ["upgrade-old", "unew"]) assert.equal((await resolveProjectCaseReference(current, actor.id, project.id, prefix + "-01", { clerkActorId: token }))?.id, tc.id);
       assert.equal((await saveProjectCaseKey(current, actor.id, request, { clerkActorId: token })).replayed, true);
       const full98 = await inventory(current), schema98 = await schemaEvidence(current);
       const dump98 = run(tools[1]!, [...pgArgs(databases[0]!), "--format=custom", "--no-owner", "--no-privileges"], pgEnv, true) as Buffer;

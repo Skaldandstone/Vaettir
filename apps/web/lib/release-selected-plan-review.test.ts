@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
@@ -15,12 +16,12 @@ type Plan = RouterOutputs["testPlans"]["list"][number];
 type Element = React.ReactElement<{ children?: React.ReactNode; "aria-label"?: string; href?: string; target?: string; rel?: string; onClick?: () => void; onChange?: (event: { target: { checked: boolean } }) => void; type?: string; checked?: boolean; disabled?: boolean; style?: React.CSSProperties }>;
 const source = readFileSync(new URL("../app/projects/[projectId]/releases/page.tsx", import.meta.url), "utf8");
 const ast = ts.createSourceFile("release.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX), printer = ts.createPrinter();
-const code = ts.transpileModule(ast.statements.filter(node => !ts.isImportDeclaration(node))
+const code = controllerTranspile(ast.statements.filter(node => !ts.isImportDeclaration(node))
   .map(node => printer.printNode(ts.EmitHint.Unspecified, node, ast).replace(/^export\s+(?:default\s+)?/gm, "")).join("\n") +
   "\nthis.actual=ReleasesPage;", { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
 const reviewSource = readFileSync(new URL("../components/ReleaseDraftEvidenceReview.tsx", import.meta.url), "utf8");
 const reviewAst = ts.createSourceFile("review.tsx", reviewSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-const reviewCode = ts.transpileModule(reviewAst.statements.filter(ts.isFunctionDeclaration)
+const reviewCode = controllerTranspile(reviewAst.statements.filter(ts.isFunctionDeclaration)
   .map(node => printer.printNode(ts.EmitHint.Unspecified, node, reviewAst).replace(/^export\s+/gm, "")).join("\n"),
   { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
 const plan = (id: string, name: string): Plan => ({ id, name, status: "DRAFT", releaseId: null, testPlanType: { id: "synthetic-type", name: "Regression" }, acceptanceCriteria: [{ id: `criterion-${id}` }] });

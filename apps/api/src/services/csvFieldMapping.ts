@@ -20,6 +20,7 @@ export const TARGET_FIELDS = [
   "testType",
   "automationStatus",
   "externalId",
+  "suitePath",
 ] as const;
 export type TargetField = (typeof TARGET_FIELDS)[number];
 
@@ -36,6 +37,8 @@ const HEADER_ALIASES: Record<TargetField, string[]> = {
     "test case name",
     "test name",
     "summary",
+    "test case summary",
+    "test summary",
   ],
   given: [
     "given",
@@ -82,6 +85,7 @@ const HEADER_ALIASES: Record<TargetField, string[]> = {
     "expected output",
   ],
   priority: ["priority", "severity"],
+  suitePath: ["suite", "suite path", "test suite", "test suite path", "folder", "folder path"],
   tags: [
     "tags",
     "labels",
@@ -295,7 +299,7 @@ export function suggestCsvMapping(
 }
 
 function normalizeHeader(header: string): string {
-  return header.normalize("NFKC").replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  return header.normalize("NFKC").replace(/\(s\)/gi, "s").replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 }
 
 export interface CsvHeaders {
@@ -353,6 +357,9 @@ export function mapCsvRows(
   mapping: Partial<Record<TargetField, string>>,
   limit?: number,
   overrides: MappedRowOverride[] = [],
+  // Only the mapping-queue planner may retain an unresolved title column.
+  // Preview/direct imports continue to require a confirmed title mapping.
+  options: { retainUnmappedTitleRows?: boolean } = {},
 ): MapCsvResult {
   const rows = splitCsvRows(text);
   if (rows.length < 2) return { rows: [], skipped: [], incompleteRows: [] };
@@ -380,6 +387,7 @@ export function mapCsvRows(
     testType: colIndex("testType"),
     automationStatus: colIndex("automationStatus"),
     externalId: colIndex("externalId"),
+    suitePath: colIndex("suitePath"),
   };
   const usedColumns = new Set<number>();
   for (const field of TARGET_FIELDS) {
@@ -393,7 +401,7 @@ export function mapCsvRows(
     // confirmed correction. Existence and one-column/one-field checks remain
     // binding, and preview/commit still use this exact same reviewed mapping.
   }
-  if (idx.title === -1) {
+  if (idx.title === -1 && !options.retainUnmappedTitleRows) {
     throw new Error('The "title" field must be mapped to a CSV column');
   }
 
@@ -452,7 +460,7 @@ export function mapCsvRows(
     // Adding a heading/note as a case must not silently regroup later cases
     // whose displayed preview has not changed. Per-case path/note edits below
     // still win over this proposal, and column remapping re-runs the analysis.
-    const sourceIdentityOnly = !(r[idx.title] ?? "").trim() &&
+    const sourceIdentityOnly = idx.title >= 0 && !(r[idx.title] ?? "").trim() &&
       (tags.length > 0 || Boolean(externalId)) && !given.length && !when.length && !then.length &&
       r.every((cell, index) => !cell.trim() || index === idx.tags || index === idx.externalId);
     const sourceLabel = sourceIdentityOnly ? (r[idx.tags]?.trim() || r[idx.externalId]?.trim() || "") : "";
@@ -476,7 +484,8 @@ export function mapCsvRows(
       typeOrigin: override?.typeOrigin === "REVIEWER" ? "REVIEWER" : sourceType ? "SOURCE" : "UNCLASSIFIED",
       automationStatus: override?.automationStatus ?? automationStatus,
       externalId: override?.externalId ?? externalId,
-      ...(override?.suitePath !== undefined ? { suitePath: override.suitePath } : {}),
+      ...(override?.suitePath !== undefined ? { suitePath: override.suitePath }
+        : idx.suitePath >= 0 ? { suitePath: (r[idx.suitePath] ?? "").trim() } : {}),
       ...(override?.background !== undefined ? { background: override.background } : {}),
     };
     const reviewReasons: string[] = [];
@@ -495,7 +504,7 @@ export function mapCsvRows(
       // column, and unused ID-only placeholders. Classify only when there is
       // NO definition content in any other source column, including unmapped
       // columns. Keep genuine missing-title procedures in the repair workflow.
-      const identityOnly = (candidate.tags.length > 0 || Boolean(candidate.externalId)) &&
+      const identityOnly = idx.title >= 0 && (candidate.tags.length > 0 || Boolean(candidate.externalId)) &&
         candidate.given.length === 0 && candidate.when.length === 0 && candidate.then.length === 0 &&
         r.every((cell, index) => !cell.trim() || index === idx.tags || index === idx.externalId);
       if (identityOnly) {
@@ -520,7 +529,7 @@ export function mapCsvRows(
       }
       if (!candidate.title) {
         const incompletePath = [workflow, section].filter(Boolean).join(" / ");
-        if (incompletePath && override?.suitePath === undefined) candidate.suitePath = incompletePath;
+        if (incompletePath && candidate.suitePath === undefined) candidate.suitePath = incompletePath;
         if (sourceNotes.length && override?.background === undefined) candidate.background = sourceNotes.join("\n\n");
         skipped.push({ rowNumber, reason: "missing title" });
         incompleteRows.push(candidate);
@@ -528,8 +537,10 @@ export function mapCsvRows(
       }
     }
     const path = [workflow, section].filter(Boolean).join(" / ");
-    if (path && override?.suitePath === undefined) candidate.suitePath = path;
-    if (candidate.suitePath) reviewReasons.push("Section grouping was inferred from a preceding source heading.");
+    if (path && candidate.suitePath === undefined) {
+      candidate.suitePath = path;
+      reviewReasons.push("Section grouping was inferred from a preceding source heading.");
+    }
     if (sourceNotes.length && override?.background === undefined) candidate.background = sourceNotes.join("\n\n");
     candidate.typeOrigin = override?.typeOrigin === "REVIEWER" ? "REVIEWER" : sourceType ? "SOURCE" : "UNCLASSIFIED";
     if (!sourceType) {

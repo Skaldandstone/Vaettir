@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useEffect, useState } from "react";
 import {
   trpcReact,
@@ -172,32 +174,35 @@ function History({ projectId, caseId }: { projectId: string; caseId: string }) {
                       ? "Exact metadata/schema evidence is available."
                       : "Legacy or oversized capture: exact metadata is unavailable."}
                   </p>
-                  <button
+                  <ActionButton
                     type="button"
                     className="btn-secondary"
                     disabled={!!pending || restore.isPending}
                     onClick={() =>
                       show({ auditId: entry.auditId, side: "AFTER" })
                     }
-                  >
+                   tooltip={<>
                     Review recorded values
-                  </button>
+                   </>}>
+                     Review </ActionButton>
                 </li>
               ))}
             </ol>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {fresh.nextCursor && (
-                <button
+                <ActionButton
                   type="button"
                   onClick={() => setCursor(fresh.nextCursor!)}
-                >
+                 tooltip={<>
                   Older metadata records
-                </button>
+                 </>}>
+                   Older records </ActionButton>
               )}
               {cursor && (
-                <button type="button" onClick={() => setCursor(undefined)}>
+                <ActionButton type="button" onClick={() => setCursor(undefined)} tooltip={<>
                   Newest metadata records
-                </button>
+                 </>}>
+                   Newest records </ActionButton>
               )}
             </div>
             <details>
@@ -210,13 +215,14 @@ function History({ projectId, caseId }: { projectId: string; caseId: string }) {
         )}
       </details>
       {pendingReadable && (
-        <button
+        <ActionButton
           type="button"
           className="btn-secondary"
           onClick={() => setOpen(true)}
-        >
+         tooltip={<>
           Resume exact metadata restore
-        </button>
+         </>}>
+           Resume </ActionButton>
       )}
       {access.readable && notice && !open && <p role="status">{notice}</p>}
       <Modal
@@ -236,16 +242,20 @@ function History({ projectId, caseId }: { projectId: string; caseId: string }) {
                 whether it committed.
               </p>
               {notice && <p role="alert">{notice}</p>}
-              <button
+              <ActionButton
                 type="button"
                 className="btn-primary"
                 disabled={restore.isPending || !access.canEdit}
                 onClick={() => void commit(pending.input)}
-              >
+               tooltip={<>
                 {restore.isPending
                   ? "Confirming…"
                   : "Retry exact metadata restore"}
-              </button>
+               </>}>
+                {restore.isPending
+                  ? "Confirming…"
+                  : "Retry"}
+              </ActionButton>
             </>
           ) : (
             <p role="status">
@@ -403,15 +413,16 @@ function Comparison({
         <p role="alert">
           Current values, definitions or captured evidence changed after review.
           Your reason is retained.{" "}
-          <button
+          <ActionButton
             type="button"
             onClick={() => {
               setBaseline(fresh);
               setConfirmed(false);
             }}
-          >
+           tooltip={<>
             Review latest comparison
-          </button>
+           </>}>
+             Review </ActionButton>
         </p>
       )}
       {baseline && fresh && (
@@ -530,14 +541,15 @@ function Comparison({
                 I reviewed the proposed active changes and values that will
                 remain preserved.
               </label>
-              <button
+              <ActionButton
                 type="button"
                 className="btn-primary"
                 disabled={!ready || !confirmed || !reason.trim()}
                 onClick={submit}
-              >
+               tooltip={<>
                 Restore reviewed metadata as new save
-              </button>
+               </>}>
+                 Restore metadata </ActionButton>
             </>
           )}
         </>

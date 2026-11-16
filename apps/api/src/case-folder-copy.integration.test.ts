@@ -1,3 +1,4 @@
+import { fixtureProjectKey } from "./testProjectKey.js";
 import { randomUUID } from "node:crypto";
 import { beforeEach, afterEach, describe, it, expect } from "vitest";
 import { prisma, type PrismaClient } from "@vaettir/db";
@@ -49,6 +50,7 @@ describe("reviewed atomic same-project folder copy (owned synthetic DB)", () => 
       fixture.actorId = user.id;
       const caller = appRouter.createCaller({ prisma, user });
       const project = await caller.project.create({
+        caseKey: fixtureProjectKey(),
         organizationId: org.id,
         name: key,
       });

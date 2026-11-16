@@ -1,4 +1,7 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
+import { AtlassianOAuthConnection } from "./AtlassianOAuthConnection";
 import { useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { trpcReact, type RouterInputs } from "@/lib/trpcReact";
@@ -144,6 +147,11 @@ export function AtlassianQualitySettings({
   }
   if (!canConfigure) return null;
   return (
+    <>
+    <section className="panel" aria-label="Confluence connection" style={{ marginBlock: 24, padding: 24 }}>
+      <AtlassianOAuthConnection projectId={projectId} product="confluence" />
+      <p className="text-muted">Connecting does not publish reports. Approve sharing separately below.</p>
+    </section>
     <section
       id="atlassian-quality"
       className="panel"
@@ -153,12 +161,7 @@ export function AtlassianQualitySettings({
       <h2 id="atlassian-quality-settings">
         Jira &amp; Confluence quality sharing
       </h2>
-      <p>
-        Connect this project from Quality Intelligence in Jira or Confluence:
-        choose Connect a Vaettir project, sign in and select this project.
-        Manage its read-only sharing here. Architecture analysis and mappings
-        stay in Vaettir. No connection metadata needs to be copied.
-      </p>
+      <p>Connect Vaettir from Quality Intelligence in Jira or Confluence. <a className="inline-help" href="/guide#integrations" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
       {message && <p role="status">{message}</p>}
       {query.error && <p role="alert">{query.error.message}</p>}
       {!data && !query.error && (
@@ -335,14 +338,7 @@ export function AtlassianQualitySettings({
               {binding?.product === "jira" && (
                 <section style={{ display: "grid", gap: 12, marginBlock: 20 }}>
                   <h3>Release tracking</h3>
-                  <p>
-                    Link a Jira version to a Vaettir release and choose the runs
-                    that validate it. Show live metrics before release. The
-                    first successful capture following Jira marking the version
-                    Released is retained permanently; reopening or editing runs
-                    does not overwrite it. Capture time may lag the Jira
-                    transition. This does not approve release readiness.
-                  </p>
+                  <p>Link a Jira version and choose the runs that validate it. <a className="inline-help" href="/guide#releases" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
                   {releaseLinks.map((link, index) => (
                     <div
                       key={index}
@@ -482,7 +478,7 @@ export function AtlassianQualitySettings({
                           </label>
                         ))}
                       </fieldset>
-                      <button
+                      <ActionButton
                         type="button"
                         onClick={() => {
                           setReleaseLinks((current) =>
@@ -490,12 +486,13 @@ export function AtlassianQualitySettings({
                           );
                           setApproved(false);
                         }}
-                      >
+                       tooltip={<>
                         Remove this release link
-                      </button>
+                       </>}>
+                         Remove </ActionButton>
                     </div>
                   ))}
-                  <button
+                  <ActionButton
                     type="button"
                     disabled={releaseLinks.length >= 50}
                     onClick={() => {
@@ -505,9 +502,10 @@ export function AtlassianQualitySettings({
                       ]);
                       setApproved(false);
                     }}
-                  >
+                   tooltip={<>
                     Link a release
-                  </button>
+                   </>}>
+                     Link release </ActionButton>
                 </section>
               )}
               {!!data.closures.length && (
@@ -577,7 +575,7 @@ export function AtlassianQualitySettings({
               </label>
             </fieldset>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
-              <button
+              <ActionButton
                 type="submit"
                 disabled={
                   busy ||
@@ -589,11 +587,15 @@ export function AtlassianQualitySettings({
                     !(releaseLinks.length && binding.product === "jira") &&
                     !(tickets && binding.product === "jira"))
                 }
-              >
+               tooltip={<>
                 {publishRetained
                   ? "Recover this save"
                   : "Save sharing approval"}
-              </button>
+               </>}>
+                {publishRetained
+                  ? "Recover"
+                  : "Approve sharing"}
+              </ActionButton>
               {!retained && (
                 <button
                   type="button"
@@ -614,18 +616,20 @@ export function AtlassianQualitySettings({
                 </button>
               )}
               {revokeRetained && (
-                <button
+                <ActionButton
                   type="button"
                   disabled={busy}
                   onClick={() => void stopSharing(pendingRevoke.current!.id)}
-                >
+                 tooltip={<>
                   Recover stop-sharing request
-                </button>
+                 </>}>
+                   Recover </ActionButton>
               )}
             </div>
           </form>}
         </>
       )}
     </section>
+    </>
   );
 }

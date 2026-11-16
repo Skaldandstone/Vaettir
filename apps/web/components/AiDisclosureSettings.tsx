@@ -1,4 +1,7 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
+import { AiCaseDisclosureReview } from "./AiCaseDisclosureReview";
 import { useId, useLayoutEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { trpcReact, type RouterInputs } from "@/lib/trpcReact";
@@ -8,7 +11,7 @@ type Scope = {
   organizationId: string;
   canConfigure: boolean;
 };
-type Kind = "classify" | "issue" | "rotate" | "revoke";
+type Kind = "classify" | "issue" | "issueCases" | "rotate" | "revoke";
 type Pending = {
   [K in Kind]: { kind: K; input: RouterInputs["aiDisclosure"][K] };
 }[Kind];
@@ -102,6 +105,8 @@ function AiDisclosureControls({
           ? await rpc.classify.mutate(work.input)
           : work.kind === "issue"
             ? await rpc.issue.mutate(work.input)
+            : work.kind === "issueCases"
+              ? await rpc.issueCases.mutate(work.input)
             : work.kind === "rotate"
               ? await rpc.rotate.mutate(work.input)
               : await rpc.revoke.mutate(work.input);
@@ -133,7 +138,7 @@ function AiDisclosureControls({
       setMessage(
         ack.token && !validCredential
           ? "Approval changed before the credential could be shown. Review the connection."
-          : ack.replayed && (work.kind === "issue" || work.kind === "rotate")
+          : ack.replayed && (work.kind === "issue" || work.kind === "issueCases" || work.kind === "rotate")
             ? "This request was already recorded. Its credential cannot be recovered; review the connection and rotate it to obtain a new one."
             : work.kind === "classify"
               ? "Classification saved. Earlier grants are revoked."
@@ -175,9 +180,7 @@ function AiDisclosureControls({
     <section className="panel" aria-label="External AI access">
       <h2>External AI access</h2>
       <p>
-        Human access and AI disclosure are separate permissions. Customer test
-        content stays blocked. This preview shares only aggregate counts from a
-        project you have reviewed as synthetic.
+        Approve what Codex can read. Revoke a connection here at any time.
       </p>
       {!data && (
         <p role={query.error ? "alert" : "status"}>
@@ -205,7 +208,7 @@ function AiDisclosureControls({
             <strong>
               {data.classification.replaceAll("_", " ").toLowerCase()}
             </strong>
-            . Only synthetic projects can be approved.
+            . Regulated and unclassified projects cannot share content.
           </p>
         </>
       )}
@@ -239,18 +242,18 @@ function AiDisclosureControls({
         <div id={classificationHelpId}>
           <p>
             {classification === "UNCLASSIFIED"
-              ? "Choose Unclassified when the project has not been reviewed or its data sensitivity is uncertain."
+              ? "Review the project’s data before enabling AI."
               : classification === "CUSTOMER_PROPRIETARY"
-                ? "Choose Customer proprietary for confidential customer or business information, such as internal requirements, test procedures, or unreleased product details. If regulated information is also present, choose Regulated."
+                ? "Confidential customer or business data. Choose Regulated if protected data is also present."
                 : classification === "REGULATED"
-                  ? "Choose Regulated when tests, attachments, or results contain information subject to regulatory protections, such as patient health information or personal data."
-                  : "Choose Synthetic only when all project data is fabricated for testing, with no real people, customer information, confidential business content, or regulated information. Anonymized or redacted customer data is not automatically synthetic."}
+                  ? "Protected health, personal or other regulated data."
+                  : "Fabricated data only. Redacted customer data needs its own review."}
           </p>
           <p role="status">
             <strong>Plugin access:</strong>{" "}
             {classification === "SYNTHETIC"
-              ? "Eligible for a separately approved, expiring counts-only connection after saving the classification and attestation. Selecting this option does not grant access."
-              : "Blocked for this classification. Project data remains unavailable to the plugin."}
+              ? "Save and attest first, then approve an expiring counts-only connection."
+              : "Blocked for this classification."} <a className="inline-help" href="/guide#ai-sharing" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a>
           </p>
         </div>
         {classification === "SYNTHETIC" && (
@@ -269,7 +272,7 @@ function AiDisclosureControls({
           classification stays the same. A label does not scan or sanitize
           project data.
         </p>
-        <button
+        <ActionButton
           type="button"
           disabled={locked || (classification === "SYNTHETIC" && !attest)}
           onClick={() =>
@@ -285,9 +288,10 @@ function AiDisclosureControls({
               },
             })
           }
-        >
+         tooltip={<>
           Save classification and revoke earlier grants
-        </button>
+         </>}>
+           Save/revoke </ActionButton>
       </fieldset>
       <fieldset
         disabled={locked || data?.classification !== "SYNTHETIC"}
@@ -324,7 +328,7 @@ function AiDisclosureControls({
           connection. I understand a bearer credential can be used by anyone who
           holds it.
         </label>
-        <button
+        <ActionButton
           type="button"
           disabled={
             locked ||
@@ -347,19 +351,21 @@ function AiDisclosureControls({
               },
             })
           }
-        >
+         tooltip={<>
           Approve and issue credential
-        </button>
+         </>}>
+           Issue credential </ActionButton>
       </fieldset>
       {uncertain && !busy && (
-        <button
+        <ActionButton
           type="button"
           className="btn-secondary"
           disabled={!data}
           onClick={() => pending.current && void perform(pending.current)}
-        >
+         tooltip={<>
           Recover pending request
-        </button>
+         </>}>
+           Recover </ActionButton>
       )}
       {message && <p role="status">{message}</p>}
       {data && token && (
@@ -405,6 +411,11 @@ function AiDisclosureControls({
       )}
       {data && (
         <>
+          {data.caseSharingEnabled && ["SYNTHETIC", "CUSTOMER_PROPRIETARY"].includes(data.classification) && <AiCaseDisclosureReview
+            key={[projectId, organizationId, data.actorClerkUserId, data.version].join(":")}
+            projectId={projectId} organizationId={organizationId} actorClerkUserId={data.actorClerkUserId} policyVersion={data.version} disabled={locked}
+            onApprove={input => void perform({ kind: "issueCases", input })}
+          />}
           <h3>Connections</h3>
           {data.grants.length === 0 && (
             <p>No AI access has been approved for this project.</p>
@@ -418,7 +429,7 @@ function AiDisclosureControls({
               }}
             >
               <p>
-                <strong>Codex</strong> · <code>{grant.keyHint}</code> ·{" "}
+                <strong>Codex</strong> · {grant.scope === "approved_case_snapshot" ? "Selected cases" : "Counts"} · <code>{grant.keyHint}</code> ·{" "}
                 {grant.revokedAt || !grant.enabled
                   ? "Revoked"
                   : grant.classificationVersion !== data.version
@@ -429,7 +440,7 @@ function AiDisclosureControls({
                       : "Approved"}{" "}
                 · expires {new Date(grant.expiresAt).toLocaleDateString()}
               </p>
-              <button
+              <ActionButton
                 type="button"
                 className="btn-secondary"
                 disabled={
@@ -437,6 +448,7 @@ function AiDisclosureControls({
                   !approve ||
                   grant.revokedAt !== null ||
                   !grant.enabled ||
+                  grant.scope !== "aggregate_counts" ||
                   data.classification !== "SYNTHETIC"
                 }
                 onClick={() =>
@@ -453,9 +465,10 @@ function AiDisclosureControls({
                     },
                   })
                 }
-              >
+               tooltip={<>
                 Approve replacement credential
-              </button>{" "}
+               </>}>
+                 Issue replacement </ActionButton>{" "}
               <button
                 type="button"
                 className="btn-secondary"
