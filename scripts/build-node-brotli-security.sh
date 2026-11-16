@@ -11,7 +11,8 @@ import{readFileSync}from'node:fs';import{join}from'node:path';import{createHash}
 const scripts=process.argv[2],root=process.argv[3],m=JSON.parse(readFileSync(join(scripts,'node-brotli-runtime-sources.json'))),sha=b=>createHash('sha256').update(b).digest('hex');
 for(const f of m.brotli.files){const b=readFileSync(join(root,f.name));if(b.length!==f.bytes||sha(b)!==f.sha256)throw Error('Brotli input differs');}
 const n=m.node;for(const[file,pin]of [[n.archive,n.archiveSha256],['SHASUMS256.txt',n.checksumsSha256],['SHASUMS256.txt.sig',n.signatureSha256]])if(sha(readFileSync(join(root,file)))!==pin)throw Error('Node input differs');
-if(sha(readFileSync(join(scripts,'public-keys/node-'+n.signer+'.asc')))!==n.publicKeySha256)throw Error('Node public key differs');
+const key=readFileSync(join(scripts,'public-keys/node-'+n.signer+'.asc'));
+if(sha(Buffer.from(key.toString('utf8').replace(/\r\n/g,'\n')))!==n.publicKeySha256)throw Error('Node public key differs');
 PINS
 gpg --no-options --homedir "$build/gpg" --batch --no-autostart --dearmor --output "$build/node-release.gpg" "$scripts/public-keys/node-5BE8A3F6C8A5C01D106C0AD820B1A390B168D356.asc"
 gpgv --homedir "$build/gpg" --keyring "$build/node-release.gpg" --status-fd 1 "$input/SHASUMS256.txt.sig" "$input/SHASUMS256.txt" > "$build/proof/receipts/node-signature.status"

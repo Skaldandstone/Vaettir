@@ -52,6 +52,18 @@ test("unapproved origins, path changes and credentials fail before a request", a
       }),
     );
 });
+test("Node signing key pin accepts Git archive CRLF conversion without changing key material", () => {
+  const manifest = JSON.parse(readFileSync(new URL("./node-brotli-runtime-sources.json", import.meta.url), "utf8"));
+  const key = readFileSync(new URL("./public-keys/node-5BE8A3F6C8A5C01D106C0AD820B1A390B168D356.asc", import.meta.url));
+  const canonical = Buffer.from(key.toString("utf8").replace(/\r\n/g, "\n"));
+  const windows = Buffer.from(canonical.toString("utf8").replace(/\n/g, "\r\n"));
+  const sha = (bytes) => createHash("sha256").update(bytes).digest("hex");
+  const script = readFileSync(new URL("./build-node-brotli-security.sh", import.meta.url), "utf8");
+  assert.equal(sha(canonical), manifest.node.publicKeySha256);
+  assert.equal(sha(Buffer.from(windows.toString("utf8").replace(/\r\n/g, "\n"))), manifest.node.publicKeySha256);
+  assert.notEqual(sha(windows), manifest.node.publicKeySha256);
+  assert.match(script, /key\.toString\('utf8'\)\.replace\(\/\\r\\n\/g,'\\n'\)/);
+});
 test("truncated, extended, changed and compressed responses fail closed", async () => {
   for (const response of [
     new Response(body.subarray(1)),
