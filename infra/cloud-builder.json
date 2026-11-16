@@ -1,0 +1,240 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Vaettir build-only host. Persistent encrypted cache; no inbound ports or deployment privileges.",
+  "Parameters": {
+    "VpcId": {
+      "Type": "AWS::EC2::VPC::Id"
+    },
+    "SubnetId": {
+      "Type": "AWS::EC2::Subnet::Id",
+      "Description": "Existing public subnet with an Internet Gateway route; no new NAT gateway."
+    },
+    "ImageId": {
+      "Type": "AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>",
+      "Default": "/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id"
+    },
+    "InstanceType": {
+      "Type": "String",
+      "Default": "m7i.4xlarge",
+      "AllowedValues": [
+        "m7i.4xlarge"
+      ]
+    },
+    "SourceBucket": {
+      "Type": "String",
+      "Default": "vaettir-build-source-051722405355",
+      "AllowedValues": [
+        "vaettir-build-source-051722405355"
+      ]
+    }
+  },
+  "Resources": {
+    "BuilderSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "Outbound package and AWS API traffic only",
+        "VpcId": {
+          "Ref": "VpcId"
+        },
+        "SecurityGroupEgress": [
+          {
+            "IpProtocol": "tcp",
+            "FromPort": 443,
+            "ToPort": 443,
+            "CidrIp": "0.0.0.0/0"
+          },
+          {
+            "IpProtocol": "tcp",
+            "FromPort": 80,
+            "ToPort": 80,
+            "CidrIp": "0.0.0.0/0"
+          }
+        ]
+      }
+    },
+    "BuilderRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "ec2.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "BuildArtifactsOnly",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:GetObject"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:s3:::${SourceBucket}/cloud-builder/jobs/*"
+                  }
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:PutObject"
+                  ],
+                  "Resource": [
+                    {
+                      "Fn::Sub": "arn:${AWS::Partition}:s3:::${SourceBucket}/cloud-builder/jobs/*/build.log"
+                    },
+                    {
+                      "Fn::Sub": "arn:${AWS::Partition}:s3:::${SourceBucket}/cloud-builder/jobs/*/result.json"
+                    }
+                  ]
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": "ecr:GetAuthorizationToken",
+                  "Resource": "*"
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "ecr:BatchCheckLayerAvailability",
+                    "ecr:InitiateLayerUpload",
+                    "ecr:UploadLayerPart",
+                    "ecr:CompleteLayerUpload",
+                    "ecr:PutImage",
+                    "ecr:DescribeImages"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/vaettir-api"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "PolicyName": "SessionManagerConnectivity",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "ssm:UpdateInstanceInformation",
+                    "ssmmessages:CreateControlChannel",
+                    "ssmmessages:CreateDataChannel",
+                    "ssmmessages:OpenControlChannel",
+                    "ssmmessages:OpenDataChannel"
+                  ],
+                  "Resource": "*"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "BuilderProfile": {
+      "Type": "AWS::IAM::InstanceProfile",
+      "Properties": {
+        "Roles": [
+          {
+            "Ref": "BuilderRole"
+          }
+        ]
+      }
+    },
+    "Builder": {
+      "Type": "AWS::EC2::Instance",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "ImageId": {
+          "Ref": "ImageId"
+        },
+        "InstanceType": {
+          "Ref": "InstanceType"
+        },
+        "IamInstanceProfile": {
+          "Ref": "BuilderProfile"
+        },
+        "InstanceInitiatedShutdownBehavior": "stop",
+        "DisableApiTermination": true,
+        "MetadataOptions": {
+          "HttpTokens": "required",
+          "HttpPutResponseHopLimit": 1,
+          "HttpEndpoint": "enabled"
+        },
+        "BlockDeviceMappings": [
+          {
+            "DeviceName": "/dev/sda1",
+            "Ebs": {
+              "VolumeSize": 150,
+              "VolumeType": "gp3",
+              "Encrypted": true,
+              "DeleteOnTermination": false
+            }
+          }
+        ],
+        "NetworkInterfaces": [
+          {
+            "DeviceIndex": "0",
+            "AssociatePublicIpAddress": true,
+            "SubnetId": {
+              "Ref": "SubnetId"
+            },
+            "GroupSet": [
+              {
+                "Ref": "BuilderSecurityGroup"
+              }
+            ]
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${AWS::StackName}"
+            }
+          },
+          {
+            "Key": "Project",
+            "Value": "Vaettir"
+          },
+          {
+            "Key": "Purpose",
+            "Value": "native-build-cache"
+          },
+          {
+            "Key": "Owner",
+            "Value": "James"
+          }
+        ],
+        "UserData": {
+          "Fn::Base64": "#!/bin/bash\nset -euo pipefail\nexport DEBIAN_FRONTEND=noninteractive\ninstall -d -m 0700 /var/lib/vaettir-builder/jobs\ntouch /var/lib/vaettir-builder/last-activity\ncat > /usr/local/sbin/vaettir-builder-idle <<'SCRIPT'\n#!/bin/bash\nset -euo pipefail\nexec 9>/var/lock/vaettir-builder.lock\nflock -n 9 || exit 0\nuptime_seconds=$(cut -d. -f1 /proc/uptime)\n(( uptime_seconds > 1200 )) || exit 0\nlast=$(stat -c %Y /var/lib/vaettir-builder/last-activity)\nnow=$(date +%s)\n(( now - last > 900 )) || exit 0\nsystemctl poweroff\nSCRIPT\nchmod 0755 /usr/local/sbin/vaettir-builder-idle\ncat > /etc/systemd/system/vaettir-builder-idle.service <<'UNIT'\n[Unit]\nDescription=Stop idle Vaettir builder and retain its EBS cache\n[Service]\nType=oneshot\nExecStart=/usr/local/sbin/vaettir-builder-idle\nUNIT\ncat > /etc/systemd/system/vaettir-builder-idle.timer <<'UNIT'\n[Unit]\nDescription=Check Vaettir builder idleness\n[Timer]\nOnBootSec=5min\nOnUnitActiveSec=5min\n[Install]\nWantedBy=timers.target\nUNIT\nsystemctl daemon-reload\nsystemctl enable --now vaettir-builder-idle.timer\ntimeout 900 apt-get update\ntimeout 900 apt-get install -y docker.io docker-buildx python3-boto3\nsystemctl enable --now docker\ntouch /var/lib/vaettir-builder/ready\n"
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "InstanceId": {
+      "Value": {
+        "Ref": "Builder"
+      }
+    },
+    "RoleArn": {
+      "Value": {
+        "Fn::GetAtt": [
+          "BuilderRole",
+          "Arn"
+        ]
+      }
+    }
+  }
+}
