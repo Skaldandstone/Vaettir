@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "turbo run dev",
-    "dev:cloud": "python scripts/cloud-dev-db.py run -- pnpm exec turbo run dev",
+    "dev:cloud": "python scripts/cloud-dev-db.py run -- pnpm exec turbo run dev --env-mode=loose",
     "db:migrate:cloud": "python scripts/cloud-dev-db.py run -- pnpm --filter @vaettir/db exec prisma migrate deploy",
     "build": "turbo run build",
     "lint": "turbo run lint",

@@ -25,6 +25,8 @@ on `127.0.0.1:15432`, and reads only the new development cluster's managed secre
 It passes `DATABASE_URL` to the child process in memory. Passwords are not printed,
 placed in command arguments, or saved in `.env`. Existing `.env` files are retained;
 the process environment overrides their local database URL for this command.
+The helper clears inherited `DB_SECRET_ID`, sets `NODE_ENV=development`, and the
+development task passes this environment through Turbo to its child processes.
 
 The helper checks the AWS account, stack, cluster tags, database name, endpoint,
 and secret identity before retrieving credentials. It refuses a production or

@@ -46,6 +46,14 @@ def connection_url(secret):
     return f"postgresql://{user}:{password}@127.0.0.1:{PORT}/vaettir_dev?sslmode=require&connect_timeout=60&pool_timeout=60"
 
 
+def child_environment(base, secret):
+    environment = base.copy()
+    environment["DATABASE_URL"] = connection_url(secret)
+    environment["DB_SECRET_ID"] = ""
+    environment["NODE_ENV"] = "development"
+    return environment
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=["run"])
@@ -124,7 +132,7 @@ def main():
             # Credentials are read into memory and passed only to this child process.
             # They are never printed, written to .env, or placed in command arguments.
             secret = json.loads(api("secretsmanager", "get-secret-value", "--secret-id", outputs["SecretArn"])["SecretString"])
-            environment["DATABASE_URL"] = connection_url(secret)
+            environment = child_environment(environment, secret)
             print("Using the isolated cloud development database via localhost:" + str(PORT), flush=True)
             executable = shutil.which(command[0])
             if not executable:

@@ -28,6 +28,14 @@ class DevelopmentDatabaseTest(unittest.TestCase):
         self.assertEqual(value.path, "/vaettir_dev")
         self.assertEqual(urllib.parse.unquote(value.password), secret["password"])
 
+    def test_child_environment_cannot_inherit_production_database_selection(self):
+        original = {"DB_SECRET_ID": "production-secret", "DATABASE_URL": "production", "NODE_ENV": "production"}
+        child = dev.child_environment(original, {"username": "vaettir_dev_admin", "password": "synthetic"})
+        self.assertEqual(child["DB_SECRET_ID"], "")
+        self.assertEqual(child["NODE_ENV"], "development")
+        self.assertEqual(urllib.parse.urlparse(child["DATABASE_URL"]).path, "/vaettir_dev")
+        self.assertEqual(original["DATABASE_URL"], "production")
+
     def test_rejects_wrong_user_or_missing_password(self):
         for secret in ({"username": "production", "password": "synthetic"}, {"username": "vaettir_dev_admin"}):
             with self.assertRaises(ValueError):
