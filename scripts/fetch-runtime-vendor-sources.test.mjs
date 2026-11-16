@@ -26,6 +26,40 @@ test("public vendor downloads are host pinned, redirect disabled and hash verifi
   assert.deepEqual(actual, data);
 });
 
+test("retired Expat source uses immutable Debian snapshot hashes", async () => {
+  const snapshotOrigin = "https://snapshot.debian.org/file/";
+  const snapshotFile = {
+    name: "expat_2.9.0-1.dsc",
+    snapshotSha1: "eefe91ce34a88026a1a7c8bfe08d990fa156890d",
+    sha256: createHash("sha256").update(data).digest("hex"),
+    maxBytes: 100,
+  };
+  assert.deepEqual(
+    await fetchVerifiedSource(snapshotFile, {
+      origin: snapshotOrigin,
+      fetchImpl: async (url, options) => {
+        assert.equal(url, snapshotOrigin + snapshotFile.snapshotSha1);
+        assert.equal(options.redirect, "error");
+        return new Response(data);
+      },
+    }),
+    data,
+  );
+  for (const invalid of [
+    { ...snapshotFile, snapshotSha1: undefined },
+    { ...snapshotFile, snapshotSha1: "../untrusted" },
+    { ...snapshotFile, name: "unapproved.txt" },
+  ]) {
+    await assert.rejects(
+      fetchVerifiedSource(invalid, {
+        origin: snapshotOrigin,
+        fetchImpl: () => assert.fail("invalid snapshot pin fetched"),
+      }),
+      /Invalid vendor source pin/,
+    );
+  }
+});
+
 test("LLVM source pins use only the official source pool and bounded signed-source inputs", async () => {
   const llvm = { ...file, name: "llvm-toolchain-19_19.1.7-3.dsc" };
   const host = "https://deb.debian.org/debian/pool/main/l/llvm-toolchain-19/";
@@ -191,6 +225,10 @@ test("API vendor build verifies signature, preserves packaging and validates bot
   );
   assert.equal(manifest.expat.version, "2.9.0-1");
   assert.equal(manifest.expat.files.length, 3);
+  assert.equal(manifest.expat.origin, "https://snapshot.debian.org/file/");
+  assert.ok(
+    manifest.expat.files.every((pin) => /^[a-f0-9]{40}$/.test(pin.snapshotSha1)),
+  );
   assert.match(
     docker,
     /gpgv --keyring \/usr\/share\/keyrings\/debian-keyring.gpg --status-fd 1 expat_2.9.0-1.dsc/,

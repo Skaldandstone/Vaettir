@@ -30,7 +30,7 @@ export const FRESH_NATIVE_SCRIPT_LF_HASHES = Object.freeze({
   "native-llvm-checkpoint.mjs":
     "74f6d17957efff26b27a959fd3592797cb3ddad65a4ca42cbf63e4c6b6b8d7a6",
   "fetch-runtime-vendor-sources.mjs":
-    "a46abe15b0e838b48c633507028b358af1ee739df7af6fcf0854517ecba38e17",
+    "142eb60aca1ac0dc3950238badc95e29fef1a720afc37a62c90ffa38a78df9be",
   "runtime-vendor-sources.json":
     "9191a23df7d019f8c4a940ce3b52a336eee06fba487b210af528a5d827a0f481",
   "check-llvm-package.mjs":
@@ -52,7 +52,7 @@ const scriptCrlfHashes = Object.freeze({
   "native-llvm-checkpoint.mjs":
     "1a49d9e12f65f13e7b9505542cd4a30497b4ea9bb151dbc20113d388c877061e",
   "fetch-runtime-vendor-sources.mjs":
-    "2e17302ed4711f9fdf238749226c3d8ac9dd91cd7e9ba84e5dcaaa0001d0fa43",
+    "1185b103eb197da142583b7b4c783b1dfbea279e4df5581448408b76b7cb5172",
   "runtime-vendor-sources.json":
     "9fe3a81df0157a5145e00648aa2ae0529706ed6e6970e0f1337734047acfec83",
   "check-llvm-package.mjs":

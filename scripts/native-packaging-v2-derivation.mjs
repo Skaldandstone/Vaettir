@@ -64,6 +64,8 @@ export function deriveNativePackagingV2(input){
     if(name==="native-builder-fresh-prepare.mjs"){
       change(oldRecipeHash,correctedLFHash,1);
       change(oldRecipeCrlfHash,correctedCrlfHash,1);
+      change("a46abe15b0e838b48c633507028b358af1ee739df7af6fcf0854517ecba38e17","142eb60aca1ac0dc3950238badc95e29fef1a720afc37a62c90ffa38a78df9be",1);
+      change("2e17302ed4711f9fdf238749226c3d8ac9dd91cd7e9ba84e5dcaaa0001d0fa43","1185b103eb197da142583b7b4c783b1dfbea279e4df5581448408b76b7cb5172",1);
       // Refuse actual legacy3ce origin before any v2 plan/result operation.
       // These are the only two source-commit admission anchors in v1.
       const id="  assert.notEqual(identity.sourceCommit, oldCommit);";

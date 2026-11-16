@@ -200,7 +200,7 @@ RUN apt-get update --error-on=any \
     && rm /tmp/vaettir-vendor/zlib1g_1.3.dfsg+really1.3.2-3+vaettir1_amd64.deb \
     && rm -rf /var/lib/apt/lists/*
 
-RUN corepack enable
+RUN npm install --global --no-audit --no-fund pnpm@11.23.0
 WORKDIR /app
 
 COPY . .

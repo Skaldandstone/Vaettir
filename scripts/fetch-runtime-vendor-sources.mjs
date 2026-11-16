@@ -13,6 +13,14 @@ const VENDOR_POOLS = new Map([
     },
   ],
   [
+    "https://snapshot.debian.org/file/",
+    {
+      name: /^expat_[a-zA-Z0-9.+~-]+\.(?:dsc|orig\.tar\.gz|debian\.tar\.xz)$/,
+      maxBytes: 10000000,
+      timeout: 60000,
+    },
+  ],
+  [
     "https://deb.debian.org/debian/pool/main/l/llvm-toolchain-19/",
     {
       name: /^llvm-toolchain-19_[a-zA-Z0-9.+-]+\.(?:dsc|orig\.tar\.xz|debian\.tar\.xz)$/,
@@ -55,12 +63,19 @@ export async function fetchVerifiedSource(
     !pool ||
     !pool.name.test(file.name) ||
     !/^[a-f0-9]{64}$/.test(file.sha256) ||
+    (origin === "https://snapshot.debian.org/file/"
+      ? !/^[a-f0-9]{40}$/.test(file.snapshotSha1)
+      : file.snapshotSha1 !== undefined) ||
     !Number.isInteger(file.maxBytes) ||
     file.maxBytes < 1 ||
     file.maxBytes > pool.maxBytes
   )
     throw new Error("Invalid vendor source pin");
-  const response = await fetchImpl(origin + file.name, {
+  const sourceUrl =
+    origin === "https://snapshot.debian.org/file/"
+      ? origin + file.snapshotSha1
+      : origin + file.name;
+  const response = await fetchImpl(sourceUrl, {
     redirect: "error",
     signal: AbortSignal.any([
       AbortSignal.timeout(pool.timeout),
