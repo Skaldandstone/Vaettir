@@ -1,3 +1,4 @@
+import { fixtureProjectKey } from "./testProjectKey.js";
 // Native execution evidence is recorded by root on fresh owned disposable DBs.
 // Stale independent ctx A versus native Clerk B on the same User, not fresh B
 // adopting A's review. Explicit original expectedScope is a refusal control.
@@ -59,7 +60,7 @@ describe("case clone checks independent authenticated Clerk before private previ
   async function eligible(scoped: boolean) {
     const project = await callerA.project.create({
       organizationId, name: `${tag}-${randomUUID()}`,
-      caseKey: `c${randomUUID().replaceAll("-", "").slice(0, 15)}`,
+      caseKey: fixtureProjectKey(),
     });
     const source = await callerA.testCases.create({ projectId: project.id, ...content });
     const previewInput = {

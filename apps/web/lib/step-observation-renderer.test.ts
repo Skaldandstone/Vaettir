@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
@@ -8,7 +9,7 @@ import type { StepReviewBuffer } from "./step-execution-review-draft";
 const source = readFileSync(new URL("../components/ReviewedStepObservation.tsx", import.meta.url), "utf8");
 const ast = ts.createSourceFile("ReviewedStepObservation.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 const functions = ast.statements.filter(ts.isFunctionDeclaration).map(node => ts.createPrinter().printNode(ts.EmitHint.Unspecified, node, ast).replace(/\bexport\s+/, "")).join("\n");
-const executable = ts.transpileModule(functions + "\nthis.fields=StepObservationFields;this.procedure=StepFrozenObservation;this.editor=ReviewedStepObservation;", { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
+const executable = controllerTranspile(functions + "\nthis.fields=StepObservationFields;this.procedure=StepFrozenObservation;this.editor=ReviewedStepObservation;", { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
 type FieldsProps = { buffer: Readonly<StepReviewBuffer>; editingEnabled: boolean; correction: boolean; physical?: boolean; onChange: (buffer: StepReviewBuffer) => boolean };
 type InputProps = { id?: string; value?: string; onChange: (event: { target: { value: string } }) => void };
 function renderer() { const context = vm.createContext({ React, useId: () => "synthetic-field-prefix" }); vm.runInContext(executable, context); return context as unknown as { fields: (props: FieldsProps) => React.ReactElement; procedure: (props: { definition: unknown; stepIndex: number }) => React.ReactElement }; }

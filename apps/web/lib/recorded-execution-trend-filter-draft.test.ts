@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import React from "react";
@@ -46,7 +47,7 @@ const source = readFileSync(
         .replace(/\bexport\s+/, ""),
     )
     .join("\n"),
-  code = ts.transpileModule(`${functions}\nthis.component=ExecutionTrend;`, {
+  code = controllerTranspile(`${functions}\nthis.component=ExecutionTrend;`, {
     compilerOptions: {
       target: ts.ScriptTarget.ES2022,
       module: ts.ModuleKind.None,
@@ -348,7 +349,7 @@ function harness() {
   };
 }
 const dateNotice = "Date edits have not been applied.",
-  filterNotice = "Configuration filter edits have not been applied.";
+  filterNotice = "Select Show outcomes to apply these filters.";
 it("no applied scope or unchanged absent/empty filters has no unapplied notice or request", () => {
   const h = harness();
   expect(h.render()).not.toContain(filterNotice);
@@ -369,9 +370,6 @@ it.each(["Platform", "Environment", "Build"])(
     const html = h.input(label, "new-private-draft");
     expect(html).toContain(filterNotice);
     expect(html).not.toContain(dateNotice);
-    expect(html).toContain(
-      "view, refresh and export still use the last applied configuration",
-    );
     expect(h.inputScope).toBe(original);
     expect(h.data).toBe(data);
     expect(h.requests).toHaveBeenCalledOnce();
@@ -444,7 +442,7 @@ it("read loss withholds evidence and current workspace loss hides retained filte
   expect(html).toContain(filterNotice);
   expect(html).not.toContain('aria-label="Recorded scope totals"');
   const notice = html.match(
-    /<p role="status">Configuration filter edits[\s\S]*?<\/p>/,
+    /<p role="status">Select Show outcomes[\s\S]*?<\/p>/,
   )?.[0];
   expect(notice).toBeDefined();
   expect(notice).not.toContain("PRIVATE_APPLIED_BUILD");

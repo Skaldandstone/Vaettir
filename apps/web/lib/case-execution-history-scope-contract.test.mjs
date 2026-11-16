@@ -13,7 +13,7 @@ test("current identity/page cache guards precede native private history and keep
   assert.ok(!component.includes("setOriginalOrganizationId(undefined)")); assert.ok(!component.includes("setOriginalClerkActorId(undefined)"));
 });
 test("native configuration controls are progressive, literal and reset paging only after explicit apply", () => {
-  for (const literal of ["Filter executions", "UTC {key} date", "Exact recorded manual configuration", "CI commits are not treated as build", "Apply filters",
+  for (const literal of ["Filter executions", "UTC {key} date", "Exact recorded manual configuration", "Filters match the recorded configuration exactly.", "Apply filters",
     "setApplied(filterDraft); setAnchors([undefined])", 'boxSizing: "border-box"', "ManualRetestActions", "CaseObservationHistoryEntry", "testCaseId={page.testCase.id}", "displayId={page.testCase.displayId}"])
     assert.ok(component.includes(literal), literal);
   assert.ok(!component.includes("useMutation"));

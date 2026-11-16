@@ -8,7 +8,7 @@ export function useAuth() {
 }
 const receipts = new Map();
 const api = {
-  configuration: { query: async () => ({ enabled: true, canAnalyze: true, policyVersion: 1, reason: null }) },
+  configuration: { query: async () => ({ enabled: true, canAnalyze: fixture().canAnalyze !== false, policyVersion: fixture().policyVersion ?? 1, reason: fixture().canAnalyze === false ? "Review the project's classification in AI sharing first." : null }) },
   mapping: { mutate: async input => {
     fixture().mappingCalls.push(input);
     return { mappings: [["title", "Scenario text"], ["given", "Initial state"], ["when", "Do this"], ["then", "Expected behavior"], ["externalId", "Reference"]].map(([field, column]) => ({ field, column, confidence: "HIGH", reason: `The supplied ${column} cells support this role.`, evidence: [column] })) };

@@ -118,6 +118,6 @@ test("portable HTML format and fresh response revision invalidate exact export r
   assert.match(source, /setReviewedFormat\(null\)/);
   assert.match(source, /epoch: -1/);
   assert.match(source, /File format/);
-  assert.match(source, /does not generate or deliver a PDF/);
+  assert.match(source, /Print command for PDF/);
   assert.match(source, /finally\s*{\s*anchor.remove\(\)/);
 });

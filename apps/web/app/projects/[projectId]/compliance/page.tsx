@@ -1,4 +1,8 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
+import { useCaseFieldAccess } from "@/lib/use-case-field-access";
+import { ComplianceReviewWorkflow } from "@/components/ComplianceReviewWorkflow";
 import { roleLabel } from "@/lib/membership";
 
 import { useEffect, useState } from "react";
@@ -10,6 +14,9 @@ import { Drawer } from "@/components/Drawer";
 import { downloadCsv } from "@/lib/csv";
 
 import { COMPLIANCE_STARTERS } from "@/lib/compliance-starters";
+import { CompliancePicker } from "@/components/CompliancePicker";
+import { savedComplianceOptions } from "@/lib/compliance-catalog";
+import { rankComplianceCandidates } from "@/lib/compliance-proposals";
 import {
   ComplianceMappingGuidance,
   ComplianceFrameworkGuidance,
@@ -343,11 +350,10 @@ function ControlEvidenceDrawer({
       {!readOnly && (
         <>
           <h3 style={{ marginTop: 24, marginBottom: 6 }}>Request a sign-off</h3>
-          <p className="text-muted" style={{ fontSize: 12, marginTop: -4 }}>
-            Ask another Compliance Auditor (or Admin/Owner) to sign off - they
-            get a push notification on the mobile app, and it's automatically
-            marked done the moment they actually sign off for this same period.
-          </p>
+          <details>
+            <summary>Details</summary>
+            <p className="text-muted" style={{ fontSize: 12, marginTop: -4 }}>Request sign-off from an auditor, admin or owner. <a className="inline-help" href="/guide#compliance" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
+          </details>
           <div
             style={{
               display: "flex",
@@ -420,6 +426,7 @@ function ControlRow({
     { enabled: picking },
   );
   const candidates = candidatesQuery.data ?? [];
+  const rankedCandidates = rankComplianceCandidates(control, candidates);
   const [selected, setSelected] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
 
@@ -485,15 +492,60 @@ function ControlRow({
         {!readOnly &&
           (picking ? (
             <>
+              <div style={{ flexBasis: "100%", fontSize: 12 }}>
+                {candidatesQuery.isPending ? (
+                  <p role="status">Loading candidate cases…</p>
+                ) : candidatesQuery.error ? (
+                  <p role="alert">
+                    Could not load cases. Close and reopen the picker to retry.
+                  </p>
+                ) : (
+                  <>
+                    <p>
+                      Title matches first. This preview checks{" "}
+                      {candidates.length} loaded case titles, not their steps or
+                      expected results. Review the case before mapping.
+                    </p>
+                    {candidates.length >= 200 && (
+                      <p role="status">
+                        More cases may exist. This list is limited to 200
+                        candidates and cannot establish complete project
+                        coverage.
+                      </p>
+                    )}
+                    {candidates.length === 0 && (
+                      <p>
+                        No unmapped cases were returned. Review the control’s
+                        suggested check outline before authoring a new case.
+                      </p>
+                    )}
+                  </>
+                )}
+                {selected && (
+                  <p>
+                    {(() => {
+                      const terms =
+                        rankedCandidates.find(
+                          (item) => item.candidate.id === selected,
+                        )?.matchedTerms ?? [];
+                      return terms.length
+                        ? `Shared title terms: ${terms.join(", ")}. This is a suggestion, not verified coverage.`
+                        : "No shared title terms. A reviewer must assess the case’s relevance.";
+                    })()}
+                  </p>
+                )}
+              </div>
               <select
+                aria-label={`Test case for ${control.code}`}
                 value={selected}
                 onChange={(e) => setSelected(e.target.value)}
                 style={{ fontSize: 12 }}
               >
                 <option value="">Pick a test case…</option>
-                {candidates.map((tc) => (
+                {rankedCandidates.map(({ candidate: tc, matchedTerms }) => (
                   <option key={tc.id} value={tc.id}>
                     {tc.title}
+                    {matchedTerms.length > 0 ? " · title match" : ""}
                   </option>
                 ))}
               </select>
@@ -501,7 +553,13 @@ function ControlRow({
                 className="btn-secondary"
                 style={{ fontSize: 12 }}
                 onClick={map}
-                disabled={busy || !selected}
+                disabled={
+                  busy ||
+                  !selected ||
+                  candidatesQuery.isFetching ||
+                  !!candidatesQuery.error ||
+                  !candidates.some((candidate) => candidate.id === selected)
+                }
               >
                 Map
               </button>
@@ -514,21 +572,23 @@ function ControlRow({
               </button>
             </>
           ) : (
-            <button
+            <ActionButton
               className="btn-secondary"
               style={{ fontSize: 12 }}
               onClick={() => setPicking(true)}
+              tooltip={<>+ Map a test case</>}
             >
-              + Map a test case
-            </button>
+              Map case{" "}
+            </ActionButton>
           ))}
-        <button
+        <ActionButton
           className="btn-secondary"
           style={{ fontSize: 12 }}
           onClick={() => setDrawerOpen(true)}
+          tooltip={<>Evidence & sign-off</>}
         >
-          Evidence & sign-off
-        </button>
+          Sign-off{" "}
+        </ActionButton>
       </div>
       <Drawer open={drawerOpen} onClose={() => setDrawerOpen(false)}>
         <ControlEvidenceDrawer
@@ -548,6 +608,9 @@ export default function CompliancePage() {
   const utils = trpcReact.useUtils();
   const { canEdit, canSignOff, canAdmin } = useProjectPermissions(projectId);
   const readOnly = !canEdit;
+  const referenceAccess = useCaseFieldAccess(projectId);
+  const catalogQuery = trpcReact.compliance.catalog.useQuery();
+  const loadReference = trpcReact.compliance.loadReference.useMutation();
 
   const [includeHidden, setIncludeHidden] = useState(false);
   const frameworksQuery = trpcReact.compliance.listFrameworks.useQuery({
@@ -584,7 +647,7 @@ export default function CompliancePage() {
   const [error, setError] = useState<string | null>(null);
 
   const [frameworkModalOpen, setFrameworkModalOpen] = useState(false);
-  const [starterKey, setStarterKey] = useState(COMPLIANCE_STARTERS[0]!.key);
+  const [starterKey, setStarterKey] = useState("nist-csf-2");
   const [frameworkMode, setFrameworkMode] = useState<"starter" | "custom">(
     "starter",
   );
@@ -650,23 +713,16 @@ export default function CompliancePage() {
     if (!starter) return;
     setError(null);
     try {
-      const existingFramework = frameworks.find(
-        (candidate) => candidate.key === starter.key,
-      );
-      let frameworkId = existingFramework?.id;
-      if (!frameworkId) {
-        const created = await createFrameworkMutation.mutateAsync({
-          key: starter.key,
-          name: starter.name,
-          version: starter.version,
-          description: `${starter.summary} Source: ${starter.sourceUrl}`,
-        });
-        frameworkId = created.id;
-      }
-      await importControlsMutation.mutateAsync({
-        frameworkId,
-        controls: starter.controls,
+      const origin = referenceAccess.origin;
+      if (!origin || !referenceAccess.owns(origin, "edit")) return;
+      const created = await loadReference.mutateAsync({
+        projectId,
+        originalOrganizationId: origin.organizationId,
+        expectedClerkActorId: origin.clerkActorId,
+        key: starter.key,
       });
+      if (!referenceAccess.owns(origin, "edit")) return;
+      const frameworkId = created.id;
       setSelectedFrameworkId(frameworkId);
       setFrameworkModalOpen(false);
       reloadFrameworks();
@@ -681,6 +737,7 @@ export default function CompliancePage() {
     setError(null);
     try {
       const fw = await createFrameworkMutation.mutateAsync({
+        projectId,
         key: newKey.trim(),
         name: newName.trim(),
         version: newVersion.trim() || undefined,
@@ -701,6 +758,7 @@ export default function CompliancePage() {
     setError(null);
     try {
       await createControlMutation.mutateAsync({
+        projectId,
         frameworkId: selectedFrameworkId,
         code: newCode.trim(),
         title: newTitle.trim(),
@@ -730,6 +788,7 @@ export default function CompliancePage() {
         return;
       }
       const result = await importControlsMutation.mutateAsync({
+        projectId,
         frameworkId: selectedFrameworkId,
         controls: parsed,
       });
@@ -780,7 +839,9 @@ export default function CompliancePage() {
   const loading = frameworksQuery.isLoading;
   const pageError = error ?? frameworksQuery.error?.message ?? null;
   const savingFramework =
-    createFrameworkMutation.isPending || importControlsMutation.isPending;
+    createFrameworkMutation.isPending ||
+    loadReference.isPending ||
+    importControlsMutation.isPending;
   const savingControl = createControlMutation.isPending;
   const importing = importControlsMutation.isPending;
 
@@ -791,6 +852,17 @@ export default function CompliancePage() {
 
   return (
     <div style={{ maxWidth: 800 }}>
+      {/* Keep the workflow's original access pins and private draft state mounted.
+          Its own access guard hides content during revalidation. Unmounting it
+          here restarts its shared stale query and repeatedly invalidates ours. */}
+      <ComplianceReviewWorkflow projectId={projectId} />
+      {!referenceAccess.readable ? (
+        <p>
+          Verifying original workspace access before showing compliance
+          definitions and evidence.
+        </p>
+      ) : (
+      <>
       <div
         style={{
           display: "flex",
@@ -812,12 +884,13 @@ export default function CompliancePage() {
           Include hidden frameworks
         </label>
         {!readOnly && (
-          <button
+          <ActionButton
             className="btn-primary"
             onClick={() => setFrameworkModalOpen(true)}
+            tooltip={<>+ New framework</>}
           >
-            + New framework
-          </button>
+            New framework{" "}
+          </ActionButton>
         )}
       </div>
       <p className="text-muted" style={{ marginBottom: 20 }}>
@@ -839,30 +912,12 @@ export default function CompliancePage() {
       {loading && <p>Loading…</p>}
 
       {!loading && frameworks.length > 0 && (
-        <div
-          style={{
-            display: "flex",
-            gap: 8,
-            marginBottom: 16,
-            flexWrap: "wrap",
-          }}
-        >
-          {frameworks.map((f) => (
-            <button
-              key={f.id}
-              className={
-                f.id === selectedFrameworkId ? "btn-primary" : "btn-secondary"
-              }
-              style={{ fontSize: 13 }}
-              onClick={() => setSelectedFrameworkId(f.id)}
-            >
-              {f.name}
-              {f.version && ` (${f.version})`} — {f.controlCount} control
-              {f.controlCount === 1 ? "" : "s"}
-              {!f.isBuiltIn && " · custom"}
-            </button>
-          ))}
-        </div>
+        <CompliancePicker
+          label="Saved frameworks"
+          options={savedComplianceOptions(frameworks)}
+          selected={selectedFrameworkId ? [selectedFrameworkId] : []}
+          onSelect={setSelectedFrameworkId}
+        />
       )}
 
       {selectedFramework && (
@@ -877,7 +932,14 @@ export default function CompliancePage() {
             }}
           >
             <h2 style={{ marginTop: 0 }}>{selectedFramework.name}</h2>
-            <div style={{ display: "flex", flexWrap: "wrap", maxWidth: "100%", gap: 8 }}>
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                maxWidth: "100%",
+                gap: 8,
+              }}
+            >
               <button
                 className="btn-secondary"
                 style={{ fontSize: 13 }}
@@ -891,6 +953,10 @@ export default function CompliancePage() {
                   <button
                     className="btn-secondary"
                     style={{ fontSize: 13 }}
+                    disabled={
+                      !selectedFramework.workspaceOwned ||
+                      !!selectedFramework.catalogKey
+                    }
                     onClick={() => {
                       setImportResult(null);
                       setImportModalOpen(true);
@@ -898,31 +964,53 @@ export default function CompliancePage() {
                   >
                     Import controls
                   </button>
-                  <button
+                  <ActionButton
                     className="btn-secondary"
                     style={{ fontSize: 13 }}
+                    disabled={
+                      !selectedFramework.workspaceOwned ||
+                      !!selectedFramework.catalogKey
+                    }
                     onClick={() => setControlModalOpen(true)}
+                    tooltip={<>+ Add control</>}
                   >
-                    + Add control
-                  </button>
+                    Add control{" "}
+                  </ActionButton>
                   {canAdmin && (
-                    <button
+                    <ActionButton
                       className="btn-secondary"
                       style={{ fontSize: 13, color: "var(--ember)" }}
                       onClick={() => void deleteSelectedFramework()}
                       disabled={deleteFrameworkMutation.isPending}
+                      tooltip={
+                        <>
+                          {deleteFrameworkMutation.isPending
+                            ? "Saving…"
+                            : includeHidden
+                              ? "Restore in project"
+                              : "Hide from project"}
+                        </>
+                      }
                     >
                       {deleteFrameworkMutation.isPending
                         ? "Saving…"
                         : includeHidden
-                          ? "Restore in project"
-                          : "Hide from project"}
-                    </button>
+                          ? "Restore"
+                          : "Hide"}
+                    </ActionButton>
                   )}
                 </>
               )}
             </div>
           </div>
+          {(!selectedFramework.workspaceOwned ||
+            selectedFramework.catalogKey) && (
+            <p>
+              These reference definitions are read-only. Create a workspace
+              custom framework for reviewed additions. Existing links and
+              evidence are preserved.
+            </p>
+          )}
           <ComplianceFrameworkGuidance frameworkKey={selectedFramework.key} />
           {controls.length > 0 && (
             <p className="text-muted" style={{ fontSize: 13, marginTop: -8 }}>
@@ -980,15 +1068,16 @@ export default function CompliancePage() {
             evidence. Nothing is marked compliant automatically.
           </p>
           {!readOnly && (
-            <button
+            <ActionButton
               className="btn-primary"
               onClick={() => {
                 setFrameworkMode("starter");
                 setFrameworkModalOpen(true);
               }}
+              tooltip={<>Browse framework starters</>}
             >
-              Browse framework starters
-            </button>
+              Browse{" "}
+            </ActionButton>
           )}
         </div>
       )}
@@ -1004,14 +1093,15 @@ export default function CompliancePage() {
             role="tablist"
             aria-label="Framework type"
           >
-            <button
+            <ActionButton
               className={
                 frameworkMode === "starter" ? "btn-primary" : "btn-secondary"
               }
               onClick={() => setFrameworkMode("starter")}
+              tooltip={<>Use a starter</>}
             >
-              Use a starter
-            </button>
+              Use{" "}
+            </ActionButton>
             <button
               className={
                 frameworkMode === "custom" ? "btn-primary" : "btn-secondary"
@@ -1023,19 +1113,22 @@ export default function CompliancePage() {
           </div>
           {frameworkMode === "starter" ? (
             <>
-              <label>
-                Framework
-                <select
-                  value={starterKey}
-                  onChange={(event) => setStarterKey(event.target.value)}
-                >
-                  {COMPLIANCE_STARTERS.map((starter) => (
-                    <option key={starter.key} value={starter.key}>
-                      {starter.name} · {starter.version}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <CompliancePicker
+                label="Standards and rights to review"
+                options={catalogQuery.data ?? []}
+                selected={[starterKey]}
+                onSelect={setStarterKey}
+                disabled={savingFramework}
+              />
+              {!COMPLIANCE_STARTERS.some(
+                (starter) => starter.key === starterKey,
+              ) && (
+                <p role="status">
+                  This reference has no bundled controls. Use an existing saved
+                  framework or obtain the applicable control list from its
+                  authoritative source.
+                </p>
+              )}
               {COMPLIANCE_STARTERS.filter(
                 (starter) => starter.key === starterKey,
               ).map((starter) => (
@@ -1074,13 +1167,23 @@ export default function CompliancePage() {
                 >
                   Cancel
                 </button>
-                <button
+                <ActionButton
                   className="btn-primary"
                   onClick={loadStarterFramework}
-                  disabled={savingFramework}
+                  disabled={
+                    savingFramework ||
+                    !COMPLIANCE_STARTERS.some(
+                      (starter) => starter.key === starterKey,
+                    )
+                  }
+                  tooltip={
+                    <>
+                      {savingFramework ? "Loading…" : "Load starter controls"}
+                    </>
+                  }
                 >
-                  {savingFramework ? "Loading…" : "Load starter controls"}
-                </button>
+                  {savingFramework ? "Loading…" : "Load"}
+                </ActionButton>
               </div>
             </>
           ) : (
@@ -1140,14 +1243,18 @@ export default function CompliancePage() {
         title="Import controls from CSV"
       >
         <div style={{ display: "grid", gap: 10 }}>
-          <p className="text-muted" style={{ fontSize: 12, marginTop: 0 }}>
-            Paste a control set exported as CSV - a header row with{" "}
-            <code>code</code>, <code>title</code>, and optionally{" "}
-            <code>description</code> columns, then one row per control (e.g. the
-            AICPA Trust Services Criteria for SOC 2, or NIST CSF subcategories).
-            Existing controls with the same code on this framework are left
-            untouched, so re-running an updated import is safe.
-          </p>
+          <details>
+            <summary>Details</summary>
+            <p className="text-muted" style={{ fontSize: 12, marginTop: 0 }}>
+              Paste a control set exported as CSV - a header row with{" "}
+              <code>code</code>, <code>title</code>, and optionally{" "}
+              <code>description</code> columns, then one row per control (e.g.
+              the AICPA Trust Services Criteria for SOC 2, or NIST CSF
+              subcategories). Existing controls with the same code on this
+              framework are left untouched, so re-running an updated import is
+              safe.
+            </p>
+          </details>
           <textarea
             value={importCsvText}
             onChange={(e) => setImportCsvText(e.target.value)}
@@ -1252,6 +1359,8 @@ export default function CompliancePage() {
           </div>
         </div>
       </Modal>
+      </>
+      )}
     </div>
   );
 }

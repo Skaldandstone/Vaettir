@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
@@ -15,7 +16,7 @@ type SyntheticDraft = { baseline: ReturnType<typeof base>; origin: ReturnType<ty
 type SyntheticEditor = { open: boolean; busy: boolean; readable: boolean; pending: { input: { requestId: string } } | null; notice: string; problem: string | null; canSave: boolean; draft: SyntheticDraft; draftRef: { current: SyntheticDraft | null }; reads: { fresh: ReturnType<typeof base> }; canHandleDraft: () => boolean; show: () => void; close: () => void; review: () => void; commit: () => void; change: (patch: Partial<Pick<SyntheticDraft, "values" | "reason" | "confirmed">>) => void };
 const source = readFileSync(new URL("../components/PlanCustomFieldsEditor.tsx", import.meta.url), "utf8"), ast = ts.createSourceFile("controls.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 const declarations = ast.statements.filter(node => ts.isFunctionDeclaration(node) || ts.isVariableStatement(node) && node.declarationList.declarations.every(declaration => ts.isIdentifier(declaration.name) && ["fieldLabel", "fieldControl"].includes(declaration.name.text))).map(node => ts.createPrinter().printNode(ts.EmitHint.Unspecified, node, ast).replace(/\bexport\s+/, ""));
-const compiled = ts.transpileModule(`${declarations.join("\n")}\nthis.meta=PlanCustomFieldsEditor;this.rows=MetadataStringRows;`, { compilerOptions: { target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React, module: ts.ModuleKind.None } }).outputText;
+const compiled = controllerTranspile(`${declarations.join("\n")}\nthis.meta=PlanCustomFieldsEditor;this.rows=MetadataStringRows;`, { compilerOptions: { target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React, module: ts.ModuleKind.None } }).outputText;
 function elements(node: React.ReactNode): Element[] { return !React.isValidElement<ElementProps>(node) ? [] : [node, ...React.Children.toArray(node.props.children).flatMap(elements)]; }
 function base() { return { origin: { projectId: "original-project", organizationId: "org", clerkActorId: "clerk", caseId: null }, snapshot: { id: "original-plan", customFields: { notes: "", n: 12, enabled: false, areas: ["", "same", "same"], nullText: null, unknown: { retain: [null, 0] } } }, metadataSchema: { supported: true, canEdit: true, fieldSchemaHash: "b".repeat(64), blockedReason: null, fieldSchema: { properties: { notes: { type: "string" }, n: { type: "number" }, enabled: { type: "boolean" }, areas: { type: "array", items: { type: "string" } }, missing: { type: "boolean" }, nullText: { type: "string" } } } } }; }
 function controlHost() {

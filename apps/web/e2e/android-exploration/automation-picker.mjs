@@ -56,6 +56,7 @@ assert.equal(calls.length, 1);
 const print = (n) => printer.printNode(ts.EmitHint.Unspecified, n, tree);
 const fixture = `import React,{useState} from 'react';
 import {createRoot} from 'react-dom/client';
+import {ActionButton} from './components/ui/ActionButton';
 import {automationTargetForFramework} from '../../packages/core/src/qualityExperience.ts';
 window.pickerMutations=0;
 const mutation=()=>({isPending:false,mutateAsync:async()=>{window.pickerMutations++;throw Error('No paid operation admitted');}});
@@ -78,13 +79,13 @@ const css =
     /^@import[^\r\n]+\r?\n/,
     "",
   ) + (await readFile(path.join(web, "app/workbench.css"), "utf8"));
-const output = path.resolve(
+const output = (process.env.VAETTIR_E2E_OUTPUT_DIR ?? (path.resolve(
   process.argv[2] ??
     path.join(
       web,
       "../../.local/android-exploration-20261022/automation-picker",
     ),
-);
+)));
 await mkdir(output, { recursive: true });
 const server = createServer((req, res) => {
   if (req.url === "/bundle.js") {
@@ -189,6 +190,9 @@ try {
     ),
   );
   console.log(JSON.stringify({ passed: true, checks: checks.length, output }));
+} catch(error) {
+  console.error(JSON.stringify({errors,body:await page.locator("body").innerText()}));
+  throw error;
 } finally {
   await browser.close();
   await new Promise((r) => server.close(r));

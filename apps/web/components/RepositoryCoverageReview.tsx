@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useState } from "react";
 import Link from "next/link";
 import { trpcReact, type RouterInputs, type RouterOutputs } from "@/lib/trpcReact";
@@ -28,7 +30,7 @@ function Review({projectId}:{projectId:string}) {
   }
   return <section className="panel" aria-label="Compare repository test files" style={{minWidth:0,overflowWrap:"anywhere"}}>
     <h2>Compare existing cases with repository tests</h2>
-    <p className="text-muted">Compare pinned test-file hashes with approved case source links. No AI, credits, imported-code execution, or case edits. This is source traceability, not functional or code-coverage measurement.</p>
+    <details><summary>Details</summary><p className="text-muted">Compare pinned test-file hashes with approved case source links. No AI, credits, imported-code execution, or case edits. This is source traceability, not functional or code-coverage measurement.</p></details>
     {!access.readable&&<p role="status">Checking project access… The original repository selection and comparison draft remain retained and withheld.</p>}
     {/* Keep the picker mounted through fresh access reads. Remounting its
         staleTime:0 access observer would trigger another parent refresh. */}
@@ -43,18 +45,18 @@ function Review({projectId}:{projectId:string}) {
       <label>Test files or folders, one per line<textarea style={{width:"100%"}} value={paths} rows={3} onChange={e=>setPaths(e.target.value)} placeholder="tests\nsrc/tests"/></label>
       <label>Maximum test files<input type="number" min={1} max={25} value={maxItems} onChange={e=>setMaxItems(Number(e.target.value))}/></label>
       </details>
-      <button type="button" className="btn-primary" disabled={!access.canEdit||!repositoryId||provider!=="gitlab"||!ref.trim()||!paths.trim()||!Number.isInteger(maxItems)||maxItems<1||maxItems>25} onClick={()=>{
+      <ActionButton type="button" className="btn-primary" disabled={!access.canEdit||!repositoryId||provider!=="gitlab"||!ref.trim()||!paths.trim()||!Number.isInteger(maxItems)||maxItems<1||maxItems>25} onClick={()=>{
         const original=access.origin;if(!original||!access.owns(original,"edit"))return;
         setScope({repositoryId,ref:ref.trim(),pathPrefixes:paths.split(/[,\n]/).map(path=>path.trim()).filter(Boolean),maxItems});setRequestId(crypto.randomUUID());setAllowed(false);setAttempted(false);setResult(null);mutation.reset();
-      }}>Review source comparison</button>
+      }} tooltip={<> Review source comparison </>}> Review </ActionButton>
     </div>:<div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr)",gap:12}}>
       <p>{ready?preview.data.repositoryUrl:"Verifying the selected repository…"} · revision {scope.ref}</p>
       <p>Allowed paths: {scope.pathPrefixes.join(", ")} · up to {scope.maxItems} test files. GitLab tree and eligible file contents are read using the existing grant only after approval.</p>
-      {preview.error&&<><p role="alert">{preview.error.message}</p><button type="button" className="btn-secondary" onClick={()=>void preview.refetch()}>Refresh comparison access</button></>}
+      {preview.error&&<><p role="alert">{preview.error.message}</p><ActionButton type="button" className="btn-secondary" onClick={()=>void preview.refetch()} tooltip={<> Refresh comparison access </>}> Refresh </ActionButton></>}
       <label><input type="checkbox" checked={allowed} disabled={attempted||mutation.isPending||!access.canEdit} onChange={e=>setAllowed(e.target.checked)}/> Allow this scoped source read for file comparison. No files will be sent to AI.</label>
       {mutation.error&&<p role="alert">{mutation.error.message}</p>}
-      <button type="button" className="btn-primary" disabled={!ready||!allowed||attempted||mutation.isPending} onClick={()=>void compare()}>{mutation.isPending?"Comparing approved scope…":"Compare source links"}</button>
-      <button type="button" className="btn-secondary" disabled={mutation.isPending} onClick={()=>setScope(null)}>Back to scope</button>
+      <ActionButton type="button" className="btn-primary" disabled={!ready||!allowed||attempted||mutation.isPending} onClick={()=>void compare()} tooltip={<> {mutation.isPending?"Comparing approved scope…":"Compare source links"} </>}>{mutation.isPending?"Comparing…":"Compare"}</ActionButton>
+      <ActionButton type="button" className="btn-secondary" disabled={mutation.isPending} onClick={()=>setScope(null)} tooltip={<> Back to scope </>}> Back </ActionButton>
       {result&&<section role="status">
         <p>Commit {result.commitSha} · observed {new Date(result.observedAt).toLocaleString()}</p>
         <p>{result.inspectedFileCount} of {result.eligibleFileCount} eligible test files inspected. {result.truncated?"Partial file scope, not complete repository coverage.":"Bounded candidate listing completed."}</p>

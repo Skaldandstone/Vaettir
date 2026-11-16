@@ -2,7 +2,7 @@
  * two roles. The server still checks that every confirmed column exists and
  * that preview/commit share the exact mapping. No source content is rewritten.
  */
-type ImportTargetField = "title" | "given" | "when" | "then" | "priority" | "tags" | "testType" | "automationStatus" | "externalId";
+type ImportTargetField = "title" | "given" | "when" | "then" | "priority" | "tags" | "testType" | "automationStatus" | "externalId" | "suitePath";
 
 export function reassignImportColumn(
   mapping: Partial<Record<ImportTargetField, string>>,

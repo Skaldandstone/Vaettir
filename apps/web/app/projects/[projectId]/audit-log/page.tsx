@@ -77,11 +77,11 @@ export default function AuditLogPage() {
       >
         <h1 style={{ margin: 0 }}>Audit log</h1>
       </div>
-      <p className="text-muted" style={{ marginBottom: 20 }}>
+      <details><summary>Details</summary><p className="text-muted" style={{ marginBottom: 20 }}>
         Evidence of who changed quality records, what changed, and when. Use
         these views to investigate changes or prepare audit evidence. Most
         recent first.
-      </p>
+      </p></details>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
         {AUDIT_VIEWS.map((view) => (

@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { roleLabel } from "@/lib/membership";
 
 import { useEffect, useState } from "react";
@@ -152,9 +154,10 @@ export default function MembersPage() {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <h1>{orgName} members</h1>
         {canManage && (
-          <button className="btn-primary" onClick={() => setInviteOpen(true)}>
+          <ActionButton className="btn-primary" onClick={() => setInviteOpen(true)} tooltip={<>
             + Invite someone
-          </button>
+           </>}>
+             Invite </ActionButton>
         )}
       </div>
 
@@ -212,7 +215,7 @@ export default function MembersPage() {
       )}
 
       <h2>Current members</h2>
-      {canManage && <div style={{display:"flex",gap:12,alignItems:"center",marginBottom:12}}><label><input type="checkbox" disabled={bulkBusy} checked={visibleMembers.length > 0 && visibleMembers.every(m => selectedMembers.includes(m.id))} onChange={e => setSelectedMembers(e.target.checked ? [...new Set([...selectedMembers,...visibleMembers.map(m => m.id)])] : selectedMembers.filter(id => !visibleMembers.some(m => m.id === id)))} /> Select displayed members</label><button className="btn-secondary" disabled={!selectedMembers.length || bulkBusy} onClick={() => {setBulkResult("");setBulkOpen(true);}}>Edit {selectedMembers.length} selected</button></div>}
+      {canManage && <div style={{display:"flex",gap:12,alignItems:"center",marginBottom:12}}><label><input type="checkbox" disabled={bulkBusy} checked={visibleMembers.length > 0 && visibleMembers.every(m => selectedMembers.includes(m.id))} onChange={e => setSelectedMembers(e.target.checked ? [...new Set([...selectedMembers,...visibleMembers.map(m => m.id)])] : selectedMembers.filter(id => !visibleMembers.some(m => m.id === id)))} /> Select displayed members</label><ActionButton className="btn-secondary" disabled={!selectedMembers.length || bulkBusy} onClick={() => {setBulkResult("");setBulkOpen(true);}} tooltip={<> Edit {selectedMembers.length} selected </>}>Edit selected</ActionButton></div>}
       <label>Find a member or invitation<input type="search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Name, email or role" style={{display:"block",margin:"8px 0 16px",width:"min(100%, 420px)"}} /></label>
       {actionError && <p style={{ color: "var(--ember)" }}>{actionError}</p>}
       <div className="member-table-scroll"><table aria-label="Current members" style={{ borderCollapse: "collapse", width: "100%", marginBottom: 24 }}>
@@ -267,7 +270,7 @@ export default function MembersPage() {
       </table></div>
       <Modal open={bulkOpen && canManage} title="Review member permission changes" onClose={() => setBulkOpen(false)} dismissible={!bulkBusy}>
         <p>Apply the following role and seat to {selectedMembers.length} selected members. Owner protection, seat limits and administrator permissions are checked for every member.</p>
-        <fieldset disabled={bulkBusy}><label>Role<select value={bulkRole} onChange={e => {setBulkRole(e.target.value); if(e.target.value !== "VIEWER") setBulkSeat("FULL");}}>{EDIT_ROLES.map(r => <option key={r} value={r}>{roleLabel(r)}</option>)}</select></label><label>Seat<select value={bulkSeat} disabled={bulkRole !== "VIEWER"} onChange={e => setBulkSeat(e.target.value as "FULL" | "READ_ONLY")}><option value="FULL">Full</option><option value="READ_ONLY">Read-only</option></select></label><details><summary>Selected members</summary><ul>{members.filter(m => selectedMembers.includes(m.id)).map(m => <li key={m.id}>{m.userEmail}: {roleLabel(m.role)} → {roleLabel(bulkRole)}</li>)}</ul></details><button className="btn-primary" disabled={!selectedMembers.length} onClick={() => void applyBulkMembers()}>Confirm permission changes</button></fieldset>
+        <fieldset disabled={bulkBusy}><label>Role<select value={bulkRole} onChange={e => {setBulkRole(e.target.value); if(e.target.value !== "VIEWER") setBulkSeat("FULL");}}>{EDIT_ROLES.map(r => <option key={r} value={r}>{roleLabel(r)}</option>)}</select></label><label>Seat<select value={bulkSeat} disabled={bulkRole !== "VIEWER"} onChange={e => setBulkSeat(e.target.value as "FULL" | "READ_ONLY")}><option value="FULL">Full</option><option value="READ_ONLY">Read-only</option></select></label><details><summary>Selected members</summary><ul>{members.filter(m => selectedMembers.includes(m.id)).map(m => <li key={m.id}>{m.userEmail}: {roleLabel(m.role)} → {roleLabel(bulkRole)}</li>)}</ul></details><ActionButton className="btn-primary" disabled={!selectedMembers.length} onClick={() => void applyBulkMembers()} tooltip={<> Confirm permission changes </>}> Confirm </ActionButton></fieldset>
         {bulkBusy && <p role="status">Applying changes…</p>}{bulkResult && <p role="status">{bulkResult}</p>}
       </Modal>
 

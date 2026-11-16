@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
@@ -14,7 +15,7 @@ for (const [file, name] of [["../components/ui/Workspace.tsx", "Icon"], ["../com
   const content = readFileSync(new URL(file, import.meta.url), "utf8");
   const ast = ts.createSourceFile(file, content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const declaration = ast.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === name)!;
-  vm.runInContext(ts.transpileModule(declaration.getText(ast).replace(/^export /, ""), {
+  vm.runInContext(controllerTranspile(declaration.getText(ast).replace(/^export /, ""), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React },
   }).outputText, iconScope);
 }
@@ -28,6 +29,28 @@ function find(node: ts.Node, match: (node: ts.Node) => boolean): ts.Node | undef
   if (match(node)) return node;
   let result: ts.Node | undefined; ts.forEachChild(node, child => { if (!result) result = find(child, match); }); return result;
 }
+it.each(["late-success", "late-refusal", "current", "current-refusal", "obsolete"])("actual ordering handler preserves the current view for %s", async outcome => {
+  const node = find(pageAst, node => ts.isFunctionDeclaration(node) && node.name?.text === "moveCase");
+  if (!node) throw Error("Actual ordering handler missing");
+  let resolve!: () => void, reject!: (value: unknown) => void, current = outcome !== "obsolete";
+  const response = new Promise<void>((yes, no) => { resolve = yes; reject = no; });
+  const state = { sort: "updated", error: null as string | null };
+  const mutation = vi.fn((_input: unknown) => response), reload = vi.fn(), refresh = vi.fn(async () => {});
+  const bindings = { placements: new Map([["case", { suitePath: "Suite", sortPosition: 4 }]]), readOnly: false, projectId: "p",
+    moveMutation: { isPending: false, mutateAsync: mutation }, reload, structureQuery: { refetch: refresh }, casesQuery: { refetch: refresh },
+    currentReviewScope: () => true, currentViewFrame: () => current,
+    setError: (value: string | null) => { state.error = value; }, setSortBy: (value: string) => { state.sort = value; } };
+  const move = new Function(...Object.keys(bindings), ts.transpileModule(node.getText(pageAst), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText + ";return moveCase;")(...Object.values(bindings)) as (id: string, suite: string, before: string) => Promise<void>;
+  const done = move("case", "Target", "anchor");
+  if (outcome.startsWith("late")) { current = false; state.sort = "title"; state.error = "New view notice"; }
+  if (outcome.endsWith("refusal")) reject(Error("synthetic CAS refusal")); else resolve();
+  await done;
+  if (outcome === "current") { expect(state).toEqual({ sort: "manual", error: null }); expect(reload).toHaveBeenCalledOnce(); }
+  else if (outcome === "current-refusal") { expect(state).toEqual({ sort: "updated", error: "synthetic CAS refusal" }); expect(refresh).toHaveBeenCalledTimes(2); }
+  else if (outcome.startsWith("late")) expect(state).toEqual({ sort: "title", error: "New view notice" });
+  else expect(mutation).not.toHaveBeenCalled();
+  if (outcome !== "obsolete") expect(mutation).toHaveBeenCalledExactlyOnceWith({ projectId: "p", caseId: "case", expectedSuitePath: "Suite", expectedSortPosition: 4, targetSuitePath: "Target", beforeCaseId: "anchor" });
+});
 function descendants(node: unknown): React.ReactElement[] {
   if (Array.isArray(node)) return node.flatMap(descendants);
   if (!React.isValidElement(node)) return [];
@@ -35,7 +58,7 @@ function descendants(node: unknown): React.ReactElement[] {
 }
 const handle = find(pageAst, node => ts.isJsxElement(node) && node.openingElement.tagName.getText(pageAst) === "button" &&
   node.openingElement.attributes.properties.some(attribute => ts.isJsxAttribute(attribute) && attribute.name.getText(pageAst) === "draggable"))!;
-const handleCode = ts.transpileModule(`function render(){return ${handle.getText(pageAst)};}this.render=render;`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
+const handleCode = controllerTranspile(`function render(){return ${handle.getText(pageAst)};}this.render=render;`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
 type HandleProps = { "aria-label": string; title: string; onClick(): void; onDragStart(event: unknown): void; disabled: boolean };
 function caseHandle(suite: string | null, catalog: string[] = [], baseline = suite) {
   const setSortBy = vi.fn(), setSelectedPath = vi.fn();
@@ -68,7 +91,7 @@ it("actual case drag payload remains the stable native ID and legacy drop/CAS/su
 });
 it("actual manual-view guidance is discoverable without claiming a move or enabling keyboard arrows in source/All views", () => {
   const scope = find(pageAst, node => ts.isJsxElement(node) && node.openingElement.tagName.getText(pageAst) === "div" && node.openingElement.attributes.properties.some(attribute => attribute.getText(pageAst) === "className={styles.scope}"))!;
-  const code = ts.transpileModule(`function render(){return ${scope.getText(pageAst)};}this.render=render;`, { compilerOptions: { jsx: ts.JsxEmit.React, module: ts.ModuleKind.None } }).outputText;
+  const code = controllerTranspile(`function render(){return ${scope.getText(pageAst)};}this.render=render;`, { compilerOptions: { jsx: ts.JsxEmit.React, module: ts.ModuleKind.None } }).outputText;
   const setSortBy = vi.fn(), context = vm.createContext({ React, IconButton, styles: { scope: "scope" }, visibleCases: [], selectedPath: null, UNASSIGNED: "__unassigned__", sortBy: "updated", readOnly: false, setSortBy });
   vm.runInContext(code, context); const rendered = (context as unknown as { render(): React.ReactElement }).render();
   expect(renderToStaticMarkup(rendered)).toContain("View manual order");
@@ -92,7 +115,7 @@ function parentTreeBindings(readOnly = false, pending = false) {
     if (!attribute || !ts.isJsxAttribute(attribute) || !attribute.initializer || !ts.isJsxExpression(attribute.initializer) || !attribute.initializer.expression) throw Error("Actual tree binding missing: " + name);
     return attribute.initializer.expression.getText(pageAst);
   }
-  const code = ts.transpileModule(`this.caseDrop=(${expression("onDropCase")});this.folderReview=(${expression("onFolderReview")});`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText;
+  const code = controllerTranspile(`this.caseDrop=(${expression("onDropCase")});this.folderReview=(${expression("onFolderReview")});`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText;
   const moveCase = vi.fn(), setFolderReviewIntent = vi.fn();
   const context = vm.createContext({ readOnly, moveMutation: { isPending: pending }, moveCase, setFolderReviewIntent, crypto: { randomUUID: () => "synthetic-folder-intent" } });
   vm.runInContext(code, context);
@@ -102,7 +125,7 @@ function parentTreeBindings(readOnly = false, pending = false) {
 
 function treeNode(receives: boolean, supported = true, bindings?: TreeBindings) {
   const functions = treeAst.statements.filter(ts.isFunctionDeclaration).map(node => ts.createPrinter().printNode(ts.EmitHint.Unspecified, node, treeAst).replace(/\bexport\s+/, "")).join("\n");
-  const code = ts.transpileModule(functions + "\nthis.render=TreeNodeView;", { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
+  const code = controllerTranspile(functions + "\nthis.render=TreeNodeView;", { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
   const states: unknown[] = [], onDropCase = bindings ? bindings.onDropCase : vi.fn(), onFolderReview = bindings ? bindings.onFolderReview : vi.fn(), onDropRefused = vi.fn();
   const context = vm.createContext({ React, FOLDER_DRAG_TYPE, UNASSIGNED: "__unassigned__", useId: () => "synthetic-tree-actions", IconButton: () => null, useState: (initial: unknown) => [initial, (next: unknown) => states.push(next)], caseFolderKindLabel: () => receives ? "Case suite" : "Source group" });
   vm.runInContext(code, context);
@@ -168,7 +191,7 @@ function unassignedTree(bindings: TreeBindings) {
   const node = find(treeAst, node => ts.isJsxElement(node) && node.openingElement.tagName.getText(treeAst) === "div" &&
     node.openingElement.attributes.properties.some(attribute => ts.isJsxAttribute(attribute) && attribute.name.getText(treeAst) === "className" && attribute.getText(treeAst).includes("selectedPath === UNASSIGNED")));
   if (!node) throw Error("Actual Unassigned tree target missing");
-  const code = ts.transpileModule(`this.render=()=>(${node.getText(treeAst)});`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
+  const code = controllerTranspile(`this.render=()=>(${node.getText(treeAst)});`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
   const context = vm.createContext({ React, selectedPath: null, UNASSIGNED: "__unassigned__", unassignedCount: 1, onDropCase: bindings.onDropCase, onSelect: vi.fn() });
   vm.runInContext(code, context);
   return (context as unknown as { render(): React.ReactElement<{ onDragOver(event: unknown): void; onDrop(event: unknown): void }> }).render();
@@ -202,7 +225,7 @@ function caseRow(options: { pending?: boolean; readOnly?: boolean; archived?: bo
     if (!attribute || !ts.isJsxAttribute(attribute) || !attribute.initializer || !ts.isJsxExpression(attribute.initializer) || !attribute.initializer.expression) throw Error("Actual row handler missing: " + name);
     return attribute.initializer.expression.getText(pageAst);
   };
-  const code = ts.transpileModule(`this.hover=(${handler("onDragOver")});this.drop=(${handler("onDrop")});`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText;
+  const code = controllerTranspile(`this.hover=(${handler("onDragOver")});this.drop=(${handler("onDrop")});`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText;
   const moving = { id: "stable-moving-case", suitePath: "Release/Smoke", sourceFilePath: null };
   const tc = { id: "stable-target-case", suitePath: "Target/Suite", sourceFilePath: null, archived: options.archived ?? false };
   const moveMutation = { isPending: options.pending ?? false }, moveCase = vi.fn(), setError = vi.fn();

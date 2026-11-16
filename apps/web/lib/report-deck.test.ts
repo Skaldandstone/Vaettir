@@ -8,6 +8,7 @@ const require = createRequire(
 const Zip = require("adm-zip") as new (bytes: Buffer) => {
   getEntries(): Array<{ entryName: string }>;
   readAsText(name: string): string;
+  readFile(name: string): Buffer;
 };
 const report = {
   state: "approved",
@@ -60,6 +61,67 @@ const report = {
 } as FrozenReportPayload;
 
 describe("editable report deck", () => {
+  it("preserves every narrative, metric, date and chart workbook under presentation changes", async () => {
+    const variants = [
+      undefined,
+      { version: 1, palette: "evergreen", font: "aptos" } as const,
+      { version: 1, palette: "navy", font: "georgia" } as const,
+    ];
+    const packages = await Promise.all(
+      variants.map(
+        async (preset) =>
+          new Zip(
+            (await createReportDeck(report, preset).write({
+              outputType: "nodebuffer",
+            })) as Buffer,
+          ),
+      ),
+    );
+    const content = (zip: InstanceType<typeof Zip>) =>
+      zip
+        .getEntries()
+        .filter((e) => /^ppt\/slides\/slide\d+\.xml$/.test(e.entryName))
+        .map((e) =>
+          [...zip.readAsText(e.entryName).matchAll(/<a:t>(.*?)<\/a:t>/gs)].map(
+            (m) => m[1],
+          ),
+        );
+    expect(content(packages[1]!)).toEqual(content(packages[0]!));
+    expect(content(packages[2]!)).toEqual(content(packages[0]!));
+    // PptxGenJS assigns chart IDs across deck instances; compare ordered contents.
+    const names = (zip: InstanceType<typeof Zip>, pattern: RegExp) =>
+      zip
+        .getEntries()
+        .map((e) => e.entryName)
+        .filter((n) => pattern.test(n))
+        .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    const chartContents = (zip: InstanceType<typeof Zip>) =>
+      names(zip, /^ppt\/charts\/chart\d+\.xml$/).map((n) => zip.readAsText(n));
+    expect(chartContents(packages[2]!)).toEqual(chartContents(packages[0]!));
+    const workbooks = (zip: InstanceType<typeof Zip>) =>
+      names(zip, /^ppt\/embeddings\/.*\.xlsx$/).map((n) => {
+        const book = new Zip(zip.readFile(n));
+        return book
+          .getEntries()
+          .filter(
+            (e) => /^xl\//.test(e.entryName) && e.entryName.endsWith(".xml"),
+          )
+          .map((e) => book.readAsText(e.entryName));
+      });
+    expect(workbooks(packages[2]!)).toEqual(workbooks(packages[0]!));
+    const slides = packages[2]!
+      .getEntries()
+      .filter((e) => /^ppt\/slides\/slide\d+\.xml$/.test(e.entryName))
+      .map((e) => packages[2]!.readAsText(e.entryName))
+      .join("");
+    expect(slides).toContain("2459A6");
+    expect(slides).toContain(report.asOf);
+    expect(slides).toContain(report.definition.risks);
+    expect(slides).toContain(report.limitations[0]);
+    expect(packages[2]!.readAsText("ppt/theme/theme1.xml")).toContain(
+      "Georgia",
+    );
+  });
   it("contains native editable text, charts, tables and embedded data, with no raster slides", async () => {
     const bytes = await createReportDeck(report).write({
       outputType: "nodebuffer",

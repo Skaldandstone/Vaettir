@@ -1,3 +1,4 @@
+import { fixtureProjectKey } from "./testProjectKey.js";
 // Native regressions executed by root against fresh owned disposable databases.
 // Stale independently authenticated ctx A versus native Clerk B on the same
 // User. Explicit original scope refusals are controls, not missing-write proof.
@@ -67,7 +68,7 @@ describe("preset reads and accepted write recovery require independent authentic
   async function eligible(scoped: boolean) {
     const project = await callerA.project.create({
       organizationId, name: `${tag}-${randomUUID()}`,
-      caseKey: `p${randomUUID().replaceAll("-", "").slice(0, 15)}`,
+      caseKey: fixtureProjectKey(),
     });
     // Independent real native case/procedure history must remain unchanged by
     // every preset read, review or exact accepted receipt recovery.

@@ -17,6 +17,27 @@ const MAPPING = {
 };
 
 describe("mapped CSV row repair", () => {
+  it.each(["SuitePath", "Suite Path", "Suite", "Folder path"])("preserves %s and Preconditions through automatic mapping", suite => {
+    const csv = `${suite},Title,Preconditions,Steps,Expected\nCheckout / Restore,Restore purchases,Account exists,Restore,Purchase shown`;
+    const mapping = inspectCsv(csv).suggestedMapping;
+    expect(mapping).toMatchObject({ suitePath: suite, given: "Preconditions" });
+    expect(mapCsvRows(csv, mapping).rows[0]).toMatchObject({ suitePath: "Checkout / Restore", given: ["Account exists"], when: ["Restore"], then: ["Purchase shown"] });
+  });
+
+  it("does not infer a suite over a mapped path, an explicit empty path, or a reviewer correction", () => {
+    const csv = "ID,Title,SuitePath,Steps\nWorkflow A,,,\n1,First,Source / Child,Open\n2,Second,,Close";
+    const mapping = inspectCsv(csv).suggestedMapping;
+    expect(mapCsvRows(csv, mapping).rows.map(row => row.suitePath)).toEqual(["Source / Child", ""]);
+    expect(mapCsvRows(csv, mapping, undefined, [{ rowNumber: 3, suitePath: "Reviewed" }]).rows[0]?.suitePath).toBe("Reviewed");
+    expect(mapCsvRows(csv, mapping).rows[0]?.reviewReasons).not.toContain("Section grouping was inferred from a preceding source heading.");
+    expect(mapCsvRows(csv, { ...mapping, suitePath: undefined }).rows[0]?.suitePath).toBe("Workflow A");
+  });
+
+  it("requires review for competing suite/setup columns and rejects duplicate role assignment", () => {
+    expect(suggestCsvMapping(["Title", "Suite", "SuitePath", "Given", "Preconditions"])).toEqual({ title: "Title" });
+    expect(() => mapCsvRows("Title,SuitePath\nCase,Suite", { title: "Title", suitePath: "SuitePath", tags: "SuitePath" })).toThrow("already mapped");
+    expect(() => mapCsvRows("Title,SuitePath,SuitePath\nCase,A,B", { title: "Title", suitePath: "SuitePath" })).toThrow("ambiguous");
+  });
   it("maps explicit case names, actions, expected behavior, and tags to distinct roles", () => {
     const mapping = suggestCsvMapping(["Test_Case_Name", "Step Action", "Expected Behavior", "Tags"]);
     expect(mapping).toEqual({ title: "Test_Case_Name", when: "Step Action", then: "Expected Behavior", tags: "Tags" });

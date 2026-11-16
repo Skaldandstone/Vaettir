@@ -21,6 +21,7 @@ import { workbookReads, workbookPreview } from "../services/xlsxWorkbookReads.js
 import { importTypeCaseSchema, importTypeRecommendationSchema } from "@vaettir/ai-agent";
 import { importTypeAnalysis } from "../services/importTypeAnalysis.js";
 import { googleSheetsImportConfig, googleSheetSourceSchema, prepareGoogleSheetsImport } from "../services/googleSheetsImport.js";
+import { importMappingProcedures } from "./importMappingRoutes.js";
 
 const fieldMappingSchema = z
   .partialRecord(z.enum(TARGET_FIELDS), z.string())
@@ -155,6 +156,7 @@ function toFilePreviewRow(
 }
 
 export const importJobsRouter = router({
+  ...importMappingProcedures,
   historicalWorkbook: protectedProcedure.input(z.object({ projectId: z.string(), fileBase64: xlsxContentSchema }).strict())
     .mutation(async ({ ctx, input, signal }) => {
       const { project } = await requireProjectAccess(ctx, input.projectId, "EDITOR");

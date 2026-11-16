@@ -1,3 +1,5 @@
+import { ActionHelp } from "./test-support/action-button";
+import { controllerTranspile } from "./controller-transpile.fixture";
 import React from "react";
 import { readFileSync } from "node:fs";
 import ts from "typescript";
@@ -15,7 +17,7 @@ function elements(value: unknown, found: Element[] = []): Element[] {
 function label(value: unknown): string {
   return typeof value === "string" || typeof value === "number" ? String(value) : React.isValidElement(value) ? label((value as Element).props.children) : Array.isArray(value) ? value.map(label).join("") : "";
 }
-const compiled = ts.transpileModule(readFileSync(new URL("../app/admin/organizations/[id]/page.tsx", import.meta.url), "utf8"), {
+const compiled = controllerTranspile(readFileSync(new URL("../app/admin/organizations/[id]/page.tsx", import.meta.url), "utf8"), {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.React },
 }).outputText;
 function harness() {
@@ -43,7 +45,7 @@ function harness() {
   } }) });
   const admin: Record<string, unknown> = { getOrganization: { useQuery: () => orgQuery }, listPlanTiers: query([]), staffActionLog: query([]) };
   for (const name of ["adjustPlanTier", "unlimitedPrivateBetaSeats", "resendInvite", "suspendOrganization", "reactivateOrganization", "transferOwnership", "hardDeleteOrganization", "deactivateMember"]) admin[name] = mutation(name);
-  const modules: Record<string, unknown> = { react: hooks, "next/navigation": { useParams: () => ({ id: org.id }) },
+  const modules: Record<string, unknown> = { "@/components/ui/ActionHelp": { ActionHelp }, react: hooks, "next/navigation": { useParams: () => ({ id: org.id }) },
     "@clerk/nextjs": { useAuth: () => ({ isLoaded: true, isSignedIn: true, userId: "synthetic-clerk" }) },
     "@/lib/membership": { roleLabel: (value: string) => value },
     "@/lib/trpcReact": { trpcReact: { admin, useUtils: () => ({ admin: { previewOrgHardDelete: { fetch: async () => preview } } }) } } };

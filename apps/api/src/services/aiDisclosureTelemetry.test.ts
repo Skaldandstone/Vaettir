@@ -25,9 +25,16 @@ describe("AI disclosure telemetry", () => {
   it.each([
     "https://vaettir.example/api/integrations/ai/v1/project-summary?projectId=PRIVATE_QUERY_CANARY",
     "https://vaettir.example/trpc/aiDisclosure.issue",
+    "https://vaettir.example/trpc/liveAppGeneration.replayCase",
+    "https://vaettir.example/trpc/liveAppGeneration.patchReplayCase",
   ])("strips request content and breadcrumbs for %s", (url) => {
     const event = {
-      message: "Fixed error",
+      message: "MESSAGE_CANARY",
+      exception: { values: [{ value: "DRIVER_CANARY" }] },
+      contexts: { private: { text: "CONTEXT_CANARY" } },
+      extra: { input: "EXTRA_CANARY" },
+      user: { email: "USER_CANARY" },
+      attachments: [{ data: "ATTACHMENT_CANARY" }],
       request: {
         url,
         headers: { authorization: "Bearer CREDENTIAL_CANARY" },

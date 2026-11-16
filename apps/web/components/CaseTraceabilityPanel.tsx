@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useState } from "react";
 import { trpcReact, type RouterInputs } from "@/lib/trpcReact";
 import EvidenceLinkChip from "@/components/EvidenceLinkChip";
@@ -182,10 +184,10 @@ export function CaseTraceabilityPanel({
           </button>
         )}
       </div>
-      <p className="text-muted" style={{ fontSize: 12 }}>
+      <details><summary>Details</summary><p className="text-muted" style={{ fontSize: 12 }}>
         What this case tests: features, requirements, defects and document
         sections. These links do not establish a passing execution.
-      </p>
+      </p></details>
       {links.isLoading && <p role="status">Loading test links…</p>}
       {links.error && (
         <p role="alert">
@@ -423,7 +425,7 @@ export function CaseTraceabilityPanel({
               {reviewedSave.pending ? (
                 "The outcome is unknown. Retry the exact saved request; editing is paused."
               ) : (
-                <button
+                <ActionButton
                   type="button"
                   disabled={busy}
                   onClick={async () => {
@@ -435,22 +437,25 @@ export function CaseTraceabilityPanel({
                       reviewedSave.clearError();
                     }
                   }}
-                >
+                 tooltip={<>
                   Refresh review baseline
-                </button>
+                 </>}>
+                   Refresh </ActionButton>
               )}
             </p>
           )}
           <div style={{ ...wrapStyle, justifyContent: "space-between" }}>
-            <button
+            <ActionButton
               type="button"
               className="btn-secondary"
               disabled={busy}
               onClick={() => setOpen(false)}
-            >
+             tooltip={<>
               {reviewedSave.pending ? "Close; keep pending request" : "Cancel"}
-            </button>
-            <button
+             </>}>
+              {reviewedSave.pending ? "Keep request" : "Cancel"}
+            </ActionButton>
+            <ActionButton
               type="button"
               disabled={
                 busy ||
@@ -458,13 +463,19 @@ export function CaseTraceabilityPanel({
                 (!local && (!title.trim() || !url.trim()))
               }
               onClick={() => void confirm()}
-            >
+             tooltip={<>
               {busy
                 ? "Saving…"
                 : reviewedSave.pending
                   ? "Retry exact saved request"
                   : "Confirm test link"}
-            </button>
+             </>}>
+              {busy
+                ? "Saving…"
+                : reviewedSave.pending
+                  ? "Retry"
+                  : "Confirm"}
+            </ActionButton>
           </div>
         </div>
       </Modal>
@@ -496,7 +507,7 @@ export function CaseTraceabilityPanel({
           >
             Keep link
           </button>
-          <button
+          <ActionButton
             type="button"
             disabled={busy}
             onClick={async () => {
@@ -515,11 +526,15 @@ export function CaseTraceabilityPanel({
                 await refresh();
               }
             }}
-          >
+           tooltip={<>
             {reviewedRemove.pending
               ? "Retry exact removal request"
               : "Remove link"}
-          </button>
+           </>}>
+            {reviewedRemove.pending
+              ? "Retry"
+              : "Remove link"}
+          </ActionButton>
         </div>
       </Modal>
     </section>
@@ -569,7 +584,7 @@ export function CoveredTestCasesPanel({
           Linked test cases{list.data ? ` (${list.data.total})` : ""}
         </strong>
         {canEdit && (
-          <button
+          <ActionButton
             type="button"
             className="btn-secondary"
             disabled={!list.data}
@@ -582,9 +597,10 @@ export function CoveredTestCasesPanel({
                 reviewedSave.clearError();
               }
             }}
-          >
+           tooltip={<>
             Link test case
-          </button>
+           </>}>
+             Link case </ActionButton>
         )}
       </div>
       <p className="text-muted" style={{ fontSize: 12 }}>
@@ -688,7 +704,7 @@ export function CoveredTestCasesPanel({
             {reviewedSave.pending ? (
               "Outcome unknown. Retry the exact saved request; changing the selection is paused."
             ) : (
-              <button
+              <ActionButton
                 type="button"
                 onClick={async () => {
                   const fresh = await list.refetch();
@@ -699,22 +715,25 @@ export function CoveredTestCasesPanel({
                     reviewedSave.clearError();
                   }
                 }}
-              >
+               tooltip={<>
                 Refresh review baseline
-              </button>
+               </>}>
+                 Refresh </ActionButton>
             )}
           </p>
         )}
         <div style={{ ...wrapStyle, marginTop: 12 }}>
-          <button
+          <ActionButton
             type="button"
             className="btn-secondary"
             disabled={save.isPending}
             onClick={() => setAdding(false)}
-          >
+           tooltip={<>
             {reviewedSave.pending ? "Close; keep pending request" : "Cancel"}
-          </button>
-          <button
+           </>}>
+            {reviewedSave.pending ? "Keep request" : "Cancel"}
+          </ActionButton>
+          <ActionButton
             type="button"
             disabled={!caseId || save.isPending}
             onClick={async () => {
@@ -737,13 +756,19 @@ export function CoveredTestCasesPanel({
                 ]);
               }
             }}
-          >
+           tooltip={<>
             {save.isPending
               ? "Saving…"
               : reviewedSave.pending
                 ? "Retry exact saved request"
                 : "Confirm test link"}
-          </button>
+           </>}>
+            {save.isPending
+              ? "Saving…"
+              : reviewedSave.pending
+                ? "Retry"
+                : "Confirm"}
+          </ActionButton>
         </div>
       </Modal>
     </section>

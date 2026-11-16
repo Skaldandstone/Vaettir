@@ -1,8 +1,10 @@
-import { reactBrowserScripts } from "./test-support/react-browser-runtime.mjs";
+import { actionName } from "../apps/web/e2e/action-name.mjs";
+import { reactBrowserScripts, actionButtonBrowserSource } from "./test-support/react-browser-runtime.mjs";
 // Actual React deletion wizard and native dialog, with synthetic RPC boundaries.
 /* global window,document,innerWidth */
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
+import { join } from "node:path";
 import { readFileSync, mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { before, after, test } from "node:test";
@@ -33,7 +35,7 @@ function compile(path) {
     })
     .outputText.replace(/^export /gm, "");
 }
-const compiled = [
+const compiled = actionButtonBrowserSource() + "\n" + [
   "apps/web/components/ui/DialogFrame.tsx",
   "apps/web/components/Modal.tsx",
   "apps/web/components/ProjectDeletionWizard.tsx",
@@ -111,7 +113,7 @@ async function page() {
   return p;
 }
 async function confirm(p) {
-  await p.getByRole("button", { name: "Continue to confirmation" }).click();
+  await p.getByRole("button", { name: actionName("Continue to confirmation", false) }).click();
   await p
     .getByLabel("Project name confirmation", { exact: true })
     .fill("Synthetic project");
@@ -128,9 +130,9 @@ test("reviews contents before requiring both the exact project name and explicit
       await p.getByText("1 Import history", { exact: true }).count(),
       1,
     );
-    await p.getByRole("button", { name: "Continue to confirmation" }).click();
+    await p.getByRole("button", { name: actionName("Continue to confirmation", false) }).click();
     const submit = p.getByRole("button", {
-      name: "Delete project and contents",
+      name: actionName("Delete project and contents"),
       exact: true,
     });
     assert.equal(await submit.isEnabled(), false);
@@ -166,7 +168,7 @@ test("loading, permission failures, protected records and changed previews canno
     );
     assert.equal(
       await p
-        .getByRole("button", { name: "Continue to confirmation" })
+        .getByRole("button", { name: actionName("Continue to confirmation", false) })
         .isEnabled(),
       false,
     );
@@ -180,7 +182,7 @@ test("loading, permission failures, protected records and changed previews canno
     await p.getByRole("alert").waitFor();
     assert.equal(
       await p
-        .getByRole("button", { name: "Continue to confirmation" })
+        .getByRole("button", { name: actionName("Continue to confirmation", false) })
         .isEnabled(),
       false,
     );
@@ -205,7 +207,7 @@ test("loading, permission failures, protected records and changed previews canno
     await p.getByText(/Recorded test results/).waitFor();
     assert.equal(
       await p
-        .getByRole("button", { name: "Continue to confirmation" })
+        .getByRole("button", { name: actionName("Continue to confirmation", false) })
         .isEnabled(),
       false,
     );
@@ -238,7 +240,7 @@ test("pending deletion prevents duplicate submissions and failed retries keep th
     await p.evaluate(() => (window.mode = "pending"));
     await confirm(p);
     await p
-      .getByRole("button", { name: "Delete project and contents", exact: true })
+      .getByRole("button", { name: actionName("Delete project and contents"), exact: true })
       .click();
     const status = await p.evaluate(() => ({
       submissions: window.submissions,
@@ -249,13 +251,13 @@ test("pending deletion prevents duplicate submissions and failed retries keep th
     assert.ok(status.content.includes("Deleting…"), JSON.stringify(status));
     assert.equal(
       await p
-        .getByRole("button", { name: "Deleting…", exact: true })
+        .getByRole("button", { name: actionName("Deleting…"), exact: true })
         .isEnabled(),
       false,
       JSON.stringify(status),
     );
     assert.equal(
-      await p.getByRole("button", { name: "Cancel", exact: true }).isEnabled(),
+      await p.getByRole("button", { name: actionName("Cancel"), exact: true }).isEnabled(),
       false,
     );
     await p.evaluate(() => {
@@ -264,14 +266,14 @@ test("pending deletion prevents duplicate submissions and failed retries keep th
     });
     await p.getByRole("alert").waitFor();
     await p
-      .getByRole("button", { name: "Retry deletion", exact: true })
+      .getByRole("button", { name: actionName("Retry deletion"), exact: true })
       .click();
     await p.getByRole("alert").waitFor();
     const sent = await p.evaluate(() => window.submissions);
     assert.equal(sent.length, 2);
     assert.deepEqual(sent[0], sent[1]);
     await p
-      .getByRole("button", { name: "Refresh contents and start a new review" })
+      .getByRole("button", { name: actionName("Refresh contents and start a new review", false) })
       .click();
     assert.equal(await p.getByLabel("Project name confirmation").count(), 0);
   } finally {
@@ -284,7 +286,7 @@ test("contents and confirmations fit the application's mobile and desktop dialog
     for (const width of [390, 1280]) {
       await p.setViewportSize({ width, height: 900 });
       if (width === 1280)
-        await p.getByRole("button", { name: "Back", exact: true }).click();
+        await p.getByRole("button", { name: actionName("Back"), exact: true }).click();
       await confirm(p);
       const bounds = await p
         .getByRole("dialog")
