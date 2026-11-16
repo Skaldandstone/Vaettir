@@ -6,6 +6,7 @@ import {join} from 'node:path';
 import {manifest, digest, verifySourceBytes, downloadSource, fetchSources} from './fetch-sqlite-runtime-sources.mjs';
 import {checkUpstreamLog, checkNegativeControl, checkExports, checkElfHeader, checkOptions, parseIdentity, checkConsumerInventory} from './check-sqlite-runtime.mjs';
 import {restorePreSqliteDockerfileFixture, PRE_SQLITE_DOCKERFILE_SHA256} from './sqlite-dockerfile-inverse-fixture.mjs';
+import {restorePreNode26DockerfileFixture} from './node26-dockerfile-inverse-fixture.mjs';
 
 test('archive member bounds admit the measured pinned fuzz fixtures without widening total or path admission', () => {
   assert.equal(manifest.sources[0].maxMemberBytes, 17021952);
@@ -180,7 +181,7 @@ test('all image recipes use the same isolated security stage and retain final ru
 });
 
 test('historical inverse restores the exact full baseline and refuses every unrelated edit', () => {
-  const current=Buffer.from(readFileSync(new URL('../Dockerfile.api',import.meta.url),'utf8').replaceAll('\r\n','\n'));
+  const current=restorePreNode26DockerfileFixture(Buffer.from(readFileSync(new URL('../Dockerfile.api',import.meta.url),'utf8').replaceAll('\r\n','\n')));
   const previous=restorePreSqliteDockerfileFixture(current);
   assert.equal(digest(previous),PRE_SQLITE_DOCKERFILE_SHA256);
   assert.equal(PRE_SQLITE_DOCKERFILE_SHA256,'3053480495dd451d4297717aadea4ad0f61e1923c1359c69ccd40b9f0e1aadda');
