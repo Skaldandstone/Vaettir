@@ -1,3 +1,5 @@
+// Controller fixture treats the presentation-only wrapper as its native button.
+// Real hover/focus/form/ref/touch behavior is covered by action-button-ui.test.mjs.
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
@@ -25,7 +27,7 @@ function render(options = {}) {
   const legacyAccesses = [];
   const utils = { testPlans: { byId: { invalidate() {} }, history: { invalidate() {} } } };
   const sandbox = {
-    React,
+    React, ActionButton: "button",
     planMetadataChanges, describeRetainedPlanValue,
     useAuth: () => ({ isLoaded: true, isSignedIn: signedIn, userId: signedIn ? "synthetic-actor" : null }),
     useState(initial) { return [initial === false ? open : typeof initial === "function" ? initial() : initial, () => {}]; },
@@ -42,7 +44,7 @@ function render(options = {}) {
   return { nodes: elements(sandbox.TestPlanDetailContent({ id: "synthetic", projectId, readOnly })), legacyAccesses };
 }
 function renderHistory(data, error = null) {
-  const sandbox = { React, planMetadataChanges, trpcReact: {testPlans: {history: {useQuery: () => ({data,error,isPending:false,refetch() {}})}}} };
+  const sandbox = { React, ActionButton: "button", planMetadataChanges, trpcReact: {testPlans: {history: {useQuery: () => ({data,error,isPending:false,refetch() {}})}}} };
   vm.createContext(sandbox);vm.runInContext(compiled,sandbox);
   return elements(sandbox.VersionHistorySection({testPlanId:"synthetic"}));
 }

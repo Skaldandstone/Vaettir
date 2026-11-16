@@ -1,11 +1,14 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useLayoutEffect, useMemo, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useParams } from "next/navigation";
 import { trpcReact, type RouterInputs } from "@/lib/trpcReact";
 import { Modal } from "@/components/Modal";
 import { RepositoryReleaseDiscovery } from "@/components/RepositoryReleaseDiscovery";
+import { JiraReleasePicker } from "@/components/JiraReleasePicker";
 import { ReadinessBadge } from "@/components/ReadinessBadge";
 import { TrendChart } from "@/components/TrendChart";
 import { DistributionBar, ScoreRing } from "@/components/MetricVisuals";
@@ -122,10 +125,15 @@ export default function ReleasesPage() {
   const sdk = creationSession(), sdkActor = sdk?.userId, sdkId = sdk?.sessionId,
     session = useMemo(() => auth.userId && auth.sessionId ? { userId: auth.userId, sessionId: auth.sessionId } : null, [auth.userId, auth.sessionId]);
   const organizationId = access.origin?.organizationId ?? "", clerkActorId = access.origin?.clerkActorId ?? "";
+  const canStartRelease = canEdit && access.canWrite && !!organizationId && !!clerkActorId &&
+    auth.isLoaded && !!auth.isSignedIn && !!session && session.userId === clerkActorId &&
+    session.userId === sdkActor && session.sessionId === sdkId;
+  const hasReleaseDraft = Boolean(name || targetDate || selectedPlanIds.length || releaseGoals.length ||
+    goalDraft || newPlanName || newCriteria.length || criterionDraft);
   const draft = JSON.stringify([name, targetDate, selectedPlanIds, releaseGoals, goalDraft, newPlanName, newCriteria, criterionDraft, editingCriterion]);
   const createFrame = useMemo<CreateFrame>(() => Object.freeze({ projectId, organizationId, clerkActorId, session, draft,
-    eligible: createOpen && canEdit && access.canWrite && !!organizationId && !!clerkActorId && auth.isLoaded && !!auth.isSignedIn && !!session && session.userId === clerkActorId && session.userId === sdkActor && session.sessionId === sdkId,
-  }), [projectId, organizationId, clerkActorId, session, draft, createOpen, canEdit, access.canWrite, auth.isLoaded, auth.isSignedIn, sdkActor, sdkId]);
+    eligible: createOpen && canStartRelease,
+  }), [projectId, organizationId, clerkActorId, session, draft, createOpen, canStartRelease]);
   const createStamp = createOwner.observe(createFrame);
   useLayoutEffect(() => {
     createOwner.publish(createFrame, createStamp);
@@ -276,9 +284,10 @@ export default function ReleasesPage() {
       >
         <h1 style={{ margin: 0 }}>Release readiness</h1>
         {canEdit && (
-          <button className="btn-primary" onClick={() => setCreateOpen(true)}>
+          <ActionButton className="btn-primary" onClick={() => setCreateOpen(true)} tooltip={<>
             + New release
-          </button>
+           </>}>
+             New release </ActionButton>
         )}
       </div>
       <p className="text-muted" style={{ marginBottom: 20 }}>
@@ -286,6 +295,18 @@ export default function ReleasesPage() {
         <a href={`/projects/${projectId}/test-strategy`}>test strategy</a>.
       </p>
 
+      {canStartRelease && !createOpen && (
+        <JiraReleasePicker key={JSON.stringify([projectId, organizationId, clerkActorId, session?.sessionId])}
+          projectId={projectId} disabled={false} showUnavailable
+          onSelect={hasReleaseDraft || createRequest ? undefined : release => {
+            if (!createOwner.canClose(createGeneration, createFrame, createStamp) ||
+                createOwner.request() || !sameAuthScope(session, creationSession())) return;
+            setName(release.name.slice(0, 200));
+            setTargetDate(release.releaseDate ?? "");
+            setReleaseStep(0);
+            setCreateOpen(true);
+          }}/>
+      )}
       <details className="release-provider-discovery"><summary>Repository releases</summary><RepositoryReleaseDiscovery projectId={projectId}/></details>
       {loading && <p>Loading…</p>}
       {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
@@ -502,13 +523,14 @@ export default function ReleasesPage() {
             <p role="status">
               Verify the original signed-in account, workspace and full editor
               seat before creating or retrying. Drafts are retained. The active browser session must match the original account; cached access alone cannot send a request.{" "}
-              <button
+              <ActionButton
                 type="button"
                 className="btn-secondary"
                 onClick={() => void access.refresh()}
-              >
+               tooltip={<>
                 Recheck original access
-              </button>
+               </>}>
+                 Refresh </ActionButton>
             </p>
           )}
           {createRequest && (
@@ -606,16 +628,17 @@ export default function ReleasesPage() {
                     Add goal
                   </button>
                   {goalDraft.length > 0 && (
-                    <button
+                    <ActionButton
                       type="button"
                       className="btn-secondary"
                       onClick={() => {
                         setGoalDraft("");
                         setGoalError(null);
                       }}
-                    >
+                     tooltip={<>
                       Clear goal draft
-                    </button>
+                     </>}>
+                       Clear </ActionButton>
                   )}
                 </div>
                 {goalError && <p role="alert">{goalError}</p>}
@@ -660,10 +683,10 @@ export default function ReleasesPage() {
                   />{" "}
                   Show specialized regulatory, hardware and field goals
                 </label>
-                <p className="text-muted">
+                <details><summary>Details</summary><p className="text-muted">
                   Goals are optional. Choose only what applies; a normal release
                   does not require a launch or regulatory milestone.
-                </p>
+                </p></details>
               </>
             )}
             {releaseStep === 1 && (
@@ -719,11 +742,11 @@ export default function ReleasesPage() {
                 </fieldset>
                 <fieldset>
                   <legend>Add a quality plan</legend>
-                  <p className="text-muted">
+                  <details><summary>Details</summary><p className="text-muted">
                     The plan and release are saved together. New criteria remain
                     pending until evidence or review satisfies them. Edits here
                     change this unsaved release draft, not an existing plan.
-                  </p>
+                  </p></details>
                   <label>
                     Plan name
                     <input
@@ -744,7 +767,7 @@ export default function ReleasesPage() {
                       maxLength={2000}
                     />
                   </label>
-                  <button
+                  <ActionButton
                     type="button"
                     className="btn-secondary"
                     disabled={
@@ -752,11 +775,15 @@ export default function ReleasesPage() {
                       (editingCriterion === null && newCriteria.length >= 50)
                     }
                     onClick={saveCriterionDraft}
-                  >
+                   tooltip={<>
                     {editingCriterion === null
                       ? "Add criterion"
                       : "Save draft edit"}
-                  </button>
+                   </>}>
+                    {editingCriterion === null
+                      ? "Add criterion"
+                      : "Save"}
+                  </ActionButton>
                   {(criterionDraft.length > 0 || editingCriterion !== null) && (
                     <button
                       type="button"
@@ -848,9 +875,9 @@ export default function ReleasesPage() {
                 />
                 <section aria-label="Selected existing quality plans" style={{ marginTop: 16 }}>
                   <h4>Selected quality plans (current names)</h4>
-                  <p className="text-muted">
+                  <details><summary>Details</summary><p className="text-muted">
                     Open a plan in a new tab to review its current criteria without leaving this draft. Creating this release links these plans without editing them.
-                  </p>
+                  </p></details>
                   {reviewedPlanIds.length ? (
                     <ul>
                       {reviewedPlanIds.map((id) => {

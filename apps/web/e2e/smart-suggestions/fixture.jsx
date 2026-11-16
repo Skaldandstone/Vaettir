@@ -4,6 +4,7 @@ import { SmartCaseSuggestions, SmartColumnMapping } from "../../components/Smart
 import { mapCsvRows } from "../../../api/src/services/csvFieldMapping";
 const csvText = "Reference,Scenario text,Initial state,Do this,Expected behavior,Observed status\nsyn-1,Restore purchase,Purchased access,Reinstall and restore,Access retained,Failed\nsyn-2,Avoid duplicate charge,Purchased access,Restore again,Access retained,Passed";
 window.smartFixture = { actor: "synthetic-actor", stored: [{ id: "synthetic-case", title: "Restore purchase", given: ["Purchased access"], when: ["Restore"], then: ["Access retained"], tags: [], suitePath: "Misplaced", priority: "MEDIUM", testType: "OTHER" }], mappingCalls: [], analyses: [], saves: [], writes: 0, dropAck: true, reject: false };
+window.smartFixture.canAnalyze = !new URLSearchParams(location.search).has("blocked");
 function Fixture() {
   const [mapping, setMapping] = useState({}), [patches, setPatches] = useState([]), [saved, setSaved] = useState(false);
   const stored = new URLSearchParams(location.search).has("stored");

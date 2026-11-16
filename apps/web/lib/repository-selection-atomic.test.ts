@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
@@ -23,7 +24,7 @@ const source = readFileSync(new URL("../components/GitlabRepositoryConnection.ts
 const ast = ts.createSourceFile("Repository.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX), printer = ts.createPrinter();
 const declarations = ast.statements.filter(node => ts.isFunctionDeclaration(node) || ts.isVariableStatement(node))
   .map(node => printer.printNode(ts.EmitHint.Unspecified, node, ast).replace(/\bexport\s+/, "")).join("\n");
-const compiled = ts.transpileModule(declarations + "\nthis.actual=RepositoryOAuthConnection;", {
+const compiled = controllerTranspile(declarations + "\nthis.actual=RepositoryOAuthConnection;", {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React },
 }).outputText;
 const repository = (id: string, name = `synthetic/${id}`): Repository => ({ id, name, url: `https://synthetic.example/${id}`, defaultBranch: "main" });

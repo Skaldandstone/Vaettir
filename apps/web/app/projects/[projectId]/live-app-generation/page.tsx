@@ -1,5 +1,8 @@
 "use client";
 
+import { ActionHelp } from "@/components/ui/ActionHelp";
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
@@ -488,10 +491,7 @@ export default function LiveAppGenerationPage() {
       >
         Experimental — early access
       </div>
-      <p>
-        Connect an Android test app to explore approved navigation and review proposed tests.
-        Web and iOS capture tools are also available. Nothing is saved until you review and add it.
-      </p>
+      <p>Connect an app, explore navigation, then review suggested tests. <a className="inline-help" href="/guide#live-apps" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
 
       {captureMode !== "android" && <DeviceHelperSetupStatus
         intent={{
@@ -577,12 +577,7 @@ export default function LiveAppGenerationPage() {
                     <p
                       className="text-muted"
                       style={{ fontSize: 13, margin: "6px 0 0" }}
-                    >
-                      A small connector runs on the computer attached to the
-                      device. Raw hierarchy, screenshots, and provider
-                      credentials stay on that computer. Vaettir receives only
-                      named controls such as buttons, fields, tabs, and labels.
-                    </p>
+                    >Run the connector on the computer attached to your test device. <a className="inline-help" href="/guide#live-apps" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
                   </div>
 
                   <section
@@ -622,13 +617,12 @@ export default function LiveAppGenerationPage() {
                       <div
                         style={{ display: "flex", flexWrap: "wrap", gap: 8 }}
                       >
-                        <button
+                        <ActionButton
                           type="button"
                           onClick={downloadConnectorLauncher}
                           disabled={
                             !helperActorAllowed || !pairingCode || connectorStatus === "connecting"
-                          }
-                        >
+                          } tooltip={<>
                           Download{" "}
                           {connectorPlatform === "windows"
                             ? "Windows"
@@ -636,20 +630,24 @@ export default function LiveAppGenerationPage() {
                               ? "macOS"
                               : "Linux"}{" "}
                           unsigned launcher
-                        </button>
-                        <button
+                         </>}>Download launcher</ActionButton>
+                        <ActionButton
                           type="button"
                           className="btn-secondary"
                           onClick={() => void connectToDeviceConnector()}
                           disabled={
                             !helperActorAllowed || !pairingCode || connectorStatus === "connecting"
                           }
-                        >
+                         tooltip={<>
                           {connectorStatus === "connected"
                             ? "Recheck paired response"
                             : "Check paired response"}
-                        </button>
-                        {connectorPlatform === "windows" && <button type="button" className="btn-secondary" onClick={reportBlockedWindowsHelper} disabled={capturing || generating}>Windows blocked this helper</button>}
+                         </>}>
+                          {connectorStatus === "connected"
+                            ? "Refresh"
+                            : "Check"}
+                        </ActionButton>
+                        {connectorPlatform === "windows" && <ActionButton type="button" className="btn-secondary" onClick={reportBlockedWindowsHelper} disabled={capturing || generating} tooltip={<> Windows blocked this helper </>}> Launch help </ActionButton>}
                       </div>
                       <div
                         className={`status-panel ${
@@ -676,12 +674,12 @@ export default function LiveAppGenerationPage() {
                               : "Downloading does not start checks or discover devices. Open the reviewed launcher only if policy permits, then choose Check paired response."}
                         </span>
                       </div>
-                      {!captureInputsAllowed && <p role="status">Original independent session/project/workspace access is not current. Private pairing, selections, captures and paid drafts remain retained but hidden. Setup metadata and paired liveness do not approve device/source processing.</p>}
-                      {connectorStatus === "blocked" && <div role="status"><DeviceHelperBlockedLaunchGuidance reportedBlocked={true} /><p>Your private pairing draft remains retained. Reporting this did not launch a helper, change policy or perform device capture. Signed trusted distribution and actual Windows/device acceptance remain separate.</p><button type="button" className="btn-secondary" onClick={showPolicyPermittedManualSetup}>Show manual instructions only if policy permits</button></div>}
+                      {!captureInputsAllowed && <p role="status">Restore access to the original workspace to continue. <a className="inline-help" href="/guide#live-apps" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>}
+                      {connectorStatus === "blocked" && <div role="status"><DeviceHelperBlockedLaunchGuidance reportedBlocked={true} /><p>Your pairing draft is retained. <a className="inline-help" href="/guide#live-apps" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p><ActionButton type="button" className="btn-secondary" onClick={showPolicyPermittedManualSetup} tooltip={<> Show manual instructions only if policy permits </>}> Show </ActionButton></div>}
                       <details open={manualSetupOpen} onToggle={event => setManualSetupOpen(event.currentTarget.open)}>
                         <summary>Manual setup and troubleshooting</summary>
                         <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
-                          {!captureInputsAllowed || connectorStatus === "blocked" && !manualSetupRevealed ? <p>Pairing code and private setup command are hidden. Restore the original account/full seat and review device policy first, then explicitly choose “Show manual instructions only if policy permits.” This alternative is not a bypass or permission grant.</p> : <>
+                          {!captureInputsAllowed || connectorStatus === "blocked" && !manualSetupRevealed ? <p>Restore your original account and full seat to view setup. <a className="inline-help" href="/guide#live-apps" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p> : <>
                           <span className="text-muted" style={{ fontSize: 13 }}>
                             Pairing code:{" "}
                             <code>{pairingCode || "Preparing..."}</code>
@@ -694,14 +692,12 @@ export default function LiveAppGenerationPage() {
                             page cannot identify or override the blocking
                             policy.
                           </span>
-                          <a
+                          <ActionHelp tooltip={<>Download raw connector</>}><a
                             className="btn btn-secondary"
                             href="/connectors/vaettir-device-connector.mjs"
                             download="vaettir-device-connector.mjs"
                             style={{ width: "fit-content" }}
-                          >
-                            Download raw connector
-                          </a>
+                          >Download source</a></ActionHelp>
                           <span className="text-muted" style={{ fontSize: 13 }}>
                             Manual alternative, only if your policy permits:
                             review the downloaded connector, then open a
@@ -859,7 +855,7 @@ export default function LiveAppGenerationPage() {
                           style={{ width: "100%" }}
                         />
                       </label>
-                      <button
+                      <ActionButton
                         type="button"
                         onClick={() => void captureCurrentScreen()}
                         disabled={
@@ -870,11 +866,15 @@ export default function LiveAppGenerationPage() {
                           (captureMode !== "android" &&
                             (!appiumUrl.trim() || !appiumSessionId.trim()))
                         }
-                      >
+                       tooltip={<>
                         {capturing
                           ? "Capturing current screen…"
                           : "Capture current screen"}
-                      </button>
+                       </>}>
+                        {capturing
+                          ? "Capturing…"
+                          : "Capture screen"}
+                      </ActionButton>
                       <p role="status" className="text-muted">{CAPTURE_DISPATCH_GAP}</p>
                     </div>
                   </section>
@@ -908,19 +908,25 @@ export default function LiveAppGenerationPage() {
                 </details>
               </>
             )}
-            <button
+            <ActionButton
               onClick={generate}
               disabled={
                 !captureInputsAllowed || generating ||
                 (captureMode === "web" ? !startUrl.trim() : !presentedCapture)
               }
-            >
+             tooltip={<>
               {generating
                 ? "Generating grounded drafts…"
                 : captureMode === "web"
                   ? "Crawl and generate drafts"
                   : "Generate from device capture"}
-            </button>
+             </>}>
+              {generating
+                ? "Generating…"
+                : captureMode === "web"
+                  ? "Generate drafts"
+                  : "Generate"}
+            </ActionButton>
           </div>
 
           {error && <p style={{ color: "var(--ember)" }}>{error}</p>}
@@ -1056,16 +1062,22 @@ export default function LiveAppGenerationPage() {
                     >
                       Discard
                     </button>
-                    <button
+                    <ActionButton
                       onClick={() => commit(i)}
                       disabled={busyIndex === i}
-                    >
+                     tooltip={<>
                       {busyIndex === i
                         ? "Saving…"
                         : draft.coverageDisposition === "STALE_EXISTING"
                           ? "Update existing case for review"
                           : "Save new case for review"}
-                    </button>
+                     </>}>
+                      {busyIndex === i
+                        ? "Saving…"
+                        : draft.coverageDisposition === "STALE_EXISTING"
+                          ? "Update case"
+                          : "Save case"}
+                    </ActionButton>
                   </div>
                 </div>
               ))}

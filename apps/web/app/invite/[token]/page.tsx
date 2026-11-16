@@ -1,5 +1,8 @@
 "use client";
 
+import { ActionHelp } from "@/components/ui/ActionHelp";
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { useParams, useRouter } from "next/navigation";
@@ -14,7 +17,7 @@ function InvitationUnavailable({ title, children }: { title: string; children: R
       <h2 id="invitation-state-title">{title}</h2>
       <p className="text-muted">{children}</p>
       <div className="guide-actions">
-        <Link className="btn-secondary" href="/beta-guide">Review beta access</Link>
+        <ActionHelp tooltip={<>Review beta access</>}><Link className="btn-secondary" href="/beta-guide">Beta access</Link></ActionHelp>
         <Link href="/projects">Go to projects</Link>
       </div>
     </section>
@@ -80,10 +83,13 @@ export default function AcceptInvitePage() {
             <div><dt>Role</dt><dd>{preview.role.replaceAll("_", " ").toLowerCase()}</dd></div>
             <div><dt>Seat</dt><dd>{preview.seatType.replaceAll("_", " ").toLowerCase()}</dd></div>
           </dl>
-          <button className="btn-primary onboarding-primary-action" type="button" onClick={() => acceptMutation.mutate({ token: params.token })} disabled={acceptMutation.isPending}>
+          <ActionButton className="btn-primary onboarding-primary-action" type="button" onClick={() => acceptMutation.mutate({ token: params.token })} disabled={acceptMutation.isPending} tooltip={<>
             {acceptMutation.isPending ? "Joining workspace…" : "Accept and continue"}
             {!acceptMutation.isPending && <Icon name="arrow" size={16} />}
-          </button>
+           </>}>
+            {acceptMutation.isPending ? "Joining workspace…" : "Accept"}
+            {!acceptMutation.isPending && <Icon name="arrow" size={16} />}
+          </ActionButton>
           {acceptMutation.error && <p className="text-error onboarding-action-error" role="alert">{acceptMutation.error.message}</p>}
           <p className="onboarding-footnote">Only accept invitations you expected. Ask the workspace owner if the role or seat is incorrect.</p>
         </section>

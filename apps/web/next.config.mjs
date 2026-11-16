@@ -46,6 +46,7 @@ const nextConfig = {
   deploymentId: process.env.NEXT_PUBLIC_RELEASE_COMMIT,
   transpilePackages: ["@vaettir/core"],
   webpack: withReportBrowserImports,
+  experimental: { webpackMemoryOptimizations: true, cpus: 2 },
   async headers() {
     return ["gitlab", "github"].map(provider => ({ source: `/connections/${provider}/callback`, headers: [
       { key: "Referrer-Policy", value: "no-referrer" },

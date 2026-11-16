@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Modal } from "./Modal";
@@ -357,28 +359,30 @@ function Comparison({
             evidence. I will check recipients before sharing this internal
             comparison.
           </label>
-          <button
+          <ActionButton
             type="button"
             className="btn-secondary"
             disabled={!reviewed}
             onClick={() => download("html")}
-          >
+           tooltip={<>
             Download reviewed comparison
-          </button>
-          <button
+           </>}>
+             Download comparison </ActionButton>
+          <ActionButton
             type="button"
             className="btn-secondary"
             disabled={!reviewed}
             onClick={() => download("csv")}
-          >
+           tooltip={<>
             Download comparison CSV
-          </button>
-          <p className="text-muted">
+           </>}>
+             CSV </ActionButton>
+          <details><summary>Details</summary><p className="text-muted">
             CSV retains exact metric counts, unavailable values, both original
             windows and evidence boundaries. It is not a backup, new approval or
             external access grant. Spreadsheet re-save/import settings may
             remove text formula protections.
-          </p>
+          </p></details>
           {exportMessage && <p role="alert">{exportMessage}</p>}
         </>
       )}

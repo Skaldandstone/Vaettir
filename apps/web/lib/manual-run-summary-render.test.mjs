@@ -1,3 +1,5 @@
+// Controller fixture treats the presentation-only wrapper as its native button.
+// Real hover/focus/form/ref/touch behavior is covered by action-button-ui.test.mjs.
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
@@ -15,7 +17,7 @@ function declarations(path, names) {
 const visual = declarations("../components/ManualRunSummaryVisual.tsx", ["ManualRunSummaryVisual"]), distribution = declarations("../components/MetricVisuals.tsx", ["DistributionBar"]);
 test("actual manual summary visual exposes trusted counts, partial work, all verdicts/exclusions and exact read scope", () => {
   const compiled = ts.transpileModule(`${distribution}\n${visual}`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
-  const h = { React, ...helpers }; vm.createContext(h); vm.runInContext(compiled, h);
+  const h = { React, ActionButton: "button", ...helpers }; vm.createContext(h); vm.runInContext(compiled, h);
   const { value } = summaryFixture(); value.scope.build = "<script>synthetic</script>";
   const html = renderToStaticMarkup(React.createElement(h.ManualRunSummaryVisual, { value }));
   for (const text of ["1702", "1699", "Partial steps", "Recorded tests", "Remaining tests", "Excluded runs", "0.18% recorded (3 of 1702 planned tests)", "1 included run is", "Blocked", "Skipped", "same case in two runs counts twice", "not release readiness", "2026-01-01", "2026-01-02", value.asOf, "Unsupported saved scope", "Ambiguous or duplicate", "Untracked legacy", "Current head/status"]) assert.ok(html.toLowerCase().includes(text.toLowerCase()), text);
@@ -24,7 +26,7 @@ test("actual manual summary visual exposes trusted counts, partial work, all ver
 });
 for (const excludedOnly of [false, true]) test(`actual ${excludedOnly ? "all-excluded" : "empty"} summary has no fabricated completion denominator`, () => {
   const compiled = ts.transpileModule(`${distribution}\n${visual}`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
-  const h = { React, ...helpers }; vm.createContext(h); vm.runInContext(compiled, h);
+  const h = { React, ActionButton: "button", ...helpers }; vm.createContext(h); vm.runInContext(compiled, h);
   const { value } = summaryFixture();
   for (const row of [value.totals, ...value.days]) {
     for (const key of ["runs", "trustedRuns", "excludedRuns", "inProgressTrustedRuns", "plannedInstances", "recordedInstances", "remainingInstances", "partialStepInstances", "ignoredOutsideScopeResultRows"]) row[key] = 0;
@@ -74,7 +76,7 @@ test("actual retained wrapper hides cached counts on reopen and session loss/rec
   const auth = { isLoaded: true, isSignedIn: true, userId: "synthetic-actor", sessionId: "synthetic-session" };
   let cursor = 0, dirty = false, reads = 0;
   const query = { data: value, dataUpdatedAt: 100, error: null, isFetching: false, isPaused: false, isFetchedAfterMount: true, refetch: () => { reads++; return Promise.resolve({ data: query.data }); } };
-  const h = { React, ...helpers, useAuth: () => auth, ManualRunSummaryVisual: function FixtureVisual() { return null; }, downloadFile: () => assert.fail("render must not download"),
+  const h = { React, ActionButton: "button", ...helpers, useAuth: () => auth, ManualRunSummaryVisual: function FixtureVisual() { return null; }, downloadFile: () => assert.fail("render must not download"),
     recordedExecutionTrendKey: scope => JSON.stringify(scope),
     trpcReact: { recordedExecutionTrends: { manualSummary: { useQuery: (_input, options) => { h.enabled = options.enabled; return query; } } } },
     useState: initial => { const index = cursor++; if (!Object.hasOwn(hooks, index)) hooks[index] = typeof initial === "function" ? initial() : initial; return [hooks[index], next => { if (!Object.is(hooks[index], next)) { hooks[index] = next; dirty = true; } }]; },

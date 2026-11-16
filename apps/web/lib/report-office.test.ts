@@ -61,6 +61,65 @@ const report = {
 } as FrozenReportPayload;
 
 describe("editable Office reports", () => {
+  it("preserves all text, metrics, evidence dates and typed chart data under alternate styling", async () => {
+    const preset = { version: 1, palette: "plum", font: "arial" } as const;
+    const source = {
+      ...report,
+      definition: {
+        ...report.definition,
+        summary: "=SUM(1,2) literal evidence",
+      },
+    };
+    const [plainDoc, styledDoc, plainBook, styledBook] = await Promise.all([
+      renderReportDocument(source),
+      renderReportDocument(source, preset),
+      renderReportWorkbook(source),
+      renderReportWorkbook(source, preset),
+    ]);
+    const doc = (bytes: ArrayBuffer) =>
+      new Zip(Buffer.from(bytes)).readAsText("word/document.xml");
+    const original = doc(await plainDoc.arrayBuffer()),
+      styled = doc(await styledDoc.arrayBuffer());
+    const texts = (xml: string) =>
+      [...xml.matchAll(/<w:t(?: [^>]*)?>(.*?)<\/w:t>/gs)].map((m) => m[1]);
+    expect(texts(styled)).toEqual(texts(original));
+    expect(styled).toContain("38263F");
+    expect(styled).toContain(source.definition.summary);
+    expect(styled).toContain(source.asOf);
+    expect(styled).toContain(source.limitations[0]);
+    const books = await Promise.all(
+      [plainBook, styledBook].map(async (blob) => {
+        const book = new ExcelJS.Workbook();
+        await book.xlsx.load(await blob.arrayBuffer());
+        return book;
+      }),
+    );
+    const values = (book: ExcelJS.Workbook) =>
+      book.worksheets.map((sheet) => ({
+        name: sheet.name,
+        rows: sheet.getSheetValues(),
+      }));
+    expect(values(books[1]!)).toEqual(values(books[0]!));
+    expect(books[1]!.getWorksheet("Metrics")!.getCell("C2").value).toBe(12);
+    expect(books[1]!.getWorksheet("Narrative")!.getCell("B2").value).toBe(
+      source.definition.summary,
+    );
+    expect(books[1]!.getWorksheet("Report")!.getCell("B4").value).toBe(
+      source.asOf,
+    );
+    expect(books[1]!.getWorksheet("Report")!.getCell("A2").font.name).toBe(
+      "Arial",
+    );
+    books[1]!.eachSheet((sheet) =>
+      sheet.eachRow((row) =>
+        row.eachCell((cell) => {
+          expect(cell.formula).toBeUndefined();
+          expect(cell.hyperlink).toBeUndefined();
+        }),
+      ),
+    );
+  });
+
   it("writes typed XLSX values, literal formula-like text and explicit missing evidence", async () => {
     const danger = '=HYPERLINK("https://example.invalid","text")';
     const value = {

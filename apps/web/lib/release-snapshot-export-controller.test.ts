@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
@@ -19,7 +20,7 @@ import { downloadFile as actualDownloadFile } from "./download";
 // and deterministic hook commits. No Clerk/backend/native browser operation.
 const source = readFileSync(new URL("../components/ReleaseSnapshotExport.tsx", import.meta.url), "utf8"),
   ast = ts.createSourceFile("export.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX),
-  code = ts.transpileModule(ast.statements.filter(node => !ts.isImportDeclaration(node))
+  code = controllerTranspile(ast.statements.filter(node => !ts.isImportDeclaration(node))
     .map(node => ts.createPrinter().printNode(ts.EmitHint.Unspecified, node, ast).replace(/^export\s+/gm, "")).join("\n") +
     "\nthis.wrapper=ReleaseSnapshotExport;", { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
 const routes = createTRPCReact<AppRouter>();

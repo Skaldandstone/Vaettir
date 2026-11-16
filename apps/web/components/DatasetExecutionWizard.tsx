@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useEffect, useId, useRef, useState } from "react";
 import { Modal } from "./Modal";
 import {
@@ -188,7 +190,7 @@ export function DatasetExecutionWizard({
           <button type="button" className="btn-secondary" onClick={onClose}>
             Close
           </button>
-          <button
+          <ActionButton
             type="button"
             className="btn-secondary"
             onClick={() => {
@@ -200,9 +202,10 @@ export function DatasetExecutionWizard({
               setRejected(false);
               setScreen("context");
             }}
-          >
+           tooltip={<>
             Review another batch
-          </button>
+           </>}>
+             Review </ActionButton>
         </section>
       ) : (
         <>
@@ -284,11 +287,11 @@ export function DatasetExecutionWizard({
                   </label>
                 ))}
               </details>
-              <p className="text-muted">
+              <details><summary>Details</summary><p className="text-muted">
                 Up to 50 rows and 500 planned case instances per batch.
                 References are context, not a safety or regulatory
                 certification.
-              </p>
+              </p></details>
             </section>
           )}
           {screen === "preview" && preview && (
@@ -446,12 +449,7 @@ export function DatasetExecutionWizard({
                 imported-code execution or automatic test execution is used.
                 This creates manual run records only.
               </p>
-              <p>
-                Each row is a separate run, not multiple instances inside one
-                legacy run. A prerequisite pass in another row or configuration
-                never unlocks this row. Procedures and parameter values are
-                saved at start.
-              </p>
+              <p>Each dataset row starts a separate run. <a className="inline-help" href="/guide#runs" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
               <label
                 style={{ display: "flex", gap: 8, alignItems: "flex-start" }}
               >
@@ -471,13 +469,14 @@ export function DatasetExecutionWizard({
                 </p>
               )}
               {rejected && (
-                <button
+                <ActionButton
                   type="button"
                   className="btn-secondary"
                   onClick={reviewAgain}
-                >
+                 tooltip={<>
                   Refresh and review again
-                </button>
+                 </>}>
+                   Refresh </ActionButton>
               )}
             </section>
           )}
@@ -522,27 +521,34 @@ export function DatasetExecutionWizard({
                 </button>
               )}
               {screen === "preview" && (
-                <button
+                <ActionButton
                   type="button"
                   className="btn-primary"
                   onClick={() => setScreen("review")}
-                >
+                 tooltip={<>
                   Continue to review
-                </button>
+                 </>}>
+                   Continue </ActionButton>
               )}
               {screen === "review" && (
-                <button
+                <ActionButton
                   type="button"
                   className="btn-primary"
                   disabled={!approved || busy || rejected}
                   onClick={() => void start()}
-                >
+                 tooltip={<>
                   {busy
                     ? "Confirming batch…"
                     : attempt
                       ? "Retry same batch"
                       : "Create row runs"}
-                </button>
+                 </>}>
+                  {busy
+                    ? "Confirming batch…"
+                    : attempt
+                      ? "Retry"
+                      : "Create runs"}
+                </ActionButton>
               )}
             </div>
           </div>

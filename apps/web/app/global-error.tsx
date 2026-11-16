@@ -1,5 +1,7 @@
 "use client";
 
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useEffect } from "react";
 import * as Sentry from "@sentry/nextjs";
 
@@ -20,7 +22,7 @@ export default function GlobalError({ error }: { error: Error & { digest?: strin
           <h1>{updateRequired ? "An update is available" : "Something went wrong"}</h1>
           <p>{updateRequired ? "This page could not load a versioned application file. Reload to get the latest version." : "The error has been reported. Try reloading the page."}</p>
           <p>Unsaved changes may be lost. Saved project records and drafts are not removed by reloading.</p>
-          <button type="button" onClick={() => window.location.reload()}>Reload latest version</button>
+          <ActionButton type="button" onClick={() => window.location.reload()} tooltip={<> Reload latest version </>}>Reload</ActionButton>
         </div>
       </body>
     </html>

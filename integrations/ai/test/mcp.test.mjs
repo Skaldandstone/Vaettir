@@ -20,6 +20,7 @@ test("packaged stdio server initializes, lists only safe tools, and denies uncon
     await client.connect(transport);
     const { tools } = await client.listTools();
     assert.deepEqual(tools.map((t) => t.name).sort(), [
+      "vaettir_approved_cases",
       "vaettir_connection_status",
       "vaettir_project_summary",
     ]);
@@ -39,6 +40,8 @@ test("packaged stdio server initializes, lists only safe tools, and denies uncon
     });
     assert.equal(denied.isError, true);
     assert.match(denied.content[0].text, /not permitted/);
+    const contentDenied = await client.callTool({ name: "vaettir_approved_cases", arguments: { projectId: "synthetic-project" } });
+    assert.equal(contentDenied.isError, true);
     const unknown = await client.callTool({
       name: "testCases.list",
       arguments: {},

@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import {useLayoutEffect,useMemo,useRef,useState} from "react";
 import {useAuth} from "@clerk/nextjs";
 import {repositoryDisplayName} from "@/lib/repository-display";
@@ -53,7 +55,7 @@ export function ProjectRepositories({projectId,canEdit}:{projectId:string;canEdi
   }
   return <section id="project-repositories" aria-label="Project repositories">
     <h2>Repositories</h2><p className="text-muted">Connect repositories, then choose what belongs to this project.</p>
-    {query.error&&<><p role="alert">Saved repositories could not be refreshed. Existing references and connection drafts are retained.</p><button type="button" className="btn-secondary" onClick={()=>void query.refetch()}>Retry repository access</button></>}
+    {query.error&&<><p role="alert">Saved repositories could not be refreshed. Existing references and connection drafts are retained.</p><ActionButton type="button" className="btn-secondary" onClick={()=>void query.refetch()} tooltip={<> Retry repository access </>}> Retry </ActionButton></>}
     {repositories?.length===0&&<p className="text-muted">No repositories registered for this project yet.</p>}
     {query.isLoading&&<p role="status">Loading registered repositories…</p>}
     <SavedRepositoryAccessCheck projectId={projectId} repositories={repositories??null} canEdit={canEdit&&ready} onChecked={()=>query.refetch()}/>
@@ -74,9 +76,9 @@ export function ProjectRepositories({projectId,canEdit}:{projectId:string;canEdi
             <RepositoryProviderPicker value={providerChoice} onChange={setProviderChoice} onConnect={chooseProvider} disabled={busy} authorize/>
           </div>
           {visited.map(id=><div key={id} hidden={provider!==id}><RepositoryConnectionContent projectId={projectId} provider={id} initialAuthorization={authorizations[id]} active={provider===id&&canEdit&&ready} onConnected={()=>{void query.refetch();}} onClose={close}/></div>)}
-          {provider&&<button type="button" className="btn-secondary" style={{marginTop:16}} disabled={busy} onClick={()=>{cancelRepositoryAuthorization(authorizations[provider]);setProviderChoice(provider);setProvider(null);}}>Back to providers</button>}
+          {provider&&<ActionButton type="button" className="btn-secondary" style={{marginTop:16}} disabled={busy} onClick={()=>{cancelRepositoryAuthorization(authorizations[provider]);setProviderChoice(provider);setProvider(null);}} tooltip={<> Back to providers </>}> Back </ActionButton>}
         </div>
-        {(!canEdit||!ready)&&<><p role="alert">{!canEdit?"A full editor seat is required to connect repositories.":"Repository access could not be confirmed. Your connection selections and saved references remain unchanged."}</p>{canEdit&&<button type="button" className="btn-secondary" onClick={()=>void query.refetch()}>Retry repository access</button>}</>}
+        {(!canEdit||!ready)&&<><p role="alert">{!canEdit?"A full editor seat is required to connect repositories.":"Repository access could not be confirmed. Your connection selections and saved references remain unchanged."}</p>{canEdit&&<ActionButton type="button" className="btn-secondary" onClick={()=>void query.refetch()} tooltip={<> Retry repository access </>}> Retry </ActionButton>}</>}
       </>}
     </Modal>
   </section>;
@@ -131,7 +133,7 @@ function SavedRepositoryAccessCheck({projectId,repositories,canEdit,onChecked}:{
     <details><summary>What does this check?</summary><p className="text-muted">Checks one saved GitLab account connection and may renew its originally approved metadata access. It does not read source files, run AI or verify every repository permission.</p></details>
     {!originalVisible?<p role="status">Restore the original account, session, project and saved grant to inspect the retained check. No check is submitted in this scope.</p>:<>
       <label style={{display:"grid",gap:6}}>Saved repository reference<select style={{maxWidth:"100%",minWidth:0}} value={selectedId} disabled={!canEdit||!access.canEdit||!access.readable||pending||!!retained} onChange={change=>{if(event!==generation.current||!ownsReader(frame)||!canEdit||!access.canEdit||!access.origin||!access.owns(access.origin,"edit")||inFlight.current||held.current)return;generation.current++;setSelectedId(change.target.value);setNotice("");}}><option value="">Choose a saved GitLab reference</option>{access.readable&&repositories?.filter(repo=>repo.provider==="gitlab"&&repo.connectionId).map(repo=><option key={repo.id} value={repo.id}>{repositoryDisplayName(repo.url)}</option>)}</select></label>
-      <div style={{display:"flex",flexWrap:"wrap",gap:8}}><button type="button" className="btn-secondary" disabled={!frame.eligible||pending||!!retained} onClick={checkConnection}>{pending?"Checking connection…":"Check connection"}</button><button type="button" className="btn-secondary" disabled={!access.readable||pending} onClick={async()=>{if(!ownsReader(frame)||!access.origin||!access.owns(access.origin)||inFlight.current)return;try{await onChecked();}catch{if(ownsReader(frame)&&access.owns(access.origin))setNotice("Saved status could not be refreshed. The original check outcome is unchanged.");}}}>Refresh saved status</button></div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:8}}><button type="button" className="btn-secondary" disabled={!frame.eligible||pending||!!retained} onClick={checkConnection}>{pending?"Checking connection…":"Check connection"}</button><ActionButton type="button" className="btn-secondary" disabled={!access.readable||pending} onClick={async()=>{if(!ownsReader(frame)||!access.origin||!access.owns(access.origin)||inFlight.current)return;try{await onChecked();}catch{if(ownsReader(frame)&&access.owns(access.origin))setNotice("Saved status could not be refreshed. The original check outcome is unchanged.");}}} tooltip={<> Refresh saved status </>}> Refresh </ActionButton></div>
       {notice&&<p role={retained?.unknown?"alert":"status"}>{notice}</p>}
       {retained?.unknown&&!notice&&<p role="alert">The original connection check was not acknowledged. It remains retained; no automatic retry or replacement check will be made.</p>}
     </>}

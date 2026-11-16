@@ -30,7 +30,7 @@ function suiteMetadata(suitePath, onSuiteSelect) {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React },
   }).outputText;
   const exports = {};
-  new Function("exports", "React", compiled)(exports, React);
+  new Function("exports", "React", "ActionButton", compiled)(exports, React, "button");
   const tc = Object.freeze({ suitePath });
   const element = exports.renderSuite(tc, onSuiteSelect, "synthetic-project");
   return { html: renderToStaticMarkup(element), element, tc };
@@ -56,7 +56,7 @@ function procedureTable(kind, tc, { showTechnicalBehavior = true, showExpectedRe
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React },
   }).outputText;
   const exports = {}, mediaRequests = [];
-  new Function("exports", "React", compiled)(exports, React);
+  new Function("exports", "React", "ActionButton", compiled)(exports, React, "button");
   const element = exports.renderTable(tc, showTechnicalBehavior, showExpectedResponse, { data: attachments, isLoading: false }, id => mediaRequests.push(id));
   return { element, html: renderToStaticMarkup(element), mediaRequests };
 }
@@ -98,7 +98,7 @@ function priorityAdvice(prioritySuggestion, readOnly, businessRationale = " Orig
   };`, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } }).outputText;
   const exports = {}, changes = [];
   const actions = { decide: value => changes.push(["decision", value]), priority: value => changes.push(["priority", value]), rationale: value => changes.push(["rationale", value]) };
-  new Function("exports", "React", compiled)(exports, React);
+  new Function("exports", "React", "ActionButton", compiled)(exports, React, "button");
   const element = exports.render(prioritySuggestion, readOnly, businessRationale, actions);
   return { element, html: renderToStaticMarkup(element), changes };
 }
@@ -130,7 +130,7 @@ function generationFieldComparison(tc, showDiff = false) {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React },
   }).outputText;
   const exports = {}, toggles = [];
-  new Function("exports", "React", compiled)(exports, React);
+  new Function("exports", "React", "ActionButton", compiled)(exports, React, "button");
   const element = exports.render(tc, showDiff, next => toggles.push(typeof next === "function" ? next(showDiff) : next));
   return { element, html: renderToStaticMarkup(element), toggles };
 }
@@ -169,13 +169,13 @@ test("actual changed generation fields retain limited toggle exact legacy compar
     assertGenerationComparisonScope(closed.html);
     assert.doesNotMatch(closed.html, /No differences shown/);
     const toggle = descendantsOfType(closed.element, "button")[0];
-    assert.match(renderToStaticMarkup(toggle), /Show.*compared generation-field changes/);
+    assert.match(renderToStaticMarkup(toggle), /Show.*changes/);
     assert.deepEqual(closed.toggles, []);
     toggle.props.onClick();
     assert.deepEqual(closed.toggles, [true]);
     const opened = generationFieldComparison(tc, true);
     assertGenerationComparisonScope(opened.html);
-    assert.match(opened.html, /Hide.*compared generation-field changes/);
+    assert.match(opened.html, /Hide.*changes/);
     assert.match(opened.html, /AI original compared fields/);
     assert.match(opened.html, /current compared fields/);
     assert.ok(opened.html.includes("Original &lt;script&gt;\n  literal &amp; text"));
@@ -213,7 +213,7 @@ test("actual priority-advice failed reads withhold cached advice and editors wit
         assert.equal(descendantsOfType(rendered.element, "select").length, 0);
         const buttons = descendantsOfType(rendered.element, "button");
         assert.equal(buttons.length, 1);
-        assert.equal(buttons[0].props.children, "Retry priority advice");
+        assert.equal(String(buttons[0].props.children).trim(), "Retry");
         assert.equal(buttons[0].props.disabled, isFetching);
         assert.equal(refreshes, 0);
         assert.deepEqual(rendered.changes, []);

@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "@vaettir/core/dist/validation.js";
+import { readAiApprovedCases } from "./aiCaseDisclosureGateway.js";
 import {
   AiDisclosureDenied,
   readAiProjectSummary,
@@ -16,8 +17,8 @@ export function registerAiDisclosureRoute(
   server: FastifyInstance,
   store?: AiReadStore,
 ) {
-  server.get(
-    AI_SUMMARY_PATH,
+  for (const path of [AI_SUMMARY_PATH, "/integrations/ai/v1/approved-cases"]) server.get(
+    path,
     {
       logLevel: "silent",
       config: { rateLimit: { max: 30, timeWindow: "1 minute" } },
@@ -45,7 +46,7 @@ export function registerAiDisclosureRoute(
           .send({ error: "AI disclosure is not permitted." });
       }
       try {
-        return await readAiProjectSummary(store, token, query.data.projectId);
+        return await (path === AI_SUMMARY_PATH ? readAiProjectSummary : readAiApprovedCases)(store, token, query.data.projectId);
       } catch (error) {
         // Never log underlying exceptions: a driver or auth adapter may include
         // credentials, SQL parameters, or customer content in its error message.

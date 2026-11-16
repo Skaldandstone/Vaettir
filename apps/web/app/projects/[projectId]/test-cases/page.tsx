@@ -1,8 +1,11 @@
 "use client";
 
+import { ActionHelp } from "@/components/ui/ActionHelp";
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { CompactSidebar } from "@/components/ui/CompactSidebar";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@clerk/nextjs";
 import { useParams, useRouter } from "next/navigation";
@@ -38,12 +41,14 @@ import {
   spreadsheetText,
 } from "@/lib/test-case-export";
 import { runCaseActionBatches } from "@/lib/case-action-batches";
+import { currentSessionScope } from "@/lib/auth-query-cache";
 import {
   RunConfigurationModal,
 } from "@/components/RunConfigurationModal";
 import type { ReviewedRunStartEnvelope } from "@/lib/run-start-reviewed-write";
 import { Modal } from "@/components/Modal";
 import { PageHeading, Icon } from "@/components/ui/Workspace";
+import { CaseInlineActions } from "@/components/CaseInlineActions";
 import { IconButton } from "@/components/ui/IconButton";
 import { caseLabel, suiteChoices } from "@/lib/case-workbench";
 import {
@@ -225,6 +230,17 @@ export default function TestCasesPage() {
   const permissions = useProjectPermissions(projectId);
   const folderActor = useAuth();
   const readOnly = !permissions.canEdit || Boolean(permissions.accessError);
+  const reviewScope = useMemo(() => ({
+    projectId, organizationId: permissions.organizationId,
+    userId: folderActor.userId, sessionId: folderActor.sessionId,
+    eligible: folderActor.isLoaded && folderActor.isSignedIn && !readOnly,
+  }), [projectId, permissions.organizationId, folderActor.userId, folderActor.sessionId,
+    folderActor.isLoaded, folderActor.isSignedIn, readOnly]);
+  const activeReviewScope = useRef<typeof reviewScope | null>(null);
+  useLayoutEffect(() => {
+    activeReviewScope.current = reviewScope.eligible ? reviewScope : null;
+    return () => { if (activeReviewScope.current === reviewScope) activeReviewScope.current = null; };
+  }, [reviewScope]);
   const [runConfigurationOpen, setRunConfigurationOpen] = useState(false);
   const [runSelection, setRunSelection] = useState<string[]>([]);
 
@@ -324,7 +340,7 @@ export default function TestCasesPage() {
     setShowArchived(filters.showArchived);
   }
   async function saveNewView() {
-    if (!newViewName.trim()) return;
+    if (!newViewName.trim() || !currentViewFrame()) return;
     setError(null);
     try {
       const saved = await createView.mutateAsync({
@@ -332,15 +348,17 @@ export default function TestCasesPage() {
         name: newViewName.trim(),
         filters: viewFilters(),
       });
-      await utils.testCaseViews.list.invalidate({ projectId });
+      const refreshed = await refreshSavedViews();
+      if (!currentViewFrame()) return;
       setActiveViewId(saved.id);
       setNewViewName("");
+      if (!refreshed) setError("View saved. Refresh the list.");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not save view.");
+      if (currentViewFrame()) setError(cause instanceof Error ? cause.message : "Could not save view.");
     }
   }
   async function saveCurrentView() {
-    if (!currentView) return;
+    if (!currentView || !currentViewFrame()) return;
     setError(null);
     try {
       await updateView.mutateAsync({
@@ -350,9 +368,10 @@ export default function TestCasesPage() {
         version: currentView.version,
         filters: viewFilters(),
       });
-      await utils.testCaseViews.list.invalidate({ projectId });
+      const refreshed = await refreshSavedViews();
+      if (currentViewFrame() && !refreshed) setError("View saved. Refresh the list.");
     } catch (cause) {
-      setError(
+      if (currentViewFrame()) setError(
         cause instanceof Error ? cause.message : "Could not update view.",
       );
     }
@@ -360,9 +379,11 @@ export default function TestCasesPage() {
   async function deleteCurrentView() {
     if (
       !currentView ||
+      !currentViewFrame() ||
       !window.confirm(`Delete your saved view “${currentView.name}”?`)
     )
       return;
+    if (!currentViewFrame()) return;
     setError(null);
     try {
       await removeView.mutateAsync({
@@ -370,10 +391,12 @@ export default function TestCasesPage() {
         id: currentView.id,
         version: currentView.version,
       });
+      const refreshed = await refreshSavedViews();
+      if (!currentViewFrame()) return;
       setActiveViewId("");
-      await utils.testCaseViews.list.invalidate({ projectId });
+      if (!refreshed) setError("View deleted. Refresh the list.");
     } catch (cause) {
-      setError(
+      if (currentViewFrame()) setError(
         cause instanceof Error ? cause.message : "Could not delete view.",
       );
     }
@@ -388,6 +411,28 @@ export default function TestCasesPage() {
   }
   const [showArchived, setShowArchived] = useState(false);
   const currentFilters = viewFilters();
+  const viewFrameKey = JSON.stringify([activeViewId, newViewName, tagFilter, currentFilters]);
+  // Personal views are available to readers too; do not reuse editor admission.
+  const viewFrame = useMemo(() => ({
+    projectId, organizationId: permissions.organizationId, key: viewFrameKey,
+    userId: folderActor.userId, sessionId: folderActor.sessionId,
+    eligible: folderActor.isLoaded && folderActor.isSignedIn && permissions.loaded && !permissions.accessError,
+  }), [projectId, permissions.organizationId, folderActor.userId, folderActor.sessionId,
+    folderActor.isLoaded, folderActor.isSignedIn, permissions.loaded, permissions.accessError, viewFrameKey]);
+  const activeViewFrame = useRef<typeof viewFrame | null>(null);
+  useLayoutEffect(() => {
+    activeViewFrame.current = viewFrame.eligible ? viewFrame : null;
+    return () => { if (activeViewFrame.current === viewFrame) activeViewFrame.current = null; };
+  }, [viewFrame]);
+  function currentViewFrame() {
+    const session = currentSessionScope(window.Clerk?.loaded ? window.Clerk.session : null);
+    return activeViewFrame.current === viewFrame && !!session &&
+      session.userId === viewFrame.userId && session.sessionId === viewFrame.sessionId;
+  }
+  async function refreshSavedViews() {
+    try { await utils.testCaseViews.list.invalidate({ projectId }); return true; }
+    catch { return false; }
+  }
   const viewHasChanges =
     currentView != null &&
     (Object.keys(currentFilters) as (keyof typeof currentFilters)[]).some(
@@ -396,17 +441,17 @@ export default function TestCasesPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkError, setBulkError] = useState<string | null>(null);
-  const [bulkMovePlanId, setBulkMovePlanId] = useState("");
-  const [bulkTag, setBulkTag] = useState("");
   const [exporting, setExporting] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
-  const [organizeOpen, setOrganizeOpen] = useState(false);
-  const [selectionMoreOpen, setSelectionMoreOpen] = useState(false);
+  const [organizeAction, setOrganizeAction] = useState<{
+    kind: "move" | "tag"; ids: string[]; draft: string; scope: typeof reviewScope;
+  } | null>(null);
   const [reviewAction, setReviewAction] = useState<{
     kind: "archive" | "restore" | "delete";
     ids: string[];
+    scope: typeof reviewScope;
   } | null>(null);
 
   // What the original load() refetched after every mutation.
@@ -546,7 +591,7 @@ export default function TestCasesPage() {
     beforeCaseId: string | null,
   ) {
     const placement = placements.get(caseId);
-    if (!placement || readOnly || moveMutation.isPending) return;
+    if (!placement || readOnly || moveMutation.isPending || !currentReviewScope() || !currentViewFrame()) return;
     setError(null);
     try {
       await moveMutation.mutateAsync({
@@ -557,10 +602,12 @@ export default function TestCasesPage() {
         targetSuitePath,
         beforeCaseId,
       });
+      if (!currentReviewScope()) return;
       reload();
-      setSortBy("manual");
+      if (currentViewFrame()) setSortBy("manual");
     } catch (cause) {
-      setError(
+      if (!currentReviewScope()) return;
+      if (currentViewFrame()) setError(
         cause instanceof Error ? cause.message : "Could not move test case.",
       );
       await structureQuery.refetch();
@@ -590,12 +637,17 @@ export default function TestCasesPage() {
   async function runBulkAction<T>(
     execute: (ids: string[]) => Promise<T>,
     reviewedIds = [...selected],
+    confirmed?: (result: T, ids: readonly string[]) => boolean,
   ) {
-    if (readOnly || bulkBusy || reviewedIds.length === 0) return null;
+    if (readOnly || bulkBusy || reviewedIds.length === 0 || !currentReviewScope()) return null;
     setBulkBusy(true);
     setBulkError(null);
     try {
-      const outcome = await runCaseActionBatches(reviewedIds, execute);
+      const outcome = await runCaseActionBatches(reviewedIds, (ids) => {
+        if (!currentReviewScope()) throw Error("The case action scope changed.");
+        return execute(ids);
+      }, confirmed);
+      if (!currentReviewScope()) return outcome;
       const completedIds = new Set(outcome.completedIds);
       setSelected(
         (current) =>
@@ -617,8 +669,9 @@ export default function TestCasesPage() {
     const outcome = await runBulkAction(
       (ids) => bulkDeleteMutation.mutateAsync({ projectId, ids }),
       reviewedIds,
+      (result, ids) => result.blockedCount === 0 && result.deletedCount === ids.length,
     );
-    if (outcome) {
+    if (outcome && currentReviewScope()) {
       const totals = outcome.results.reduce(
         (sum, result) => ({
           deletedCount: sum.deletedCount + result.deletedCount,
@@ -642,36 +695,48 @@ export default function TestCasesPage() {
   }
 
   async function bulkMove() {
+    const intent = organizeAction;
+    if (intent?.kind !== "move" || intent.scope !== reviewScope || !currentReviewScope()) return;
     const outcome = await runBulkAction((ids) =>
       bulkMoveMutation.mutateAsync({
         projectId,
         ids,
-        testPlanId: bulkMovePlanId || null,
-      }),
+        testPlanId: intent.draft || null,
+      }), intent.ids,
     );
-    if (outcome && !outcome.error) setBulkMovePlanId("");
+    if (outcome && !outcome.error && currentReviewScope()) setOrganizeAction(current => current === intent ? null : current);
   }
 
   async function bulkAddTag() {
-    if (!bulkTag.trim()) return;
+    const intent = organizeAction;
+    if (intent?.kind !== "tag" || !intent.draft.trim() || intent.scope !== reviewScope || !currentReviewScope()) return;
     const outcome = await runBulkAction((ids) =>
       bulkTagMutation.mutateAsync({
         projectId,
         ids,
-        tags: [bulkTag.trim()],
-      }),
+        tags: [intent.draft.trim()],
+      }), intent.ids,
     );
-    if (outcome && !outcome.error) setBulkTag("");
+    if (outcome && !outcome.error && currentReviewScope()) setOrganizeAction(current => current === intent ? null : current);
   }
 
+  const exportFrame = useMemo(() => ({ viewFrame, selected, visibleCases }), [viewFrame, selected, visibleCases]);
+  const activeExportFrame = useRef<typeof exportFrame | null>(null);
+  useLayoutEffect(() => {
+    activeExportFrame.current = exportFrame;
+    return () => { if (activeExportFrame.current === exportFrame) activeExportFrame.current = null; };
+  }, [exportFrame]);
+  function currentExportFrame() {
+    return currentViewFrame() && activeExportFrame.current === exportFrame;
+  }
   const selectedExportCount = caseExportIds(
     visibleCases,
     selected,
     "selected",
   ).length;
-  async function exportCsv(scope: "filtered" | "selected") {
-    const ids = caseExportIds(visibleCases, selected, scope);
-    if (exporting || ids.length === 0) return;
+  async function exportCsv(scope: "filtered" | "selected", exactIds?: string[]) {
+    const ids = caseExportIds(visibleCases, exactIds ? new Set(exactIds) : selected, scope);
+    if (exporting || ids.length === 0 || !currentExportFrame()) return;
     setExporting(true);
     setError(null);
     try {
@@ -679,6 +744,7 @@ export default function TestCasesPage() {
         projectId,
         includeArchived: showArchived,
       });
+      if (!currentExportFrame()) return;
       const rows = scopeCaseExport(available, ids);
       const header = [
         "caseId",
@@ -713,9 +779,10 @@ export default function TestCasesPage() {
       downloadCsv(
         `${project?.name ?? "test-cases"}-${scope}-${rows.length}.csv`,
         [header, ...body.map((row) => row.map(spreadsheetText))],
+        currentExportFrame,
       );
     } catch (e) {
-      setError(
+      if (currentExportFrame()) setError(
         e instanceof Error ? e.message : "Export failed. Please try again.",
       );
     } finally {
@@ -723,9 +790,9 @@ export default function TestCasesPage() {
     }
   }
 
-  async function exportProcedure(scope: "filtered" | "selected") {
-    const ids = caseExportIds(visibleCases, selected, scope);
-    if (exporting || ids.length === 0) return;
+  async function exportProcedure(scope: "filtered" | "selected", exactIds?: string[]) {
+    const ids = caseExportIds(visibleCases, exactIds ? new Set(exactIds) : selected, scope);
+    if (exporting || ids.length === 0 || !currentExportFrame()) return;
     setExporting(true);
     setError(null);
     try {
@@ -735,13 +802,15 @@ export default function TestCasesPage() {
         scope,
         includeArchived: showArchived,
       });
+      if (!currentExportFrame()) return;
       downloadFile(
         `${bundle.project.caseKey}-${scope}-${bundle.cases.length}-procedures.json`,
         encodeCaseProcedureExport(bundle),
         "application/json",
+        currentExportFrame,
       );
     } catch (cause) {
-      setError(
+      if (currentExportFrame()) setError(
         cause instanceof Error
           ? cause.message
           : "Procedure export failed. No file was downloaded.",
@@ -808,23 +877,37 @@ export default function TestCasesPage() {
     setShowArchived(false);
     setActiveViewId("");
   }
-  function requestReview(kind: "archive" | "restore" | "delete") {
-    setSelectionMoreOpen(false);
+  function requestOrganize(kind: "move" | "tag", ids: string[]) {
+    if (readOnly || bulkBusy || !currentReviewScope()) return;
+    setOrganizeAction({ kind, ids: [...ids], draft: "", scope: reviewScope });
+  }
+  function editOrganizeDraft(draft: string) {
+    if (!organizeAction || organizeAction.scope !== reviewScope || !currentReviewScope()) return;
+    setOrganizeAction(current => current === organizeAction ? { ...current, draft } : current);
+  }
+  function currentReviewScope() {
+    const session = currentSessionScope(window.Clerk?.loaded ? window.Clerk.session : null);
+    return activeReviewScope.current === reviewScope && !!session && session.userId === reviewScope.userId &&
+      session.sessionId === reviewScope.sessionId;
+  }
+  function requestReview(kind: "archive" | "restore" | "delete", exactIds?: string[]) {
+    if (readOnly || bulkBusy || !currentReviewScope()) return;
     setReviewAction({
       kind,
-      ids:
+      ids: exactIds ?? (
         kind === "archive"
           ? activeSelectedIds
           : kind === "restore"
             ? archivedSelectedIds
-            : [...selected],
+            : [...selected]),
+      scope: reviewScope,
     });
   }
   async function confirmReviewedAction() {
-    if (!reviewAction || readOnly || bulkBusy) return;
+    if (!reviewAction || readOnly || bulkBusy || reviewAction.scope !== reviewScope || !currentReviewScope()) return;
     if (reviewAction.kind === "delete") await bulkDelete(reviewAction.ids);
     else await bulkArchive(reviewAction.kind === "archive", reviewAction.ids);
-    setReviewAction(null);
+    setReviewAction(current => current === reviewAction ? null : current);
   }
 
   return (
@@ -967,13 +1050,14 @@ export default function TestCasesPage() {
             </button>
           ))}
           {showArchived && (
-            <button
+            <ActionButton
               className="btn-secondary"
               onClick={() => setShowArchived(false)}
               aria-label="Remove archived filter"
-            >
+             tooltip={<>
               Including archived ×
-            </button>
+             </>}>
+               Archived × </ActionButton>
           )}
           <button className="btn-secondary" onClick={resetFilters}>
             Reset filters
@@ -1015,9 +1099,10 @@ export default function TestCasesPage() {
           </p>
           {!readOnly && (
             <div className={styles.dialogActions}>
-              <button className="btn-primary" onClick={() => setAddOpen(true)}>
+              <ActionButton className="btn-primary" onClick={() => setAddOpen(true)} tooltip={<>
                 Add first case
-              </button>
+               </>}>
+                 Add </ActionButton>
               <Link
                 className="btn-secondary"
                 href={`/projects/${projectId}/import`}
@@ -1104,37 +1189,16 @@ export default function TestCasesPage() {
                     view; export and Run use eligible visible cases.
                   </span>
                 )}
-                {!readOnly && (
-                  <button
-                    className="btn-primary"
-                    disabled={startingRun || activeSelectedIds.length === 0}
-                    onClick={() => {
-                      setRunSelection(activeSelectedIds);
-                      setRunConfigurationOpen(true);
-                    }}
-                  >
-                    Run ({activeSelectedIds.length})
-                  </button>
-                )}
-                {!readOnly && (
-                  <>
-                    <button
-                      className="btn-secondary"
-                      disabled={bulkBusy}
-                      onClick={() => setOrganizeOpen(true)}
-                    >
-                      Organize
-                    </button>
-                    <button
-                      className="btn-secondary"
-                      disabled={bulkBusy}
-                      onClick={() => setSelectionMoreOpen(true)}
-                      aria-label="More selected case actions"
-                    >
-                      More
-                    </button>
-                  </>
-                )}
+                <CaseInlineActions name="selected cases" canEdit={!readOnly} busy={bulkBusy || startingRun} exporting={exporting || selectedExportCount === 0}
+                  canRun={activeSelectedIds.length > 0} canArchive={activeSelectedIds.length > 0} canRestore={archivedSelectedIds.length > 0}
+                  onRun={() => { setRunSelection(activeSelectedIds); setRunConfigurationOpen(true); }}
+                  onEdit={selected.size === 1 ? () => router.push(`/projects/${projectId}/test-cases/${[...selected][0]}/edit`) : undefined}
+                  onMove={() => requestOrganize("move", [...selected])}
+                  onTag={() => requestOrganize("tag", [...selected])}
+                  onCsv={() => void exportCsv("selected")} onJson={() => void exportProcedure("selected")}
+                  onReview={() => router.push(`/projects/${projectId}/test-cases/review`)}
+                  onArchive={() => requestReview("archive")} onRestore={() => requestReview("restore")} onDelete={() => requestReview("delete")} />
+                {bulkError && <p role="alert">{bulkError}</p>}
                 <button
                   className="btn-secondary"
                   disabled={bulkBusy}
@@ -1157,13 +1221,14 @@ export default function TestCasesPage() {
               </span>
               <div style={{display:"flex",alignItems:"center",gap:8}}>
               {!readOnly && sortBy !== "manual" && (
-                <button
+                <ActionButton
                   type="button"
                   className="btn-secondary"
                   onClick={() => setSortBy("manual")}
-                >
+                 tooltip={<>
                   View manual order
-                </button>
+                 </>}>
+                   Manual order </ActionButton>
               )}
               {!readOnly && <span className="case-ordering-help"><IconButton icon="help" label="Keyboard ordering help" tooltip="Activate a case's drag handle in its verified case suite, then use Up/Down. In All suites, source groups or Unassigned, select a persisted case suite first. Viewing an order does not move cases or create folders; source paths stay unchanged."/></span>}
               </div>
@@ -1336,6 +1401,18 @@ export default function TestCasesPage() {
                             />
                           </td>
                           <td className="test-case-title-cell">
+                            <CaseInlineActions name={`${tc.displayId}: ${tc.title}`} canEdit={!readOnly} busy={bulkBusy || startingRun} exporting={exporting}
+                              canRun={!tc.archived} canArchive={!tc.archived} canRestore={tc.archived}
+                              onRun={() => { setRunSelection([tc.id]); setRunConfigurationOpen(true); }}
+                              onEdit={() => router.push(`/projects/${projectId}/test-cases/${tc.id}/edit`)}
+                              onMove={() => requestOrganize("move", [tc.id])}
+                              onTag={() => requestOrganize("tag", [tc.id])}
+                              onCsv={() => void exportCsv("selected", [tc.id])} onJson={() => void exportProcedure("selected", [tc.id])}
+                              onReview={() => router.push(`/projects/${projectId}/test-cases/review`)}
+                              onArchive={() => requestReview("archive", [tc.id])}
+                              onRestore={() => requestReview("restore", [tc.id])}
+                              onDelete={() => requestReview("delete", [tc.id])} />
+
                             <a
                               href={`/projects/${projectId}/test-cases/${tc.id}`}
                               onClick={(e) => {
@@ -1572,12 +1649,13 @@ export default function TestCasesPage() {
                   Reset filters
                 </button>
                 {selectedPath !== null && (
-                  <button
+                  <ActionButton
                     className="btn-secondary"
                     onClick={() => setSelectedPath(null)}
-                  >
+                   tooltip={<>
                     Show all suites
-                  </button>
+                   </>}>
+                     Show </ActionButton>
                 )}
               </div>
             )}
@@ -1709,9 +1787,9 @@ export default function TestCasesPage() {
           <button className="btn-secondary" onClick={resetFilters}>
             Reset filters
           </button>
-          <button className="btn-primary" onClick={() => setFiltersOpen(false)}>
+          <ActionButton className="btn-primary" onClick={() => setFiltersOpen(false)} tooltip={<>
             Show {visibleCases.length} cases
-          </button>
+           </>}>Show cases</ActionButton>
         </div>
       </Modal>
       <Modal
@@ -1726,12 +1804,10 @@ export default function TestCasesPage() {
           >
             Review queue
           </a>
-          <a
+          <ActionHelp tooltip={<>Shared step libraries</>}><a
             className="btn-secondary"
             href={`/projects/${projectId}/shared-steps`}
-          >
-            Shared step libraries
-          </a>
+          >Shared steps</a></ActionHelp>
           <a
             className="btn-secondary"
             href={`/projects/${projectId}/exploratory`}
@@ -1746,29 +1822,31 @@ export default function TestCasesPage() {
               Import cases
             </Link>
           )}
-          <button
+          <ActionButton
             className="btn-secondary"
             disabled={loading || exporting || visibleCases.length === 0}
             onClick={() => void exportCsv("filtered")}
-          >
+           tooltip={<>{exporting
+              ? "Exporting…"
+              : `Spreadsheet CSV (${visibleCases.length} shown)`}</>}>
             {exporting
               ? "Exporting…"
-              : `Spreadsheet CSV (${visibleCases.length} shown)`}
-          </button>
-          <button
+              : `CSV (${visibleCases.length})`}
+          </ActionButton>
+          <ActionButton
             className="btn-secondary"
             disabled={loading || exporting || visibleCases.length === 0}
             onClick={() => void exportProcedure("filtered")}
-          >
+           tooltip={<>
             Case procedures JSON ({visibleCases.length} shown)
-          </button>
-          <p className="text-muted">
+           </>}>JSON</ActionButton>
+          <details><summary>Details</summary><p className="text-muted">
             CSV is a spreadsheet summary, not a lossless reimport format. JSON
             preserves procedures, conditions, case IDs and reference labels. It
             excludes attachment files, datasets, paid drafts and history; it is
             not a full backup. Existing same-project procedures can be restored
             after explicit conflict review; unknown case IDs are not recreated.
-          </p>
+          </p></details>
           {!readOnly && <TestCaseProcedureReimport projectId={projectId} />}
           <details>
             <summary>Manage case authoring presets</summary>
@@ -1786,13 +1864,15 @@ export default function TestCasesPage() {
             </p>
             {currentView && (
               <div className={styles.dialogActions}>
-                <button
+                <ActionButton
                   className="btn-secondary"
                   onClick={() => void saveCurrentView()}
                   disabled={!viewHasChanges || updateView.isPending}
-                >
+                 tooltip={<>
                   Save changes to {currentView.name}
-                </button>
+                 </>}>
+                   Save
+                </ActionButton>
                 <button
                   className="btn-secondary"
                   onClick={() => void deleteCurrentView()}
@@ -1812,7 +1892,7 @@ export default function TestCasesPage() {
                 style={{ width: "100%", display: "block", marginTop: 6 }}
               />
             </label>
-            <button
+            <ActionButton
               className="btn-secondary"
               style={{ marginTop: 8 }}
               onClick={() => void saveNewView()}
@@ -1821,9 +1901,10 @@ export default function TestCasesPage() {
                 createView.isPending ||
                 (viewsQuery.data?.length ?? 0) >= 50
               }
-            >
+             tooltip={<>
               Save current view
-            </button>
+             </>}>
+               Save view </ActionButton>
           </details>
         </div>
       </Modal>
@@ -1849,128 +1930,29 @@ export default function TestCasesPage() {
               setAddOpen(false);
             }}
           />
-          <a
+          <ActionHelp tooltip={<>Open full editor</>}><a
             className="btn-secondary"
             href={`/projects/${projectId}/test-cases/new`}
-          >
-            Open full editor
-          </a>
+          >Full editor</a></ActionHelp>
         </Modal>
       )}
+      {!readOnly && organizeAction && organizeAction.scope === reviewScope && reviewScope.eligible && <Modal open title={organizeAction.kind === "move" ? "Move cases to a test plan" : "Tag cases"}
+        onClose={() => setOrganizeAction(current => current === organizeAction ? null : current)} dismissible={!bulkBusy}>
+        <p className="text-muted">{organizeAction.ids.length} cases. Only this captured selection will change.</p>
+        {organizeAction.kind === "move" ? <>
+          <label>Test plan<select value={organizeAction.draft} onChange={event => editOrganizeDraft(event.target.value)} style={{ width: "100%", display: "block", marginTop: 6 }}>
+            <option value="">Choose a plan</option>{plans.map(plan => <option key={plan.id} value={plan.id}>{plan.name}</option>)}
+          </select></label>
+          <ActionButton className="btn-primary" disabled={bulkBusy || !organizeAction.draft} onClick={() => void bulkMove()} tooltip={<> Move to plan </>}> Move </ActionButton>
+        </> : <>
+          <label>Tag<input value={organizeAction.draft} onChange={event => editOrganizeDraft(event.target.value)} placeholder="regression" style={{ width: "100%", display: "block", marginTop: 6 }} /></label>
+          <button className="btn-primary" disabled={bulkBusy || !organizeAction.draft.trim()} onClick={() => void bulkAddTag()}>Add tag</button>
+        </>}
+        {bulkError && <p role="alert">{bulkError}</p>}
+      </Modal>}
       {!readOnly && (
         <Modal
-          open={organizeOpen}
-          title={`Organize ${selected.size} selected cases`}
-          onClose={() => setOrganizeOpen(false)}
-          dismissible={!bulkBusy}
-        >
-          <p className="text-muted">
-            Selected cases only. Changes run sequentially in batches of up to
-            200; failures retain unconfirmed selections.
-          </p>
-          <label>
-            Test plan
-            <select
-              value={bulkMovePlanId}
-              onChange={(event) => setBulkMovePlanId(event.target.value)}
-              style={{ width: "100%", display: "block", marginTop: 6 }}
-            >
-              <option value="">Choose a plan</option>
-              {plans.map((plan) => (
-                <option key={plan.id} value={plan.id}>
-                  {plan.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            className="btn-secondary"
-            disabled={bulkBusy || !bulkMovePlanId}
-            onClick={() => void bulkMove()}
-          >
-            Move selected to plan
-          </button>
-          <label style={{ display: "block", marginTop: 14 }}>
-            Tag
-            <input
-              value={bulkTag}
-              onChange={(event) => setBulkTag(event.target.value)}
-              placeholder="regression"
-              style={{ width: "100%", display: "block", marginTop: 6 }}
-            />
-          </label>
-          <button
-            className="btn-secondary"
-            disabled={bulkBusy || !bulkTag.trim()}
-            onClick={() => void bulkAddTag()}
-          >
-            Add tag to selected
-          </button>
-          {bulkError && <p role="alert">{bulkError}</p>}
-        </Modal>
-      )}
-      {!readOnly && (
-        <Modal
-          open={selectionMoreOpen}
-          title={`${selected.size} selected cases`}
-          onClose={() => setSelectionMoreOpen(false)}
-          dismissible={!bulkBusy}
-        >
-          <div className={styles.menu}>
-            <a className="btn-secondary" href={`/projects/${projectId}/test-cases/review`}>
-              Review pending cases in the review queue
-            </a>
-            <p className="text-muted">
-              Review decisions require the complete supported snapshot for each
-              pending case. This slice does not bulk-approve or silently omit
-              selected cases.
-            </p>
-            <button
-              className="btn-secondary"
-              disabled={exporting || selectedExportCount === 0}
-              onClick={() => void exportCsv("selected")}
-            >
-              Selected spreadsheet CSV ({selectedExportCount})
-            </button>
-            <button
-              className="btn-secondary"
-              disabled={exporting || selectedExportCount === 0}
-              onClick={() => void exportProcedure("selected")}
-            >
-              Selected procedures JSON ({selectedExportCount})
-            </button>
-            {activeSelectedIds.length > 0 && (
-              <button
-                className="btn-secondary"
-                disabled={bulkBusy}
-                onClick={() => requestReview("archive")}
-              >
-                Review archive ({activeSelectedIds.length} active)
-              </button>
-            )}
-            {archivedSelectedIds.length > 0 && (
-              <button
-                className="btn-secondary"
-                disabled={bulkBusy}
-                onClick={() => requestReview("restore")}
-              >
-                Review restore ({archivedSelectedIds.length} archived)
-              </button>
-            )}
-            <button
-              className="btn-secondary"
-              disabled={bulkBusy}
-              onClick={() => requestReview("delete")}
-            >
-              Review permanent deletion
-            </button>
-          </div>
-          {bulkError && <p role="alert">{bulkError}</p>}
-        </Modal>
-      )}
-      {!readOnly && (
-        <Modal
-          open={reviewAction !== null}
+          open={reviewAction !== null && reviewAction.scope === reviewScope && reviewScope.eligible}
           title={`Review ${reviewAction?.kind ?? "action"}`}
           onClose={() => setReviewAction(null)}
           dismissible={!bulkBusy}

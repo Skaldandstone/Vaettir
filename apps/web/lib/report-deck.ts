@@ -1,4 +1,9 @@
 import pptxgen from "pptxgenjs";
+import {
+  DEFAULT_REPORT_PRESENTATION,
+  reportPresentationStyle,
+  type ReportPresentation,
+} from "./report-presentation";
 import { buildQualityVisualReport } from "@vaettir/core";
 import {
   reportMetricRows,
@@ -7,7 +12,11 @@ import {
 } from "./frozen-report";
 
 /** Editable objects and native chart workbooks; no screenshots, network or AI. */
-export function createReportDeck(report: FrozenReportPayload) {
+export function createReportDeck(
+  report: FrozenReportPayload,
+  presentation: ReportPresentation = DEFAULT_REPORT_PRESENTATION,
+) {
+  const style = reportPresentationStyle(presentation);
   if (report.state !== "approved")
     throw new Error("Approve the report before exporting a presentation.");
   const charts = buildQualityVisualReport(report).charts;
@@ -27,11 +36,8 @@ export function createReportDeck(report: FrozenReportPayload) {
     "Approved quality evidence for a stakeholder or investor update";
   deck.title = report.title;
   deck.company = "";
-  deck.theme = { headFontFace: "Aptos Display", bodyFontFace: "Aptos" };
-  const ink = "16302D",
-    muted = "526764",
-    accent = "167D70",
-    paper = "F7FAF8";
+  deck.theme = { headFontFace: style.heading, bodyFontFace: style.body };
+  const { ink, muted, accent, paper } = style;
   let number = 0;
   function slide(title: string) {
     const page = deck.addSlide();
@@ -234,8 +240,9 @@ export function createReportDeck(report: FrozenReportPayload) {
 
 export async function renderReportDeck(
   report: FrozenReportPayload,
+  presentation: ReportPresentation = DEFAULT_REPORT_PRESENTATION,
 ): Promise<Blob> {
-  return (await createReportDeck(report).write({
+  return (await createReportDeck(report, presentation).write({
     outputType: "blob",
     compression: true,
   })) as Blob;

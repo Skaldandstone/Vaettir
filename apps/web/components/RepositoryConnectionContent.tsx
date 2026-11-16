@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import {useState} from "react";
 import {trpcReact} from "@/lib/trpcReact";
 import {RepositoryOAuthConnection} from "./GitlabRepositoryConnection";
@@ -26,8 +28,8 @@ function RepositoryExportConnection({projectId,provider,onConnected,onClose}:{pr
   return <div className="repository-connection-panel" style={{display:"grid",gap:16,minWidth:0}}>
     {step==="choose"&&<>
       <p className="repository-connection-notice">{name} account verification and native repository browsing are not implemented yet. Bring exported evidence instead.</p>
-      <details className="connection-options"><summary>Other export and reference options</summary><div style={{display:"grid",gap:12,paddingTop:12}}><button type="button" className="btn-secondary" onClick={()=>setStep("tests")}>Import exported test cases</button><p className="text-muted">Save a browser URL and {provider==="perforce"?"changelist":provider==="svn"?"revision":"commit"} for later review. This does not verify access.</p><button type="button" className="btn-secondary" onClick={()=>setStep("reference")}>Add reference</button></div></details>
-      <footer className="connection-footer"><button type="button" className="btn-secondary" onClick={onClose}>Close</button><button type="button" className="btn-primary" onClick={()=>setStep("documents")}>Add exported documents</button></footer>
+      <details className="connection-options"><summary>Other export and reference options</summary><div style={{display:"grid",gap:12,paddingTop:12}}><ActionButton type="button" className="btn-secondary" onClick={()=>setStep("tests")} tooltip={<> Import exported test cases </>}> Import cases </ActionButton><p className="text-muted">Save a browser URL and {provider==="perforce"?"changelist":provider==="svn"?"revision":"commit"} for later review. This does not verify access.</p><button type="button" className="btn-secondary" onClick={()=>setStep("reference")}>Add reference</button></div></details>
+      <footer className="connection-footer"><button type="button" className="btn-secondary" onClick={onClose}>Close</button><ActionButton type="button" className="btn-primary" onClick={()=>setStep("documents")} tooltip={<> Add exported documents </>}> Add </ActionButton></footer>
     </>}
     {step==="documents"&&<><p>Include the export’s native {provider==="perforce"?"changelist":provider==="svn"?"revision":"commit"} in its evidence title or source key so approved evidence can be traced.</p><PopulationDocuments projectId={projectId}/></>}
     {step==="tests"&&<MigrationWizard projectId={projectId} onCommitted={onConnected}/>}

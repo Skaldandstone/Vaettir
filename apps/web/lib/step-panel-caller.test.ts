@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
@@ -12,7 +13,7 @@ type ChildProps = { active: boolean; initiallyOpen: boolean; stepIndex: number; 
 const source = readFileSync(new URL("../components/StepExecutionPanel.tsx", import.meta.url), "utf8");
 const ast = ts.createSourceFile("StepExecutionPanel.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 const functions = ast.statements.filter(ts.isFunctionDeclaration).map(node => ts.createPrinter().printNode(ts.EmitHint.Unspecified, node, ast).replace(/\bexport\s+/, "")).join("\n");
-const executable = ts.transpileModule(functions + "\nthis.panel=StepExecutionPanel;", { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
+const executable = controllerTranspile(functions + "\nthis.panel=StepExecutionPanel;", { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
 function descendants(node: unknown): React.ReactElement[] {
   if (Array.isArray(node)) return node.flatMap(descendants);
   if (!React.isValidElement(node)) return [];

@@ -15,7 +15,7 @@ if (git("status", "--porcelain", "--", "."))
 const source = git("rev-parse", "HEAD");
 // Positive allowlist: dependencies, logs, local history and credentials cannot enter.
 const files = [
-  "README.md", "CONNECTION-TEST.md", "RELEASE-REVIEW.md",
+  "README.md", "LEGACY-COUNTS.md", "CONNECTION-TEST.md", "RELEASE-REVIEW.md",
   "skills/vaettir-quality/SKILL.md", "dist/server.mjs", "dist/preflight.mjs", "dist/THIRD-PARTY-NOTICES.txt",
 ];
 // Codex's native adapter supports explicit process environment forwarding.

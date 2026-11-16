@@ -1,3 +1,4 @@
+import { actionName } from "../action-name.mjs";
 // Real browser/document referrer and message-boundary regression. Google is a
 // local substitute; this never represents real Google authorization acceptance.
 /* global window, document, parent, location */
@@ -12,7 +13,7 @@ const web = path.resolve(fileURLToPath(new URL("../../", import.meta.url)));
 const require = createRequire(path.join(web, "package.json"));
 const viteRequire = createRequire(createRequire(require.resolve("vitest")).resolve("vite"));
 const { build } = viteRequire("esbuild"), { chromium } = require("@playwright/test");
-const output = path.join(web, "../../.local/google-sheets-picker-20261021/browser");
+const output = (process.env.VAETTIR_E2E_OUTPUT_DIR ?? (path.join(web, "../../.local/google-sheets-picker-20261021/browser")));
 await mkdir(output, { recursive: true });
 const inputs = ["lib/google-picker-frame.ts", "lib/google-picker-document.ts", "lib/google-sheets-import.ts", "app/connections/google-sheets/picker/route.ts", "middleware.ts", "e2e/google-sheets/picker-frame.mjs"];
 const hashes = async () => Object.fromEntries(await Promise.all(inputs.map(async file => [file, createHash("sha256").update(await readFile(path.join(web, file))).digest("hex")])));
@@ -60,7 +61,7 @@ const reset = async () => { await page.goto(origin + "/project-private-path?opaq
 try {
   await reset();
   await page.evaluate(() => { window.fixture.handle = window.fixture.open(); });
-  await helper().getByRole("button", { name: "Select synthetic spreadsheet" }).waitFor();
+  await helper().getByRole("button", { name: actionName("Select synthetic spreadsheet", false) }).waitFor();
   await page.evaluate(url => { const frame = document.createElement("iframe"); frame.src = url + "/parent-probe"; document.body.append(frame); }, providerOrigin);
   await page.frameLocator(`iframe[src="${providerOrigin}/parent-probe"]`).locator("body").waitFor({ state: "attached" });
   assert.equal(providerRequests.find(r => r.url === "/picker").referrer, origin + "/");
@@ -74,27 +75,27 @@ try {
   assert.equal(await page.frames().find(f => f.url().endsWith("/other-frame")).evaluate(() => window.received), 0);
   assert.deepEqual(await page.evaluate(() => window.fixture.results), []);
   checks.push("same-origin wrong-source ready/picked messages ignored; credential never sent to other frame");
-  await helper().getByRole("button", { name: "Select synthetic spreadsheet" }).click();
+  await helper().getByRole("button", { name: actionName("Select synthetic spreadsheet", false) }).click();
   await page.locator('iframe[title="Choose a Google spreadsheet"]').waitFor({ state: "detached" });
   assert.deepEqual(await page.evaluate(() => window.fixture.results), [{ action: "picked", docs: [{ id: "synthetic_book", mimeType: "application/vnd.google-apps.spreadsheet" }] }]);
   checks.push("selected file payload validated; helper removed before parent callback");
   await reset();
   await page.evaluate(() => { window.fixture.handle = window.fixture.open(); });
-  await helper().getByRole("button", { name: "Select synthetic spreadsheet" }).waitFor();
-  await helper().getByRole("button", { name: "Cancel Google selection" }).click();
+  await helper().getByRole("button", { name: actionName("Select synthetic spreadsheet", false) }).waitFor();
+  await helper().getByRole("button", { name: actionName("Cancel Google selection", false) }).click();
   await page.locator('iframe[title="Choose a Google spreadsheet"]').waitFor({ state: "detached" });
   assert.deepEqual(await page.evaluate(() => window.fixture.results), [{ action: "cancel" }]);
   checks.push("cancel removes frame and browser credential context");
   await reset();
   await page.evaluate(() => { window.fixture.handle = window.fixture.open(); });
-  await helper().getByRole("button", { name: "Select synthetic spreadsheet" }).waitFor();
+  await helper().getByRole("button", { name: actionName("Select synthetic spreadsheet", false) }).waitFor();
   await page.evaluate(() => { window.fixture.handle.dispose(); });
   assert.equal(await page.locator('iframe[title="Choose a Google spreadsheet"]').count(), 0);
   assert.deepEqual(await page.evaluate(() => window.fixture.results), []);
   checks.push("unmount disposal removes frame/listener without a late selection callback");
   await reset(); malformed = true;
   await page.evaluate(() => { window.fixture.open(); });
-  await helper().getByRole("button", { name: "Select synthetic spreadsheet" }).click();
+  await helper().getByRole("button", { name: actionName("Select synthetic spreadsheet", false) }).click();
   await page.locator('iframe[title="Choose a Google spreadsheet"]').waitFor({ state: "detached" });
   assert.deepEqual(await page.evaluate(() => window.fixture.results), [{ action: "error" }]);
   checks.push("malformed file identifier fails closed");
@@ -107,7 +108,7 @@ try {
   checks.push("expired parent credential never initializes Google");
   await reset();
   await page.evaluate(() => { const frame = document.createElement("iframe"); frame.title = "Uninitialized helper"; frame.src = "/connections/google-sheets/picker"; document.body.append(frame); });
-  await page.frameLocator('iframe[title="Uninitialized helper"]').getByRole("button", { name: "Cancel Google selection" }).waitFor();
+  await page.frameLocator('iframe[title="Uninitialized helper"]').getByRole("button", { name: actionName("Cancel Google selection", false) }).waitFor();
   const uninitialized = page.frames().find(f => f.url() === origin + "/connections/google-sheets/picker");
   const beforeUntrusted = scripts;
   await uninitialized.evaluate(() => {
@@ -127,7 +128,7 @@ try {
   checks.push("child rejects wrong-origin, wrong-source and expired initialization; no provider load before handshake");
   await reset();
   await page.evaluate(() => { window.fixture.open(Date.now() + 1500); });
-  await helper().getByRole("button", { name: "Select synthetic spreadsheet" }).waitFor();
+  await helper().getByRole("button", { name: actionName("Select synthetic spreadsheet", false) }).waitFor();
   await page.locator('iframe[title="Choose a Google spreadsheet"]').waitFor({ state: "detached" });
   assert.deepEqual(await page.evaluate(() => window.fixture.results), [{ action: "error" }]);
   checks.push("credential expiry removes helper and fails closed");

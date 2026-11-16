@@ -153,7 +153,7 @@ a mismatched command receipt after acting is uncertain and is never replayed.
 
 The exact selected evidence is visible before hosted disclosure and retained in
 the pending-review case's steps and provenance. The backend column explicitly
-records missing app traffic. There is no app network adapter in this slice:
+records missing app traffic. The original exploration slice has no app network adapter:
 `NOT_CAPTURED` cannot be represented as a captured endpoint or response.
 The earlier physical pilot predates this schema and does not prove collection
 of these additional technical fields. A fresh bounded native test is required.
@@ -196,10 +196,228 @@ The intended sequence is:
 5. Review a separate versioned case patch with original evidence and audit trail.
    Feed approved evidence and unresolved blockers into automation suggestions.
 
-The pure recommendation module and draft guidance are implemented foundations.
-The existing-case selection/replay UI, assertion evaluator, native retry admission
-and durable reviewed patch operation are not implemented in this slice. No
-hosted endpoint exposes the module and it grants neither execution nor update
-authority. No existing case has been replayed, healed or updated by this work.
-App-request capture, a fresh technical native run and authenticated sandbox
-addition/replay remain acceptance gates. aTwist activation stays pending review.
+The November 2 source adds the existing-case selection, reviewed replay,
+assertion evaluation and separate versioned patch flow. It reuses the actual
+native observation/tap adapter through `/case-replay/v1`, with its own
+single-use device/app/origin/scope ticket and five-minute, twelve-step limit.
+Each action is an explicit request. Exploration and replay cannot navigate
+concurrently. A missing locator offers same-label or shared-word candidates;
+the chosen candidate must still match the freshly observed original screen,
+unique selector and complete native target before one approved retry. The
+receipt retains the candidate, screen, reasons and explicit retry approval.
+
+Only TAP with resource-id, accessibility-id or text/class locators is supported.
+An assertion requires exactly one matching visible label after the action. The
+reviewer explicitly relates that assertion to the original expected result;
+it does not prove other business rules, response bodies or API correctness.
+Uncertain native execution quarantines that device in the connector process,
+including after Stop. Reading retained results never issues a native command;
+a missing or mismatched command receipt cannot enable another action. Reload
+and connector restart recovery are not provided. Do not restart to evade an
+uncertain action; reconcile it under a separate operator review.
+
+The case picker exposes a bounded first 100 cases with their own structured
+steps. Shared-step and unstructured cases remain manual. The selected case's
+complete revision, step IDs, update identity and source provenance are pinned.
+Every operation rechecks original current full-editor authority and revision.
+Changing account, project, session, device or pairing hides retained evidence
+and consumes component authority; restoring access cannot revive that run.
+The local connector's scope pins do not independently attest hosted permission.
+
+Completed assertions produce an exact patch preview, followed by separate
+project-disclosure and patch approval. The server locks current organization,
+membership, project, native actor, case, steps and source, and verifies the
+bounded original plan and all receipts. It appends technical evidence to action
+text only, creates an existing-model case version and audit receipt, and returns
+ordinary review to pending. Expected results, responses, media, other case fields
+and original source are preserved. Exact uncertain-write recovery uses the same
+request and receipt, preserving later human edits. No automatic write retry or
+new request is made. The existing UI Automator draft operation can use the saved
+step evidence; generation and AI disclosure remain separate and are not invoked.
+
+### Optional app-owned HTTP metadata
+
+ADB hierarchy and tap receipts are never represented as app network traffic.
+`scripts/android-network-evidence-debug.mjs` is an opt-in JavaScript debug-app
+integration for an app-owned fetch client, including React Native. It has no
+production installation, TLS interception, rooting, global fetch patch, log
+reader or automatic transmission. The app developer must exclude it from the
+production build and select a permitted test account, source ID and symbolic
+route allowlist before capture. The debug flag and package label are assertions
+by that app source, not cryptographic proof of its build or identity.
+
+For an authorized debug build, instantiate it with the displayed replay run ID
+before pressing **Run next reviewed step**, then explicitly route selected app
+calls through it:
+
+```js
+const evidence = createDebugAppNetworkEvidence({
+  debugBuild: __DEV__,
+  packageName: approvedPackageName,
+  runId: displayedReplayRunId,
+  sourceId: "qa_catalog",
+  approvedRouteKeys: ["catalog_list"],
+  fetchImpl: appOwnedFetch,
+});
+const response = await evidence.request("catalog_list", catalogUrl, {
+  method: "GET",
+  headers: existingAppHeaders,
+});
+// Export locally only after those requests have settled.
+const metadata = evidence.exportMetadata();
+```
+
+Only the symbolic route, actual response status or transport-error outcome,
+method and timings are retained, up to 100 events. Raw URLs, headers, request
+and response bodies, credentials and exception text are not exported. Request
+objects are refused because their implicit method could differ from the
+recorded method. The wrapper refuses unapproved routes and exhausted budgets
+before dispatch; use it only for those explicitly selected debug calls.
+
+After a completed replay, the reviewer selects that source and exact route
+allowlist, imports its bounded metadata file, and reviews the combined disclosure.
+Strict schemas reject extra raw-data fields and wrong app/run/source/routes or
+out-of-run timestamps. Changing the selection invalidates the previous evidence
+and disclosure approvals. Without this explicit import the patch says
+`NOT_CAPTURED`. Even admitted metadata is app-reported, not independently
+verified traffic or an API assertion. An installed app with no approved debug
+integration remains unsupported for request capture.
+
+### APP-NAV-03 correlated debug HTTP producer
+
+Version 1 imports remain valid, explicitly uncorrelated run-level metadata.
+Version 2 adds a reviewed static operation catalog, a local app clock identity,
+pending-request count and actual challenge/response clock observations. A clock
+ID identifies one capture instance; matching IDs or wall-clock epochs do not
+establish synchronization. The server derives an offset interval from the real
+host send/receive observations. It assigns an event only when its complete
+uncertainty envelope falls strictly inside exactly one step's original
+dispatch-to-observation window and inside the calibration span. Overlapping,
+boundary, missing-clock and inconsistent observations remain unassigned in the
+audit. This assumes compatible reported clocks between samples and is temporal
+association only, never causality, network attestation or API correctness.
+
+For version 2, `selection.startedAt/endedAt` are explicitly app-clock bounds:
+`selection.correlation.captureClock` must be `{domain:"APP_REPORTED",clockId}`
+with the exact metadata clock ID. Calibration separately retains host
+send/receive times and `connectorClockId`; each native receipt separately
+retains that clock ID and its host command window. The initial capture has
+`clockCalibration:null` because one sample cannot calibrate a span. Never fill
+in missing times or replace them with host wall-clock values.
+
+The connector now contains a bounded adapter for an explicitly integrated debug
+app. Download, pairing, ordinary navigation and retained-state reads perform no
+HTTP-metadata file I/O. The replay start request must separately include:
+
+```js
+networkApproval: {
+  sourceId: "qa_catalog",
+  catalog: {
+    id: "catalog_api", revision: 1,
+    routes: [{routeKey: "catalog_item", method: "GET", template: "/v1/catalog/{item_id}"}]
+  },
+  debugMetadata: true,
+  sourceReviewed: true,
+  catalogReviewed: true,
+  temporalOnlyReviewed: true
+}
+```
+
+Review the source, catalog and debug-build integration independently. Templates
+are static lowercase path vocabulary and named placeholders, with an optional
+version prefix. They contain no host, query, fragment, escaped bytes, concrete
+IDs or personal values. Syntax cannot prove a static word is non-private; the
+catalog reviewer must exclude private names and identifiers. The wrapper checks
+the actual requested method/path against this catalog and exports only symbolic
+operations, actual status/outcome and timing. URLs and app headers remain within
+the app's own fetch call and are never copied to evidence.
+
+App developer integration uses `createDebugAppNetworkFileBridge` from
+`scripts/android-network-evidence-debug.mjs`. The developer creates these two
+files inside the selected debuggable application's private data directory and
+supplies synchronous bounded native file methods. Vaettir neither installs nor
+creates the app integration or its directories:
+
+```js
+const bridge = createDebugAppNetworkFileBridge({
+  debugBuild: __DEV__, packageName: approvedPackageName,
+  sourceId: "qa_catalog", catalog: reviewedCatalog,
+  fetchImpl: appOwnedFetch,
+  // Each callback must restrict access to its exact path below.
+  readControl: path => appDebugFiles.readUtf8Sync(path, 16384),
+  writeResponse: (path, text) => appDebugFiles.atomicReplaceUtf8Sync(path, text, 65536),
+  // Consult CURRENT app-local approval for this exact run/origin/source/catalog.
+  // Never implement this as unconditional true or as a production capability.
+  approveRun: request => debugApproval.matchesCurrent(request),
+  nonce: () => appCrypto.randomBytesHex(24),
+});
+// The app's existing debug lifecycle calls bridge.poll(), on its own thread.
+// Route ONLY explicitly selected calls through this wrapper while approved.
+const response = await bridge.request("catalog_item", itemUrl, {method: "GET", headers: appHeaders});
+```
+
+`appDebugFiles`, `debugApproval` and `appCrypto` above are developer-supplied
+native app adapters, not installed libraries or simulated capture results. The
+app must build and verify them on its target runtime. Start with empty files,
+create a fresh bridge for each expressly approved run, poll within the bounded
+host deadline, and stop polling when that run expires or is refused. The SDK
+has no background timer, global interception or automatic permission grant.
+App approval is rechecked on every challenge and selected request; refusal is
+terminal for that bridge instance. A pending request may finish after the last
+snapshot, so `pendingRequests` is retained and is not treated as a successful
+or failed response. No extra navigation or private-file read is issued to wait
+for such a request.
+
+The only host file operations are `adb -s <original serial> exec-out run-as
+<original package> tee files/vaettir-debug-http/control.json` and the corresponding
+`cat files/vaettir-debug-http/response.json`. There is no shell expansion, mkdir,
+path discovery, rooting, device-wide logs or TLS interception. Each control is a
+canonical JSON frame terminated by a newline; empty/incomplete frames cause no
+app response, handling the tee truncation window. The app atomically replaces
+its response. Each exchange writes once, reads at most four times, admits at
+most 16 KiB control/64 KiB response and requires a round trip at most one second.
+At most 32 unique challenges, 100 requests and five minutes are allowed. Focus,
+original device/package, origin, scope, source, catalog, approval, nonce and
+clock are rechecked. Failed or ambiguous writes are never retried automatically.
+After uncertain native execution the connector issues no metadata cleanup
+command. App-side expiry remains in force; restoring focus/access cannot revive
+a refused capture.
+
+Requested replay state contains `networkCapture` with `status: "CAPTURED"`,
+`metadata` and `selection`, or `status: "UNAVAILABLE"` and both values null. The
+UI forwards the exact captured pair through the existing disclosure/patch
+review. Failure to start capture prevents the first tap. Capture failure after
+a complete native receipt preserves that receipt but stops further navigation.
+It does not falsely label the known action as uncertain. Source-only tests use
+the actual producer, adapter, engine, strict downloaded-connector parser and
+service with synthetic I/O. Physical app integration, device traffic, root UI
+wiring and hosted acceptance remain separate Main-owned release gates.
+
+### APP-NAV-02 validation boundary
+
+Focused tests execute the actual replay engine, native adapter and helper HTTP
+admission with synthetic native runners; actual service transactions with
+synthetic delegates; and the actual React component event handlers and SSR with
+synthetic hooks/RPC. They cover scope/revision changes, denied access, exact
+single-action receipts, missing/stale/ambiguous targets, explicit repair,
+assertion failures, uncertain-command refusal, bounded HTTP metadata, reviewed
+patches, version/audit rollback behavior and exact receipt recovery. They do not
+establish PostgreSQL locking/concurrency, browser geometry, physical-device,
+app-provider, hosted or production acceptance. Those Main-owned checks remain
+required before release acceptance. No real existing case has been replayed,
+healed or changed by this source work; the prior eight-case import is untouched.
+aTwist activation remains pending review.
+
+### Reviewing app-request capture in Vaettir
+
+Before Run, open App requests and choose the developer-provided request setup:
+`{"sourceId":"qa_debug","catalog":{"id":"qa_routes","revision":1,"routes":[{"routeKey":"catalog","method":"GET","template":"/catalog"}]}}`.
+Vaettir lists the methods and templates for approval. This approval is separate
+from navigation and is consumed by one run. Loading or changing setup clears
+previous approval. The developer must first integrate the debug file responder
+and request wrapper described above; selecting a file does not instrument an app.
+The current connector advertises APP_PRIVATE_FILES version 2. A missing,
+unsolicited or changed source is refused before further navigation. Returned
+clock observations are forwarded as observed; there is no timestamp editor.
+Completed evidence and exact proposed case changes are reviewed before saving.
+Legacy exports stay available separately and remain uncorrelated.

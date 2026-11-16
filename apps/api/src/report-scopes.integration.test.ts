@@ -1,3 +1,4 @@
+import { fixtureProjectKey } from "./testProjectKey.js";
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "@vaettir/db";
@@ -54,7 +55,8 @@ describe("recorded scope frozen reports (disposable database)", () => {
       });
       userIds.push(user.id);
       const project = await prisma.project.create({
-        data: { organizationId: org.id, name: key, slug: key },
+        data: {
+          caseKey: fixtureProjectKey(), organizationId: org.id, name: key, slug: key },
       });
       const caller = appRouter.createCaller({ prisma, user });
       if (suffix === "owner") {

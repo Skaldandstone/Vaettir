@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
@@ -37,7 +38,7 @@ const visualSource = readFileSync(
     new URL("../components/MetricVisuals.tsx", import.meta.url),
     "utf8",
   ),
-  code = ts.transpileModule(
+  code = controllerTranspile(
     `${compileFunctions(visualSource)}\n${compileFunctions(source)}\nthis.component=CiRunDetail;this.badge=CiOutcomeBadge;this.card=CiResultCard;`,
     {
       compilerOptions: {
@@ -197,7 +198,19 @@ function harness() {
       current: () => snapshot,
     },
     hook = vi.fn(() => reader),
-    context = vm.createContext({ React, useCiRunDetail: hook });
+    context = vm.createContext({
+      React,
+      useState: React.useState,
+      useEffect: React.useEffect,
+      useRef: React.useRef,
+      trpcReact: { useUtils: () => ({}) },
+      ActionButton: ({ tooltip, ...props }: React.ComponentProps<"button"> & { tooltip: React.ReactNode }) =>
+        React.createElement("button", {
+          ...props,
+          "aria-label": renderToStaticMarkup(React.createElement(React.Fragment, null, tooltip)).trim(),
+        }),
+      useCiRunDetail: hook,
+    });
   vm.runInContext(code, context);
   const component = context.component as (props: {
       projectId: string;
@@ -238,7 +251,7 @@ function harness() {
     button: (text: string) => {
       const node = elements(tree).find(
         (node) =>
-          node.type === "button" && renderToStaticMarkup(node).includes(text),
+          (node.type === "button" || node.type === context.ActionButton) && renderToStaticMarkup(node).includes(text),
       );
       if (!node) throw Error(`No actual button ${text}`);
       return node;
@@ -296,7 +309,7 @@ it("private-reader loss removes all private rows/header/source/counts and keeps 
   ])
     expect(html).not.toContain(privateText);
   expect(html).toContain("withheld");
-  expect(html).toContain("Explicitly refresh");
+  expect(html).toContain("Refresh access to view the run");
   h.button("Refresh current native access").props.onClick!();
   expect(h.refresh).toHaveBeenCalledOnce();
 });
@@ -349,7 +362,7 @@ it("closed current-source and artifact disclosures contain readable full support
   const h = harness(),
     html = h.render();
   expect(html).not.toMatch(
-    /<details[^>]*\bopen|<a\b|storageUrl|ciRunUrl|HealingSuggestionPanel|LinkResultPicker/,
+    /<details[^>]*\bopen|<a\b|<img\b|<video\b|storageUrl|ciRunUrl|HealingSuggestionPanel|LinkResultPicker/,
   );
   for (const label of [
     "Current stable display ID",
@@ -358,7 +371,7 @@ it("closed current-source and artifact disclosures contain readable full support
     "Current framework family",
     "Current source last-synced commit",
     "Current source last-synced UTC",
-    "Files, availability, contents and immutable versions have not been verified",
+    "File details",
   ])
     expect(html).toContain(label);
 });
@@ -398,4 +411,20 @@ it("source scope is protected read-only CI detail; never auto-classifies/heals/l
   expect(source).not.toMatch(
     /testRuns\.byId|HealingSuggestionPanel|LinkResultPicker|\.useMutation\(|downloadFile|location\.assign|createViewUrl|dangerouslySetInnerHTML|\.trim\(/,
   );
+});
+it("screenshot and video actions are available without opening metadata first", () => {
+  const h = harness(), row = fixture().page.rows[0]!;
+  for (const type of ["SCREENSHOT", "VIDEO"]) {
+    row.artifacts = [{ ...row.artifacts[0]!, type }];
+    let found = 0;
+    function visit(value: React.ReactNode, hidden = false) {
+      if (Array.isArray(value)) { value.forEach(child => visit(child, hidden)); return; }
+      if (!React.isValidElement<{ children?: React.ReactNode; open?: boolean }>(value)) return;
+      if (typeof value.type === "function" && value.type.name === "CiArtifactViewer") {
+        found++; expect(hidden).toBe(false);
+      }
+      visit(value.props.children, hidden || value.type === "details" && !value.props.open);
+    }
+    visit(h.card({ row })); expect(found).toBe(1);
+  }
 });
