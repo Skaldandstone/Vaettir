@@ -6,9 +6,10 @@ import { createHash } from 'node:crypto';
 import { restorePreGitOpensslDockerfileFixture, GIT_OPENSSL_DOCKERFILE_SHA256 } from './git-openssl-dockerfile-inverse-fixture.mjs';
 import { historicalRuntimeDockerfileFixture, ABSENCE_FIXED_DOCKERFILE_SHA256, HISTORICAL_DOCKERFILE_SHA256 } from './historical-runtime-dockerfile-test-fixture.mjs';
 import { restorePreExpat290DockerfileFixture } from './expat-dockerfile-inverse-fixture.mjs';
+import { restorePreNode26DockerfileFixture } from './node26-dockerfile-inverse-fixture.mjs';
 // This suite still tests the immutable Git transport change, not a new
 // runtime admission. Reverse the separately hash-pinned Expat change first.
-const current = restorePreExpat290DockerfileFixture(restorePreNodeBrotliDockerfileFixture(Buffer.from(readFileSync(new URL('../Dockerfile.api', import.meta.url), 'utf8').replaceAll('\r\n', '\n'))));
+const current = restorePreExpat290DockerfileFixture(restorePreNodeBrotliDockerfileFixture(restorePreNode26DockerfileFixture(Buffer.from(readFileSync(new URL('../Dockerfile.api', import.meta.url), 'utf8').replaceAll('\r\n', '\n')))));
 const sha = b => createHash('sha256').update(b).digest('hex');
 test('exact closed Git transport inverse retains every historical native byte and actual source identity', () => {
   assert.equal(sha(current), GIT_OPENSSL_DOCKERFILE_SHA256);

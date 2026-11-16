@@ -24,20 +24,34 @@ function middlewareTarget(url: URL) {
   const search = query.toString();
   return url.pathname + (search ? `?${search}` : "");
 }
+export type WorkspaceIngressRejection =
+  "ingress_required" | "host" | "secret" | "time" | "signature_format" | "target" | "signature";
+// Carries why an edge attestation was refused so middleware can answer with a
+// 400 and report the reason. The default Error name is kept intentionally so
+// existing Sentry grouping for "Invalid workspace ingress" is preserved.
+// Declared without a parameter property so Node's type stripping can load it.
+export class WorkspaceIngressError extends Error {
+  readonly reason: WorkspaceIngressRejection;
+  constructor(reason: WorkspaceIngressRejection, message = "Invalid workspace ingress") {
+    super(message);
+    this.reason = reason;
+  }
+}
 // Only used by Next's middleware. The provider selects its satellite from the
 // actual browser URL; the server additionally verifies the edge attestation.
 export async function verifiedWorkspaceWebHost(request: { headers: Headers; method: string; url: string }, secret: string | undefined) {
   const host = request.headers.get("x-vaettir-host");
   const forwarded = request.headers.get("x-forwarded-host");
   if (!host) {
-    if (forwarded && isWorkspaceAuthHost(forwarded)) throw new Error("Workspace ingress required");
+    if (forwarded && isWorkspaceAuthHost(forwarded)) throw new WorkspaceIngressError("ingress_required", "Workspace ingress required");
     return null;
   }
   const time = request.headers.get("x-vaettir-time") ?? "";
   const signature = request.headers.get("x-vaettir-signature") ?? "";
-  if (!isWorkspaceAuthHost(host) || !secret || secret.length < 64 || !/^\d{13}$/.test(time)
-      || Math.abs(Date.now() - Number(time)) > 30_000 || !/^[a-f0-9]{64}$/.test(signature))
-    throw new Error("Invalid workspace ingress");
+  if (!isWorkspaceAuthHost(host)) throw new WorkspaceIngressError("host");
+  if (!secret || secret.length < 64) throw new WorkspaceIngressError("secret");
+  if (!/^\d{13}$/.test(time) || Math.abs(Date.now() - Number(time)) > 30_000) throw new WorkspaceIngressError("time");
+  if (!/^[a-f0-9]{64}$/.test(signature)) throw new WorkspaceIngressError("signature_format");
   const url = new URL(request.url);
   const target = request.headers.get("x-vaettir-target");
   let path = url.pathname + url.search;
@@ -45,7 +59,7 @@ export async function verifiedWorkspaceWebHost(request: { headers: Headers; meth
     const original = new URL(target, "https://ingress.invalid");
     if (!target.startsWith("/") || target.startsWith("//") || original.origin !== "https://ingress.invalid"
         || original.hash || original.pathname + original.search !== target
-        || middlewareTarget(original) !== middlewareTarget(url)) throw new Error("Invalid workspace ingress");
+        || middlewareTarget(original) !== middlewareTarget(url)) throw new WorkspaceIngressError("target");
     path = target;
   }
   path = path.replace(/^\/api(?=\/)/, "");
@@ -53,6 +67,6 @@ export async function verifiedWorkspaceWebHost(request: { headers: Headers; meth
   const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
   const bytes = Uint8Array.from(signature.match(/../g)!, x => parseInt(x, 16));
   if (!(await crypto.subtle.verify("HMAC", key, bytes, new TextEncoder().encode(message))))
-    throw new Error("Invalid workspace ingress");
+    throw new WorkspaceIngressError("signature");
   return host;
 }

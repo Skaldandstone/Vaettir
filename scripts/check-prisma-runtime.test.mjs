@@ -165,7 +165,8 @@ function assertPatchedPinnedStages(source, names, base) {
       );
       continue;
     }
-    assert.equal(image, base, `${name} must retain the immutable base`);
+    const expectedBase = typeof base === "function" ? base(name) : base;
+    assert.equal(image, expectedBase, `${name} must retain the immutable base`);
     assert.match(
       content,
       /apt-get install[^\n]+openssl ca-certificates[^\n]+perl-base[^\n]+libpcre2-8-0/,
@@ -185,7 +186,7 @@ function assertPatchedPinnedStages(source, names, base) {
   }
 }
 
-test("all image stages pin the same Trixie base and install patched Perl/OpenSSL before generation", () => {
+test("image stages retain digest-pinned Trixie bases and patched Perl/OpenSSL before generation", () => {
   const api = readFileSync(
     new URL("../Dockerfile.api", import.meta.url),
     "utf8",
@@ -194,8 +195,11 @@ test("all image stages pin the same Trixie base and install patched Perl/OpenSSL
     new URL("../Dockerfile.web", import.meta.url),
     "utf8",
   );
-  const base =
+  const base22 =
     "public.ecr.aws/docker/library/node:22-trixie-slim@sha256:b26b04c123d9ff8ab646ceb18b9d75a1173acf64b9a401094b906d27b29338d4";
+  const base26 =
+    "public.ecr.aws/docker/library/node:26-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39";
+  const baseForStage = (name) => name === "sqlite-security" ? base22 : base26;
   for (const [source, names] of [
     [
       api,
@@ -215,7 +219,7 @@ test("all image stages pin the same Trixie base and install patched Perl/OpenSSL
     ],
     [web, ["sqlite-security", "node-brotli-security", "native-build", "builder", "runtime"]],
   ]) {
-    assertPatchedPinnedStages(source, names, base);
+    assertPatchedPinnedStages(source, names, baseForStage);
   }
   assert.doesNotMatch(api + web, /43ac6c60b8f89723/);
   for (const source of [api, web]) {
@@ -241,8 +245,11 @@ test("derived LLVM stages reject unpinned, unrelated, forward and incompletely g
     new URL("../Dockerfile.api", import.meta.url),
     "utf8",
   ).replaceAll("\r\n", "\n");
-  const base =
+  const base22 =
     "public.ecr.aws/docker/library/node:22-trixie-slim@sha256:b26b04c123d9ff8ab646ceb18b9d75a1173acf64b9a401094b906d27b29338d4";
+  const base26 =
+    "public.ecr.aws/docker/library/node:26-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39";
+  const baseForStage = (name) => name === "sqlite-security" ? base22 : base26;
   const names = [
     "sqlite-security",
     "vendor-build",
@@ -256,7 +263,7 @@ test("derived LLVM stages reject unpinned, unrelated, forward and incompletely g
     "git-openssl-build",
     "runtime",
   ];
-  assertPatchedPinnedStages(source, names, base);
+  assertPatchedPinnedStages(source, names, baseForStage);
   for (const [name, parent] of checkpointParents) {
     for (const invalidParent of [
       "node:22-trixie-slim",
@@ -272,7 +279,7 @@ test("derived LLVM stages reject unpinned, unrelated, forward and incompletely g
             `FROM ${invalidParent} AS ${name}`,
           ),
           names,
-          base,
+          baseForStage,
         ),
       );
     }
@@ -284,14 +291,14 @@ test("derived LLVM stages reject unpinned, unrelated, forward and incompletely g
         "--phase assertion-compile-3",
       ),
       names,
-      base,
+      baseForStage,
     ),
   );
   assert.throws(() =>
     assertPatchedPinnedStages(
       source.replace("hash assertion-compile-3", "hash release-core"),
       names,
-      base,
+      baseForStage,
     ),
   );
   assert.throws(() =>
@@ -301,7 +308,7 @@ test("derived LLVM stages reject unpinned, unrelated, forward and incompletely g
         'vaettir.runtime-eligible="true"\nRUN sh /build/scripts/build-llvm-runtime.sh --phase prepare',
       ),
       names,
-      base,
+      baseForStage,
     ),
   );
   const inputs = source.match(
@@ -339,7 +346,7 @@ test("derived LLVM stages reject unpinned, unrelated, forward and incompletely g
       "FROM llvm-configure-only AS llvm-build",
     ),
     source.replace(
-      `${base} AS llvm-build-inputs`,
+      `${base26} AS llvm-build-inputs`,
       "node:22-trixie-slim AS llvm-build-inputs",
     ),
     source.replace("AS llvm-build-inputs", "AS unexpected-llvm-inputs"),
@@ -366,7 +373,7 @@ test("derived LLVM stages reject unpinned, unrelated, forward and incompletely g
     ),
   ]) {
     assert.notEqual(malformed, source);
-    assert.throws(() => assertPatchedPinnedStages(malformed, names, base));
+    assert.throws(() => assertPatchedPinnedStages(malformed, names, baseForStage));
   }
 });
 

@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fetchPinnedInput } from "./fetch-node-brotli-sources.mjs";
 import { restorePreNodeBrotliDockerfileFixture } from "./node-brotli-dockerfile-inverse-fixture.mjs";
+import { restorePreNode26DockerfileFixture } from "./node26-dockerfile-inverse-fixture.mjs";
 const url = "https://nodejs.org/dist/v22.23.4/node-v22.23.4-linux-x64.tar.xz",
   body = Buffer.from("synthetic-pinned-input"),
   pin = {
@@ -80,12 +81,12 @@ test("native regression uses the exact upstream Node malformed stream", () => {
 });
 
 test("historical test input requires exact complete current bytes and preserves its predecessor", () => {
-  const current = Buffer.from(
+  const current = restorePreNode26DockerfileFixture(Buffer.from(
     readFileSync(
       new URL("../Dockerfile.api", import.meta.url),
       "utf8",
     ).replaceAll("\r\n", "\n"),
-  );
+  ));
   const old = restorePreNodeBrotliDockerfileFixture(current);
   assert.equal(
     createHash("sha256").update(old).digest("hex"),
