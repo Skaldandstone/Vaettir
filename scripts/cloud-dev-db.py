@@ -90,6 +90,8 @@ def main():
         api("ec2", "start-instances", "--instance-ids", host)
     elif state not in ("running", "pending"):
         raise RuntimeError("Access host is " + state + "; wait before retrying")
+    if state in ("stopped", "pending"):
+        aws("ec2", "wait", "instance-status-ok", "--instance-ids", host)
     deadline = time.monotonic() + 600
     while True:
         info = api("ssm", "describe-instance-information", "--filters", "Key=InstanceIds,Values=" + host)["InstanceInformationList"]
