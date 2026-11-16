@@ -109,7 +109,8 @@
                     "ecr:UploadLayerPart",
                     "ecr:CompleteLayerUpload",
                     "ecr:PutImage",
-                    "ecr:DescribeImages"
+                    "ecr:DescribeImages",
+                    "ecr:BatchGetImage"
                   ],
                   "Resource": {
                     "Fn::Sub": "arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/vaettir-api"
