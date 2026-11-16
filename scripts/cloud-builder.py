@@ -50,17 +50,36 @@ def main():
     submit.add_argument("--phase", choices=["prepare-native", "build-image"], required=True)
     status = commands.add_parser("status")
     status.add_argument("run_id")
+    logs = commands.add_parser("logs")
+    logs.add_argument("run_id")
     args = parser.parse_args()
     if args.command == "submit" and not re.fullmatch(r"[a-f0-9]{40}", args.commit):
         parser.error("Commit must be a full lowercase SHA")
-    if args.command == "status" and not re.fullmatch(r"[a-f0-9]{32}", args.run_id):
+    if args.command in ("status", "logs") and not re.fullmatch(r"[a-f0-9]{32}", args.run_id):
         parser.error("Run ID must be 32 lowercase hex characters")
     if api("sts", "get-caller-identity")["Account"] != ACCOUNT:
         raise RuntimeError("Refusing a different AWS account")
     receipts = ROOT / ".local" / "assistant-history" / "cloud-builder"
     receipts.mkdir(parents=True, exist_ok=True)
-    if args.command == "status":
+    if args.command in ("status", "logs"):
         receipt = json.loads((receipts / (args.run_id + ".json")).read_text())
+        if args.command == "logs":
+            parameters = json.dumps({"commands": ["tail -n 20 /var/lib/vaettir-builder/jobs/" + args.run_id + "/build.log"]})
+            response = api("ssm", "send-command", "--instance-ids", receipt["instance_id"],
+                           "--document-name", "AWS-RunShellScript", "--parameters", parameters)
+            command_id = response["Command"]["CommandId"]
+            # The command may take a moment to become visible to GetCommandInvocation.
+            time.sleep(2)
+            for _ in range(30):
+                command = api("ssm", "get-command-invocation", "--command-id", command_id,
+                              "--instance-id", receipt["instance_id"])
+                if command["Status"] not in ("Pending", "InProgress", "Delayed"):
+                    print(command.get("StandardOutputContent", ""))
+                    if command["Status"] != "Success":
+                        raise RuntimeError(command.get("StandardErrorContent") or command["Status"])
+                    return
+                time.sleep(2)
+            raise TimeoutError("Log request did not complete; SSM command " + command_id)
         command = api("ssm", "get-command-invocation", "--command-id", receipt["command_id"],
                       "--instance-id", receipt["instance_id"])
         print(json.dumps({key: command.get(key) for key in

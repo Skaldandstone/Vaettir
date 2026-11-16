@@ -47,6 +47,7 @@ are uploaded.
 ```powershell
 python scripts/cloud-builder.py submit <40-character-source-sha> --phase prepare-native
 python scripts/cloud-builder.py status <run-id>
+python scripts/cloud-builder.py logs <run-id>
 python scripts/cloud-builder.py submit <same-source-sha> --phase build-image
 python scripts/cloud-builder.py status <run-id>
 ```

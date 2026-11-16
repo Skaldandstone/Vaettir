@@ -44,7 +44,7 @@ class CloudBuilderTest(unittest.TestCase):
         self.assertIn("VAETTIR_RELEASE_COMMIT=" + "a" * 40, command)
         self.assertNotIn("--push", command)
 
-    def run_worker(self, phase, fail_build=False, bad_hash=False):
+    def run_worker(self, phase, fail_build=False, bad_hash=False, bad_identity=False):
         archive = b"synthetic source archive"
         job = {**self.job(), "phase": phase, "archive_sha256": hashlib.sha256(archive).hexdigest()}
         if bad_hash:
@@ -73,6 +73,11 @@ class CloudBuilderTest(unittest.TestCase):
                     return S3()
                 if service == "sts":
                     return types.SimpleNamespace(get_caller_identity=lambda: {"Account": "051722405355"})
+                if service == "ecr":
+                    return types.SimpleNamespace(
+                        get_authorization_token=lambda **kwargs: {"authorizationData": [{"authorizationToken": "QVdTOnN5bnRoZXRpYw=="}]},
+                        describe_images=lambda **kwargs: {"imageDetails": [{"imageDigest": "sha256:" + "d" * 64}]},
+                    )
                 raise AssertionError("Unexpected cloud call: " + service)
 
             def run(argv, **kwargs):
@@ -82,9 +87,11 @@ class CloudBuilderTest(unittest.TestCase):
                 return types.SimpleNamespace(returncode=0)
 
             boto = types.SimpleNamespace(Session=lambda **kwargs: types.SimpleNamespace(client=client))
+            image = [{"Config": {"Env": ["VAETTIR_RELEASE_COMMIT=" + ("0" * 40 if bad_identity else job["commit"])]}}]
             with patch.dict(sys.modules, boto3=boto), patch.object(sys, "argv", ["worker", "vaettir-build-source-051722405355", job["run_id"]]), \
-                    patch.object(worker.pathlib, "Path", mapped_path), patch.object(worker.subprocess, "run", run):
-                if fail_build or bad_hash:
+                    patch.object(worker.pathlib, "Path", mapped_path), patch.object(worker.subprocess, "run", run), \
+                    patch.object(worker.subprocess, "check_output", return_value=json.dumps(image).encode()):
+                if fail_build or bad_hash or bad_identity:
                     with self.assertRaises((subprocess.CalledProcessError, RuntimeError)):
                         worker.main()
                 else:
@@ -108,6 +115,20 @@ class CloudBuilderTest(unittest.TestCase):
         self.assertFalse(result["runtime_image_produced"])
         self.assertFalse(result["deployed"])
         self.assertNotIn("ecr", clients)
+
+    def test_wrong_image_identity_cannot_publish(self):
+        result, clients, _ = self.run_worker("build-image", bad_identity=True)
+        self.assertEqual(result["status"], "failed")
+        self.assertNotIn("ecr", clients)
+
+    def test_success_publishes_unique_tag_without_deploying(self):
+        result, _, commands = self.run_worker("build-image")
+        self.assertEqual(result["status"], "built")
+        self.assertFalse(result["deployed"])
+        self.assertEqual(result["scan_and_release_acceptance"], "pending")
+        pushed = next(c[2] for c in commands if c[:2] == ["docker", "push"])
+        self.assertTrue(pushed.endswith("/vaettir-api:cloud-" + "a" * 40 + "-" + "c" * 32))
+        self.assertTrue(any(c[:2] == ["docker", "logout"] for c in commands))
 
 
 if __name__ == "__main__":
