@@ -2,6 +2,7 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import type { NextFetchEvent, NextRequest } from "next/server";
 import { verifiedWorkspaceWebHost } from "./lib/workspace-auth";
 import { verifiedWorkspaceClerkRequest } from "./lib/workspace-clerk-request";
+import { workspaceIngressRejection } from "./lib/workspace-ingress-response";
 import { authReturnUrl, isBrowserDocument, LEGACY_APPLICATION_ORIGIN } from "./lib/auth-return";
 import { legacyAuthDocumentDestination, PRIMARY_AUTH_ORIGIN, workspaceClerkConfiguration } from "./lib/clerk-auth-domain";
 
@@ -44,6 +45,15 @@ const handleClerk = clerkMiddleware(async (auth, req) => {
 });
 
 export default async function middleware(request: NextRequest, event: NextFetchEvent) {
+  try {
+    return await handleRequest(request, event);
+  } catch (error) {
+    // Rejected edge attestations become a reported 400; other errors rethrow.
+    return workspaceIngressRejection(error, request);
+  }
+}
+
+async function handleRequest(request: NextRequest, event: NextFetchEvent) {
   const clerkRequest = await verifiedWorkspaceClerkRequest(
     request,
     process.env.NEXT_PUBLIC_VAETTIR_WORKSPACE_AUTH_ENABLED === "1",
