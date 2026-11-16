@@ -9,6 +9,10 @@ export const PRE_NODE26_API_DOCKERFILE_SHA256 =
   "d15d3ecbecc3ea49f1af7f30805ef56815bac98a73b47a75a71357ea4495d3c0";
 export const NODE26_WEB_DOCKERFILE_SHA256 =
   "138ec0d6d16b1d65a16bd07bff99da93e0464c755a047ab1b405dd835831c16d";
+export const NODE26_API_PNPM_DOCKERFILE_SHA256 =
+  "929d72689bb339ed79c4e1b22547d01e79a34617076bf9a0fcf2304f34a7902a";
+export const NODE26_WEB_PNPM_DOCKERFILE_SHA256 =
+  "11b2a4e5ac01607d3d8e3fd4eb6c71a6da04409d2cb1e9343b1ae8dea49bc874";
 export const PRE_NODE26_WEB_DOCKERFILE_SHA256 =
   "3ef10df06706d0f45e4d0b1946a727b24faa38e27f861c99dc9541932dd9265b";
 
@@ -28,10 +32,19 @@ export function restorePreNode26DockerfileFixture(raw) {
   const expected = new Map([
     [NODE26_API_DOCKERFILE_SHA256, PRE_NODE26_API_DOCKERFILE_SHA256],
     [NODE26_WEB_DOCKERFILE_SHA256, PRE_NODE26_WEB_DOCKERFILE_SHA256],
+    [NODE26_API_PNPM_DOCKERFILE_SHA256, PRE_NODE26_API_DOCKERFILE_SHA256],
+    [NODE26_WEB_PNPM_DOCKERFILE_SHA256, PRE_NODE26_WEB_DOCKERFILE_SHA256],
   ]);
   assert.ok(expected.has(hash), "Unknown complete Node 26 Dockerfile edit");
   assert.ok(text.includes(node26));
-  const restored = Buffer.from(text.replaceAll(node26, node22));
+  const restored = Buffer.from(
+    text
+      .replaceAll(node26, node22)
+      .replaceAll(
+        "RUN npm install --global --no-audit --no-fund pnpm@11.23.0",
+        "RUN corepack enable",
+      ),
+  );
   assert.equal(sha(restored), expected.get(hash), "Pre-Node-26 Dockerfile differs");
   return restored;
 }

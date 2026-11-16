@@ -60,7 +60,7 @@ RUN apt-get update --error-on=any \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' perl-base)" ge '5.40.1-6+deb13u1' \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libpcre2-8-0)" ge '10.46-1~deb13u3' \
     && rm -rf /var/lib/apt/lists/*
-RUN corepack enable
+RUN npm install --global --no-audit --no-fund pnpm@11.23.0
 WORKDIR /app
 
 # Next.js inlines NEXT_PUBLIC_* vars at build time, not runtime -- they have
