@@ -64,7 +64,7 @@ test("fresh project member Clerk and original echo guard cached choices and resu
   assert.ok(!source.includes("key={origin"));
 });
 test("identity or membership loss retains selected runs and paging rather than rebinding cached human choices", () => {
-  assert.ok(flat.includes("Your baseline, candidate and page selections remain retained"));
+  assert.ok(flat.includes("Your selections are retained"));
   assert.ok(flat.includes("Recheck original comparison access"));
   const scopeEffect = source.slice(source.indexOf("useEffect(() =>"), source.indexOf("const identityChanged"));
   for (const destructive of ["setBaseline", "setCandidate", "setApplied", "setHistory", "setCatalogInput"])

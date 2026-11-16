@@ -1,3 +1,4 @@
+import { fixtureProjectKey } from "./testProjectKey.js";
 // Authored source only; morning requires an owned migrated loopback database.
 import { createHash, randomUUID } from "node:crypto";
 import { beforeAll, afterEach, describe, expect, it } from "vitest";
@@ -93,7 +94,7 @@ describe("original-organization report erasure scope", () => {
           organizationId,
           name: slug,
           slug,
-          caseKey: `e${randomUUID().replaceAll("-", "").slice(0, 15)}`,
+          caseKey: fixtureProjectKey(),
         },
       });
       projectIds.push(p.id);

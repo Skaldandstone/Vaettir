@@ -6,6 +6,7 @@ import type {
 } from "./aiDisclosureGateway.js";
 import { aiTransactionOptions } from "./aiDisclosureAdmin.js";
 import { aiDisclosureDeployment } from "./aiDisclosureDeployment.js";
+import { AI_CASE_SCOPE, aiCaseDigest, aiCaseSelection, projectAiCases } from "./aiCaseDisclosure.js";
 
 // Persistent policy store: no general API user or session is created for a
 // connection. The grant itself is a dedicated VIEWER-only principal.
@@ -88,7 +89,7 @@ export function createAiDisclosureStore(
                 projectId: grant.projectId,
                 principalId: grant.id,
                 recipient: grant.recipient as "codex",
-                scope: grant.scope as "aggregate_counts",
+                scope: grant.scope as AiReadGrant["scope"],
                 policyVersion: grant.policyVersion,
                 classificationVersion: grant.classificationVersion,
                 expiresAt: grant.expiresAt,
@@ -112,6 +113,22 @@ export function createAiDisclosureStore(
                 classificationVersion: grant.policy.version,
               };
               return projected;
+            },
+            async readApprovedCases(organizationId, projectId, grantId) {
+              if (env.VAETTIR_AI_CASE_DISCLOSURE_ENABLED !== "1" || !current || current.grant.id !== grantId || current.grant.scope !== AI_CASE_SCOPE || current.grant.organizationId !== organizationId || current.grant.projectId !== projectId) return null;
+              const stored = await tx.aiDisclosureCaseSnapshot.findUnique({ where: { grantId } });
+              const parsed = aiCaseSelection.safeParse(stored?.selection);
+              if (!parsed.success || parsed.data.organizationId !== organizationId || parsed.data.projectId !== projectId) return null;
+              const v = parsed.data;
+              const rows = await tx.testCase.findMany({
+                where: { id: { in: v.caseIds }, projectId, project: { organizationId }, archived: false },
+                select: { id: true, projectId: true, title: v.fields.includes("title"), given: v.fields.includes("given"), when: v.fields.includes("when"), then: v.fields.includes("then") },
+                take: 20,
+              });
+              try {
+                const observed = projectAiCases(v, rows.map(c => ({ ...c, title: c.title ?? "", given: c.given ?? [], when: c.when ?? [], then: c.then ?? [] })), current.grant.classificationVersion);
+                return aiCaseDigest(observed) === stored!.digest ? observed : null;
+              } catch { return null; }
             },
             async countProject(organizationId, projectId) {
               if (

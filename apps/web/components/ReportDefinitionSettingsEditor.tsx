@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { trpcReact } from "@/lib/trpcReact";
 import { REPORT_SECTIONS, readableMetric } from "@/lib/frozen-report";
 import {
@@ -10,9 +12,13 @@ import {
 import type { ReportDefinition } from "@vaettir/api/src/services/reportDefinitionSchema";
 const fieldStyle = { width: "100%", boxSizing: "border-box" as const };
 
-/** Explicit controlled edits only. Never initializes/resets a human draft from refetch. */
+/** Explicit controlled edits only. Never initializes/resets a human draft from refetch.
+ * The parent owns current actor/workspace access and sets active=false while
+ * revalidating. Do not enable duplicate access queries from active: their own
+ * fetch would disable the parent, then re-enable/refetch them indefinitely. */
 export function ReportDefinitionSettingsEditor({
   projectId,
+  organizationId,
   value,
   onChange,
   screen,
@@ -20,32 +26,14 @@ export function ReportDefinitionSettingsEditor({
   active,
 }: {
   projectId: string;
+  organizationId: string;
   value: ReportDefinition;
   onChange: (value: ReportDefinition) => void;
   screen: number;
   onScreen: (screen: number) => void;
   active: boolean;
 }) {
-  const project = trpcReact.project.byId.useQuery(
-    { id: projectId },
-    { enabled: active, staleTime: 0 },
-  );
-  const organizations = trpcReact.organization.mine.useQuery(undefined, {
-    enabled: active,
-    staleTime: 0,
-  });
-  const accessReady =
-    active &&
-    project.data?.id === projectId &&
-    !project.error &&
-    !project.isFetching &&
-    !project.isPaused &&
-    !organizations.error &&
-    !organizations.isFetching &&
-    !organizations.isPaused &&
-    !!organizations.data?.some(
-      (row) => row.id === project.data?.organizationId,
-    );
+  const accessReady = active && !!organizationId;
   const scopeOptions = trpcReact.reportSnapshots.scopeOptions.useQuery(
     { projectId },
     { enabled: accessReady && screen === 2, staleTime: 0 },
@@ -55,7 +43,7 @@ export function ReportDefinitionSettingsEditor({
     accessReady &&
     screen === 2 &&
     scopeOptions.data?.projectId === projectId &&
-    scopeOptions.data.organizationId === project.data?.organizationId &&
+    scopeOptions.data.organizationId === organizationId &&
     !scopeOptions.error &&
     !scopeOptions.isFetching &&
     !scopeOptions.isPaused
@@ -226,24 +214,21 @@ export function ReportDefinitionSettingsEditor({
               />
             </label>
             {value.dateInterval && (
-              <button
+              <ActionButton
                 type="button"
                 className="btn-secondary"
                 onClick={() => onChange({ ...value, dateInterval: undefined })}
-              >
+               tooltip={<>
                 Use rolling dates instead
-              </button>
+               </>}>
+                 Use </ActionButton>
             )}
           </details>
         </>
       )}
       {screen === 2 && (
         <>
-          <p>
-            All filters are optional. A blank scope is project-wide; selected
-            values match recorded run context, not current project labels.
-            Saving settings does not capture or verify results.
-          </p>
+          <p>Leave filters blank for a project-wide report, or narrow the recorded run context. <a className="inline-help" href="/guide#reports" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
           <label>
             Release (optional, current linked plans)
             <select
@@ -269,12 +254,7 @@ export function ReportDefinitionSettingsEditor({
               ))}
             </select>
           </label>
-          <p>
-            Release scope uses current plan associations and complete
-            saved/linked case selection, not historical release certification.
-            Other filters intersect; incompatible plan references are refused,
-            not silently replaced.
-          </p>
+          <p>Release scope uses current plans and their selected cases. Other filters further narrow the results. <a className="inline-help" href="/guide#reports" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
           {options?.releasesLimited && (
             <p>
               Release suggestions show at most 100 records; stored older
@@ -337,13 +317,14 @@ export function ReportDefinitionSettingsEditor({
                 Suggestions are unavailable. No cached choices are shown; your
                 written scope is retained.
               </p>
-              <button
+              <ActionButton
                 type="button"
                 className="btn-secondary"
                 onClick={() => void scopeOptions.refetch()}
-              >
+               tooltip={<>
                 Retry scope suggestions
-              </button>
+               </>}>
+                 Retry </ActionButton>
             </div>
           )}
           {scopeOptions.isPaused && (
@@ -397,13 +378,14 @@ export function ReportDefinitionSettingsEditor({
             </label>
           </details>
           {value.executionScope && (
-            <button
+            <ActionButton
               type="button"
               className="btn-secondary"
               onClick={() => onChange({ ...value, executionScope: undefined })}
-            >
+             tooltip={<>
               Clear scope filters
-            </button>
+             </>}>
+               Clear </ActionButton>
           )}
         </>
       )}
@@ -433,22 +415,24 @@ export function ReportDefinitionSettingsEditor({
       )}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
         {screen > 0 && (
-          <button
+          <ActionButton
             type="button"
             className="btn-secondary"
             onClick={() => onScreen(screen - 1)}
-          >
+           tooltip={<>
             Previous settings screen
-          </button>
+           </>}>
+             Previous </ActionButton>
         )}
         {screen < 3 && (
-          <button
+          <ActionButton
             type="button"
             className="btn-primary"
             onClick={() => onScreen(screen + 1)}
-          >
+           tooltip={<>
             Next settings screen
-          </button>
+           </>}>
+             Next </ActionButton>
         )}
       </div>
     </section>

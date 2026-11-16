@@ -69,13 +69,16 @@ test("page binds export to visible identity scope, archive state and explicit co
     new URL("../app/projects/[projectId]/test-cases/page.tsx", import.meta.url),
     "utf8",
   );
-  assert.match(page, /caseExportIds\(visibleCases, selected, scope\)/);
+  assert.match(page, /caseExportIds\(visibleCases, exactIds \? new Set\(exactIds\) : selected, scope\)/);
+  assert.match(page, /onCsv=\{\(\) => void exportCsv\("selected", \[tc.id\]\)\}/);
+  assert.match(page, /onJson=\{\(\) => void exportProcedure\("selected", \[tc.id\]\)\}/);
+  assert.match(page, /<strong>\{selected.size\} selected<\/strong>/);
   assert.match(page, /scopeCaseExport\(available, ids\)/);
   assert.match(page, /includeArchived: showArchived/);
   assert.match(page, /Spreadsheet CSV \(\$\{visibleCases.length\} shown\)/);
-  assert.match(page, /Selected spreadsheet CSV \(\{selectedExportCount\}\)/);
+  assert.match(page, /onCsv=\{\(\) => void exportCsv\("selected"\)\}/);
   assert.match(page, /Case procedures JSON \(\{visibleCases.length\} shown\)/);
-  assert.match(page, /Selected procedures JSON \(\{selectedExportCount\}\)/);
+  assert.match(page, /onJson=\{\(\) => void exportProcedure\("selected"\)\}/);
   assert.match(page, /utils.testCases.exportProcedure.fetch\(\{/);
   assert.match(page, /encodeCaseProcedureExport\(bundle\)/);
   assert.match(page, /not a full backup/);

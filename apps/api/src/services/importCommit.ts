@@ -76,6 +76,7 @@ export interface CommitImportArgs {
   keyPrefix: string;
   framework: string;
   testPlanId?: string;
+  captureRows?: boolean;
 }
 
 export interface CommitImportResult {
@@ -83,6 +84,7 @@ export interface CommitImportResult {
   createdCount: number;
   updatedCount: number;
   skipped: { rowNumber: number; reason: string }[];
+  rowReceipts?: { rowNumber: number; caseId: string }[];
 }
 
 export async function commitImportedTestCases(
@@ -101,6 +103,15 @@ export async function commitImportedTestCases(
 
 // For callers that must atomically validate additional scope and retain a
 // durable operation receipt. The caller must already own a DB transaction.
+// Keep the transaction atomic while limiting pending Prisma work for large imports.
+async function mapImportRows<T, R>(rows: readonly T[], run: (row: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = [];
+  for (let offset = 0; offset < rows.length; offset += 16) {
+    results.push(...await Promise.all(rows.slice(offset, offset + 16).map(run)));
+  }
+  return results;
+}
+
 export async function commitImportedTestCasesInTransaction(
   prisma: PrismaClient,
   args: CommitImportArgs,
@@ -184,6 +195,7 @@ export async function commitImportedTestCasesInTransaction(
   });
 
   const updated = [] as Awaited<ReturnType<typeof prisma.testCase.findMany<{ include: { steps: true } }>>>;
+  const rowReceipts: { rowNumber: number; caseId: string }[] = [];
   for (const row of toUpdate) {
     const source = sourceByKey.get(keyFor(row.externalId!))!;
     const incoming = snapshotFromRow(row);
@@ -222,7 +234,7 @@ export async function commitImportedTestCasesInTransaction(
         return { kind: "conflict" as const, reason: HUMAN_EDIT_SKIP_REASON };
       }
       if (sameSnapshot(incoming, baseline.data)) {
-        return { kind: "unchanged" as const };
+        return { kind: "unchanged" as const, caseId: current.id };
       }
       const changed = await tx.testCase.update({
         where: { id: current.id },
@@ -247,12 +259,12 @@ export async function commitImportedTestCasesInTransaction(
       });
       return { kind: "updated" as const, changed };
     })();
-    if (result.kind === "updated") updated.push(result.changed);
+    if (result.kind === "updated") { updated.push(result.changed); rowReceipts.push({ rowNumber: row.rowNumber, caseId: result.changed.id }); }
+    if (result.kind === "unchanged") rowReceipts.push({ rowNumber: row.rowNumber, caseId: result.caseId });
     if (result.kind === "conflict") skipped.push({ rowNumber: row.rowNumber, reason: result.reason });
   }
 
-  const created = await Promise.all(
-    toCreate.map((r) =>
+  const created = await mapImportRows(toCreate, (r) =>
       prisma.testCase.create({
         data: {
           projectId: args.projectId,
@@ -289,11 +301,10 @@ export async function commitImportedTestCasesInTransaction(
         },
         include: { steps: { orderBy: { order: "asc" } } },
       }),
-    ),
   );
+  created.forEach((c, i) => rowReceipts.push({ rowNumber: toCreate[i]!.rowNumber, caseId: c.id }));
 
-  await Promise.all(
-    [...created, ...updated].map((c) =>
+  await mapImportRows([...created, ...updated], (c) =>
       snapshotTestCaseVersion(prisma, {
         testCaseId: c.id,
         title: c.title,
@@ -313,7 +324,6 @@ export async function commitImportedTestCasesInTransaction(
         testType: c.testType,
         actorId: args.actorId,
       }),
-    ),
   );
 
   const importJob = await prisma.importJob.create({
@@ -351,5 +361,6 @@ export async function commitImportedTestCasesInTransaction(
     createdCount: created.length,
     updatedCount: updated.length,
     skipped,
+    ...(args.captureRows ? { rowReceipts } : {}),
   };
 }

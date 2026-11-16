@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 // Actual Review, picker and access-hook declarations plus real TanStack query
 // observers. React mounting/effects are modeled; markup uses installed React SSR.
 // This is not browser, Clerk, provider/source-read or native write acceptance.
@@ -148,7 +149,7 @@ function harness(legacyMountFault = false, purpose?: "TEST_CASES" | "REQUIREMENT
     },
   });
   const code = [declaration("./use-case-field-access.ts", "useCaseFieldAccess"), declaration("../components/ConnectedRepositoryPicker.tsx", "ConnectedRepositoryPicker"), purpose ? processingCode(legacyMountFault) : reviewCode(legacyMountFault)].join("\n");
-  vm.runInContext(ts.transpileModule(code, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText, context);
+  vm.runInContext(controllerTranspile(code, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText, context);
   const components = context as unknown as {
     Review: (props: { projectId: string }) => React.ReactNode;
     RepositoryProcessingReview: (props: { projectId: string; purpose: "TEST_CASES" | "REQUIREMENTS"; onApprove: (scope: unknown, consent: unknown) => Promise<void>; onRecovered: (results: unknown) => void }) => React.ReactNode;

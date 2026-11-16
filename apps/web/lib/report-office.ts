@@ -1,4 +1,9 @@
 import {
+  DEFAULT_REPORT_PRESENTATION,
+  reportPresentationStyle,
+  type ReportPresentation,
+} from "./report-presentation";
+import {
   reportMetricRows,
   reportScopeSummary,
   type FrozenReportPayload,
@@ -38,7 +43,9 @@ function metadata(report: FrozenReportPayload) {
  * formulas or hyperlinks. Only approved portable aggregates enter this file. */
 export async function renderReportWorkbook(
   report: FrozenReportPayload,
+  presentation: ReportPresentation = DEFAULT_REPORT_PRESENTATION,
 ): Promise<Blob> {
+  const style = reportPresentationStyle(presentation);
   requireApproved(report);
   const { default: ExcelJS } = await import("exceljs");
   const workbook = new ExcelJS.Workbook();
@@ -48,7 +55,7 @@ export async function renderReportWorkbook(
   const fill = {
     type: "pattern" as const,
     pattern: "solid" as const,
-    fgColor: { argb: "FF16302D" },
+    fgColor: { argb: `FF${style.ink}` },
   };
   const make = (name: string, headers: string[], widths: number[]) => {
     const sheet = workbook.addWorksheet(name, {
@@ -120,7 +127,11 @@ export async function renderReportWorkbook(
   workbook.eachSheet((sheet) => {
     sheet.eachRow((row, index) => {
       if (index > 1)
-        row.font = { name: "Aptos", size: 11, color: { argb: "FF16302D" } };
+        row.font = {
+          name: style.body,
+          size: 11,
+          color: { argb: `FF${style.ink}` },
+        };
       row.alignment = { vertical: "top", wrapText: true };
     });
     sheet.pageSetup = {
@@ -141,7 +152,9 @@ export async function renderReportWorkbook(
  * relationships, macros, screenshots or executable template expressions. */
 export async function renderReportDocument(
   report: FrozenReportPayload,
+  presentation: ReportPresentation = DEFAULT_REPORT_PRESENTATION,
 ): Promise<Blob> {
+  const style = reportPresentationStyle(presentation);
   requireApproved(report);
   const {
     Document,
@@ -175,14 +188,14 @@ export async function renderReportDocument(
             children: row.map(
               (value) =>
                 new TableCell({
-                  shading: index === 0 ? { fill: "16302D" } : undefined,
+                  shading: index === 0 ? { fill: style.ink } : undefined,
                   children: [
                     new Paragraph({
                       children: [
                         new TextRun({
                           text: String(value),
                           bold: index === 0,
-                          color: index === 0 ? "FFFFFF" : "16302D",
+                          color: index === 0 ? "FFFFFF" : style.ink,
                         }),
                       ],
                     }),
@@ -242,7 +255,7 @@ export async function renderReportDocument(
       styles: {
         default: {
           document: {
-            run: { font: "Aptos", size: 22 },
+            run: { font: style.body, size: 22 },
             paragraph: { spacing: { after: 160 } },
           },
         },

@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { DeviceHelperBlockedLaunchGuidance } from "./DeviceHelperBlockedLaunchGuidance";
 import { useDeviceHelperSetup, type HelperSetupIntent } from "../lib/use-device-helper-setup";
 import type { ReadPairedHealth } from "../lib/device-helper-setup";
@@ -14,13 +16,13 @@ export function DeviceHelperSetupStatus({ intent, health, onReportedBlocked }: {
     <p role="status">{view.paired ? "Paired response reported v2 liveness only" : view.status === "PRIVATE" ? "Private setup retained" : view.status === "CURRENT_METADATA_REVIEWED" ? "Current workspace metadata reviewed only" : "Setup needs explicit review"}</p>
     <p>{view.description}</p>
     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-      <button type="button" className="btn-secondary" disabled={!view.canReview} onClick={() => void workflow.review()}>{view.busy ? "Review in progress..." : "Review current setup access"}</button>
-      {!metadata && <button type="button" className="btn-secondary" disabled={!view.canCheck || !workflow.healthAvailable} onClick={() => void workflow.checkPaired()}>Check paired response only</button>}
-      <button type="button" className="btn-secondary" disabled={!metadata && (view.status === "PRIVATE" || !("platform" in intent) || intent.platform !== "windows")} onClick={() => workflow.reportBlocked(onReportedBlocked)}>Windows refused launch</button>
+      <ActionButton type="button" className="btn-secondary" disabled={!view.canReview} onClick={() => void workflow.review()} tooltip={<> {view.busy ? "Review in progress..." : "Review current setup access"} </>}>{view.busy ? "Reviewing…" : "Review"}</ActionButton>
+      {!metadata && <ActionButton type="button" className="btn-secondary" disabled={!view.canCheck || !workflow.healthAvailable} onClick={() => void workflow.checkPaired()} tooltip={<> Check paired response only </>}> Check </ActionButton>}
+      <ActionButton type="button" className="btn-secondary" disabled={!metadata && (view.status === "PRIVATE" || !("platform" in intent) || intent.platform !== "windows")} onClick={() => workflow.reportBlocked(onReportedBlocked)} tooltip={<> Windows refused launch </>}> Launch help </ActionButton>
     </div>
     {!workflow.healthAvailable && <p className="text-muted">{metadata ? "This metadata-only review creates no pairing credential and never contacts a local helper." : "No local health transport is installed in this source-only surface. No helper request will be made."}</p>}
-    <p className="text-muted">Reporting a launch refusal cancels pending setup checks. It does not identify the Windows policy or prove a capture/helper stopped. Any separate polling surface requires its own cancellation bridge.</p>
-    <p className="text-muted">Setup does not approve downloads, device/app targeting, capture-source processing or paid AI. Existing legacy captures, paid drafts and uncertain operations are not attributed to this current identity.</p>
+    <details><summary>Details</summary><p className="text-muted">Reporting a launch refusal cancels pending setup checks. It does not identify the Windows policy or prove a capture/helper stopped. Any separate polling surface requires its own cancellation bridge.</p></details>
+    <details><summary>Details</summary><p className="text-muted">Setup does not approve downloads, device/app targeting, capture-source processing or paid AI. Existing legacy captures, paid drafts and uncertain operations are not attributed to this current identity.</p></details>
     {(reported || view.status === "BLOCKED") && <DeviceHelperBlockedLaunchGuidance reportedBlocked />}
   </section>;
 }

@@ -9,7 +9,7 @@ export function csvField(value: string): string {
   return value;
 }
 
-export function downloadCsv(filename: string, rows: string[][]) {
+export function downloadCsv(filename: string, rows: string[][], allowed?: () => boolean) {
   const csv = rows.map((row) => row.map(csvField).join(",")).join("\r\n");
-  downloadFile(filename, csv, "text/csv");
+  downloadFile(filename, csv, "text/csv", allowed);
 }

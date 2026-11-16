@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useSearchParams } from "next/navigation";
@@ -27,7 +29,7 @@ function GitlabCallback() {
   return <main style={{ maxWidth: 520, margin: "48px auto", padding: 24 }}>
     <h1>GitLab authorization</h1>
     {!isLoaded ? <p role="status">Checking your Vaettir session…</p> : !isSignedIn ? <p role="alert">Your Vaettir session is not available. Close this window, sign in to Vaettir, and start the connection again.</p> : <p role={outcome === "error" ? "alert" : "status"}>{outcome === "verified" ? "Account verified. Return to Vaettir to choose repositories. No source files were read." : outcome === "canceled" ? "Authorization canceled. Nothing was connected." : outcome === "error" ? "This authorization could not be verified. Return to Vaettir and start again." : "Verifying your GitLab account…"}</p>}
-    <button type="button" className="btn-secondary" onClick={() => window.close()}>Close this window</button>
+    <ActionButton type="button" className="btn-secondary" onClick={() => window.close()} tooltip={<> Close this window </>}> Close </ActionButton>
     <p className="text-muted">If the window stays open, close this tab manually. Your original Vaettir window checks connection status independently.</p>
   </main>;
 }

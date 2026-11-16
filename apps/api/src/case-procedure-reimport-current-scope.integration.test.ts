@@ -27,7 +27,7 @@ describe("procedure restore current actor and original tenant", () => {
       if (i === 0) { actorId = user.id; owner = appRouter.createCaller({ prisma, user }); }
       else { otherActorId = user.id; other = appRouter.createCaller({ prisma, user }); }
     }
-    projectId = (await owner.project.create({ organizationId: orgIds[0]!, name: "Synthetic original-scope procedure project", caseKey: "prscope" })).id;
+    projectId = (await owner.project.create({ organizationId: orgIds[0]!, name: "Synthetic original-scope procedure project", caseKey: "prscp" })).id;
   });
   afterAll(async () => {
     if (!actorId) return;

@@ -16,7 +16,7 @@ import {
   qualityProfileRecord,
   readQualityExperience,
 } from "../services/qualityExperienceProfile.js";
-import { projectCaseKeySchema, projectCaseKeySave, readProjectCaseIdentity, saveProjectCaseKey } from "../services/projectCaseKeys.js";
+import { newProjectCaseKeySchema, projectCaseKeySave, readProjectCaseIdentity, saveProjectCaseKey } from "../services/projectCaseKeys.js";
 import { authorizeProjectDeletion, deleteReviewedProject, previewProjectDeletion } from "../services/projectDeletion.js";
 
 function slugify(name: string): string {
@@ -62,7 +62,7 @@ const qualityProfileUpdateSchema = z.object({
 })
   .partial()
   .strict();
-const caseKeySchema = projectCaseKeySchema;
+const caseKeySchema = newProjectCaseKeySchema;
 function caseKeyActor(ctx: { authenticatedClerkSubject?: string | null }) {
   if (!ctx.authenticatedClerkSubject) throw new TRPCError({ code: "FORBIDDEN", message: "A current signed-in actor is required for case identity." });
   return { clerkActorId: ctx.authenticatedClerkSubject };

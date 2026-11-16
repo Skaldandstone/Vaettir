@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { resolveQualityExperience } from "@vaettir/core";
@@ -149,6 +151,8 @@ function CaseRow({
             }}
           >
             <button
+              type="button"
+              className="btn-secondary"
               ref={heading}
               aria-expanded={expanded}
               onClick={() => {
@@ -156,15 +160,7 @@ function CaseRow({
                 if (!expanded) onOpenCase(testCase.testCaseId);
                 setExpanded((v) => !v);
               }}
-              style={{
-                background: "none",
-                border: "none",
-                cursor: "pointer",
-                textAlign: "left",
-                fontWeight: 600,
-                padding: 0,
-                color: "var(--fg)",
-              }}
+              style={{ minWidth: 0, textAlign: "left", overflowWrap: "anywhere" }}
             >
               {expanded ? "▾" : "▸"}{" "}
               <span title={testCase.displayId ? "Case ID" : "Stable case record ID"}>{testCase.displayId ?? testCase.testCaseId}</span> · {testCase.title}
@@ -426,11 +422,7 @@ function CaseRow({
         <div
           style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}
         >
-          <p style={{ flexBasis: "100%" }}>
-            Choose an initial observed outcome to open its reviewed editor. This
-            does not save a result. Existing observations use reasoned immutable
-            corrections in the history above, not unversioned overwrites.
-          </p>
+          <p style={{ flexBasis: "100%" }}>Choose an outcome, then review and save the result. <a className="inline-help" href="/guide#runs" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
           <button
             className="btn-secondary"
             onClick={() => reviewOutcome("PASS")}
@@ -523,6 +515,12 @@ function ManualExecutionContent() {
     () => new Set(),
   );
   const completeMutation = trpcReact.manualExecution.complete.useMutation();
+  // Navigation intent is separate from the mutation's own pending renders.
+  const historyCaseKey = JSON.stringify(searchParams.getAll("caseId"));
+  const completionView = useMemo(() => ({ projectId, testRunId, caseSearch, caseFilter, navigation, historyCaseKey }),
+    [projectId, testRunId, caseSearch, caseFilter, navigation, historyCaseKey]);
+  const completionViewRef = useRef(completionView);
+  useLayoutEffect(() => { completionViewRef.current = completionView; }, [completionView]);
   const [pageGuard] = useState(() => new ManualRunCurrentRenderGuard());
   const frame = useMemo(() => ({ snapshot, caseSearch, caseFilter, navigation, error, completePending: completeMutation.isPending }),
     [snapshot, caseSearch, caseFilter, navigation, error, completeMutation.isPending]);
@@ -602,13 +600,14 @@ function ManualExecutionContent() {
               ? "The exact saved run could not be loaded."
               : "Verifying current original workspace and saved-run access…"}
         </p>
-        <button
+        <ActionButton
           type="button"
           className="btn-secondary"
           onClick={() => void recheckAccess()}
-        >
+         tooltip={<>
           Recheck original run access
-        </button>
+         </>}>
+           Refresh </ActionButton>
       </section>
     );
 
@@ -641,18 +640,15 @@ function ManualExecutionContent() {
     <div style={{ maxWidth: 800 }}>
       {!readable && (
         <section role={access.denied || !!pageError ? "alert" : "status"}>
-          <p>
-            Current original actor, workspace and exact saved run must be
-            verified. Private cached procedures and observations are hidden;
-            mounted drafts and identical requests remain retained.
-          </p>
-          <button
+          <p>Restore access to this workspace to view the run. Your draft is retained. <a className="inline-help" href="/guide#runs" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
+          <ActionButton
             type="button"
             className="btn-secondary"
             onClick={() => void recheckAccess()}
-          >
+           tooltip={<>
             Recheck original run access
-          </button>
+           </>}>
+             Refresh </ActionButton>
         </section>
       )}
       {readable && (
@@ -675,16 +671,17 @@ function ManualExecutionContent() {
               <p role="alert" style={{ color: "var(--ember)" }}>
                 {pageError} Displayed evidence and open drafts are retained.
               </p>
-              <button
+              <ActionButton
                 className="btn-secondary"
                 onClick={() => {
                   if (!currentFrame()) return;
                   setError(null);
                   reader.refresh();
                 }}
-              >
+               tooltip={<>
                 Refresh run without discarding drafts
-              </button>
+               </>}>
+                 Refresh </ActionButton>
             </div>
           )}
           {unconfirmedStepCases.size > 0 && (
@@ -723,9 +720,14 @@ function ManualExecutionContent() {
                   // Legacy completion is NOT a reviewed UUID/CAS recovery path.
                   // Keep its response presentation tied to this exact native read.
                   const submittedSnapshot = snapshot;
+                  const submittedView = completionViewRef.current;
                   completeMutation.mutate({ testRunId }, {
-                    onSuccess: () => { if (submittedSnapshot && reader.current() === submittedSnapshot) router.push(`/projects/${projectId}/test-runs`); },
-                    onError: () => { if (submittedSnapshot && reader.current() === submittedSnapshot) setError("Run completion could not be confirmed. Retain evidence and recheck original run access; this is not a recovered completion receipt."); },
+                    onSuccess: () => {
+                      if (!submittedSnapshot || postedStamp.current === null || reader.current() !== submittedSnapshot) return;
+                      if (completionViewRef.current === submittedView) router.push(`/projects/${projectId}/test-runs`);
+                      else reader.refresh();
+                    },
+                    onError: () => { if (submittedSnapshot && reader.current() === submittedSnapshot) setError("Completion unconfirmed. Refresh this run to check its status."); },
                   });
                 }
               }}
@@ -747,7 +749,7 @@ function ManualExecutionContent() {
             {data.status}
           </p>
           {!plannedScope && <p role="alert">The complete saved planned identity scope could not be admitted. Progress, completion and exports are unavailable; no smaller available-case denominator was substituted.</p>}
-          {plannedScope && plannedScope.unavailableCaseIds.length > 0 && <section className="panel" aria-label="Unavailable planned procedures"><h2>Unavailable planned procedures</h2><p>These saved planned identities remain left to test. No current or frozen procedure was available; completion and whole-run exports are blocked without inventing instructions.</p><ul>{plannedScope.unavailableCaseIds.map(id => <li key={id}><code>{id}</code> · Procedure unavailable, read-only retained identity</li>)}</ul></section>}
+          {plannedScope && plannedScope.unavailableCaseIds.length > 0 && <section className="panel" aria-label="Unavailable planned procedures"><h2>Unavailable planned procedures</h2><p>These cases have no available procedure. Restore their definitions before completing this run. <a className="inline-help" href="/guide#runs" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p><ul>{plannedScope.unavailableCaseIds.map(id => <li key={id}><code>{id}</code> · Procedure unavailable, read-only retained identity</li>)}</ul></section>}
           {plannedScope && <RunExecutionSummary
             cases={data.cases}
             runId={testRunId}
@@ -796,7 +798,7 @@ function ManualExecutionContent() {
                   <option value="RECORDED">Recorded</option>
                 </select>
               </label>
-              <button
+              <ActionButton
                 type="button"
                 className="btn-secondary"
                 disabled={!matchingCases.length}
@@ -804,10 +806,11 @@ function ManualExecutionContent() {
                   if (matchingCases[0])
                     navigateToCase(matchingCases[0].testCaseId);
                 }}
-              >
+               tooltip={<>
                 Open first match
-              </button>
-              <button
+               </>}>
+                 Open </ActionButton>
+              <ActionButton
                 type="button"
                 className="btn-primary"
                 disabled={
@@ -830,10 +833,11 @@ function ManualExecutionContent() {
                   );
                   if (id) navigateToCase(id, true);
                 }}
-              >
+               tooltip={<>
                 Next untested case
-              </button>
-              <button
+               </>}>
+                 Next untested </ActionButton>
+              <ActionButton
                 type="button"
                 className="btn-secondary"
                 onClick={() => {
@@ -843,9 +847,10 @@ function ManualExecutionContent() {
                   setCaseFilter("ALL");
                   setNavigationNotice("");
                 }}
-              >
+               tooltip={<>
                 Show all cases
-              </button>
+               </>}>
+                 Show </ActionButton>
             </div>
             <p className="text-muted">
               {matchingCases.length} shown of {data.cases.length} cases in this
@@ -931,12 +936,7 @@ function ManualExecutionContent() {
                   ? `: ${resolveQualityExperience(data.executionContext.experience).title}`
                   : ""}
               </summary>
-              <p>
-                These case definitions and configuration were saved when this
-                run started. Later profile or case edits do not rewrite this
-                run. Recorded results remain separate evidence; this context
-                does not certify safety or compliance.
-              </p>
+              <p>This run uses the cases and configuration saved when it started. <a className="inline-help" href="/guide#runs" target="_blank" rel="noopener noreferrer" title="Open the guide in a new tab">Help</a></p>
               {data.executionContext.plan && (
                 <section style={{ marginBottom: 12 }}>
                   <h2 style={{ fontSize: 16 }}>Frozen plan definition</h2>

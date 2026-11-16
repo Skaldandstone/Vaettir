@@ -271,13 +271,13 @@ export function parseXlsxWorkbook(buffer: Buffer, onProgress?: () => void, purpo
       if (sourceRows.length > MAX_ROWS_PER_SHEET || totalRows > MAX_WORKBOOK_ROWS)
         throw new Error("Excel workbook exceeds the supported row limit");
       let previousRow = 0;
-      const originalRowNumbers = purpose === "results" ? sourceRows.map(rowValue => {
+      const originalRowNumbers = sourceRows.map(rowValue => {
         const row = recordOf(rowValue), first = recordOf(arrayOf(row.c)[0]);
         const cellReference = String(first["@_r"] ?? "");
         const number = Number(row["@_r"] ?? (/^[A-Z]+([1-9]\d*)$/i.exec(cellReference)?.[1] ?? previousRow + 1));
         if (!Number.isInteger(number) || number <= previousRow || number > 1048576) throw new Error("Excel worksheet row references are invalid.");
         previousRow = number; return number;
-      }) : undefined;
+      });
       const rows = sourceRows.map((rowValue, rowIndex) => {
         const row = recordOf(rowValue);
         const cells: CellValue[] = [];
@@ -288,7 +288,7 @@ export function parseXlsxWorkbook(buffer: Buffer, onProgress?: () => void, purpo
         for (const cellValue of sourceCells) {
           const cell = recordOf(cellValue);
           const index = columnIndex(String(cell["@_r"] ?? "A1"));
-          if (purpose === "results" && cell["@_r"] !== undefined && Number(String(cell["@_r"]).replace(/^[A-Z]+/i, "")) !== originalRowNumbers![rowIndex])
+          if (cell["@_r"] !== undefined && Number(String(cell["@_r"]).replace(/^[A-Z]+/i, "")) !== originalRowNumbers[rowIndex])
             throw new Error("Excel cell and worksheet row references disagree.");
           const type = cell["@_t"];
           const inlineString = recordOf(cell.is);

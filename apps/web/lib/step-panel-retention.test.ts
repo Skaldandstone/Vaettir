@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 import { expect, it } from "vitest";
 import { StepPanelRetention } from "./step-panel-retention";
 import { readFileSync } from "node:fs";
@@ -21,7 +22,7 @@ it("aggregate pending is synchronous and one ACK cannot clear another step", () 
 });
 it("actual panel forwards exact native parent pins to retained indexed children, while NULL parent disables without removing them", () => {
   const source = readFileSync(new URL("../components/StepExecutionPanel.tsx", import.meta.url), "utf8"), ast = ts.createSourceFile("actual.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-  const code = ts.transpileModule(ast.statements.filter(ts.isFunctionDeclaration).map(node => ts.createPrinter().printNode(ts.EmitHint.Unspecified, node, ast).replace(/\bexport\s+/, "")).join("\n") + "\nthis.panel=StepExecutionPanel;", { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
+  const code = controllerTranspile(ast.statements.filter(ts.isFunctionDeclaration).map(node => ts.createPrinter().printNode(ts.EmitHint.Unspecified, node, ast).replace(/\bexport\s+/, "")).join("\n") + "\nthis.panel=StepExecutionPanel;", { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
   const Child = () => null;
   let counter = 0;
   const context = vm.createContext({ React, StepPanelRetention, currentSessionScope, technicalBehaviorLabel, ReviewedStepObservation: Child, window: { Clerk: { loaded: true, session: { id: "A", user: { id: "cl" } } } }, useState: (initial: unknown) => [++counter === 3 ? [0] : typeof initial === "function" ? initial() : initial, () => {}] });

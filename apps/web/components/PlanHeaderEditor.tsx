@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useLayoutEffect, useRef, useState } from "react";
 import {
   trpcReact,
@@ -248,15 +250,19 @@ export function PlanHeaderEditor({
   return (
     <>
       {(!readOnly || pending) && (
-        <button
+        <ActionButton
           className="btn-secondary"
           type="button"
           onClick={() => setOpen(true)}
-        >
+         tooltip={<>
           {pending
             ? "Reconcile header request"
             : "Edit plan name / description"}
-        </button>
+         </>}>
+          {pending
+            ? "Recover"
+            : "Edit header"}
+        </ActionButton>
       )}
       <Modal
         open={open}
@@ -273,19 +279,20 @@ export function PlanHeaderEditor({
           </p>
         ) : (
           <div style={{ display: "grid", gap: 12, minWidth: 0 }}>
-            <p className="text-muted">
+            <details><summary>Details</summary><p className="text-muted">
               Changes only the selected name or description. Status, custom
               fields, criteria, requirements, assignment and execution
               configuration are not submitted by this editor. Approved/archived
               plans and ready/shipped releases must be explicitly reopened
               first.
-            </p>
+            </p></details>
             {query.error && (
               <p role="alert">
                 {query.error.message}
-                <button onClick={() => void query.refetch()}>
+                <ActionButton onClick={() => void query.refetch()} tooltip={<>
                   Retry current header
-                </button>
+                 </>}>
+                   Retry </ActionButton>
               </p>
             )}
             {fresh?.editBlockedReason && (
@@ -305,20 +312,25 @@ export function PlanHeaderEditor({
                     {JSON.stringify(pending.input, null, 2)}
                   </pre>
                 </details>
-                <button
+                <ActionButton
                   disabled={busy || !access.canEdit}
                   onClick={() => void commit()}
-                >
+                 tooltip={<>
                   Retry identical header request
-                </button>
+                 </>}>
+                   Retry </ActionButton>
               </>
             ) : (
               <>
-                <button disabled={busy || !fresh?.canEdit} onClick={review}>
+                <ActionButton disabled={busy || !fresh?.canEdit} onClick={review} tooltip={<>
                   {draft
                     ? "Load current header (replaces unsaved header draft)"
                     : "Load current header for review"}
-                </button>
+                 </>}>
+                  {draft
+                    ? "Replace draft"
+                    : "Load"}
+                </ActionButton>
                 {draft && (
                   <fieldset
                     disabled={busy || !access.canEdit}
@@ -447,7 +459,7 @@ export function PlanHeaderEditor({
                       I reviewed these exact header changes; all other plan
                       fields remain unchanged.
                     </label>
-                    <button
+                    <ActionButton
                       disabled={
                         !validChanges ||
                         !draft.confirmed ||
@@ -456,9 +468,10 @@ export function PlanHeaderEditor({
                         draft.baseline.planRevision !== fresh.planRevision
                       }
                       onClick={() => void commit()}
-                    >
+                     tooltip={<>
                       Save reviewed header
-                    </button>
+                     </>}>
+                       Save </ActionButton>
                   </fieldset>
                 )}
               </>

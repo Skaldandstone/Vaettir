@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 // Actual component functions and installed React SSR, actual controller/helper;
 // current reader completions, SDK, RPC and router are synthetic boundaries.
 // Does not certify browser/native transactions or customer execution.
@@ -13,7 +14,7 @@ import { admitRunStartRead, runStartReviewedReadKey, type RunStartReadSnapshot }
 import type { ReviewedRunStartEnvelope } from "./run-start-reviewed-write";
 const source = readFileSync(new URL("../components/PlanExecutionReviewed.tsx", import.meta.url), "utf8");
 const legacy = readFileSync(new URL("../components/PlanExecutionModal.tsx", import.meta.url), "utf8");
-const compile = (text: string) => ts.transpileModule(text, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } }).outputText;
+const compile = (text: string) => controllerTranspile(text, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } }).outputText;
 const key = "00000000-0000-4000-8000-000000000001", config = "00000000-0000-4000-8000-000000000002";
 function planSnapshot(projection: "ACCESS" | "PAGE" = "PAGE", state: "AVAILABLE" | "MISSING" | "ARCHIVED" = "AVAILABLE", candidates = false, literal = false): PlanExecutionReadSnapshot {
   const scope = { projectId: "p", testPlanId: "plan", originalOrganizationId: "o", expectedClerkActorId: "cl", expectedNativeActorId: "n", requestId: key };

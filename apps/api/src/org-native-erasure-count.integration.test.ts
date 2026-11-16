@@ -1,3 +1,4 @@
+import { fixtureProjectKey } from "./testProjectKey.js";
 // Real native DML regression; execute only on a uniquely owned disposable DB.
 import { randomUUID } from "node:crypto";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -79,7 +80,7 @@ describe("native organization erasure statement counts", () => {
     const slug = `${tag}-${randomUUID()}`;
     const project = await prisma.project.create({ data: {
       organizationId, name: slug, slug,
-      caseKey: `e${randomUUID().replaceAll("-", "").slice(0, 15)}`,
+      caseKey: fixtureProjectKey(),
     } });
     projects.add(project.id);
     const planType = await prisma.testPlanType.findFirstOrThrow();
