@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 // Actual component functions + installed SSR + real isolated controller.
 // Auth/native RPC/read completion are synthetic; not browser/native acceptance.
 import { readFileSync } from "node:fs";
@@ -11,9 +12,28 @@ import { admitRetestRead, inspectRetestWire, retestReviewedBrowserKey, type Rete
 import { currentSessionScope } from "./auth-query-cache";
 import { sameManualRetestScope } from "./manual-retest-scope-ack";
 const source=readFileSync(new URL("../components/ManualRetestWizard.tsx",import.meta.url),"utf8");
-const compiled=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.React}}).outputText;
+const compiled=controllerTranspile(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.React}}).outputText;
 const scope={projectId:"p",organizationId:"o",clerkActorId:"cl"},hash="a".repeat(64);
 let counter=0;
+const pendingDigests = new Set<Promise<ArrayBuffer>>();
+let nextDigestGate: { started: () => void; wait: Promise<void> } | null = null;
+function deferNextDigest() {
+ let started!: () => void, release!: () => void;
+ const reached = new Promise<void>(resolve => { started = resolve; });
+ const wait = new Promise<void>(resolve => { release = resolve; });
+ nextDigestGate = { started, wait };
+ return { reached, release };
+}
+function trackedDigest(...args: Parameters<typeof webcrypto.subtle.digest>) {
+ const gate = nextDigestGate; nextDigestGate = null;
+ const job = webcrypto.subtle.digest(...args).then(async bytes => {
+  if (gate) { gate.started(); await gate.wait; }
+  return bytes;
+ });
+ pendingDigests.add(job);
+ void job.then(() => pendingDigests.delete(job), () => pendingDigests.delete(job));
+ return job;
+}
 function native(projection:RetestProjection="ACCESS",sid="A",ids:string[]=[],nextCursor:string|null=null):RetestReviewedSnapshot{
  const input:RetestReviewedInput={request:{projectId:"p",sourceRunId:"run",testCaseId:"case",expectedScope:scope},readRequestId:`6ee2ec04-4d34-40bf-b0e9-${String(++counter).padStart(12,"0")}`,expectedNativeActorId:"n"},s={...scope,actorId:"n"};
  const readContext={requestId:input.readRequestId,requested:retestReviewedBrowserKey(input),projection,scope:s},requested=JSON.stringify(JSON.parse(readContext.requested).request);
@@ -47,21 +67,72 @@ function harness(projection:RetestProjection="ACCESS",actions=false,legacyOwner=
  function render(commit=true){cursor=0;layouts.length=0;effects.length=0;dirty=false;const component=exports[actions?"ManualRetestActions":legacyOwner?"ManualRetestWizard":"ReviewedRetestWizard"];if(!component)throw Error("Actual component missing");tree=component(props);if(commit){layouts.splice(0).forEach(fn=>fn());effects.splice(0).forEach(fn=>fn());}return tree;}
  function settle(){for(let i=0;i<30;i++){render();if(!dirty)return;}throw Error("Actual consumer render/layout loop");}
  function button(text:string){const result=elements(tree).find(e=>e.type==="button"&&label(e.props.children).includes(text));if(!result)throw Error(`Missing button ${text}; ${label(tree)}`);return result;}
- async function flush(){for(let i=0;i<5;i++){await new Promise(resolve=>setTimeout(resolve,1));settle();}}
+ async function flush(){
+  // Await real hash completion, not elapsed wall time. The event-loop boundary
+  // drains verifier/controller continuations and discovers hashes queued by a
+  // resolved RPC; unresolved RPCs themselves are deliberately not awaited.
+  do {
+   await Promise.all([...pendingDigests]);
+   await new Promise<void>(resolve => setImmediate(resolve));
+   settle();
+  } while (pendingDigests.size);
+ }
  settle();return {props,sdk,reads,sent,navigate,retention,render,settle,flush,button,get tree(){return tree;},get snapshot(){return view;},get legacyBody(){return slots[7]?.value;},seedLegacy:(body:unknown,receipt:unknown=null)=>{if(!legacyOwner)throw Error("Original owner fixture required");if(!slots[7]||!slots[8])throw Error("Original attempt/receipt slots absent");slots[7].value=body;slots[8].value=receipt;dirty=true;settle();},html:()=>renderToStaticMarkup(tree),complete:(p:RetestProjection,sid=sdk.session.id,ids:string[]=[],next:string|null=null)=>{view=native(p,sid,ids,next);generation++;dirty=true;settle();},revoke:()=>{view=null;generation++;dirty=true;},setSend:(fn:typeof send)=>{send=fn;},click:(text:string)=>{const b=button(text);expect(b.props.disabled).not.toBe(true);(b.props.onClick as ()=>void)();},approve:()=>{const box=elements(tree).find(e=>e.type==="input"&&e.props.type==="checkbox");if(!box)throw Error("No actual approval field");(box.props.onChange as (e:{target:{checked:boolean}})=>void)({target:{checked:true}});},unmount:()=>{life=false;for(const s of slots)s.cleanup?.();}};
 }
-beforeEach(()=>{counter=0;vi.stubGlobal("crypto",{subtle:webcrypto.subtle,randomUUID:()=>`88c47b3b-d1f7-43b5-bd88-${String(++counter).padStart(12,"0")}`});});
+beforeEach(()=>{counter=0;pendingDigests.clear();nextDigestGate=null;vi.stubGlobal("crypto",{subtle:{digest:trackedDigest},randomUUID:()=>`88c47b3b-d1f7-43b5-bd88-${String(++counter).padStart(12,"0")}`});});
 afterEach(()=>vi.unstubAllGlobals());
 it("ACCESS consumer exposes explicit evidence action but never creates/approves or silently fetches private preview",()=>{const h=harness();expect(h.reads).toEqual([]);expect(h.sent).toEqual([]);expect(h.html()).not.toContain("PRIVATE");h.click("Review original retest evidence");expect(h.reads).toEqual([{projection:"PREVIEW"}]);expect(h.html()).not.toContain("PRIVATE");});
 it("actual full preview renderer retains aligned prose/null/empty/zero/media references without file actions",()=>{const h=harness("PREVIEW"),html=h.html();expect(html).toContain("PRIVATE Exact\n title ");expect(html).toContain("Technical behavior");expect(html).toContain("API response");expect(html).toContain("GET /synthetic");expect(html).toContain("Not supplied");expect(html).toContain("Empty string");expect(html).toContain('&quot;value&quot;: 0');expect(html).toContain("One\n two");expect(html).toContain("Media references are not fetched or verified");expect(h.sent).toEqual([]);});
 it("explicit checkbox hashes one immutable request; supported start uses reviewed outer N only and waits for explicit LINKS",async()=>{const h=harness("PREVIEW");h.approve();await h.flush();expect(h.sent).toEqual([]);h.click("Create reviewed retest run");await h.flush();expect(h.sent).toHaveLength(1);expect(h.sent[0]).toMatchObject({expectedNativeActorId:"n",request:{projectId:"p",sourceRunId:"run",testCaseId:"case",expectedScope:scope,expectedReviewHash:hash}});expect(Object.isFrozen(h.sent[0]?.request)).toBe(true);expect(h.navigate).toEqual([]);expect(h.reads).toEqual([]);expect(h.html()).toContain("verified receipt");expect(h.html()).not.toContain("retest_");
  h.click("Read current links for confirmed retest");expect(h.reads).toEqual([{projection:"LINKS"}]);const input=h.sent[0];if(!input)throw Error("Missing exact sent request");const target=`retest_${createHash("sha256").update(JSON.stringify(["p","n",input.request.idempotencyKey])).digest("hex")}`;h.complete("LINKS","A",[target]);h.click("Open verified retest run");expect(h.navigate).toEqual([`/projects/p/test-runs/manual/${target}`]);expect(h.retention.at(-1)).toBe(false);expect(h.sent).toHaveLength(1);
 });
-it("UNKNOWN closes/reopens and fresh FULL review retries identical body/UUID despite changed current nonce",async()=>{const h=harness("PREVIEW");h.setSend(async()=>{throw Error("PRIVATE PROVIDER TOKEN");});h.approve();await h.flush();h.click("Create reviewed retest run");await h.flush();const held=h.sent[0];expect(h.html()).toContain("UNKNOWN");expect(h.html()).not.toContain("PROVIDER TOKEN");h.props.open=false;h.settle();expect(h.html()).toBe("");h.props.open=true;h.settle();h.click("Read current FULL original evidence");h.complete("PREVIEW");h.click("Retry identical retest request");await h.flush();expect(h.sent).toHaveLength(2);expect(h.sent[1]).toBe(held);expect(h.navigate).toEqual([]);});
+it("UNKNOWN closes/reopens and fresh FULL review retries identical body/UUID despite changed current nonce",async()=>{const h=harness("PREVIEW");h.setSend(async()=>{throw Error("PRIVATE PROVIDER TOKEN");});h.approve();await h.flush();h.click("Create reviewed retest run");await h.flush();const held=h.sent[0];expect(h.html()).toContain("unconfirmed");expect(h.html()).not.toContain("PROVIDER TOKEN");h.props.open=false;h.settle();expect(h.html()).toBe("");h.props.open=true;h.settle();h.click("Read current FULL original evidence");h.complete("PREVIEW");h.click("Retry identical retest request");await h.flush();expect(h.sent).toHaveLength(2);expect(h.sent[1]).toBe(held);expect(h.navigate).toEqual([]);});
 it("SDK loss before React commit blocks captured start handler without replacing held reviewed request",async()=>{const h=harness("PREVIEW");h.approve();await h.flush();const button=h.button("Create reviewed retest run");h.sdk.session.id="B";(button.props.onClick as ()=>void)();await h.flush();expect(h.sent).toEqual([]);expect(h.html()).not.toContain("PRIVATE Exact");h.sdk.session.id="A";h.revoke();h.settle();expect(h.html()).not.toContain("PRIVATE Exact");});
 it("late matching ACK after close settles privately and fresh exact B LINKS can publish without replay",async()=>{const h=harness("PREVIEW");let resolve!:(v:unknown)=>void;h.setSend(input=>new Promise(r=>{resolve=v=>r(v);expect(input.expectedNativeActorId).toBe("n");}));h.approve();await h.flush();h.click("Create reviewed retest run");h.props.open=false;h.revoke();h.settle();const input=h.sent[0];if(!input)throw Error("No sent request");const target=`retest_${createHash("sha256").update(JSON.stringify(["p","n",input.request.idempotencyKey])).digest("hex")}`;resolve({testRunId:target,recovered:false,scope:{...scope,actorId:"n",sourceRunId:"run",testCaseId:"case",idempotencyKey:input.request.idempotencyKey,reviewHash:hash}});await h.flush();expect(h.navigate).toEqual([]);expect(h.html()).toBe("");h.props.open=true;h.sdk.session.id="B";h.complete("ACCESS","B");expect(h.html()).toContain("verified receipt");expect(h.html()).not.toContain(target);h.click("Read current links for confirmed retest");h.complete("LINKS","B",[target]);h.click("Open verified retest run");expect(h.sent).toHaveLength(1);expect(h.navigate).toHaveLength(1);});
-it("explicit legacy handoff remains byte-for-byte opaque and blocks replacement even with current native FULL preview",()=>{const h=harness("PREVIEW"),bare={projectId:"p",sourceRunId:"run",testCaseId:"case",expectedReviewHash:hash,idempotencyKey:"88c47b3b-d1f7-43b5-bd88-b49ddf14b8c0"},body=JSON.stringify(bare);h.props.retainedLegacyAttempt=bare;h.settle();expect(h.html()).toContain("earlier retest request remains held unchanged");expect(h.html()).not.toContain("PRIVATE Exact");expect(h.html()).not.toContain(bare.idempotencyKey);expect(h.sent).toEqual([]);expect(h.reads).toEqual([]);expect(JSON.stringify(bare)).toBe(body);expect(Object.hasOwn(bare,"expectedScope")).toBe(false);});
-it.each([false,true])("legacy owner %s explicit handoff stays held when caller removes or changes it; current N never migrates",legacyOwner=>{const h=harness("PREVIEW",false,legacyOwner),body={projectId:"p",sourceRunId:"run",testCaseId:"case",expectedReviewHash:hash,idempotencyKey:"88c47b3b-d1f7-43b5-bd88-b49ddf14b8c0",expectedScope:{...scope}};h.props.retainedLegacyAttempt=body;h.settle();expect(h.html()).toContain("earlier retest request");body.expectedScope.organizationId="foreign";h.props.retainedLegacyAttempt=null;h.settle();expect(h.html()).toContain("earlier retest request");expect(h.sent).toEqual([]);expect(h.reads).toEqual([]);h.props.open=false;h.settle();expect(h.html()).toBe("");h.props.open=true;h.settle();expect(h.html()).toContain("stored body stays withheld");});
+it("flush waits for a held real ACK digest while closed/session-switched UI stays private", async () => {
+ const h = harness("PREVIEW");
+ let resolve!: (value: unknown) => void;
+ h.setSend(() => new Promise(done => { resolve = done; }));
+ h.approve(); await h.flush(); h.click("Create reviewed retest run");
+ // Flushing local work must not wait for this unresolved synthetic RPC.
+ await h.flush(); expect(h.html()).toContain("unconfirmed");
+ const input = h.sent[0]; if (!input) throw Error("No sent request");
+ const body = JSON.stringify(input), uuid = input.request.idempotencyKey;
+ const target = `retest_${createHash("sha256").update(JSON.stringify(["p", "n", uuid])).digest("hex")}`;
+ h.props.open = false; h.revoke(); h.sdk.session.id = "B"; h.settle();
+ expect(h.html()).toBe("");
+ const gate = deferNextDigest();
+ vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+ resolve({testRunId:target,recovered:false,scope:{...scope,actorId:"n",sourceRunId:"run",testCaseId:"case",idempotencyKey:uuid,reviewHash:hash}});
+ let flushed = false;
+ const flushing = h.flush().then(() => { flushed = true; });
+ try {
+  await gate.reached;
+  // Exhaust the old five 1ms sleeps without releasing the real hash result.
+  await vi.advanceTimersByTimeAsync(5);
+  expect(flushed).toBe(false);
+  expect(h.html()).toBe(""); expect(h.navigate).toEqual([]);
+  h.props.open = true; h.complete("ACCESS", "B");
+  expect(h.html()).toContain("unconfirmed");
+  expect(h.html()).not.toContain("verified receipt");
+  expect(h.html()).not.toContain(target);
+  expect(h.html()).not.toContain("PRIVATE Exact");
+  h.props.open = false; h.settle();
+  gate.release(); await flushing;
+  expect(h.html()).toBe(""); expect(h.navigate).toEqual([]);
+  h.props.open = true; h.complete("ACCESS", "B");
+  expect(h.html()).toContain("verified receipt");
+  expect(h.html()).not.toContain(target); expect(h.navigate).toEqual([]);
+  h.click("Read current links for confirmed retest");
+  h.complete("LINKS", "B", [target]); h.click("Open verified retest run");
+  expect(h.navigate).toEqual([`/projects/p/test-runs/manual/${target}`]);
+  expect(h.sent).toHaveLength(1); expect(h.sent[0]).toBe(input);
+  expect(JSON.stringify(h.sent[0])).toBe(body);
+  expect(h.sent[0]?.request.idempotencyKey).toBe(uuid);
+ } finally { gate.release(); vi.useRealTimers(); await flushing; }
+});
+it("explicit legacy handoff remains byte-for-byte opaque and blocks replacement even with current native FULL preview",()=>{const h=harness("PREVIEW"),bare={projectId:"p",sourceRunId:"run",testCaseId:"case",expectedReviewHash:hash,idempotencyKey:"88c47b3b-d1f7-43b5-bd88-b49ddf14b8c0"},body=JSON.stringify(bare);h.props.retainedLegacyAttempt=bare;h.settle();expect(h.html()).toContain("older request cannot be retried here");expect(h.html()).not.toContain("PRIVATE Exact");expect(h.html()).not.toContain(bare.idempotencyKey);expect(h.sent).toEqual([]);expect(h.reads).toEqual([]);expect(JSON.stringify(bare)).toBe(body);expect(Object.hasOwn(bare,"expectedScope")).toBe(false);});
+it.each([false,true])("legacy owner %s explicit handoff stays held when caller removes or changes it; current N never migrates",legacyOwner=>{const h=harness("PREVIEW",false,legacyOwner),body={projectId:"p",sourceRunId:"run",testCaseId:"case",expectedReviewHash:hash,idempotencyKey:"88c47b3b-d1f7-43b5-bd88-b49ddf14b8c0",expectedScope:{...scope}};h.props.retainedLegacyAttempt=body;h.settle();expect(h.html()).toContain("older request cannot be retried here");body.expectedScope.organizationId="foreign";h.props.retainedLegacyAttempt=null;h.settle();expect(h.html()).toContain("older request cannot be retried here");expect(h.sent).toEqual([]);expect(h.reads).toEqual([]);h.props.open=false;h.settle();expect(h.html()).toBe("");h.props.open=true;h.settle();expect(h.html()).toContain("stored body stays withheld");});
 it("actual legacy shell preserves original ordered hook/state prefix and never publishes empty false over child's ownership",()=>{
  const ast=ts.createSourceFile("ManualRetestWizard.tsx",source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX),owner=ast.statements.find((s):s is ts.FunctionDeclaration=>ts.isFunctionDeclaration(s)&&s.name?.text==="ManualRetestWizard");if(!owner?.body)throw Error("Actual legacy owner absent");
  const names=owner.body.statements.filter(ts.isVariableStatement).flatMap(s=>[...s.declarationList.declarations]).filter(d=>d.initializer&&ts.isCallExpression(d.initializer)&&["trpcReact.useUtils","trpcReact.manualRetest.start.useMutation","useRetestAccess","useState","useRef"].includes(d.initializer.expression.getText(ast))).map(d=>ts.isArrayBindingPattern(d.name)?d.name.elements[0]?.getText(ast):d.name.getText(ast));
@@ -70,7 +141,7 @@ it("actual legacy shell preserves original ordered hook/state prefix and never p
 });
 it.each([false,true])("pre-existing legacy owner slots retain exact scoped/bare UNKNOWN and known=%s receipt without current-N inference",known=>{
  const h=harness("PREVIEW",false,true),body={idempotencyKey:"88c47b3b-d1f7-43b5-bd88-b49ddf14b8c0",expectedReviewHash:hash,testCaseId:"case",sourceRunId:"run",projectId:"p"},before=JSON.stringify(body);
- h.seedLegacy(body,known?{testRunId:"old-private-target",recovered:true,scope:{...scope,actorId:"M"}}:null);expect(h.legacyBody).toBe(body);expect(JSON.stringify(h.legacyBody)).toBe(before);expect(h.html()).toContain("earlier retest request");expect(h.html()).not.toContain("old-private-target");expect(h.sent).toEqual([]);expect(h.reads).toEqual([]);h.props.open=false;h.settle();h.props.open=true;h.settle();expect(h.legacyBody).toBe(body);expect(h.retention.at(-1)).toBe(true);expect(Object.hasOwn(body,"expectedScope")).toBe(false);
+ h.seedLegacy(body,known?{testRunId:"old-private-target",recovered:true,scope:{...scope,actorId:"M"}}:null);expect(h.legacyBody).toBe(body);expect(JSON.stringify(h.legacyBody)).toBe(before);expect(h.html()).toContain("older request cannot be retried here");expect(h.html()).not.toContain("old-private-target");expect(h.sent).toEqual([]);expect(h.reads).toEqual([]);h.props.open=false;h.settle();h.props.open=true;h.settle();expect(h.legacyBody).toBe(body);expect(h.retention.at(-1)).toBe(true);expect(Object.hasOwn(body,"expectedScope")).toBe(false);
 });
 it("pre-layout parent close and reentrant SDK loss during retention callback block old creation before UUID/hash/send",async()=>{
  const h=harness("PREVIEW"),count=counter;h.props.onRetainedRequestChange=v=>{if(v)h.sdk.session.id="B";};h.settle();h.approve();await h.flush();expect(h.sent).toEqual([]);expect(counter).toBe(count);h.sdk.session.id="A";h.props.onRetainedRequestChange=()=>{};h.complete("PREVIEW");h.approve();await h.flush();const old=h.button("Create reviewed retest run");h.props.open=false;h.render(false);(old.props.onClick as ()=>void)();await h.flush();expect(h.sent).toEqual([]);expect(h.html()).toBe("");

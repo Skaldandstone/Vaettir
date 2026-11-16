@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 
 /** Existing recorded source classification: ciProvider === literal "manual"
  * maps to MANUAL; every other stored provider maps to CI_IMPORT. This does not

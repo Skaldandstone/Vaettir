@@ -28,6 +28,7 @@ model WorkspaceDomain {
 }
 
 model Organization {
+  atlassianOAuthConnections AtlassianOAuthConnection[]
   workspaceDomain WorkspaceDomain?
   aiDisclosurePolicies AiDisclosurePolicy[]
   driveSourceConnections DriveSourceConnection[]
@@ -255,6 +256,7 @@ model WebhookDelivery {
 }
 
 model Project {
+  atlassianOAuthConnections AtlassianOAuthConnection[]
   aiDisclosurePolicy AiDisclosurePolicy?
   driveSourceConnections       DriveSourceConnection[]
   ticketSourceConnections      TicketSourceConnection[]
@@ -320,6 +322,7 @@ model Project {
   coverageReports             CoverageReport[]
   reverseEngineerJobs         ReverseEngineerJob[]
   importJobs                  ImportJob[]
+  importMappingBatches        ImportMappingBatch[]
   testSelectionRuns           TestSelectionRun[]
   auditLogs                   AuditLog[]
   customFrameworkHeuristics   CustomFrameworkHeuristic[]
@@ -334,6 +337,8 @@ model Project {
   populationDraft             ProjectPopulationDraft?
   defectMap                   DefectMapState?
   caseTraceability            CaseTraceabilityState?
+  reportDashboards            ProjectReportDashboard[]
+  reportSchedules             ProjectReportSchedule[]
   reportDefinitions           ProjectReportDefinition[]
   reportDefinitionWrites      ProjectReportDefinitionWrite[]
   reportSnapshots             ProjectReportSnapshot[]
@@ -726,6 +731,66 @@ model CaseTraceabilityWrite {
   @@index([projectId, createdAt])
 }
 
+
+model ProjectReportDashboard {
+  id String @id
+  projectId String
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  organizationId String
+  ownerId String
+  name String
+  config Json
+  visibility String @default("private")
+  archived Boolean @default(false)
+  version Int @default(1)
+  lastRequestId String
+  lastRequestHash String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([projectId, organizationId, ownerId])
+}
+
+model ProjectReportSchedule {
+  id String @id
+  projectId String
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  organizationId String
+  membershipId String
+  ownerId String
+  name String
+  config Json
+  enabled Boolean @default(false)
+  pauseReason String?
+  deliveryDestinationHash String?
+  version Int @default(1)
+  nextRunAt DateTime
+  lastRequestId String
+  lastRequestHash String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  runs ProjectReportScheduleRun[]
+  @@index([enabled, nextRunAt])
+  @@index([projectId, organizationId, ownerId])
+}
+
+model ProjectReportScheduleRun {
+  id String @id
+  scheduleId String
+  schedule ProjectReportSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  scheduledFor DateTime
+  scheduleVersion Int
+  status String
+  snapshotId String?
+  failureCode String?
+  deliveryStatus String @default("NOT_REQUESTED")
+  deliveryAttemptAt DateTime?
+  deliveredAt DateTime?
+  completedAt DateTime?
+  createdAt DateTime @default(now())
+  @@unique([scheduleId, scheduledFor])
+  @@index([deliveryStatus, createdAt])
+}
+
 model ProjectReportDefinition {
   id             String                  @id @default(cuid())
   organizationId String
@@ -777,6 +842,49 @@ model ProjectReportSnapshot {
   createdAt      DateTime                 @default(now())
 
   @@index([projectId, createdAt])
+}
+
+// Actor/project-bound Atlassian authorization. Credentials and issued-token recovery
+// material stay encrypted; metadata selections remain after local access stops.
+model AtlassianOAuthConnection {
+  id String @id @default(cuid())
+  projectId String
+  organizationId String
+  actorId String
+  clerkActorId String
+  project Project @relation(fields:[projectId], references:[id], onDelete:Cascade)
+  organization Organization @relation(fields:[organizationId], references:[id], onDelete:Cascade)
+  actor User @relation(fields:[actorId], references:[id], onDelete:Cascade)
+  product String
+  requestKey String @unique
+  stateHash String @unique
+  encryptedApplication Json
+  encryptedState Json?
+  encryptedToken Json?
+  status String @default("PENDING")
+  operationId String?
+  version Int @default(0)
+  authorizationExpiresAt DateTime
+  tokenExpiresAt DateTime?
+  accountId String?
+  accountName String?
+  privacyCheckedAt DateTime?
+  privacyDueAt DateTime?
+  privacyCycleDays Float?
+  privacyAccountKey String?
+  privacyClaimId String?
+  sites Json @default("[]")
+  selectedSite Json?
+  catalog Json?
+  approvedResources Json @default("[]")
+  approvalReceipts Json @default("[]")
+  verifiedAt DateTime?
+  createdAt DateTime @default(now())
+  ticketConnection TicketSourceConnection?
+
+  @@index([projectId,actorId,createdAt])
+  @@index([privacyDueAt])
+  @@index([privacyAccountKey])
 }
 
 // Per-organization provider instances, including separately registered self-hosted OAuth apps.
@@ -864,6 +972,8 @@ model DriveSourceConnection {
 
 // Metadata-only ticket access. Approved scope survives access loss and token removal.
 model TicketSourceConnection {
+  oauthConnectionId String? @unique
+  oauthConnection AtlassianOAuthConnection? @relation(fields:[oauthConnectionId],references:[id],onDelete:SetNull)
   issueRuns              JiraIssueImportRun[]
   id                     String       @id @default(cuid())
   projectId              String
@@ -1052,6 +1162,7 @@ model ProjectPopulationRequirement {
 // lazily on a new Clerk user's first authenticated request -- see
 // apps/api/src/trpc.ts.
 model User {
+  atlassianOAuthConnections AtlassianOAuthConnection[]
   updatedAiDisclosurePolicies AiDisclosurePolicy[] @relation("AiDisclosurePolicyUpdater")
   approvedAiDisclosureGrants AiDisclosureGrant[] @relation("AiDisclosureGrantApprover")
   driveSourceConnections DriveSourceConnection[]
@@ -1543,6 +1654,7 @@ enum ValidationDomain {
 // human or reverse-engineered from code by the AI agent, it lives here in
 // the same BDD-normalized shape.
 model TestCase {
+  complianceRevision Int @default(1)
   id             String        @id @default(cuid())
   // Database-assigned, never accepted from content edits or import IDs.
   // Internal IDs remain the foreign keys; displayId is the user's reference.
@@ -2250,6 +2362,59 @@ enum JobStatus {
 // external ids aren't tracked per-row here (that's each TestCase's own
 // provenance, not the job's), but the mapping is kept so a future
 // `P11-11` re-run can reuse the same config for incremental sync.
+// Private source-mapping work. Project erasure removes payloads; actors are
+// original audit identifiers rather than authorization delegated by this row.
+model ImportMappingBatch {
+  id             String @id
+  projectId      String
+  project        Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  organizationId String
+  actorId        String
+  clerkActorId   String
+  requestHash    String
+  sourceLabel    String
+  state          String @default("DRAFT")
+  revokedAt      DateTime?
+  createdAt      DateTime @default(now())
+  confirmedAt    DateTime?
+  rows           ImportMappingRow[]
+  writes         ImportMappingWrite[]
+
+  @@index([projectId, actorId, createdAt])
+}
+
+model ImportMappingRow {
+  id                String @id @default(cuid())
+  batchId           String
+  batch             ImportMappingBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  ordinal           Int
+  sheet             String
+  sourceRowNumber   Int
+  originalRowNumber Int
+  state             String
+  candidate         Json
+  original          Json
+  reasons           String[]
+  hasHistory        Boolean
+  keyPrefix         String
+  externalIdPrefix  String
+  framework         String
+  caseId            String?
+  resolvedAt        DateTime?
+
+  @@unique([batchId, ordinal])
+  @@index([batchId, state])
+}
+
+model ImportMappingWrite {
+  id          String @id
+  batchId     String
+  batch       ImportMappingBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  requestHash String
+  receipt     Json
+  createdAt   DateTime @default(now())
+}
+
 model ImportJob {
   id        String  @id @default(cuid())
   projectId String
@@ -2289,6 +2454,9 @@ enum ImportSource {
 // ---------------------------------------------------------------------------
 
 model ComplianceFramework {
+  organizationId String?
+  catalogKey String?
+  revision Int @default(1)
   id          String  @id @default(cuid())
   key         String  @unique // "soc2", "hipaa", "pci-dss", "gdpr", "iso27001", "fda-21-cfr-part-11", custom keys allowed
   name        String
@@ -2297,9 +2465,12 @@ model ComplianceFramework {
   isBuiltIn   Boolean @default(false)
 
   controls ComplianceControl[]
+  @@index([organizationId])
+  @@unique([organizationId, catalogKey], map: "ComplianceFramework_organization_catalog_key")
 }
 
 model ComplianceControl {
+  revision Int @default(1)
   id          String              @id @default(cuid())
   frameworkId String
   framework   ComplianceFramework @relation(fields: [frameworkId], references: [id])
@@ -3260,9 +3431,20 @@ model AiDisclosureGrant {
   lastUsedAt DateTime?
   readWindowStartedAt DateTime?
   readWindowCount Int @default(0)
+  caseSnapshot AiDisclosureCaseSnapshot?
 
   @@index([organizationId, projectId, createdAt])
   @@index([approvedByUserId, organizationId])
+}
+
+// Immutable approval metadata only. Customer text stays in the original cases;
+// changed/deleted source projections cannot pass the reviewed digest check.
+model AiDisclosureCaseSnapshot {
+  grantId String @id
+  grant AiDisclosureGrant @relation(fields: [grantId], references: [id], onDelete: Restrict)
+  digest String
+  selection Json
+  createdAt DateTime @default(now())
 }
 
 model AiDisclosureAudit {
@@ -3290,4 +3472,26 @@ model AiDisclosureCommand {
   requestHash String
   receipt Json
   createdAt DateTime @default(now())
+}
+
+// Private immutable analysis snapshot and reviewer selection; receipt reconciles lost responses.
+model ComplianceReviewDraft {
+  id String @id
+  projectId String
+  organizationId String
+  actorId String
+  clerkActorId String
+  authorityGeneration Int @default(0)
+  revokedAt DateTime?
+  requestHash String
+  sourceDigest String
+  snapshot Json
+  selection Json
+  digest String
+  state String @default("DRAFT")
+  receipt Json?
+  applyRequestId String?
+  applyHash String?
+  createdAt DateTime @default(now())
+  @@index([projectId, actorId, createdAt])
 }

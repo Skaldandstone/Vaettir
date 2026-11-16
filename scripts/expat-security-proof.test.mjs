@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import test from 'node:test';
+import {restorePreSqliteDockerfileFixture} from './sqlite-dockerfile-inverse-fixture.mjs';
 test('Expat proof is the exact production component recipe with only original test-log capture and an ineligible export',()=>{
   const read=name=>readFileSync(new URL('../'+name,import.meta.url),'utf8').replaceAll('\r\n','\n');
-  const source=read('Dockerfile.api').split('COPY scripts/build-dash-runtime.sh')[0].trimEnd();
+  const source=restorePreSqliteDockerfileFixture(Buffer.from(read('Dockerfile.api'))).toString('utf8').split('COPY scripts/build-dash-runtime.sh')[0].trimEnd();
   const proof=read('Dockerfile.expat-security');
   const prefix=proof.split('\nFROM scratch AS expat-security-proof\n')[0].trimEnd();
   const log='    && (timeout 600 make -C build check > /build/expat-upstream-check.log 2>&1 || { cat /build/expat-upstream-check.log; exit 1; }) ';

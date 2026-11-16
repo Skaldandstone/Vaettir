@@ -35,7 +35,7 @@ test("identity transition and late reads cannot revive prior cached private path
   assert.match(source, /useLayoutEffect\(\(\) => \{\s*liveScope.current = \{ scopeReady, origin, generation \}/);
   assert.match(source, /return \(\) => \{\s*liveScope.current = \{ scopeReady: false, origin: null, generation: -1 \}/);
   assert.ok(
-    source.includes("Folder paths, impact and draft controls are hidden"),
+    source.includes("Restore access to the original workspace"),
   );
   assert.ok(source.includes("ready ? (list.data?.paths ?? []) : []"));
 });

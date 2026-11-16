@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { TRPCError } from "@trpc/server";
 import { Prisma } from "@vaettir/db";
 import { router,protectedProcedure,requireProjectAccess,requireOrgRole,type Context } from "../trpc.js";

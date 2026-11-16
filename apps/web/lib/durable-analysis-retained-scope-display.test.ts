@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
@@ -15,7 +16,7 @@ const printer = ts.createPrinter();
 const functions = ast.statements.filter(ts.isFunctionDeclaration).map(node =>
   printer.printNode(ts.EmitHint.Unspecified, node, ast).replace(/\bexport\s+/, ""),
 ).join("\n");
-const compiled = ts.transpileModule(functions + "\nthis.actualAnalysis=Analysis;", {
+const compiled = controllerTranspile(functions + "\nthis.actualAnalysis=Analysis;", {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React },
 }).outputText;
 const originalScope = { projectId: "synthetic-project", originalOrganizationId: "synthetic-org", expectedClerkActorId: "synthetic-clerk" };

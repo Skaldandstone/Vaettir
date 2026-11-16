@@ -100,11 +100,11 @@ test("explicit empty/NULL/unset and disabled required controls preserve native d
     "Empty authored text is not NULL",
   );
   elements(editable, "button")
-    .find((button) => button.props.children === "Set NULL explicitly")
+    .find((button) => String(button.props.children).trim() === "Set NULL")
     .props.onClick();
   assert.equal(changes.pop().technical_notes, null);
   elements(editable, "button")
-    .find((button) => button.props.children === "Remove value (unset)")
+    .find((button) => String(button.props.children).trim() === "Unset")
     .props.onClick();
   assert.deepEqual({ ...changes.pop() }, { retained: false });
 });

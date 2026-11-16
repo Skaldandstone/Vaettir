@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   EXPERIENCE_OFFERINGS,
@@ -305,9 +307,10 @@ export function QualityExperienceWizard({
           <p role="alert">
             Project access could not be checked. No changes were saved.
           </p>
-          <button className="btn-secondary" onClick={() => void retryAccess()}>
+          <ActionButton className="btn-secondary" onClick={() => void retryAccess()} tooltip={<>
             Retry access check
-          </button>
+           </>}>
+             Retry </ActionButton>
         </div>
       ) : !loaded ? (
         <p role="status">Checking project access…</p>
@@ -496,11 +499,11 @@ export function QualityExperienceWizard({
                 <p className="text-muted">Guidance for this project’s selected context. These cards are not saved test cases or executed runs.</p>
                 <Guidance profile={draft} />
               </section>
-              <p className="text-muted" style={{ marginTop: 16 }}>
+              <details><summary>Details</summary><p className="text-muted" style={{ marginTop: 16 }}>
                 This saves context and guidance only. It does not create cases,
                 run tests, connect repositories, spend credits or establish
                 regulatory compliance.
-              </p>
+              </p></details>
             </>
           )}
           {error && (
@@ -522,20 +525,22 @@ export function QualityExperienceWizard({
                 will not change.
               </p>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                <button
+                <ActionButton
                   className="btn-primary"
                   disabled={busy}
                   onClick={() => void reloadSaved()}
-                >
+                 tooltip={<>
                   Reload saved profile
-                </button>
-                <button
+                 </>}>
+                   Refresh </ActionButton>
+                <ActionButton
                   className="btn-secondary"
                   disabled={busy}
                   onClick={() => setReloadConfirm(false)}
-                >
+                 tooltip={<>
                   Keep my draft
-                </button>
+                 </>}>
+                   Keep draft </ActionButton>
               </div>
             </section>
           )}
@@ -565,23 +570,26 @@ export function QualityExperienceWizard({
               </button>
             </div>
             {screen.id === "review" ? (
-              <button
+              <ActionButton
                 className="btn-primary"
                 disabled={busy}
                 onClick={() => void saveProfile()}
-              >
+               tooltip={<>
                 {busy ? "Saving…" : saved ? "Close" : "Save and close"}
-              </button>
+               </>}>
+                {busy ? "Saving…" : saved ? "Close" : "Save"}
+              </ActionButton>
             ) : (
               <div style={{ display: "flex", gap: 8 }}>
                 {screen.id !== "offerings" && (
-                  <button
+                  <ActionButton
                     className="btn-secondary"
                     disabled={busy}
                     onClick={() => setScreenId(screens[index + 1]!.id)}
-                  >
+                   tooltip={<>
                     Skip for now
-                  </button>
+                   </>}>
+                     Skip </ActionButton>
                 )}
                 <button
                   className="btn-primary"
@@ -596,13 +604,14 @@ export function QualityExperienceWizard({
           <p className="text-muted" style={{ fontSize: 12, marginTop: 12 }}>
             {saved ? "Your testing context is saved." : "Cancel keeps your draft on this page; Save and close persists it to the project."}
           </p>
-          <button
+          <ActionButton
             className="btn-secondary"
             disabled={busy}
             onClick={() => setReloadConfirm(true)}
-          >
+           tooltip={<>
             Start again from saved profile
-          </button>
+           </>}>
+             Start </ActionButton>
         </>
       )}
     </Modal>

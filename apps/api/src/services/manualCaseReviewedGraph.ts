@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 /** Complete frozen graph, not merely the selected transitive closure. */
 export function admitWholeCaseFrozenGraph(
   ids: readonly string[],

@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { qualityLikelihood, qualityConsequence, qualityRiskEvidence } from "./qualityRiskSchema.js";
 
 export const riskOverviewReview = z.enum(["ANY", "NO_REVIEW", "VERSION_MATCHING_REVIEW", "BASELINE_CHANGED"]);

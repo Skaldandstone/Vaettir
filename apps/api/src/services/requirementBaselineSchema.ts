@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 const id = z.string().min(1).max(120), offset = z.number().int().min(0);
 export const requirementBaselineExpectedScope = z.object({ organizationId: id, clerkActorId: z.string().min(1).max(200) }).strict();
 export const requirementBaselineSnapshot = z.object({ version: z.literal(1),

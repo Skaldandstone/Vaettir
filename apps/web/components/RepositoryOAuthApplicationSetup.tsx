@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useState } from "react";
 import { trpcReact } from "@/lib/trpcReact";
 import {gitlabInstanceOrigin} from "@/lib/gitlab-instance-selection";
@@ -31,7 +33,7 @@ export function RepositoryOAuthApplicationSetup({ projectId, providerId, initial
 
   if (!configurations.isSuccess) return <section>
     <p role={configurations.error ? "alert" : "status"}>{configurations.error ? "Workspace application permissions could not be refreshed." : "Checking administrator access…"}</p>
-    {configurations.error && <button type="button" onClick={() => void configurations.refetch()}>Retry permission check</button>}
+    {configurations.error && <ActionButton type="button" onClick={() => void configurations.refetch()} tooltip={<> Retry permission check </>}> Retry </ActionButton>}
   </section>;
   if (!configurations.data.canConfigure) return <p role="alert">A full Owner or Admin seat is required to manage workspace applications.</p>;
 
@@ -56,32 +58,32 @@ export function RepositoryOAuthApplicationSetup({ projectId, providerId, initial
         <p>{providerId === "gitlab" ? "For each publicly reachable self-hosted instance, register an OAuth application in GitLab with read_api and this callback. A GitLab.com application cannot authorize another instance. Private-network hosts are not supported." : "Register an OAuth application in GitHub Developer settings with this callback. GitHub repo scope grants broader read/write access than Vaettir’s metadata-only connection flow."}</p>
         <a href={providerId === "gitlab" ? "https://docs.gitlab.com/integration/oauth_provider/" : "https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/creating-an-oauth-app"} target="_blank" rel="noopener noreferrer">{providerName} application setup instructions</a>
         <code style={{ overflowWrap: "anywhere" }}>{callback}</code>
-        <button type="button" className="btn-secondary" disabled={!callback} onClick={async () => {
+        <ActionButton type="button" className="btn-secondary" disabled={!callback} onClick={async () => {
           if (!callback) return;
           try { await navigator.clipboard.writeText(callback); setNotice("Callback URL copied."); }
           catch { setError("Could not copy. Select the callback URL and copy it manually."); }
-        }}>Copy callback URL</button>
+        }} tooltip={<> Copy callback URL </>}> Copy callback </ActionButton>
         {providerId === "gitlab" && <label style={field}>GitLab instance<input style={inputStyle} type="url" required maxLength={300} value={origin} onChange={e => setOrigin(e.target.value)}/></label>}
         <label style={field}>Application ID<input style={inputStyle} required maxLength={300} autoComplete="off" value={clientId} onChange={e => setClientId(e.target.value)}/></label>
         <label style={field}>Application secret<input style={inputStyle} type="password" required maxLength={2000} autoComplete="new-password" value={clientSecret} onChange={e => setClientSecret(e.target.value)}/></label>
-        <button type="submit" disabled={busy}>Save application securely</button>
+        <ActionButton type="submit" disabled={busy} tooltip={<> Save application securely </>}> Save </ActionButton>
       </form>
     </details>}
     <h3>Configured instances</h3>
     {!available.length && <p>No {providerName} application available yet.</p>}
     {available.map(c => <p key={c.id} style={{ overflowWrap: "anywhere", margin: 0 }}>{new URL(c.origin).hostname} · Application configured, not account authorization</p>)}
     <h3>Saved workspace grants</h3>
-    {!revocations.isSuccess ? <div><p role={revocations.error ? "alert" : "status"}>{revocations.error ? "Workspace authorizations could not be refreshed. Retry before revoking saved access." : "Checking saved grants…"}</p><button type="button" className="btn-secondary" disabled={busy || revocations.isFetching} onClick={() => void revocations.refetch()}>Retry authorization list</button></div> : !revocations.data.length ? <p>No outstanding grants for this provider.</p> : null}
+    {!revocations.isSuccess ? <div><p role={revocations.error ? "alert" : "status"}>{revocations.error ? "Workspace authorizations could not be refreshed. Retry before revoking saved access." : "Checking saved grants…"}</p><ActionButton type="button" className="btn-secondary" disabled={busy || revocations.isFetching} onClick={() => void revocations.refetch()} tooltip={<> Retry authorization list </>}> Retry </ActionButton></div> : !revocations.data.length ? <p>No outstanding grants for this provider.</p> : null}
     {revocations.isSuccess && Boolean(revocations.data?.length) && <div style={{ display: "grid", gap: 8 }}>
       <p className="text-muted">Revoke every grant before removing its application. Failed revocations retain the encrypted credential for retry.</p>
       {revocations.data.map(grant => <div key={grant.id} style={{ ...actions, alignItems: "center" }}>
         <span style={{ flex: "1 1 180px", overflowWrap: "anywhere" }}>{grant.projectName} · {new URL(grant.origin).hostname} · {grant.accountLabel ?? "Account not verified"} · {grant.status.replaceAll("_", " ").toLowerCase()}</span>
-        <button type="button" className="btn-secondary" disabled={busy || Boolean(revokingId) || grant.status === "VERIFYING"} onClick={async () => {
+        <ActionButton type="button" className="btn-secondary" disabled={busy || Boolean(revokingId) || grant.status === "VERIFYING"} onClick={async () => {
           setRevokingId(grant.id); setError(""); setNotice("");
           try { await disconnect.mutateAsync({ id: grant.id }); await revocations.refetch(); setNotice("Grant cleared after provider revocation."); }
           catch { setError("Provider revocation was not confirmed. The encrypted grant remains for retry."); }
           finally { setRevokingId(""); }
-        }}>{revokingId === grant.id ? "Clearing…" : grant.status === "VERIFYING" ? "Verification in progress" : "Cancel / revoke grant"}</button>
+        }} tooltip={<> {revokingId === grant.id ? "Clearing…" : grant.status === "VERIFYING" ? "Verification in progress" : "Cancel / revoke grant"} </>}>{revokingId === grant.id ? "Clearing…" : grant.status === "VERIFYING" ? "Verifying…" : "Revoke grant"}</ActionButton>
       </div>)}
     </div>}
     {removable.length > 0 && <details><summary>Remove an application</summary><p>Saved repository records are preserved. Removal is blocked while any pending authorization or encrypted grant remains.</p>

@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { folderPathSchema } from "./caseFolderSchema.js";
 export const MAX_FOLDER_COPY_CASES = 50;
 export const MAX_FOLDER_COPY_PREREQUISITES = 2500;

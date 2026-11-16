@@ -9,7 +9,7 @@ import {
   decodeCaseProcedureExport,
   type CaseProcedureExport,
 } from "@vaettir/core";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { captureCaseProcedureExport } from "./caseProcedureExport.js";
 import { requireCurrentPlanAccess } from "./testPlanExecution.js";
 import { qualityProfileHash } from "./qualityExperienceProfile.js";

@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 
 export const HUMAN_EDIT_SKIP_REASON = "Case changed since its last import; source updates were not applied. Review the human edits and source changes.";
 

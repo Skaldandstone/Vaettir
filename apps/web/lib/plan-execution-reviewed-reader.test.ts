@@ -191,7 +191,7 @@ it("browser runtime permits only the explicit pure literal codec, not an API/ser
   const ast = ts.createSourceFile("reader.ts", source, ts.ScriptTarget.Latest, true), imports = ast.statements.filter(ts.isImportDeclaration).filter(node => !node.importClause?.isTypeOnly).map(node => (node.moduleSpecifier as ts.StringLiteral).text);
   expect(imports).toEqual(["./manual-run-start-reviewed-reader", "../../api/src/services/planExecutionTemplateExactSchema"]);
   const codec = readFileSync(new URL("../../api/src/services/planExecutionTemplateExactSchema.ts", import.meta.url), "utf8"), codecAst = ts.createSourceFile("codec.ts", codec, ts.ScriptTarget.Latest, true);
-  expect(codecAst.statements.filter(ts.isImportDeclaration).map(node => (node.moduleSpecifier as ts.StringLiteral).text)).toEqual(["zod"]);
+  expect(codecAst.statements.filter(ts.isImportDeclaration).map(node => (node.moduleSpecifier as ts.StringLiteral).text)).toEqual(["@vaettir/core/dist/validation.js"]);
   expect(codec).not.toMatch(/node:|@vaettir\/db|\.\/testPlanExecution|\.\/qualityExperienceProfile|require\(|import\(/);
   const invalid = { ...input, limit: 51 } as PlanExecutionReadInput;
   expect(() => planExecutionReviewedReadKey(invalid, "PAGE")).toThrow();

@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { router, protectedProcedure } from "../trpc.js";
 
 // P8-04: registration for the current signed-in user's own devices, not

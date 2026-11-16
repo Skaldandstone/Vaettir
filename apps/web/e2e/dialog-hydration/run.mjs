@@ -1,3 +1,4 @@
+import { actionName } from "../action-name.mjs";
 // Actual server render + browser hydration using Next's App Router React pair.
 // Synthetic UI only: no Clerk, API, database, credentials or external requests.
 /* global document, window -- evaluated only in the isolated fixture browser */
@@ -13,8 +14,8 @@ const web = path.resolve(fileURLToPath(new URL("../../", import.meta.url)));
 const require = createRequire(path.join(web, "package.json"));
 const viteRequire = createRequire(createRequire(require.resolve("vitest")).resolve("vite"));
 const { build } = viteRequire("esbuild"), { chromium } = require("@playwright/test");
-const output = path.resolve(process.env.VAETTIR_DIALOG_HYDRATION_EVIDENCE
-  ?? path.join(web, "../../.local/dialog-hydration"));
+const output = (process.env.VAETTIR_E2E_OUTPUT_DIR ?? (path.resolve(process.env.VAETTIR_DIALOG_HYDRATION_EVIDENCE
+  ?? path.join(web, "../../.local/dialog-hydration"))));
 await mkdir(output, { recursive: true });
 const alias = {
   "react": path.dirname(require.resolve("next/dist/compiled/react/package.json")),
@@ -61,7 +62,7 @@ try {
   assert.deepEqual(pageErrors, []);
   assert.equal(await page.locator("dialog").count(), 1);
   assert.equal(await page.locator("dialog").evaluate(element => element.hidden && element.inert), true);
-  const opener = page.getByRole("button", { name: "Open retained draft", exact: true });
+  const opener = page.getByRole("button", { name: actionName("Open retained draft"), exact: true });
   await opener.click();
   const input = page.getByRole("textbox", { name: "Retained draft", exact: true });
   await input.fill("Synthetic owned draft");

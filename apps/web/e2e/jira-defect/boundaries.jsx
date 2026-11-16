@@ -4,8 +4,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { buildDefectMap, emptyDefectDocument, defectRecordKey } from "@vaettir/core";
 const project={id:"synthetic-project",organizationId:"synthetic-org"};
 const source={id:"10001",key:"SYN",name:"Synthetic tracker",url:"https://synthetic.atlassian.net/browse/SYN"};
-const issues=[1,2].map(n=>({id:String(20000+n),projectId:source.id,key:`SYN-${n}`,title:`Synthetic defect ${n}`,status:n===1?"To do":"Done",updatedAt:"2026-10-20T00:00:00Z",url:`https://synthetic.atlassian.net/browse/SYN-${n}`,classification:n===1?"new":"unchanged",requirementId:n===1?null:"existing-requirement"}));
-let run=null,readCount=0,requirements=0,pending=null,loseFirst=true,getError=false,conflictNext=false,sourceWrites=0;
+const issues=[1,2].map(n=>({id:String(20000+n),projectId:source.id,key:`SYN-${n}`,title:`Synthetic defect ${n}`,issueType:"Bug",labels:["crash"],components:["Mobile"],status:n===1?"To do":"Done",updatedAt:"2026-10-20T00:00:00Z",url:`https://synthetic.atlassian.net/browse/SYN-${n}`,classification:n===1?"new":"unchanged",requirementId:n===1?null:"existing-requirement"}));
+let run=null,readCount=0,requirements=0,pending=null,loseFirst=true,getError=false,conflictNext=false,sourceWrites=0,connectionListError=false;
 const writes=[],receipts=new Map();
 const reject=()=>{requirements++;throw Error("Requirement writes and unrelated provider calls are forbidden in this fixture");};
 export const useAuth=()=>({userId:"synthetic-owner",sessionId:"synthetic-session",isLoaded:true,isSignedIn:true});
@@ -21,17 +21,22 @@ export const AtlassianQualitySettings=()=> <p>Outgoing quality-sharing panel is 
 function query(key,resolve){return{useQuery(input,options={}){return useQuery({queryKey:[key,input],queryFn:()=>resolve(input),retry:false,...options});}};}
 function mutation(key,resolve){return{useMutation(){return useMutation({mutationKey:[key],mutationFn:resolve});}};}
 export const trpcReact={
+ atlassianConnections:{
+  capabilities:query(["atlassianConnections","capabilities"],()=>({available:false,canConnect:true,organizationId:project.organizationId,clerkActorId:"synthetic-owner"})),
+  mine:query(["atlassianConnections","mine"],()=>[]),status:query(["atlassianConnections","status"],reject),
+  begin:mutation(["atlassianConnections","begin"],reject),selectSite:mutation(["atlassianConnections","selectSite"],reject),approve:mutation(["atlassianConnections","approve"],reject),refresh:mutation(["atlassianConnections","refresh"],reject),disconnect:mutation(["atlassianConnections","disconnect"],reject),
+ },
  useUtils(){const client=useQueryClient();return{jiraConnections:{list:{fetch:reject}},defectMap:{get:{invalidate:()=>client.invalidateQueries({queryKey:[["defectMap","get"]]})}}};},
  project:{byId:query(["project","byId"],()=>project)},
  jiraConnections:{
-  capabilities:query(["jiraConnections","capabilities"],()=>({canConnect:true,credentialStorageReady:true,tokenImplemented:true,issueImportAvailable:true})),
-  mine:query(["jiraConnections","mine"],()=>[{id:"synthetic-connection",status:"VERIFIED",workspace:{name:"Synthetic Jira"},approvedProjects:[source]}]),
+  capabilities:query(["jiraConnections","capabilities"],()=>({canConnect:true,credentialStorageReady:true,tokenImplemented:false,issueImportAvailable:true})),
+  mine:query(["jiraConnections","mine"],()=>{if(connectionListError)throw Error("Synthetic connection metadata outage");return[{id:"synthetic-connection",status:"VERIFIED",workspace:{name:"Synthetic Jira"},approvedProjects:[source]}];}),
   verify:mutation(["jiraConnections","verify"],reject),approve:mutation(["jiraConnections","approve"],reject),forget:mutation(["jiraConnections","forget"],reject),
  },
  jiraIssueIntake:{
-  mine:query(["jiraIssueIntake","mine"],()=>run?[{id:run.id,status:run.status,issueCount:run.issues.length,completedCount:0}]:[]),
+  mine:query(["jiraIssueIntake","mine"],()=>run?[{id:run.id,status:run.status,filters:run.filters,issueCount:run.issues.length,completedCount:0}]:[]),
   get:query(["jiraIssueIntake","get"],()=>{if(getError)throw Error("Synthetic status outage");return structuredClone(run);}),
-  start:mutation(["jiraIssueIntake","start"],input=>{if(!input.approveIssueRead)throw Error("Read approval missing");run={id:"synthetic-run",version:1,status:"PREVIEW",projects:[source],issues:[],readInFlight:false,nextPageAvailable:true,pageCount:0,bounded:false,results:[]};return{id:run.id};}),
+  start:mutation(["jiraIssueIntake","start"],input=>{if(!input.approveIssueRead||input.defectFilters?.issueType!=="Bug"||input.defectFilters.labels.join()!=="crash")throw Error("Approved defect filters missing");run={id:"synthetic-run",version:1,status:"PREVIEW",projects:[source],filters:input.defectFilters,issues:[],readInFlight:false,nextPageAvailable:true,pageCount:0,bounded:false,results:[]};return{id:run.id};}),
   nextPage:mutation(["jiraIssueIntake","nextPage"],()=>{readCount++;run={...run,version:2,issues,status:"PREVIEW",nextPageAvailable:false,pageCount:1};return{id:run.id};}),
   finishPreview:mutation(["jiraIssueIntake","finishPreview"],()=>{run={...run,status:"REVIEW",version:3};return{id:run.id};}),
   approve:mutation(["jiraIssueIntake","approve"],reject),processBatch:mutation(["jiraIssueIntake","processBatch"],reject),cancel:mutation(["jiraIssueIntake","cancel"],reject),
@@ -51,4 +56,4 @@ export const trpcReact={
  },
 };
 export function Evidence(){const[,refresh]=useState(0);return <details><summary onClick={()=>refresh(v=>v+1)}>Synthetic transport evidence</summary><pre data-testid="evidence" style={{whiteSpace:"pre-wrap",overflowWrap:"anywhere"}}>{JSON.stringify({readCount,requirements,sourceWrites,writes})}</pre></details>;}
-export function Controls(){return <div aria-label="Synthetic transport controls"><button onClick={()=>{pending?.reject();pending=null;}}>Lose synthetic acknowledgement</button><button onClick={()=>{getError=true;}}>Fail saved status</button><button onClick={()=>{getError=false;}}>Restore saved status</button><button onClick={()=>{conflictNext=true;}}>Reject next write</button></div>;}
+export function Controls(){const client=useQueryClient();return <div aria-label="Synthetic transport controls"><button onClick={()=>{connectionListError=true;void client.invalidateQueries({queryKey:[["jiraConnections","mine"]]});}}>Fail connections</button><button onClick={()=>{connectionListError=false;void client.invalidateQueries({queryKey:[["jiraConnections","mine"]]});}}>Restore connections</button><button onClick={()=>{pending?.reject();pending=null;}}>Lose synthetic acknowledgement</button><button onClick={()=>{getError=true;}}>Fail saved status</button><button onClick={()=>{getError=false;}}>Restore saved status</button><button onClick={()=>{conflictNext=true;}}>Reject next write</button></div>;}

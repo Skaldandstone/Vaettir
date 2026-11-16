@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 
 const safeSegment = /^[a-zA-Z0-9_.-]+$/;
 export const pinnedDocumentScope = z.object({

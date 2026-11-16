@@ -1,4 +1,4 @@
-import {z} from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import {repositoryProviderJson} from "./repositoryProviderHttp.js";
 import {createGithubAuthorization, verifyGithubAuthorization} from "./githubRepositoryOAuth.js";
 import {repositorySelectionSchema} from "./gitlabRepositoryOAuth.js";

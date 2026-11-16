@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useState } from "react";
 import { trpcReact } from "@/lib/trpcReact";
 import { useCaseFieldAccess } from "@/lib/use-case-field-access";
@@ -71,9 +73,10 @@ export function PlanGovernanceHistory({
             <p role="alert">
               This history page did not identify the original plan. No unrelated
               snapshots are displayed.
-              <button onClick={() => void query.refetch()}>
+              <ActionButton onClick={() => void query.refetch()} tooltip={<>
                 Retry scoped history
-              </button>
+               </>}>
+                 Retry </ActionButton>
             </p>
           )}
           {!fresh && !query.error && <p>Loading bounded history…</p>}

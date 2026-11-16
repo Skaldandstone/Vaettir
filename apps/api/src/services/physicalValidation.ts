@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 
 export const validationDomainSchema = z.enum([
   "SOFTWARE",

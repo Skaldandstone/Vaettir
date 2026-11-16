@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useState } from "react";
 import { trpcReact } from "@/lib/trpcReact";
 import { useCaseFieldAccess } from "@/lib/use-case-field-access";
@@ -13,7 +15,7 @@ function RepositoryReleaseWorkspace({projectId, embedded}:{projectId:string; emb
   return <section className={embedded ? undefined : "panel"} aria-label="Repository releases" style={{minWidth:0}}>
     {!embedded && <h2>Repository releases</h2>}
     {selected ? <>
-      <button type="button" className="btn-secondary" onClick={()=>setSelected(null)}>Back to project releases</button>
+      <ActionButton type="button" className="btn-secondary" onClick={()=>setSelected(null)} tooltip={<> Back to project releases </>}> Back </ActionButton>
       <ReleaseList key={projectId+":"+selected.id} projectId={projectId} repositoryId={selected.id} label={selected.label}/>
     </> : <ProjectReleaseBatch projectId={projectId} offset={offset} onOffsetChange={setOffset} onBrowse={(id,label)=>setSelected({id,label})}/>}
   </section>;
@@ -43,7 +45,7 @@ function ProjectReleaseBatch({projectId,offset,onOffsetChange,onBrowse}:{project
         <button type="button" className="btn-secondary" disabled={query.data.nextOffset===null||query.data.nextOffset>1000} onClick={()=>{if(current()&&query.data.nextOffset!==null&&query.data.nextOffset<=1000)onOffsetChange(query.data.nextOffset);}}>Next repositories</button>
       </div>
     </>}
-    <div className="workspace-toolbar"><button type="button" className="btn-secondary" disabled={!access.readable||!access.canEdit||query.isFetching||query.isPaused} onClick={()=>{if(access.origin&&access.owns(access.origin,"edit"))void query.refetch();}}>Refresh repository releases</button></div>
+    <div className="workspace-toolbar"><ActionButton type="button" className="btn-secondary" disabled={!access.readable||!access.canEdit||query.isFetching||query.isPaused} onClick={()=>{if(access.origin&&access.owns(access.origin,"edit"))void query.refetch();}} tooltip={<> Refresh repository releases </>}> Refresh </ActionButton></div>
   </div>;
 }
 function ReleaseList({projectId,repositoryId,label}:{projectId:string;repositoryId:string;label:string}) {
@@ -54,7 +56,7 @@ function ReleaseList({projectId,repositoryId,label}:{projectId:string;repository
   function current(){return ready&&!!access.origin&&access.owns(access.origin,"edit");}
   return <div style={{display:"grid",gap:8,marginTop:12}}>
     <details><summary>About repository releases</summary><p className="text-muted">Uses the existing GitLab connection. These are provider releases, not verified deployments or automatically created release goals.</p></details>
-    {!access.readable||!access.canEdit?<p role="status">Current full editor access is required for provider metadata.</p>:query.error?<><p role="alert">Repository releases could not be verified. No empty result is inferred.</p><button className="btn-secondary" type="button" onClick={()=>{if(access.origin&&access.owns(access.origin,"edit"))void query.refetch();}}>Retry repository releases</button></>:!ready?<p role="status">Checking repository releases…</p>:<>
+    {!access.readable||!access.canEdit?<p role="status">Current full editor access is required for provider metadata.</p>:query.error?<><p role="alert">Repository releases could not be verified. No empty result is inferred.</p><ActionButton className="btn-secondary" type="button" onClick={()=>{if(access.origin&&access.owns(access.origin,"edit"))void query.refetch();}} tooltip={<> Retry repository releases </>}> Retry </ActionButton></>:!ready?<p role="status">Checking repository releases…</p>:<>
       <h3 style={{fontSize:16,margin:"4px 0"}}>{label}</h3>
       {!query.data.releases.length&&<p>No releases returned on this page.</p>}
       {query.data.releases.map(release=><div key={release.tag} style={{overflowWrap:"anywhere"}}><a href={release.url} target="_blank" rel="noopener noreferrer">{release.name||release.tag}</a>{" · "}{release.tag}<small style={{display:"block"}}>Commit {release.commitSha}{" · "}{new Date(release.releasedAt).toLocaleString()}</small></div>)}

@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { reportDateIntervalSchema } from "./reportDateIntervalSchema.js";
 import { caseHistoryRunFiltersShape, caseHistoryRunFiltersKeyFields } from "./caseHistoryRunFiltersSchema.js";
 

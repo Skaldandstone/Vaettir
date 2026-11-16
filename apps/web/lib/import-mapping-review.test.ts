@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import ts from "typescript";
+import { controllerTranspile } from "./controller-transpile.fixture";
 import { expect, it } from "vitest";
 import { remainingNonCaseRows } from "./reassign-import-column";
 import { importReviewRows, typeReviewLabel } from "./import-type-review";
@@ -13,7 +14,7 @@ const ast = ts.createSourceFile("Migration.tsx", source, ts.ScriptTarget.Latest,
 const names = ["rowRecord", "reconcileRowOverrides", "splitEditedLines", "RowRepairEditor", "NonCaseRowsReview", "RowMappingReview", "ImportRecommendations"];
 const declarations = ast.statements.filter(node => ts.isFunctionDeclaration(node) && names.includes(node.name?.text ?? ""));
 if (declarations.length !== names.length) throw Error("Actual import repair declarations missing");
-const code = ts.transpileModule(declarations.map(node => ts.createPrinter().printNode(ts.EmitHint.Unspecified, node, ast)).join("\n"), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
+const code = controllerTranspile(declarations.map(node => ts.createPrinter().printNode(ts.EmitHint.Unspecified, node, ast)).join("\n"), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React } }).outputText;
 const actual = new Function("React", "remainingNonCaseRows", "typeReviewLabel", code + "\nreturn { rowRecord, reconcileRowOverrides, splitEditedLines, RowRepairEditor, NonCaseRowsReview, RowMappingReview, ImportRecommendations };")(React, remainingNonCaseRows, typeReviewLabel);
 const row = { rowNumber: 2, title: "", externalId: "original-ID", tags: ["Not a case name"], given: [" Setup\n  kept "], when: ["1. Reinstall.\n\n  2. Check a|b."], then: [" Expected\nvalue "], priority: "MEDIUM", testType: "FUNCTIONAL", automationStatus: "MANUAL" };
 function elements(root: React.ReactNode): React.ReactElement<{ children?: React.ReactNode; onClick?: () => void; onChange?: (event: { target: { value: string } }) => void }>[] {
@@ -54,7 +55,9 @@ it("CSV and XLSX previews expose the title, procedure and tag roles separately a
   expect(source).toContain('style={{ whiteSpace: "pre-wrap" }}>{row.when.join("\\n") || "—"}');
   expect(source).toContain('style={{ whiteSpace: "pre-wrap" }}>{r.when.join("\\n")}');
   expect(source).not.toContain("suggested titles from stable IDs");
-  expect(source).toContain("disabled={loading || Boolean(error) || !mapping.title");
+  expect(source).toContain("disabled={loading || Boolean(error)}");
+  expect(source).toContain("rows need titles and will stay in the mapping queue");
+  expect(source).toContain("<ImportMappingReview");
 });
 
 it("the actual excluded-row review lists source labels and lets the user include one deliberately", () => {

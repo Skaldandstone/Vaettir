@@ -1,5 +1,5 @@
 // Browser-pure wire contracts. No native client, service or Node imports.
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 const nativeText = (value: string) => {
   if (value.includes("\0")) return false;
   for (let index = 0; index < value.length; index++) {

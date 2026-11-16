@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { mapCsvRows, type TargetField, type MappedRow, type MappedRowOverride } from "./csvFieldMapping.js";
 
 // Separate from the metadata-only Drive source connection. Browser OAuth uses

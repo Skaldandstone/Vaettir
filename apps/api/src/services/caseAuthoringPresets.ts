@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { Prisma, type PrismaClient } from "@vaettir/db";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { requireCurrentPlanAccess } from "./testPlanExecution.js";
 import { readCaseFieldState, lockCaseFieldProject } from "./caseFields.js";
 import { lockCurrentCaseFieldActor, type CaseFieldReadAuthorization } from "./caseFieldReadScope.js";

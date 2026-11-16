@@ -1,3 +1,4 @@
+import { fixtureProjectKey } from "./testProjectKey.js";
 // Fresh owned synthetic DB only; root owns execution and validation evidence.
 // Same native User.id, genuinely refreshed ctx B, old UNACCEPTED A review.
 // This is not a stale ctx test and never invents Clerk stamps for old receipts.
@@ -58,7 +59,7 @@ describe("ephemeral case intent binds actual current Clerk independently of nati
       reason: "Reviewed synthetic metadata", confirmed: true as const, requestId: randomUUID() };
   }
   async function fixture() {
-    const project = await a.project.create({ organizationId, name: `${tag}-${randomUUID()}`, caseKey: `i${randomUUID().replaceAll("-", "").slice(0, 15)}` });
+    const project = await a.project.create({ organizationId, name: `${tag}-${randomUUID()}`, caseKey: fixtureProjectKey() });
     const acceptedConfigure = await schemaRequest(a, project.id);
     await a.caseFields.configure(acceptedConfigure);
     const fields = await a.caseFields.get({ projectId: project.id });

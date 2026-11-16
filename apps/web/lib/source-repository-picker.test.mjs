@@ -24,7 +24,7 @@ test('callback handoff closes the picker before parent opens connection and visi
 });
 test('repository and export writes lock modal dismissal and provider changes without trapping unrelated actions',()=>{
  assert.match(chips,/isConnectionMutation\(key\)\|\|\(Array.isArray\(route\)&&route\[0\]==="project"&&route\[1\]==="addRepository"\)/);
- assert.match(chips,/dismissible=\{!busy\}/);assert.match(chips,/function close\(\)\{\s*if\(busy\)return/);
+ assert.match(chips,/dismissible=\{!busy\}/);assert.match(chips,/function close\(\)\{\s*if\(busy\|\|jiraWorkingRef\.current\)return/);
  assert.match(chips,/function chooseRepository\(provider:RepositoryProvider,intent\?:RepositoryAuthorizationIntent\)\{\s*if\(busy/);
  assert.match(chips,/<fieldset disabled=\{busy\}/);
  assert.doesNotMatch(chips,/active==="drive"\|\|!busy/);

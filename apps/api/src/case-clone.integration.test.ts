@@ -72,7 +72,7 @@ describe.skipIf(!isolated)("reviewed non-destructive case duplication", () => {
       await outsider.project.create({
         organizationId: otherOrgId,
         name: "Outside",
-        caseKey: "outside",
+        caseKey: "outer",
       })
     ).id;
   });
@@ -423,7 +423,7 @@ describe.skipIf(!isolated)("reviewed non-destructive case duplication", () => {
     const sibling = await owner.project.create({
       organizationId,
       name: "Sibling",
-      caseKey: "clonesibling",
+      caseKey: "sib",
     });
     await expect(
       owner.caseClone.preview({ projectId: sibling.id, caseId: source.id }),
