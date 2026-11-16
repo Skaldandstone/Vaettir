@@ -15,7 +15,6 @@ export function workspaceIngressRejection(error: unknown, request: { method: str
     scope.setContext("workspace_ingress", {
       reason: error.reason,
       method: request.method,
-      host: request.headers.get("x-vaettir-host"),
       hasTarget: request.headers.has("x-vaettir-target"),
       clockSkewMs: Number.isFinite(time) && time > 0 ? Date.now() - time : null,
     });
