@@ -103,7 +103,7 @@ def main():
             tunnel = subprocess.Popen(["aws", "--profile", PROFILE, "--region", REGION,
                 "ssm", "start-session", "--target", host, "--document-name",
                 "AWS-StartPortForwardingSessionToRemoteHost", "--parameters", parameters],
-                env=environment, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
+                env=environment, stdin=subprocess.PIPE, stdout=log, stderr=subprocess.STDOUT)
             deadline = time.monotonic() + 120
             while True:
                 text = log_path.read_text(errors="replace")

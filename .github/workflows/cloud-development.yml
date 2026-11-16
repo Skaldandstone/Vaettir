@@ -1,0 +1,30 @@
+name: cloud-development
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/cloud-development.yml'
+      - 'scripts/cloud-builder*.py'
+      - 'scripts/cloud-dev-db*.py'
+      - 'infra/cloud-builder.*'
+      - 'infra/dev-database.*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check failure handling and development database isolation
+        run: |
+          python3 scripts/cloud-builder.test.py
+          python3 scripts/cloud-dev-db.test.py
+          python3 -m py_compile scripts/cloud-builder.py scripts/cloud-builder-worker.py scripts/cloud-dev-db.py
+      - name: Validate CloudFormation schemas
+        run: |
+          python3 -m pip install cfn-lint==1.55.1
+          cfn-lint -t infra/cloud-builder.json infra/dev-database.json -r us-east-2
