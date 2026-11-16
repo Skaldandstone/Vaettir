@@ -7,6 +7,7 @@ import { EXPAT_290_DOCKERFILE_SHA256, restorePreExpat290DockerfileFixture } from
 import { NODE_BROTLI_DOCKERFILE_SHA256, restorePreNodeBrotliDockerfileFixture } from "./node-brotli-dockerfile-inverse-fixture.mjs";
 import {SQLITE_DOCKERFILE_SHA256, restorePreSqliteDockerfileFixture} from "./sqlite-dockerfile-inverse-fixture.mjs";
 import {API_DIRECT_PRISMA_DOCKERFILE_SHA256, restorePreApiDirectPrismaDockerfileFixture} from "./api-startup-dockerfile-inverse-fixture.mjs";
+import { NODE26_API_DOCKERFILE_SHA256, NODE26_WEB_DOCKERFILE_SHA256, restorePreNode26DockerfileFixture } from "./node26-dockerfile-inverse-fixture.mjs";
 export const HISTORICAL_DOCKERFILE_SHA256 =
   "06624ebd0b0fcc95a2c91c7501d7037eb11b830d4d273cb98c9f76dd0d2a9f34";
 export const ABSENCE_FIXED_DOCKERFILE_SHA256 =
@@ -24,6 +25,8 @@ export function historicalRuntimeDockerfileFixture(raw) {
   assert.equal(arguments.length, 1);
   assert.ok(Buffer.isBuffer(raw));
   const currentSourceHash = sha(raw);
+  if (currentSourceHash === NODE26_API_DOCKERFILE_SHA256 || currentSourceHash === NODE26_WEB_DOCKERFILE_SHA256)
+    raw = restorePreNode26DockerfileFixture(raw);
   if (sha(raw) === API_DIRECT_PRISMA_DOCKERFILE_SHA256) raw = restorePreApiDirectPrismaDockerfileFixture(raw);
   if (sha(raw) === SQLITE_DOCKERFILE_SHA256) raw = restorePreSqliteDockerfileFixture(raw);
   if (sha(raw) === NODE_BROTLI_DOCKERFILE_SHA256)

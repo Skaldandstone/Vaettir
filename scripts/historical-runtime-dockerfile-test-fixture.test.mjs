@@ -13,7 +13,26 @@ import {
   historicalRuntimeDockerfileFixture,
   HISTORICAL_DOCKERFILE_SHA256,
 } from "./historical-runtime-dockerfile-test-fixture.mjs";
-const current = Buffer.from(readFileSync(new URL("../Dockerfile.api", import.meta.url), "utf8").replaceAll("\r\n", "\n"));
+import {
+  NODE26_API_DOCKERFILE_SHA256,
+  NODE26_WEB_DOCKERFILE_SHA256,
+  PRE_NODE26_WEB_DOCKERFILE_SHA256,
+  restorePreNode26DockerfileFixture,
+} from "./node26-dockerfile-inverse-fixture.mjs";
+const node26Current = Buffer.from(readFileSync(new URL("../Dockerfile.api", import.meta.url), "utf8").replaceAll("\r\n", "\n"));
+const current = restorePreNode26DockerfileFixture(node26Current);
+test("Node 26 inverse is bound to the exact reviewed API Dockerfile", () => {
+  assert.equal(createHash("sha256").update(node26Current).digest("hex"), NODE26_API_DOCKERFILE_SHA256);
+  assert.equal(createHash("sha256").update(current).digest("hex"), API_DIRECT_PRISMA_DOCKERFILE_SHA256);
+  assert.equal(historicalRuntimeDockerfileFixture(node26Current).sourceSha256, NODE26_API_DOCKERFILE_SHA256);
+  for (const bytes of [Buffer.concat([node26Current, Buffer.from("# unrelated\n")]), Buffer.from(node26Current.toString().replace("node:26-trixie-slim", "node:25-trixie-slim"))])
+    assert.throws(() => restorePreNode26DockerfileFixture(bytes));
+});
+test("Node 26 web inverse restores only the exact reviewed pin diff", () => {
+  const source = Buffer.from(readFileSync(new URL("../Dockerfile.web", import.meta.url), "utf8").replaceAll("\r\n", "\n"));
+  assert.equal(createHash("sha256").update(source).digest("hex"), NODE26_WEB_DOCKERFILE_SHA256);
+  assert.equal(createHash("sha256").update(restorePreNode26DockerfileFixture(source)).digest("hex"), PRE_NODE26_WEB_DOCKERFILE_SHA256);
+});
 test("exact inverse chain restores immutable historical synthetic input", () => {
   const historical = historicalRuntimeDockerfileFixture(current);
   assert.equal(createHash("sha256").update(historical.bytes).digest("hex"), HISTORICAL_DOCKERFILE_SHA256);
