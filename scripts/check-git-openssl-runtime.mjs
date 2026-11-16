@@ -8,7 +8,7 @@ import {resolve,join,dirname,basename,relative,sep} from "node:path";
 import {tmpdir} from "node:os";
 import {pathToFileURL} from "node:url";
 export const PACKAGE_VERSION="1:2.47.3-0+deb13u1+vaettir1";
-export const CURL_PUBLIC_CERTIFICATE=Object.freeze({url:'https://keyring.debian.org/pks/lookup?op=get&search=0x05DB6A837E105F4B1D02C55FBBA9FAADCCFB4707',rawBytes:64986,rawSha256:'4451f938a540a2da428b68598422c49a4bc176ed1c9d91dd5ecd346303608618',keyringBytes:47569,keyringSha256:'96d7267ff6f1c1285a804d682afb1c3eb5efea85c920b4f93c2a0d2052983723',primaryFingerprint:'BFAE9E331A867A7C80D8EB78F4E4ACDBB8D08BE0',signerFingerprint:'05DB6A837E105F4B1D02C55FBBA9FAADCCFB4707',primaryExpiry:1868115570,signerExpiry:1868115646});
+export const CURL_PUBLIC_CERTIFICATE=Object.freeze({url:'https://keyring.debian.org/pks/lookup?op=get&search=0x05DB6A837E105F4B1D02C55FBBA9FAADCCFB4707',rawBytes:64218,rawSha256:'ee4d13782c2c91fd0594473aafa5b8b5afc946d48580936b18eb12b9b302a5a0',keyringBytes:47003,keyringSha256:'9f9ba693d50c91a3533c0fe415f8e1c8b8fa67b39d5632b6e3a1db99bfe5c747',primaryFingerprint:'BFAE9E331A867A7C80D8EB78F4E4ACDBB8D08BE0',signerFingerprint:'05DB6A837E105F4B1D02C55FBBA9FAADCCFB4707',primaryExpiry:1868115570,signerExpiry:1868115646});
 export function dearmorPublicCertificate(bytes){
   assert.ok(Buffer.isBuffer(bytes)&&bytes.length>0&&bytes.length<=65536);assert.ok(bytes.every(x=>x===10||(x>=32&&x<=126)),'Noncanonical ASCII armor');
   const lines=bytes.toString('ascii').replace(/\n$/,'').split('\n');assert.equal(lines.shift(),'-----BEGIN PGP PUBLIC KEY BLOCK-----');assert.equal(lines.pop(),'-----END PGP PUBLIC KEY BLOCK-----');
