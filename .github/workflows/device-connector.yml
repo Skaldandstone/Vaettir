@@ -18,7 +18,7 @@ jobs:
       - name: Smoke test native binary
         run: |
           node -e "const file = 'dist/device-connector/' + process.platform + '-' + process.arch + '/VaettirDeviceConnector' + (process.platform === 'win32' ? '.exe' : ''); const result = require('node:child_process').spawnSync(process.execPath, ['scripts/smoke-device-connector-binary.mjs', file], { stdio: 'inherit' }); process.exit(result.status ?? 1);"
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: unsigned-device-connector-${{ runner.os }}-${{ runner.arch }}
           path: |
