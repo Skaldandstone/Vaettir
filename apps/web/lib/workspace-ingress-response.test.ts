@@ -49,7 +49,7 @@ describe("workspace ingress rejection response", () => {
     expect(captureException).toHaveBeenCalledWith(error);
     expect(scope.setLevel).toHaveBeenCalledWith("warning");
     expect(scope.setTag).toHaveBeenCalledWith("workspace_ingress.reason", "signature");
-    expect(scope.setContext.mock.calls[0][1]).not.toHaveProperty("host");
+    expect(scope.setContext.mock.calls[0]?.[1] ?? {}).not.toHaveProperty("host");
   });
   it("rethrows unrelated failures untouched without reporting them here", () => {
     const failure = new Error("unrelated");
