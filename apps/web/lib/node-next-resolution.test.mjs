@@ -11,8 +11,8 @@ const requireWeb = createRequire(new URL("../package.json", import.meta.url));
 // Exercise the actual resolver shipped with our installed Next version, not a
 // regex or a hand-written imitation. No compiler.run(), emit or network access.
 const bundledWebpack = requireWeb("next/dist/compiled/webpack/webpack");
-bundledWebpack.init();
-const webpack = bundledWebpack.webpack;
+if (typeof bundledWebpack.init === "function") bundledWebpack.init();
+const webpack = bundledWebpack.webpack ?? bundledWebpack;
 
 function resolver(t, config = {}, fileSystem = fs) {
   const compiler = webpack({ mode: "none", entry: {}, ...config });
