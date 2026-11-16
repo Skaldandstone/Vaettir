@@ -1,0 +1,25 @@
+rule isolated_dev_database {
+    Resources.Database.Properties {
+        DatabaseName == 'vaettir_dev'
+        StorageEncrypted == true
+        ManageMasterUserPassword == true
+        MasterUserPassword !exists
+        DeletionProtection == true
+        ServerlessV2ScalingConfiguration.MinCapacity == 0
+        ServerlessV2ScalingConfiguration.SecondsUntilAutoPause == 300
+    }
+    Resources.Database.DeletionPolicy == 'Snapshot'
+    Resources.Writer.Properties.PubliclyAccessible == false
+    Resources.DatabaseIngress.Properties {
+        FromPort == 5432
+        ToPort == 5432
+        SourceSecurityGroupId exists
+        CidrIp !exists
+    }
+    Resources.AccessGroup.Properties.SecurityGroupIngress !exists
+    Resources.AccessHost.Properties {
+        MetadataOptions.HttpTokens == 'required'
+        InstanceInitiatedShutdownBehavior == 'stop'
+        BlockDeviceMappings.*.Ebs.Encrypted == true
+    }
+}

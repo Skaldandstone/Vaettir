@@ -78,8 +78,7 @@ digest/scan verification, a warm-cache build, and observed idle stop/start with
 cache retention. Do not interrupt or discard the existing local release build to
 test this path.
 
-The Compose PostgreSQL database is a separate migration. Preserve and inspect
-its data before changing development connection settings. A cloud development
-database must be isolated from production and reachable privately; this builder
-is disposable compute and must not become a database host. No database or local
-volume is deleted by this change.
+The [cloud development database](CLOUD_DEVELOPMENT.md) is a separate, fresh
+environment. It uses its own small access host so development does not keep this
+compiler host running. No production data is copied and no old local volume is
+deleted.
