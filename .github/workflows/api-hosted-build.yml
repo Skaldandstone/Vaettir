@@ -1,0 +1,68 @@
+name: Build Vaettir API release image
+
+on:
+  push:
+    branches: [codex/vaettir-api-hosted-build-20261116]
+    paths: [.github/workflows/api-hosted-build.yml]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vaettir-api-release-image
+  cancel-in-progress: false
+
+jobs:
+  image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    env:
+      RELEASE_COMMIT: e4fc0b76a689b6324b463a2692f35b4ac56d9e4a
+    steps:
+      - name: Check out reviewed release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: e4fc0b76a689b6324b463a2692f35b4ac56d9e4a
+          persist-credentials: false
+          path: source
+      - name: Check out transport certificate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          path: transport
+          sparse-checkout: .github/vaettir-api-release-recipient.pem
+          sparse-checkout-cone-mode: false
+      - name: Reserve build space on the job VM
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Unused, preinstalled SDKs on this disposable GitHub VM.
+          sudo rm -rf -- /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h "$RUNNER_TEMP" /var/lib/docker
+          test "$(df -PB1 /var/lib/docker | awk 'NR==2 {print $4}')" -ge $((25 * 1024 * 1024 * 1024))
+      - name: Build the complete API Dockerfile and seal the image
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = "$RELEASE_COMMIT"
+          mkdir -p "$RUNNER_TEMP/vaettir-context" "$RUNNER_TEMP/vaettir-output"
+          git -C source archive "$RELEASE_COMMIT" | tar -xf - -C "$RUNNER_TEMP/vaettir-context"
+          image="vaettir-api:$RELEASE_COMMIT"
+          docker build --platform linux/amd64 --progress plain \
+            --file "$RUNNER_TEMP/vaettir-context/Dockerfile.api" --tag "$image" \
+            --build-arg "VAETTIR_RELEASE_COMMIT=$RELEASE_COMMIT" "$RUNNER_TEMP/vaettir-context"
+          receipt="$RUNNER_TEMP/vaettir-output"
+          docker image inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$image" \
+            | grep -Fx "VAETTIR_RELEASE_COMMIT=$RELEASE_COMMIT"
+          docker image inspect --format '{{.Id}}' "$image" > "$receipt/image-id.txt"
+          docker save "$image" | zstd -T2 -3 | openssl cms -encrypt -binary -stream -aes-256-gcm \
+            -outform DER -out "$receipt/api-image.tar.zst.cms" transport/.github/vaettir-api-release-recipient.pem
+          (cd "$receipt" && sha256sum api-image.tar.zst.cms image-id.txt > SHA256SUMS)
+      - name: Transfer the sealed image
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: vaettir-api-e4fc0b76
+          path: ${{ runner.temp }}/vaettir-output/
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
