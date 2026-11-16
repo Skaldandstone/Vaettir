@@ -26,6 +26,36 @@ function fixtureLf(raw){
   assert.ok(Buffer.from(text).equals(raw));
   return Buffer.from(text.replaceAll("\r\n","\n"));
 }
+function historicalFreshPrepareSource(raw){
+  assert.ok(Buffer.isBuffer(raw));
+  assert.equal(sha(raw),"df94e966e1b9402dcfab489aaafc7c10b683d60677edeb79e0eba7fd805deb7b","Unknown complete current prepare module");
+  const text=raw.toString();
+  const currentLF="142eb60aca1ac0dc3950238badc95e29fef1a720afc37a62c90ffa38a78df9be";
+  const legacyLF="a46abe15b0e838b48c633507028b358af1ee739df7af6fcf0854517ecba38e17";
+  const currentCRLF="1185b103eb197da142583b7b4c783b1dfbea279e4df5581448408b76b7cb5172";
+  const legacyCRLF="2e17302ed4711f9fdf238749226c3d8ac9dd91cd7e9ba84e5dcaaa0001d0fa43";
+  assert.equal(text.split(currentLF).length,2);assert.equal(text.split(currentCRLF).length,2);
+  const restored=Buffer.from(text.replace(currentLF,legacyLF).replace(currentCRLF,legacyCRLF));
+  assert.equal(sha(restored),LEGACY_SOURCE_PINS["native-builder-fresh-prepare.mjs"]);
+  return restored;
+}
+function historicalVendorFetcherSource(raw){
+  assert.ok(Buffer.isBuffer(raw));
+  assert.equal(sha(raw),"142eb60aca1ac0dc3950238badc95e29fef1a720afc37a62c90ffa38a78df9be","Unknown complete vendor fetcher");
+  let text=raw.toString();
+  const additions=[
+    '  [\n    "https://snapshot.debian.org/file/",\n    {\n      name: /^expat_[a-zA-Z0-9.+~-]+\\.(?:dsc|orig\\.tar\\.gz|debian\\.tar\\.xz)$/,\n      maxBytes: 10000000,\n      timeout: 60000,\n    },\n  ],\n',
+    '    (origin === "https://snapshot.debian.org/file/"\n      ? !/^[a-f0-9]{40}$/.test(file.snapshotSha1)\n      : file.snapshotSha1 !== undefined) ||\n',
+    '  const sourceUrl =\n    origin === "https://snapshot.debian.org/file/"\n      ? origin + file.snapshotSha1\n      : origin + file.name;\n  const response = await fetchImpl(sourceUrl, {\n',
+  ];
+  for(const block of additions)assert.equal(text.split(block).length,2,"Exact snapshot fetcher edit required");
+  text=text.replace(additions[0],"");
+  text=text.replace(additions[1],"");
+  text=text.replace(additions[2],'  const response = await fetchImpl(origin + file.name, {\n');
+  const restored=Buffer.from(text);
+  assert.equal(sha(restored),"a46abe15b0e838b48c633507028b358af1ee739df7af6fcf0854517ecba38e17");
+  return restored;
+}
 function restoreAbsenceFixtureSource(raw){
   assert.ok(Buffer.isBuffer(raw));
   assert.equal(sha(raw),"39e7030a57b2903bd553406eb503f7053b20619464f946b116f322d77b96da23","Unknown complete fixture edit");
@@ -70,7 +100,7 @@ function source(){
   // Only strict whole-hash-admitted historical TEST evidence is reversed.
   // The production derivation API still admits exact-original buffers only.
   const historical=historicalNativeV1RecipeFixture(canonicalRecipe);
-  return{recipe:historical.bytes,modules:Object.fromEntries(Object.keys(LEGACY_SOURCE_PINS).map(n=>[n,n==="native-builder-fresh-final-plan.mjs"?historicalNativeFinalPlanFixture():n==="native-builder-fresh-final-adapter.mjs"?historicalNativeFinalAdapterFixture():fixtureLf(readFileSync(new URL("scripts/"+n,root)))]))};
+  return{recipe:historical.bytes,modules:Object.fromEntries(Object.keys(LEGACY_SOURCE_PINS).map(n=>[n,n==="native-builder-fresh-final-plan.mjs"?historicalNativeFinalPlanFixture():n==="native-builder-fresh-final-adapter.mjs"?historicalNativeFinalAdapterFixture():n==="native-builder-fresh-prepare.mjs"?historicalFreshPrepareSource(fixtureLf(readFileSync(new URL("scripts/"+n,root)))):fixtureLf(readFileSync(new URL("scripts/"+n,root)))]))};
 }
 function sourcesForTest(input,v2){
   const derived=deriveNativePackagingV2(input);
@@ -79,6 +109,7 @@ function sourcesForTest(input,v2){
   // constructed. Never replace entries after archival or claim a historical
   // fixture represents the actual current canonical source checkpoint.
   publicBytes["build-llvm-runtime.sh"]=v2?derived.correctedRecipe:input.recipe;
+  if(!v2)publicBytes["fetch-runtime-vendor-sources.mjs"]=historicalVendorFetcherSource(fixtureLf(publicBytes["fetch-runtime-vendor-sources.mjs"]));
   publicBytes["Dockerfile.api"]=historicalRuntimeDockerfileFixture(fixtureLf(publicBytes["Dockerfile.api"])).bytes;
   publicBytes["native-builder-fresh-final-verifier.mjs"]=input.modules["native-builder-fresh-final-verifier.mjs"];
   publicBytes["native-builder-fresh-final-adapter.mjs"]=input.modules["native-builder-fresh-final-adapter.mjs"];
