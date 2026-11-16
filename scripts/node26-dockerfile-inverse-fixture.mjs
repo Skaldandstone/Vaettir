@@ -8,7 +8,7 @@ export const NODE26_API_DOCKERFILE_SHA256 =
 export const PRE_NODE26_API_DOCKERFILE_SHA256 =
   "d15d3ecbecc3ea49f1af7f30805ef56815bac98a73b47a75a71357ea4495d3c0";
 export const NODE26_WEB_DOCKERFILE_SHA256 =
-  "11b2a4e5ac01607d3d8e3fd4eb6c71a6da04409d2cb1e9343b1ae8dea49bc874";
+  "156db08f7c1525894f0caaec0bc5700c6aabc9dc12a90a44e2230a74a26c07d2";
 export const PRE_NODE26_WEB_DOCKERFILE_SHA256 =
   "3ef10df06706d0f45e4d0b1946a727b24faa38e27f861c99dc9541932dd9265b";
 
@@ -31,14 +31,19 @@ export function restorePreNode26DockerfileFixture(raw) {
   ]);
   assert.ok(expected.has(hash), "Unknown complete Node 26 Dockerfile edit");
   assert.ok(text.includes(node26));
-  const restored = Buffer.from(
-    text
-      .replaceAll(node26, node22)
-      .replaceAll(
-        "RUN npm install --global --no-audit --no-fund pnpm@11.23.0",
-        "RUN corepack enable",
-      ),
-  );
+  const restoredText = text
+    .replaceAll(node26, node22)
+    .replaceAll(
+      "RUN npm install --global --no-audit --no-fund pnpm@11.23.0",
+      "RUN corepack enable",
+    )
+    .replaceAll(
+      "debian-keyring libbrotli1=1.1.0-2+b7",
+      hash === NODE26_WEB_DOCKERFILE_SHA256
+        ? "debian-keyring libbrotli1"
+        : "debian-keyring libbrotli1=1.1.0-2+b7",
+    );
+  const restored = Buffer.from(restoredText);
   assert.equal(sha(restored), expected.get(hash), "Pre-Node-26 Dockerfile differs");
   return restored;
 }

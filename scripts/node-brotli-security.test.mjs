@@ -15,7 +15,7 @@ const url = "https://nodejs.org/dist/v22.23.4/node-v22.23.4-linux-x64.tar.xz",
 test("isolated ABI proof selects its reviewed baseline despite newer APT candidates", () => {
   const manifest = JSON.parse(readFileSync(new URL("./node-brotli-runtime-sources.json", import.meta.url), "utf8"));
   assert.equal(manifest.brotli.baselineBinaryVersion, "1.1.0-2+b7");
-  for (const name of ["../Dockerfile.api", "./Dockerfile.node-brotli-security"]) {
+  for (const name of ["../Dockerfile.api", "../Dockerfile.web", "./Dockerfile.node-brotli-security"]) {
     const source = readFileSync(new URL(name, import.meta.url), "utf8");
     assert.equal(source.match(/apt-get install[^\n]* libbrotli1=1\.1\.0-2\+b7 /g)?.length, 1);
     assert.ok(source.includes('test "$(dpkg-query -W -f=\'${Version}\' libbrotli1)" = 1.1.0-2+b7'));
