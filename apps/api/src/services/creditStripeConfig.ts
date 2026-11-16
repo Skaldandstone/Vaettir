@@ -1,8 +1,8 @@
 import Stripe from "stripe";
-import { getStripeRuntime } from "./stripeConfig.js";
+import { getStripeRuntime, STRIPE_API_VERSION } from "./stripeConfig.js";
 import { encryptToken } from "./tokenEncryption.js";
 
-export const CREDIT_STRIPE_API_VERSION = "2026-09-30.endive" as const;
+export const CREDIT_STRIPE_API_VERSION = STRIPE_API_VERSION;
 const keyPattern = /^rk_live_[A-Za-z0-9_]+$/;
 const accountPattern = /^acct_[A-Za-z0-9]+$/;
 const webhookPattern = /^whsec_[A-Za-z0-9]+$/;
