@@ -86,7 +86,10 @@ function SessionGate() {
     setSessionExpiredHandler(() => { gate.invalidated = true; setExpired(true); setReady(false); });
     // Remove only Vaettir's obsolete case cache; never touch Clerk's tokens
     // or another app's storage. Do not render data until migration completes.
-    AsyncStorage.getAllKeys().then((keys) => AsyncStorage.multiRemove(keys.filter((key) => key.startsWith("vaettir:cases:"))))
+    AsyncStorage.getAllKeys().then(async (keys) => {
+      const obsoleteCaseKeys = keys.filter((key) => key.startsWith("vaettir:cases:"));
+      await Promise.all(obsoleteCaseKeys.map((key) => AsyncStorage.removeItem(key)));
+    })
       .then(() => { gate.purged = true; reveal(); })
       .catch(() => { if (active) setSessionError("Could not clear the old offline cache. Restart the app before continuing."); });
     const subscription = AppState.addEventListener("change", (state) => {
