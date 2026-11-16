@@ -1,4 +1,6 @@
 "use client";
+
+import { ActionButton } from "@/components/ui/ActionButton";
 import { useState } from "react";
 import { qualityRiskStarters, type QualityRiskStarterId } from "@/lib/quality-risk-starters";
 
@@ -34,9 +36,9 @@ export function QualityRiskStarter({ eligible, applied, screen, onApply }: {
           <input type="checkbox" disabled={!eligible} checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />
           I reviewed these prompts. All facts and qualitative categories remain my responsibility; this is not a qualified approval.
         </label>
-        <button type="button" className="btn-secondary" disabled={!eligible || !confirmed} onClick={() => {
+        <ActionButton type="button" className="btn-secondary" disabled={!eligible || !confirmed} onClick={() => {
           if (eligible && confirmed) onApply(selected.id, confirmed);
-        }}>Use reviewed prompts</button>
+        }} tooltip={<> Use reviewed prompts </>}> Use </ActionButton>
       </>}
       {!eligible && <p role="status">Starters apply only to an untouched new local draft with no human text, links, assessment or pending change. Existing content will not be replaced.</p>}
     </details> : null}

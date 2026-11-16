@@ -1,10 +1,13 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useLayoutEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { Modal } from "@/components/Modal";
+import { ReportWorkspace } from "@/components/ReportWorkspace";
 import { ReportBuilder } from "@/components/ReportBuilder";
 import { trpcReact } from "@/lib/trpcReact";
 import { canEditProject } from "@/lib/membership";
@@ -101,7 +104,7 @@ export default function ProjectReportsPage() {
   return <>
     {!originalScopeMatches && <p role="status">Report query drafts remain retained but hidden. Return to the original account and workspace; no pending action is rebound.</p>}
     <div hidden={!originalScopeMatches} style={{ maxWidth: 1240, marginInline: "auto" }}>
-    {!accessReady && <p role="status">Verifying current report access. Cached report bodies, private query names and exports are withheld. <button type="button" className="btn-secondary" onClick={() => { if (actorMatches) void Promise.all([project.refetch(), organizations.refetch(), report.refetch(), views.refetch()]); }}>Retry report access</button></p>}
+    {!accessReady && <p role="status">Verifying current report access. Cached report bodies, private query names and exports are withheld. <ActionButton type="button" className="btn-secondary" onClick={() => { if (actorMatches) void Promise.all([project.refetch(), organizations.refetch(), report.refetch(), views.refetch()]); }} tooltip={<> Retry report access </>}> Retry </ActionButton></p>}
     <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-end", justifyContent: "space-between", marginBottom: 20 }}>
       <div><p className="eyebrow">Project intelligence</p><h1 style={{ margin: "0 0 4px" }}>Reports</h1>
         <p className="text-muted" style={{ margin: 0 }}>Recorded inventory and execution evidence for {projectReady ? project.data?.name : "this project"}.</p></div>
@@ -115,7 +118,20 @@ export default function ProjectReportsPage() {
         <button type="button" className="btn-secondary" onClick={() => downloadReport("csv")} disabled={!data || !project.data}>Download CSV</button>
       </div>
     </div>
+    <details style={{ marginBlock: 18 }}><summary>Browse report families</summary>
+      <nav aria-label="Report families" style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBlock: 14 }}>
+        <Link href={`/projects/${projectId}/recorded-run-comparison`}>Compare recorded runs</Link>
+        <Link href={`/projects/${projectId}/manual-run-comparison`}>Compare manual runs</Link>
+        <Link href={`/projects/${projectId}/execution-trends`}>Execution trends</Link>
+        <Link href={`/projects/${projectId}/requirement-coverage`}>Requirement coverage</Link>
+        <Link href={`/projects/${projectId}/defect-map`}>Defect traceability</Link>
+        <Link href={`/projects/${projectId}/releases`}>Release summaries</Link>
+        <Link href="/dashboard">Workspace portfolio</Link>
+      </nav>
+      <p className="text-muted">Each report states its evidence window and limitations. Creation activity, recorded version activity and measured duration are available as custom dashboard metrics.</p>
+    </details>
     <ReportBuilder projectId={projectId} />
+    <ReportWorkspace key={projectId} projectId={projectId} organizationId={originalOrganization ?? ""} clerkActorId={originalActor ?? ""} ready={accessReady} editable={writeReady} />
     <p><Link href={`/projects/${projectId}/execution-trends`}>Explore daily recorded outcomes and the runs behind them</Link>. This live view is separate from approved immutable stakeholder snapshots.</p>
     <section className="panel" aria-label="Case report query" style={{ marginBottom: 16 }}>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "end", justifyContent: "space-between" }}>
@@ -124,11 +140,11 @@ export default function ProjectReportsPage() {
             <option value="">All project cases</option>
             {availableViews?.map(view => <option key={view.id} value={view.id}>{view.name}</option>)}
           </select></label>
-        <button className="btn-secondary" type="button" disabled={!availableViews} onClick={beginQuery}>Build case query</button>
+        <ActionButton className="btn-secondary" type="button" disabled={!availableViews} onClick={beginQuery} tooltip={<> Build case query </>}> Build query </ActionButton>
       </div>
       {appliedFilters && <p role="status" className="text-muted" style={{ marginBottom: 0 }}>Unsaved query applied. Save it from the query builder to reuse it later.</p>}
       {views.error && <p role="alert" className="text-error">Saved queries unavailable: {views.error.message}</p>}
-      <p className="text-muted" style={{ marginBottom: 0 }}>Case queries narrow the inventory section only. Requirements and execution stay project-wide. Saved queries are private to your account.</p>
+      <details><summary>Details</summary><p className="text-muted" style={{ marginBottom: 0 }}>Case queries narrow the inventory section only. Requirements and execution stay project-wide. Saved queries are private to your account.</p></details>
     </section>
     {report.error || project.error ? <div className="panel text-error" role="alert">Report unavailable: {report.error?.message ?? project.error?.message}</div> : null}
     {!data && !report.error ? <p role="status">Loading project report…</p> : null}
@@ -146,7 +162,7 @@ export default function ProjectReportsPage() {
       {data.caseQuery && <section className="panel" aria-labelledby="report-case-query" style={{ marginBottom: 16 }}>
         <h2 id="report-case-query" style={{ marginTop: 0 }}>{data.caseQuery.source === "saved" ? data.caseQuery.name : "Unsaved case query"}</h2>
         <p><strong>{data.caseQuery.total}</strong> matching cases ({data.caseQuery.active} active, {data.caseQuery.archived} archived). {data.caseQuery.withSource} have linked test source; {data.caseQuery.riskAssessed} have risk assessments; {data.caseQuery.flaky} are marked flaky.</p>
-        <p className="text-muted">Current case inventory only. This does not filter the project-wide inventory, requirements, or execution below.</p>
+        <details><summary>Details</summary><p className="text-muted">Current case inventory only. This does not filter the project-wide inventory, requirements, or execution below.</p></details>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }} aria-label="Applied case filters">
           {reportCaseFilterLabels(data.caseQuery.filters).map(item => <span key={item.label} style={{ display: "inline-flex", border: "1px solid var(--line)", borderRadius: 999, padding: "4px 10px", background: "var(--panel)" }}>{item.label}: {item.value}</span>)}
         </div>
@@ -166,7 +182,7 @@ export default function ProjectReportsPage() {
         </section>
         <section className="panel" aria-labelledby="report-execution"><h2 id="report-execution" style={{ marginTop: 0 }}>Execution</h2>
           <p>{outcomePassShare(data) === null ? "No pass/fail outcomes in this window." : <><strong>{outcomePassShare(data)}%</strong> outcome pass share</>}</p>
-          <p className="text-muted">PASS ÷ (PASS + FAIL + FLAKY). SKIP and BLOCKED are excluded; this is not case coverage or release readiness.</p>
+          <details><summary>Details</summary><p className="text-muted">PASS ÷ (PASS + FAIL + FLAKY). SKIP and BLOCKED are excluded; this is not case coverage or release readiness.</p></details>
           <Distribution title="Run state" buckets={data.execution.byRunStatus} empty="No runs in this window." />
           <Distribution title="Result state" buckets={data.execution.byResultStatus} empty="No results in this window." />
           <p><Link href={`/projects/${projectId}/test-runs`}>Open execution history →</Link></p>

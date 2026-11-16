@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import { useId, useState } from "react";
 
 /** Public setup guidance only. No private setup/diagnostic input, transport,
@@ -22,9 +24,10 @@ export function DeviceHelperBlockedLaunchGuidance({ reportedBlocked }: { reporte
         <li><strong>Ask the device&apos;s owner or security administrator to review policy history.</strong> An Internet download marker or installed security product alone does not identify the cause. Do not disable protection, unblock files, add exclusions, change ExecutionPolicy or run as administrator.</li>
         <li><strong>Use only a policy-permitted setup route.</strong> Current delivery is an unsigned script (.cmd on Windows, .command on macOS, .sh on Linux) and requires Node.js 22 or newer. No signed installer or Windows launch acceptance is guaranteed. The existing manual Node instructions are an alternative only when policy permits, not a bypass.</li>
       </ol>
-      <button type="button" className="btn-secondary" aria-expanded={expanded} aria-controls={`${id}-checks`} onClick={() => setExpanded(current => !current)}>
+      <ActionButton type="button" className="btn-secondary" aria-expanded={expanded} aria-controls={`${id}-checks`} onClick={() => setExpanded(current => !current)} tooltip={<>
         Which checks are still separate?
-      </button>
+       </>}>
+         Separate checks </ActionButton>
       <div id={`${id}-checks`} hidden={!expanded}>
         <p>This guidance supplies none of the following approvals or verification:</p>
         <ul>

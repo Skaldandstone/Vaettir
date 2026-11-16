@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { recordedExecutionTrendInput } from "./recordedExecutionTrendSchema.js";
 import { manualDashboardExclusionReasons } from "./manualRunDashboardAssembly.js";
 export const manualRunDashboardInputSchema = recordedExecutionTrendInput;

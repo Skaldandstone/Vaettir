@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { repositoryProviderJson, repositoryProviderOrigin, repositoryProviderRevokeGitlabToken } from "./repositoryProviderHttp.js";
 
 export const repositorySelectionSchema=z.object({id:z.string().max(100),name:z.string().max(500),url:z.string().max(1000),defaultBranch:z.string().max(200).nullable(),projectId:z.string().max(100).optional(),projectName:z.string().max(200).optional(),scopeKey:z.string().max(700).optional()});
@@ -29,8 +29,9 @@ export async function revokeGitlabAuthorization(input:{origin:string;clientId:st
   await repositoryProviderRevokeGitlabToken(input.origin,input.clientId,input.clientSecret,input.token);
 }
 export function repositoryOAuthRedirect(env:NodeJS.ProcessEnv=process.env, provider:"gitlab"|"github"="gitlab") {
-  if (!env.WEB_APP_URL) throw new Error("Web application URL is not configured");
-  return `${repositoryProviderOrigin(env.WEB_APP_URL)}/connections/${provider}/callback`;
+  const publicUrl=env.REPOSITORY_OAUTH_PUBLIC_URL??env.WEB_APP_URL;
+  if (!publicUrl) throw new Error("Repository callback URL is not configured");
+  return `${repositoryProviderOrigin(publicUrl)}/connections/${provider}/callback`;
 }
 export function createGitlabAuthorization(origin:string,clientId:string,redirectUri:string) {
   const state=randomBytes(32).toString("base64url");

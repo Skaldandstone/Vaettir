@@ -1,3 +1,4 @@
+import { fixtureProjectKey } from "./testProjectKey.js";
 // Native receipt failures must roll back native tenant erasure. Disposable only.
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -32,7 +33,7 @@ describe("organization deletion receipt shares the destructive transaction", () 
     const org = await prisma.organization.create({ data: { name: suffix, slug: suffix, planTierId: tier.id } });
     owned.set(org.id, { actorId: actor.id, slug: org.slug });
     const membership = await prisma.membership.create({ data: { organizationId: org.id, userId: actor.id, role: "OWNER", seatType: "FULL" } });
-    const project = await prisma.project.create({ data: { organizationId: org.id, slug: suffix, name: "Synthetic receipt project", caseKey: `r${randomUUID().replaceAll("-", "").slice(0, 14)}` } });
+    const project = await prisma.project.create({ data: { organizationId: org.id, slug: suffix, name: "Synthetic receipt project", caseKey: fixtureProjectKey() } });
     const testCase = await prisma.testCase.create({ data: { projectId: project.id, title: "Synthetic original case", testType: "FUNCTIONAL", given: ["Original setup"], when: ["Original action"], then: ["Original outcome"] } });
     const step = await prisma.testCaseStep.create({ data: { testCaseId: testCase.id, order: 0, action: "Original preserved step", expectedResponse: "Original preserved response" } });
     const run = await prisma.testRun.create({ data: { projectId: project.id, ciProvider: "synthetic-offline", commitSha: "synthetic-not-source", branch: "fixture", startedAt: new Date("2020-01-01T00:00:00Z") } });

@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { reportDateIntervalSchema } from "./reportDateIntervalSchema.js";
 
 const id = z.string().min(1).max(200);
@@ -37,7 +37,7 @@ function validateWindow(
     end: value.end,
   });
   if (!calendar.success) {
-    for (const issue of calendar.error.issues) ctx.addIssue(issue);
+    for (const issue of calendar.error.issues) ctx.addIssue({ ...issue });
     return;
   }
   if (Date.parse(value.end) - Date.parse(value.start) >= 90 * 86400000)

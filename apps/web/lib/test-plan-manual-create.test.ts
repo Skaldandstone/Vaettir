@@ -1,3 +1,4 @@
+import { controllerTranspile } from "./controller-transpile.fixture";
 // Whole actual TSX controller and callbacks, with modeled hook scheduling and
 // synthetic native/SDK boundaries. Not browser, provider or live acceptance.
 import {readFileSync} from "node:fs";
@@ -29,11 +30,15 @@ function fixture(){
   // Header tooltip is outside this manual-controller fixture. Its component
   // behavior has separate icon-button tests; register only this unused import.
   modules["@/components/ui/IconButton"]={IconButton:noop};
+  modules["@/components/JiraReleasePicker"]={JiraReleasePicker:noop};
+  modules["@/components/JiraPlanPreview"]={JiraPlanPreview:noop,jiraReleaseStrategy:()=> "Review affected areas."};
+  const readTickets=vi.fn(async()=>({tickets:[{key:"SYN-1",checks:["Show a confirmation"],cases:[{id:"case-1",matches:["syn-1"]}]}]}));
+  Object.assign((modules["@/lib/trpcReact"] as {trpcReact:object}).trpcReact,{jiraConnections:{releasePlanPreview:{useMutation:()=>({mutateAsync:readTickets})}}});
   // List presentation imports are not executed by this manual-create controller.
   modules["@/components/ui/Workspace"]={Icon:noop,StatusPill:noop};
   modules["@/lib/case-inspector"]={inspectorLabel:noop};
   const source=readFileSync(new URL("../app/projects/[projectId]/test-plans/page.tsx",import.meta.url),"utf8");
-  const output=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.React}}).outputText;
+  const output=controllerTranspile(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.React}}).outputText;
   const exports:Record<string,unknown>={};new Function("require","exports","React","window",output+"\nexports.manual=ManualPlanCreate;")((name:string)=>{if(!(name in modules))throw Error("Unreviewed fixture dependency: "+name);return modules[name];},exports,React,browser);
   const actual=exports.manual as (props:{projectId:string;readOnly:boolean;onCreated:typeof onCreated})=>React.ReactNode;
   const props={projectId:"project-original",readOnly:false,onCreated};
@@ -45,8 +50,8 @@ function fixture(){
 }
 it("manual creation is standalone, labelled and defaults to built-in Functional without a missing-seed silent no-op",async()=>{
   const f=fixture(),tree=f.name("  Release <literal> regression  ");
-  expect(text(tree)).toContain("Create test plan");expect(text(tree)).toContain("Plan name");expect(text(tree)).toContain("Plan type");expect(text(tree)).toContain("Functional (default)");expect(text(tree)).toContain("No other plan types");
-  expect(elements(tree).find(node=>node.type==="details")!.props.open).toBeUndefined();expect(renderToStaticMarkup(tree)).toContain("&lt;literal&gt;");
+  expect(text(tree)).toContain("Create plan");expect(text(tree)).toContain("Plan name");expect(text(tree)).toContain("Plan type");expect(text(tree)).toContain("Functional (default)");expect(text(tree)).toContain("No other plan types");
+  expect(renderToStaticMarkup(tree)).toContain("&lt;literal&gt;");
   await f.submit(tree);expect(f.mutate).toHaveBeenCalledWith({projectId:"project-original",name:"Release <literal> regression"});expect(Object.hasOwn(f.mutate.mock.calls[0]![0],"testPlanTypeId")).toBe(false);expect(f.onCreated).toHaveBeenCalledOnce();expect(text(f.render())).toContain("Test plan created");expect(elements(f.render()).find(node=>node.type==="input")!.props.value).toBe("");
   expect(f.source).toContain("<ManualPlanCreate projectId={projectId}");expect(f.source).toContain("Generate strategy with AI");expect(f.source).not.toContain("if (!testPlanTypeId || !name.trim()) return");
 });
@@ -59,6 +64,19 @@ it("type read failure has original guarded retry and preserves chosen custom typ
   const tree=f.render();expect(elements(tree).find(node=>node.type==="select")!.props.value).toBe("custom");expect(text(tree)).toContain("refresh required");await f.submit(tree);expect(f.mutate).not.toHaveBeenCalled();expect(text(f.render())).toContain("selected plan type is unavailable");
   const retry=elements(f.render()).find(node=>node.type==="button"&&text(node.props.children)==="Retry plan types")!;(retry.props.onClick as ()=>void)();expect(f.types.refetch).toHaveBeenCalledOnce();f.access.owns.mockReturnValue(false);(retry.props.onClick as ()=>void)();expect(f.types.refetch).toHaveBeenCalledOnce();
   f.access.owns.mockReturnValue(true);f.types.error=null;await f.submit();expect(f.mutate).toHaveBeenCalledWith({projectId:"project-original",name:"Named plan",testPlanTypeId:"custom"});
+});
+it("reads a selected Jira release before saving its draft checks and matched cases",async()=>{
+  const f=fixture();
+  const picker=elements(f.render()).find(node=>typeof node.props.onSelect==="function")!;
+  (picker.props.onSelect as (release:object)=>void)({name:"Release 2.0",id:"101",jiraProjectId:"102",connectionId:"jira"});
+  expect(f.mutate).not.toHaveBeenCalled();
+  expect(elements(f.render()).find(node=>node.type==="input")!.props.value).toBe("Release 2.0");
+  await f.submit();
+  expect(f.mutate).not.toHaveBeenCalled();
+  const read=elements(f.render()).find(node=>node.type==="button"&&text(node.props.children)==="Read Jira descriptions for acceptance criteria and labels for case matches")!;
+  await (read.props.onClick as ()=>Promise<unknown>)();
+  await f.submit();
+  expect(f.mutate).toHaveBeenCalledWith(expect.objectContaining({projectId:"project-original",name:"Release 2.0",acceptanceChecks:["SYN-1 · Show a confirmation"],executionCaseIds:["case-1"]}));
 });
 it("programmatic blank/too-long form submit gives actionable validation, not a silent no-op",async()=>{
   const f=fixture();f.name("   ");await f.submit();expect(text(f.render())).toContain("Enter a plan name");expect(f.mutate).not.toHaveBeenCalled();f.name("n".repeat(201));await f.submit();expect(text(f.render())).toContain("200 characters or fewer");expect(f.mutate).not.toHaveBeenCalled();
@@ -79,5 +97,5 @@ it("late exact ACK after permission loss/restoration stays UNKNOWN, not a confir
   const f=fixture();let resolve!:(result:unknown)=>void;f.setOutcome(()=>new Promise(done=>{resolve=done;}));const tree=f.name("Original plan"),first=f.submit(tree);f.access.canEdit=false;f.render();f.access.canEdit=true;f.render();resolve({id:"created",name:"Original plan"});await first;expect(f.onCreated).not.toHaveBeenCalled();expect(text(f.render())).toContain("unacknowledged");await f.submit();expect(f.mutate).toHaveBeenCalledOnce();
 });
 it("known native creation is not changed into 'not submitted' by a failed list refresh, and definitive first refusal preserves edits",async()=>{
-  const f=fixture();f.name("Reviewed plan");f.setOutcome(async()=>{throw{data:{code:"BAD_REQUEST"}};});await f.submit();expect(text(f.render())).toContain("name and type are retained");f.setOutcome(async input=>({id:"created",name:input.name}));f.onCreated.mockRejectedValueOnce(Error("private read failure"));await f.submit();expect(text(f.render())).toContain("created, but the list could not be refreshed");expect(text(f.render())).not.toContain("private read failure");expect(elements(f.render()).find(node=>node.type==="a")!.props.href).toBe("/projects/project-original/test-plans/created");
+  const f=fixture();f.name("Reviewed plan");f.setOutcome(async()=>{throw{data:{code:"BAD_REQUEST"}};});await f.submit();expect(text(f.render())).toContain("name and type are retained");f.setOutcome(async input=>({id:"created",name:input.name}));f.onCreated.mockRejectedValueOnce(Error("private read failure"));await f.submit();expect(text(f.render())).toContain("created, but the list could not be refreshed");expect(text(f.render())).not.toContain("private read failure");expect(elements(f.render()).find(node=>node.type==="a"&&text(node.props.children)==="Open created plan")!.props.href).toBe("/projects/project-original/test-plans/created");
 });

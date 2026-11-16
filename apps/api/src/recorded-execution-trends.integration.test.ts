@@ -1,3 +1,4 @@
+import { fixtureProjectKey } from "./testProjectKey.js";
 // Synthetic integration coverage; requires an owned migrated loopback test DB.
 import { randomUUID } from "node:crypto";
 import { describe, beforeAll, afterAll, it, expect } from "vitest";
@@ -62,7 +63,7 @@ describe("bounded daily recorded execution observation explorer", () => {
           name: tag,
           slug: `${tag}-project-${index}`,
           // Keep reparent authorization probes independent of the org key unique constraint.
-          caseKey: `t${index}${randomUUID().replaceAll("-", "").slice(0, 12)}`,
+          caseKey: fixtureProjectKey(),
         },
       });
       const tc = await prisma.testCase.create({

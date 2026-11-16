@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { TRPCError } from "@trpc/server";
 import { populationDraftSchema } from "@vaettir/core";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";

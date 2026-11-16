@@ -28,6 +28,7 @@ type Connection = {
   key: string;
   projectName: string;
   shareTicketTests: boolean;
+  hasLive: boolean;
   hasSnapshots: boolean;
   hasReleases: boolean;
   hasClosures: boolean;
@@ -99,8 +100,8 @@ type Ticket = {
 };
 type Quality = {
   visuals?: QualityVisualReport;
-  protocol: "vaettir-quality/v1";
-  mode: "FROZEN" | "LATEST_APPROVED";
+  protocol: "vaettir-quality/v1" | "vaettir-quality-live/v1";
+  mode: "FROZEN" | "LATEST_APPROVED" | "LIVE";
   notice: string;
   reportUrl: string;
   runLinks: RunLink[];
@@ -150,6 +151,8 @@ export function QualityApp({
     typeof rawConfig?.snapshotId === "string"
       ? rawConfig.snapshotId.trim()
       : "";
+  const configuredLive = rawConfig?.mode === "live";
+  const [liveTick, setLiveTick] = useState(0);
   const configuredClosure =
     typeof rawConfig?.closureId === "string" ? rawConfig.closureId.trim() : "";
   const [selection, setSelection] = useState(""),
@@ -187,6 +190,7 @@ export function QualityApp({
         configuredKey,
         configuredSnapshot,
         configuredClosure,
+        configuredLive,
       ])
     : "";
   const catalogPin = JSON.stringify([signature, key]);
@@ -274,7 +278,9 @@ export function QualityApp({
         setSelection(
           context?.moduleKey === "vaettir-issue-quality"
             ? "ticket"
-            : configuredClosure
+            : configuredLive && !configuredSnapshot && !configuredClosure
+              ? "live"
+              : configuredClosure
               ? `closure:${configuredClosure}`
               : configuredSnapshot || connection?.hasSnapshots
                 ? "report"
@@ -282,7 +288,7 @@ export function QualityApp({
                   ? `release:${result.releases[0].versionId}`
                   : result.closureIds.length
                     ? `closure:${result.closureIds[0]}`
-                    : "report",
+                    : connection?.hasLive ? "live" : "report",
         );
       })
       .catch((e) => {
@@ -299,7 +305,7 @@ export function QualityApp({
     };
     // Catalog data is pinned to the exact current product context and target.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [catalogPin, configuredClosure, configuredSnapshot, reload]);
+  }, [catalogPin, configuredClosure, configuredSnapshot, configuredLive, reload]);
   useEffect(() => {
     if (!key || !signature || details?.pin !== catalogPin || !selection) return;
     let active = true;
@@ -307,13 +313,13 @@ export function QualityApp({
     setError("");
     setBusy(true);
     void remote({
-      action: selection.startsWith("release:")
+      action: selection === "live" ? "READ_LIVE" : selection.startsWith("release:")
         ? "READ_RELEASE"
         : selection.startsWith("closure:")
           ? "READ_CLOSURE"
           : "READ",
       connectionKey: key,
-      ...(selection.startsWith("release:")
+      ...(selection === "live" ? {} : selection.startsWith("release:")
         ? { versionId: selection.slice(8) }
         : selection.startsWith("closure:")
           ? { closureId: selection.slice(8) }
@@ -326,6 +332,7 @@ export function QualityApp({
         if (
           ![
             "vaettir-quality/v1",
+            "vaettir-quality-live/v1",
             "vaettir-quality-empty/v1",
             "vaettir-ticket-verification/v1",
             "vaettir-release-quality/v1",
@@ -346,7 +353,12 @@ export function QualityApp({
     return () => {
       active = false;
     };
-  }, [key, snapshotId, signature, pin, reload, selection, details, catalogPin]);
+  }, [key, snapshotId, signature, pin, reload, selection, details, catalogPin, liveTick]);
+  useEffect(() => {
+    if (selection !== "live" || !signature || !key) return;
+    const timer = setInterval(() => setLiveTick(value => value + 1), 60000);
+    return () => clearInterval(timer);
+  }, [selection, signature, key]);
   return (
     <Box xcss={xcss({ maxWidth: "1120px" })}><Stack space="space.200">
       {!context &&
@@ -394,7 +406,7 @@ export function QualityApp({
               value={{
                 value: selection,
                 label:
-                  selection === "report"
+                  selection === "live" ? "Live quality dashboard" : selection === "report"
                     ? "Approved quality capture"
                     : selection.startsWith("release:")
                       ? (details.releases.find(
@@ -403,6 +415,7 @@ export function QualityApp({
                       : "Historical release capture",
               }}
               options={[
+                ...(connections.find(c => c.key === key)?.hasLive ? [{ value: "live", label: "Live quality dashboard" }] : []),
                 ...(connections.find((c) => c.key === key)?.hasSnapshots
                   ? [{ value: "report", label: "Approved quality capture" }]
                   : []),
@@ -516,7 +529,7 @@ export function QualityApp({
           <HelperMessage>{data.notice}</HelperMessage>
         </>
       )}
-      {data?.protocol === "vaettir-quality/v1" && <QualitySnapshotView key={pin} data={data} configuredSnapshot={configuredSnapshot} setSnapshotId={setSnapshotId} />}
+      {(data?.protocol === "vaettir-quality/v1" || data?.protocol === "vaettir-quality-live/v1") && <QualitySnapshotView key={pin} data={data} configuredSnapshot={configuredSnapshot} setSnapshotId={setSnapshotId} />}
       {data?.protocol === "vaettir-release-quality/v1" && (
         <ReleaseView key={pin} data={data} />
       )}
@@ -594,7 +607,7 @@ export function QualitySnapshotView({ data, configuredSnapshot = "", setSnapshot
             >
               {data.mode === "FROZEN"
                 ? "Frozen snapshot"
-                : "Latest approved snapshot"}
+                : data.mode === "LIVE" ? "Live · refreshes every minute" : "Latest approved snapshot"}
             </Lozenge>
             <Text>
               Captured {new Date(data.snapshot.asOf).toLocaleString()}
@@ -857,6 +870,8 @@ export function MacroConfig() {
         Approved connection key (optional if only one project is shared)
       </Label>
       <Textfield id="connectionKey" name="connectionKey" />
+      <Label labelFor="mode">Dashboard mode</Label>
+      <Select name="mode" inputId="mode" defaultValue={{ value: "approved", label: "Latest approved capture" }} options={[{ value: "approved", label: "Latest approved capture" }, { value: "live", label: "Live quality dashboard" }]} />
       <Label labelFor="snapshotId">Frozen snapshot ID</Label>
       <Textfield id="snapshotId" name="snapshotId" />
       <Label labelFor="closureId">
@@ -864,9 +879,7 @@ export function MacroConfig() {
       </Label>
       <Textfield id="closureId" name="closureId" />
       <HelperMessage>
-        Set an approved snapshot ID to freeze a historical capture. Leave blank
-        to show the latest explicitly shared approved capture, not a real-time
-        run feed.
+        A snapshot or historical capture ID freezes the view and takes precedence over live mode. Live mode requires a separate live-sharing grant and refreshes every minute. Each refresh verifies current page access.
       </HelperMessage>
     </Stack>
   );

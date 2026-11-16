@@ -1,3 +1,5 @@
+import { ActionHelp } from "./test-support/action-button";
+import { controllerTranspile } from "./controller-transpile.fixture";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
@@ -39,7 +41,7 @@ const source = readFileSync(
         .replace(/\bexport\s+/, ""),
     )
     .join("\n"),
-  code = ts.transpileModule(
+  code = controllerTranspile(
     `${functions}\nthis.dashboard=RunHistoryDashboard;this.card=RunHistoryCard;`,
     {
       compilerOptions: {
@@ -61,7 +63,7 @@ const visualSource = readFileSync(
     true,
     ts.ScriptKind.TSX,
   ),
-  visualCode = ts.transpileModule(
+  visualCode = controllerTranspile(
     visualAst.statements
       .filter(ts.isFunctionDeclaration)
       .map((node) =>
@@ -230,7 +232,7 @@ function harness(projectId = "p") {
       { "aria-label": title, hidden: !open },
       children as React.ReactNode,
     );
-  const context = vm.createContext({
+  const context = vm.createContext({ ActionHelp,
     React,
     Modal,
     useRunHistory: () => reader,
@@ -304,12 +306,13 @@ function harness(projectId = "p") {
   };
 }
 it("actual current dashboard exposes one ordinary accessible saved-manual comparison link without running actions", () => {
-  const h = harness(), html = h.render(), links = elements(h.tree).filter(node => node.type === "a" && renderToStaticMarkup(node).includes("Compare saved manual runs"));
+  const h = harness(), html = h.render(), links = elements(h.tree).filter(node => node.type === "a" && renderToStaticMarkup(node).includes("Compare manual"));
   expect(links).toHaveLength(1);
   expect(links[0]!.props.href).toBe("/projects/p/manual-run-comparison");
-  expect(links[0]!.props.children).toBe("Compare saved manual runs");
+  expect(links[0]!.props.children).toBe("Compare manual");
   expect(links[0]!.props.onClick).toBeUndefined(); expect(links[0]!.props.target).toBeUndefined();
   expect(html).toContain('href="/projects/p/manual-run-comparison"');
+  expect(html).toContain('aria-label="Compare manual: Compare saved manual runs"');
   expect(html).toContain("25% recorded"); expect(html).toContain("3 left to test");
   for (const action of [h.download, h.navigate, h.onView, h.refresh, h.first, h.older, h.newer]) expect(action).not.toHaveBeenCalled();
 });
@@ -318,7 +321,7 @@ it.each([
   "project%2Fencoded",
   'javascript:synthetic()/../p"<script>literal</script>',
 ])("actual comparison destination preserves one encoded project path segment %s", projectId => {
-  const h = harness(projectId), html = h.render(), link = elements(h.tree).find(node => node.type === "a" && node.props.children === "Compare saved manual runs");
+  const h = harness(projectId), html = h.render(), link = elements(h.tree).find(node => node.type === "a" && node.props.children === "Compare manual");
   expect(link).toBeDefined();
   const href = link!.props.href!;
   expect(href).toBe(`/projects/${encodeURIComponent(projectId)}/manual-run-comparison`);
@@ -329,7 +332,7 @@ it.each([
 });
 it("ordinary comparison navigation remains discoverable without using unavailable history as permission", () => {
   const h = harness(); h.setCurrent(null);
-  const html = h.render(), link = elements(h.tree).find(node => node.type === "a" && node.props.children === "Compare saved manual runs");
+  const html = h.render(), link = elements(h.tree).find(node => node.type === "a" && node.props.children === "Compare manual");
   expect(link!.props.href).toBe("/projects/p/manual-run-comparison");
   expect(link!.props.disabled).toBeUndefined(); expect(link!.props.onClick).toBeUndefined();
   expect(html).toContain("Current native run history is unavailable");
@@ -341,11 +344,11 @@ it("comparison anchor neither opens a CSV review nor changes a retained explicit
   const h = harness(); expect(h.render()).not.toContain("Export exactly");
   h.button("Review current page CSV")();
   const reviewed = h.render(); expect(reviewed).toContain("Export exactly 3 run");
-  expect(elements(h.tree).filter(node => node.type === "a" && node.props.children === "Compare saved manual runs")).toHaveLength(1);
+  expect(elements(h.tree).filter(node => node.type === "a" && node.props.children === "Compare manual")).toHaveLength(1);
   expect(h.download).not.toHaveBeenCalled(); expect(h.navigate).not.toHaveBeenCalled();
   h.button("Keep review and close")();
   expect(h.render()).toContain("Reopen reviewed current-page CSV");
-  expect(elements(h.tree).find(node => node.type === "a" && node.props.children === "Compare saved manual runs")!.props.href).toBe("/projects/p/manual-run-comparison");
+  expect(elements(h.tree).find(node => node.type === "a" && node.props.children === "Compare manual")!.props.href).toBe("/projects/p/manual-run-comparison");
   expect(h.download).not.toHaveBeenCalled(); expect(h.navigate).not.toHaveBeenCalled();
 });
 it("actual dashboard SSR separates supported manual run-case completion from CI ingestion and untrusted unavailable progress", () => {

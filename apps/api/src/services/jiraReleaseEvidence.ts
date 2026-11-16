@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { Prisma } from "@vaettir/db";
 import { buildReleaseVisualReport } from "@vaettir/core";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import {
   authorizeForgeSharing,
   forgeSharingEntityType,

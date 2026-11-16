@@ -17,7 +17,7 @@ test('Linear metadata permission and focused review precede saved scope',()=>{
 });
 test('Linear capability and credential limitations remain honest and private',()=>{
  assert.match(component,/Linear OAuth is not available/);assert.match(component,/cannot prove a supplied key has no write permissions/);
- assert.match(component,/Issues have not been read or imported/);assert.match(component,/Cost: 0 AI credits/);
+ assert.match(component,/Issues have not been read or imported/);assert.match(component,/Issue import and automatic sync are not available here/);
  assert.match(component,/Secure credential storage is unavailable/);assert.match(component,/A full editor seat is required/);
  assert.match(component,/type="password"/);assert.match(component,/setApiKey\(""\)/);assert.doesNotMatch(component,/localStorage|sessionStorage/);
  assert.match(component,/Start new verification attempt/);

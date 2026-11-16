@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { TRPCError } from "@trpc/server";
 import { Prisma } from "@vaettir/db";
 import {
@@ -16,7 +16,7 @@ import {
   qualityProfileRecord,
   readQualityExperience,
 } from "../services/qualityExperienceProfile.js";
-import { projectCaseKeySchema, projectCaseKeySave, readProjectCaseIdentity, saveProjectCaseKey } from "../services/projectCaseKeys.js";
+import { newProjectCaseKeySchema, projectCaseKeySave, readProjectCaseIdentity, saveProjectCaseKey } from "../services/projectCaseKeys.js";
 import { authorizeProjectDeletion, deleteReviewedProject, previewProjectDeletion } from "../services/projectDeletion.js";
 
 function slugify(name: string): string {
@@ -47,11 +47,22 @@ const qualityProfileSchema = z
 
 // Old clients may update only familiar fields. They cannot mutate the approved
 // experience through this route or erase future fields by round-tripping JSON.
-const qualityProfileUpdateSchema = qualityProfileSchema
-  .omit({ experience: true })
+// Zod 4 applies defaults even inside partial objects. PATCH fields must have no
+// defaults so omission cannot erase a customer's existing context.
+const qualityProfileUpdateSchema = z.object({
+  objective: qualityProfileSchema.shape.objective.removeDefault(),
+  systemScope: qualityProfileSchema.shape.systemScope.removeDefault(),
+  softwareTypes: qualityProfileSchema.shape.softwareTypes.removeDefault(),
+  hardwareTypes: qualityProfileSchema.shape.hardwareTypes.removeDefault(),
+  testEnvironments: qualityProfileSchema.shape.testEnvironments.removeDefault(),
+  qualityObjectives: qualityProfileSchema.shape.qualityObjectives.removeDefault(),
+  complianceNeeds: qualityProfileSchema.shape.complianceNeeds.removeDefault(),
+  regulatoryNeeds: qualityProfileSchema.shape.regulatoryNeeds.removeDefault(),
+  executionSources: qualityProfileSchema.shape.executionSources.removeDefault(),
+})
   .partial()
   .strict();
-const caseKeySchema = projectCaseKeySchema;
+const caseKeySchema = newProjectCaseKeySchema;
 function caseKeyActor(ctx: { authenticatedClerkSubject?: string | null }) {
   if (!ctx.authenticatedClerkSubject) throw new TRPCError({ code: "FORBIDDEN", message: "A current signed-in actor is required for case identity." });
   return { clerkActorId: ctx.authenticatedClerkSubject };
@@ -244,7 +255,7 @@ export const projectRouter = router({
         caseKey: caseKeySchema.optional(),
         repoUrl: z.string().optional(),
         defaultBranch: z.string().default("main"),
-        qualityProfile: qualityProfileSchema.default({}),
+        qualityProfile: qualityProfileSchema.prefault({}),
       }),
     )
     .output(z.object({ id: z.string(), name: z.string(), slug: z.string() }))

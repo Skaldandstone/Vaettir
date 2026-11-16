@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { TRPCError } from "@trpc/server";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { Prisma } from "@vaettir/db";
 import { defectDocumentSchema, defectClusterId } from "@vaettir/core";
 import {

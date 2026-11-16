@@ -275,19 +275,8 @@ button:disabled {
   opacity: 0.6;
 }
 
-/* ---------- buttons -- STYLE_GUIDE.md #5: radius 3px everywhere, primary
-   fills with --frost, secondary is outline-only ---------- */
-/* Bare, unclassed <button>s (most of the app's action buttons) get the
-   primary treatment by default, so every page's buttons look consistent
-   without per-page className changes. Opt into .btn-secondary explicitly
-   for a lower-emphasis action.
-   .btn-secondary is included in this same base rule (not just its own
-   color/border overrides below) so it renders correctly on ANY element,
-   not just a <button> quietly borrowing the browser's own default button
-   padding/display - an <a className="btn-secondary"> (a real, growing
-   pattern: nav actions that navigate rather than trigger a mutation
-   read better as a styled button than plain underlined text) has no such
-   default to fall back on. */
+/* Shared action styling also supports links that serve as calls to action.
+   Bare buttons use the secondary treatment. */
 .btn,
 .btn-primary,
 .btn-secondary,
@@ -309,13 +298,17 @@ button:not([class]) {
     border-color 0.25s ease,
     color 0.25s ease;
 }
-.btn-secondary {
-  background: transparent;
+.btn-secondary,
+button:not([class]) {
+  background: var(--panel-2);
   color: var(--fg);
-  border: 1px solid var(--line);
+  border: 1px solid var(--control-line);
 }
-.btn-secondary:hover {
-  border-color: var(--muted-dim);
+.btn-secondary:hover:not(:disabled),
+button:not([class]):hover:not(:disabled) {
+  background: var(--selection);
+  border-color: var(--focus);
+  text-decoration: none;
 }
 
 /* ---------- eyebrow / mono labels ---------- */
@@ -827,10 +820,6 @@ body:has(.native-dialog[open]) {
   gap: 15px;
   flex-wrap: wrap;
 }
-.preview-actions .text-button {
-  border-right: 1px solid var(--line);
-  padding-right: 15px;
-}
 .preview-notice {
   flex-wrap: wrap;
 }
@@ -899,8 +888,7 @@ body:has(.native-dialog[open]) {
     width: 100%;
     justify-content: space-between;
   }
-  .view-button,
-  .text-button {
+  .view-button {
     min-height: 32px;
   }
 }
@@ -1195,10 +1183,6 @@ main.app-main {
 }
 .btn-primary:hover {
   filter: brightness(0.95);
-  text-decoration: none;
-}
-.btn-secondary:hover {
-  background: var(--panel-2);
   text-decoration: none;
 }
 .theme-toggle {
@@ -2337,21 +2321,6 @@ main.app-main {
 }
 .release-callout strong {
   font-weight: 500;
-}
-.text-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--frost);
-  background: none;
-  padding: 5px 0;
-  border: none;
-  white-space: nowrap;
-}
-.text-button:hover {
-  text-decoration: underline;
 }
 .attention-panel .panel-heading {
   margin-bottom: 14px;
@@ -3592,7 +3561,7 @@ main.app-main {
   .release-callout {
     flex-wrap: wrap;
   }
-  .release-callout .text-button {
+  .release-callout .btn-secondary {
     margin-left: 27px;
   }
   .gate-footer {

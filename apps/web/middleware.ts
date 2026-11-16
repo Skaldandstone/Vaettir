@@ -11,7 +11,7 @@ import { legacyAuthDocumentDestination, PRIMARY_AUTH_ORIGIN, workspaceClerkConfi
 // Vaettir session, so the page itself must be reachable without one. The
 // unguessable share token is the entire access control, not this route
 // being public.
-const isPublicRoute = createRouteMatcher(["/", "/sign-in(.*)", "/sign-up(.*)", "/share(.*)", "/beta-guide(.*)", "/google-sheets-privacy"]);
+const isPublicRoute = createRouteMatcher(["/", "/sign-in(.*)", "/sign-up(.*)", "/share(.*)", "/beta-guide(.*)", "/google-sheets-privacy", "/atlassian-privacy"]);
 
 const handleClerk = clerkMiddleware(async (auth, req) => {
   if (!isPublicRoute(req)) {

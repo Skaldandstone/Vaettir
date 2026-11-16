@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { createHash } from "node:crypto";
 
 // tRPC uses plain JSON: browser Dates arrive as ISO strings, not Date objects.

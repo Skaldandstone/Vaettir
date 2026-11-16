@@ -1,0 +1,90 @@
+.workspace {
+  margin-block: 24px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.workspace summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.workspace label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.workspace input:not([type="checkbox"]),
+.workspace select {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 8px;
+  background: var(--surface, transparent);
+  color: inherit;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.workspace button {
+  min-height: 36px;
+}
+.workspace :focus-visible {
+  outline: 3px solid var(--accent, #179e91);
+  outline-offset: 3px;
+}
+.actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-block: 14px;
+}
+.actions select {
+  width: auto;
+  max-width: 100%;
+}
+.fields {
+  border: 0;
+  padding: 0;
+  margin-block: 20px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+.full {
+  grid-column: 1 / -1;
+}
+.grid {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.grid[data-columns="1"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+.grid figure {
+  margin: 0;
+}
+.grid table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.grid th,
+.grid td {
+  padding: 8px;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+}
+@media (max-width: 720px) {
+  .fields,
+  .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .workspace {
+    padding: 14px;
+  }
+}
+
+.workspace button[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: default;
+}

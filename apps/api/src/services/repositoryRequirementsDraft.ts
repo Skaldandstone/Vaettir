@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { documentRequirements } from "./documentRequirements.js";
 import { safeSourcePath, safeRepositoryText } from "./repositorySourceSafety.js";
 

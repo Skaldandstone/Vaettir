@@ -73,6 +73,26 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      # The migration restore proof must use PostgreSQL 16 tools, matching the
+      # immutable service image. Current hosted runners only package newer
+      # clients, so wrappers run the tools from that exact already-pulled image.
+      - name: Provision PostgreSQL 16 client
+        env:
+          VAETTIR_POSTGRES_16_IMAGE: docker.io/library/postgres@sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d
+        run: |
+          set -euo pipefail
+          tools="$RUNNER_TEMP/vaettir-postgres16/bin"
+          mkdir -p "$tools"
+          for tool in psql pg_dump pg_restore; do
+            cat > "$tools/$tool" <<EOF
+          #!/usr/bin/env bash
+          set -euo pipefail
+          exec docker run --rm --network host -e PGPASSWORD --mount type=bind,src="$RUNNER_TEMP",dst="$RUNNER_TEMP",readonly "$VAETTIR_POSTGRES_16_IMAGE" $tool "\$@"
+          EOF
+            chmod 0755 "$tools/$tool"
+          done
+          "$tools/pg_dump" --version | grep -E '^pg_dump \(PostgreSQL\) 16\.'
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -91,7 +111,7 @@ jobs:
       # `prisma migrate dev` runs -- CI's blank postgres service container
       # needs both applied explicitly before `pnpm test` runs.
       - name: Apply database migrations
-        run: pnpm --filter @vaettir/db exec prisma migrate deploy
+        run: node packages/db/node_modules/prisma/build/index.js migrate deploy --schema packages/db/prisma/schema.prisma
 
       - name: Seed reference data
         run: pnpm --filter @vaettir/db run seed
@@ -107,6 +127,7 @@ jobs:
       - name: Verify operations contracts
         run: |
           pnpm test:operations
+          pnpm test:sqlite-security
           pnpm test:device-capture
           pnpm test:native-fresh-next
           pnpm test:native-fresh-final
@@ -173,13 +194,23 @@ jobs:
       - name: Verify bundled AI plugin against synthetic PostgreSQL
         env:
           VAETTIR_AI_MCP_TEST: "1"
-        run: pnpm --filter @vaettir/api exec vitest run src/ai-disclosure-mcp.integration.test.ts
+          VAETTIR_AI_CASE_DB_TEST: "1"
+        run: pnpm --filter @vaettir/api exec vitest run src/ai-disclosure-mcp.integration.test.ts src/ai-approved-cases.integration.test.ts
+      - name: Verify reviewed Android case patches against synthetic PostgreSQL
+        env:
+          VAETTIR_ANDROID_REPLAY_DB_TEST: "1"
+        run: pnpm --filter @vaettir/api exec vitest run src/android-case-replay.integration.test.ts
       - name: Verify workflow layouts and project connection interactions
         run: |
           pnpm --filter @vaettir/web exec playwright install --with-deps chromium
+          node apps/web/e2e/compliance-picker.browser.mjs
+          node apps/web/e2e/compliance-review.browser.mjs
+          node apps/web/e2e/compliance-access-lifecycle.browser.mjs
           node scripts/form-layout-ui.test.mjs
           node scripts/quality-visuals-ui.test.mjs
           node apps/web/e2e/report-builder/run.mjs
+          node --test scripts/report-access-refresh-ui.test.mjs
+          node --test scripts/action-button-ui.test.mjs scripts/case-inline-actions-ui.test.mjs scripts/import-mapping-ui.test.mjs
           node apps/web/e2e/smart-suggestions/run.mjs
           node scripts/forge-connection-ui.test.mjs
           node scripts/workspace-address-ui.test.mjs
@@ -187,6 +218,7 @@ jobs:
           node apps/web/e2e/ui-workbench/run.mjs
           node apps/web/e2e/ui-plan-mapping/run.mjs
           node apps/web/e2e/jira-defect/run.mjs
+          node apps/web/e2e/atlassian-oauth/run.mjs
           node apps/web/e2e/google-sheets/run.mjs
           node apps/web/e2e/google-sheets/picker-frame.mjs
           node apps/web/e2e/android-exploration/run.mjs

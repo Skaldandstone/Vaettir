@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { caseFieldReadScopeSchema } from "./caseFieldReadScope.js";
 
 export const PROJECT_TAG_PAGE_SIZE = 50;

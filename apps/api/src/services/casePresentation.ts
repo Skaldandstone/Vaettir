@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { Prisma, type PrismaClient } from "@vaettir/db";
 import { casePresentationSchema, defaultCasePresentation } from "@vaettir/core";
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { lockCaseFieldProject } from "./caseFields.js";
 import { caseFieldReadPinFields, pairedCaseFieldReadPins, caseFieldReadScopeSchema, lockCaseFieldReadScope, lockCurrentCaseFieldActor, type CaseFieldReadAuthorization } from "./caseFieldReadScope.js";
 import { qualityProfileHash, qualityProfileRecord, readQualityExperience } from "./qualityExperienceProfile.js";

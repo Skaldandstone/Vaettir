@@ -375,7 +375,13 @@ export class WholeCaseReviewedController {
         this.pending = null;
         this.reviewed = null;
       }
-      this.error = `${error instanceof Error ? error.message : "Observation response unknown."} ${held.ambiguous ? "Keep and retry only this identical original UUID." : "Retain your draft and explicitly review a fresh baseline."}`;
+      // RPC error bodies may contain private server/provider details. Recovery
+      // follows the receipt state and error code, never the returned prose.
+      this.error = held.ambiguous
+        ? "Save unconfirmed. Retry only this identical original UUID."
+        : dispatched
+          ? "Not saved. Draft retained; refresh the baseline and review again."
+          : "Not submitted. Draft retained; review again.";
       return false;
     } finally {
       if (!dispatched && !previouslySubmitted && this.pending === held) this.pending = null;

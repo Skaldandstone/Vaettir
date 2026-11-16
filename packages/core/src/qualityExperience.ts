@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "./validation.js";
 
 // Preferences, not connection health, regulatory applicability or execution proof.
 export const EXPERIENCE_OFFERINGS = [

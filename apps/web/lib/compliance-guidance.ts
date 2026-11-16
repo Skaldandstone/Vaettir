@@ -8,6 +8,40 @@ export type ControlGuidance = {
 // Engineering examples, not quoted requirements or an applicability decision.
 // These remain UI reference material: never rewrite saved controls or mappings.
 const examples: Record<string, Record<string, [string, string, string?]>> = {
+  "music-rights-us": {
+    "MUS-INVENTORY": [
+      "Compare every track in a synthetic release manifest with the rights inventory; flag a missing source, version or intended-use description.",
+      "Versioned audio inventory, release manifest, intended platforms, territories, dates and reviewer disposition.",
+    ],
+    "MUS-OWNERSHIP": [
+      "Review a sample track with recording permission but no documented composition basis; verify it remains unresolved until both layers are reviewed.",
+      "Composition and recording identifiers, chain-of-title or license documents, and separate dated reviewer decisions.",
+    ],
+    "MUS-SYNC": [
+      "Compare a trailer and an in-game use of the same track against the approved agreement; flag any use outside its recorded scope.",
+      "Reviewed audiovisual and recording-use terms, exact media versions, intended uses and any approved exceptions.",
+    ],
+    "MUS-PERFORMANCE": [
+      "Review an event or stream against its documented performance and transmission permissions; flag a missing territory, repertoire or use decision.",
+      "Event or transmission plan, applicable composition and recording-rights assessment, license scope and responsible reviewer.",
+    ],
+    "MUS-DISTRIBUTION": [
+      "Check a soundtrack download, sample or cover against documented copying and distribution permissions; flag a new use for review.",
+      "Approved distribution scope, sample or arrangement permissions where applicable, versioned artifacts and legal-basis review.",
+    ],
+    "MUS-TERMS": [
+      "Exercise expired, not-yet-effective and out-of-territory synthetic license records; verify the release check flags each mismatch.",
+      "License revision, effective and expiry dates, territories, platforms, constraints and the dated release comparison.",
+    ],
+    "MUS-CREDITS": [
+      "Compare rendered credits and usage reports with the agreement; flag missing attribution or an unverified payment obligation.",
+      "Agreement clauses, rendered credits, submitted reports and payment evidence when required by the agreement.",
+    ],
+    "MUS-RELEASE": [
+      "Replace a reviewed track with another version and verify release review is reopened; confirm an audio match cannot mark rights cleared.",
+      "Final manifest and hashes, reviewed permissions, change history, unresolved exceptions and authorized release decision.",
+    ],
+  },
   "nist-csf-2": {
     GV: [
       "Exercise risk escalation, exception approval and security decision ownership.",
@@ -291,6 +325,8 @@ const examples: Record<string, Record<string, [string, string, string?]>> = {
 };
 
 const review: Record<string, string> = {
+  "music-rights-us":
+    "A qualified rights reviewer must determine the applicable rights, jurisdictions and contractual scope for each use. Composition, recording, synchronization and performance permissions can differ. Public-domain or exception claims also require review. Software checks and content recognition do not grant rights or establish legal clearance.",
   "nist-csf-2":
     "Tailor the profile and risk outcomes with security and business owners. The CSF is an outcomes framework, not a certification checklist.",
   "pci-dss":
@@ -317,7 +353,7 @@ const review: Record<string, string> = {
 export function frameworkGuidance(key: string) {
   const starter = COMPLIANCE_STARTERS.find((s) => s.key === key);
   return starter
-    ? { ...starter, review: review[key]!, reviewedAt: "2026-10-20" }
+    ? { ...starter, review: review[key]!, reviewedAt: key === "music-rights-us" ? "2026-10-30" : "2026-10-20" }
     : null;
 }
 

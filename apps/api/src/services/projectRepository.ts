@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 export const RepositoryProvider = z.enum(["github", "gitlab", "bitbucket", "azure-devops", "git", "perforce", "svn"]);
 export function validateRepositoryLocation(provider: string, value: string) {
   const url = new URL(value.trim());

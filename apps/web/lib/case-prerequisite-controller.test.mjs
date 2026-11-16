@@ -1,3 +1,5 @@
+// Controller fixture treats the presentation-only wrapper as its native button.
+// Real hover/focus/form/ref/touch behavior is covered by action-button-ui.test.mjs.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -57,7 +59,7 @@ function prerequisiteButtons(h) {
   const component = file.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === "TestCasePrerequisites");
   assert.ok(component);
   const compiled = ts.transpileModule(`${component.getText(file).replace(/\bexport\s+/, "")}\nthis.component=TestCasePrerequisites;`, { compilerOptions: { target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React, module: ts.ModuleKind.None } }).outputText;
-  const control = h.editor, context = vm.createContext({ React, styles: {}, useCasePrerequisites: () => control });
+  const control = h.editor, context = vm.createContext({ React, ActionButton: "button", styles: {}, useCasePrerequisites: () => control });
   vm.runInContext(compiled, context);
   const tree = context.component({ projectId: h.params.projectId, caseId: h.params.caseId, canEdit: h.params.permitted, active: h.params.active });
   function descendants(node) {
@@ -223,17 +225,17 @@ test("actual component renders retained unreviewed/unavailable IDs, searchable s
   const text = readFileSync(new URL("../components/TestCasePrerequisites.tsx", import.meta.url), "utf8"), parsed = ts.createSourceFile("component.tsx", text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX), component = parsed.statements.find(node => ts.isFunctionDeclaration(node));
   const compiled = ts.transpileModule(`${ts.createPrinter().printNode(ts.EmitHint.Unspecified, component, parsed).replace(/\bexport\s+/, "")}\nthis.component=TestCasePrerequisites;`, { compilerOptions: { target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React, module: ts.ModuleKind.None } }).outputText;
   const control = { readable: true, freshAccess: { canEdit: true }, freshPage: { graphHash, prerequisiteIds: ["old", "missing"], linked: [row, { id: "missing", unavailable: true }], items: [approved], total: 851, offset: 0, nextCursor: {} }, origin: {}, open: true, draft: null, pending: null, settled: null, busy: false, notice: "", search: "", sort: "case-id", cursors: [], access: {}, page: {} };
-  const context = vm.createContext({ React, styles: {}, useCasePrerequisites: () => control }); vm.runInContext(compiled, context); const html = renderToStaticMarkup(React.createElement(context.component, { projectId: scope.projectId, caseId: "main", canEdit: true }));
+  const context = vm.createContext({ React, ActionButton: "button", styles: {}, useCasePrerequisites: () => control }); vm.runInContext(compiled, context); const html = renderToStaticMarkup(React.createElement(context.component, { projectId: scope.projectId, caseId: "main", canEdit: true }));
   assert.match(html, /Linked tests must pass before this case runs\. They do not replace its steps\./);
   assert.match(html, /<details><summary>About drafts and retries<\/summary>/);
   assert.doesNotMatch(html, /<details open|unsupported recovery paths|Given, When, Then/);
   assert.match(html, /Reloading or renewing your session does not restore them/);
-  assert.match(html, /Retained pending review/); assert.match(html, /Unavailable retained case/); assert.match(html, /SYN-2/); assert.match(html, /SYN-3/); assert.match(html, /Search title or case ID/); assert.match(html, /maxLength="200"|maxlength="200"/); assert.match(html, /Page 1 of 43/); assert.match(html, /Review and save prerequisites/); assert.match(html, /Close and keep draft/); assert.doesNotMatch(html, /type="password"/);
+  assert.match(html, /Retained pending review/); assert.match(html, /Unavailable retained case/); assert.match(html, /SYN-2/); assert.match(html, /SYN-3/); assert.match(html, /Search title or case ID/); assert.match(html, /maxLength="200"|maxlength="200"/); assert.match(html, /Page 1 of 43/); assert.match(html, />Review<\/button>/); assert.match(html, /> Keep draft <\/button>/); assert.doesNotMatch(html, /type="password"/);
   control.draft = { identity: "synthetic-draft", origin: {}, baseline: ["old", "missing"], ids: ["old", "missing"], graphHash, linked: [{ ...row, title: "Stale retained title", reviewStatus: "REJECTED" }, { id: "missing", unavailable: true }] };
   control.freshPage.linked[0] = { ...row, title: "Fresh admitted title", reviewStatus: "APPROVED", archived: true };
   const current = renderToStaticMarkup(React.createElement(context.component, { projectId: scope.projectId, caseId: "main", canEdit: true })); assert.match(current, /Fresh admitted title/); assert.match(current, /Archived retained case/); assert.match(current, /Unavailable retained case/); assert.doesNotMatch(current, /Stale retained title|Retained rejected/);
   control.freshAccess.canEdit = false;
-  const viewer = renderToStaticMarkup(React.createElement(context.component, { projectId: scope.projectId, caseId: "main", canEdit: true })); assert.match(viewer, /<button[^>]*disabled=""[^>]*>Discard retained draft<\/button>/); assert.doesNotMatch(viewer, /aria-label="Remove /); assert.match(viewer, /Fresh admitted title/);
+  const viewer = renderToStaticMarkup(React.createElement(context.component, { projectId: scope.projectId, caseId: "main", canEdit: true })); assert.match(viewer, /<button[^>]*disabled=""[^>]*>\s*Discard\s*<\/button>/); assert.doesNotMatch(viewer, /aria-label="Remove /); assert.match(viewer, /Fresh admitted title/);
   assert.match(viewer, /<button[^>]*aria-label="Add prerequisite SYN-3 Exact approved"[^>]*disabled=""[^>]*>Add<\/button>/);
   control.draft.ids = ["missing"];
   const undoViewer = renderToStaticMarkup(React.createElement(context.component, { projectId: scope.projectId, caseId: "main", canEdit: true })); assert.match(undoViewer, /<button[^>]*disabled=""[^>]*>Undo removal<\/button>/); assert.match(undoViewer, /Removed in this unsaved draft/);
@@ -254,7 +256,7 @@ test("actual picker explains an all-chosen current page without changing native 
   const candidates = Array.from({ length: 20 }, (_, index) => ({ ...approved, id: `page-case-${index}`, displayId: `SYN-${index + 10}`, title: "Repeated title" }));
   const draft = { identity: "synthetic-all-page-draft", origin: {}, baseline: [row.id], ids: [row.id, ...candidates.map(item => item.id)], graphHash, linked: [row, ...candidates] };
   const control = { readable: true, freshAccess: { canEdit: true }, freshPage: { graphHash, prerequisiteIds: [row.id], linked: [row], items: candidates, total: 851, offset: 0, nextCursor: { offset: 20 } }, origin: {}, open: true, draft, pending: null, settled: null, busy: false, notice: "", search: "", sort: "case-id", cursors: [], access: {}, page: {} };
-  const context = vm.createContext({ React, styles: {}, useCasePrerequisites: () => control }); vm.runInContext(compiled, context);
+  const context = vm.createContext({ React, ActionButton: "button", styles: {}, useCasePrerequisites: () => control }); vm.runInContext(compiled, context);
   const render = () => renderToStaticMarkup(React.createElement(context.component, { projectId: scope.projectId, caseId: "main", canEdit: true }));
   const allChosen = render();
   assert.match(allChosen, /All 20 matching cases on this page are already selected in your draft above/);
@@ -304,7 +306,7 @@ test("actual picker explains an all-chosen current page without changing native 
   const retainedRequest = { draft, input: { requestId: "synthetic-retained-unknown-uuid" }, requestHash: "c".repeat(64), everAmbiguous: true };
   control.pending = retainedRequest;
   const unknown = render();
-  assert.match(unknown, /Retry same prerequisite request/);
+  assert.match(unknown, />Retry<\/button>/);
   assert.match(unknown, /synthetic-retained-unknown-uuid/);
   assert.match(unknown, /<button[^>]*aria-label="Add prerequisite SYN-900 Exact approved"[^>]*disabled=""[^>]*>Add<\/button>/);
   assert.match(unknown, /<input[^>]*type="search"[^>]*disabled=""/);
@@ -313,7 +315,7 @@ test("actual picker explains an all-chosen current page without changing native 
   control.freshPage = { ...mixedPage, items: candidates, total: 851, nextCursor: { offset: 20 } };
   const unknownChosen = render();
   assert.match(unknownChosen, /All 20 matching cases on this page are already selected in your draft above/);
-  assert.match(unknownChosen, /Retry same prerequisite request/);
+  assert.match(unknownChosen, />Retry<\/button>/);
   assert.match(unknownChosen, /Page 1 of 43 · 851 approved candidates/);
   assert.match(unknownChosen, /<button[^>]*disabled=""[^>]*>Next<\/button>/);
   assert.equal(control.pending, retainedRequest);

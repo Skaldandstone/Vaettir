@@ -38,8 +38,8 @@ describe.skipIf(!isolated)("stable human-readable test case identities", () => {
     owner = appRouter.createCaller({ prisma, user: ownerUser, authenticatedClerkSubject: ownerSubject });
     viewer = appRouter.createCaller({ prisma, user: viewerUser, authenticatedClerkSubject: viewerSubject });
     outsider = appRouter.createCaller({ prisma, user: outsiderUser, authenticatedClerkSubject: outsiderSubject });
-    projectId = (await owner.project.create({ organizationId, name: "aTwist", caseKey: "aTwist" })).id;
-    otherProjectId = (await outsider.project.create({ organizationId: otherOrgId, name: "aTwist", caseKey: "atwist" })).id;
+    projectId = (await owner.project.create({ organizationId, name: "aTw", caseKey: "aTw" })).id;
+    otherProjectId = (await outsider.project.create({ organizationId: otherOrgId, name: "aTw", caseKey: "atw" })).id;
   });
 
   it("serializes concurrent creation and allocates distinct project-local numbers", async () => {
@@ -48,8 +48,8 @@ describe.skipIf(!isolated)("stable human-readable test case identities", () => {
     })));
     expect(cases.map(c => c.caseNumber).sort((a, b) => a - b)).toEqual(Array.from({ length: 24 }, (_, i) => i + 1));
     expect(new Set(cases.map(c => c.displayId)).size).toBe(24);
-    for (const c of cases) expect(c.displayId).toBe(`atwist-${String(c.caseNumber).padStart(2, "0")}`);
-    expect(await owner.project.caseIdentity({ projectId })).toMatchObject({ caseKey: "atwist", allocatedCount: 24, keyLocked: false, revision: 0 });
+    for (const c of cases) expect(c.displayId).toBe(`atw-${String(c.caseNumber).padStart(2, "0")}`);
+    expect(await owner.project.caseIdentity({ projectId })).toMatchObject({ caseKey: "atw", allocatedCount: 24, keyLocked: false, revision: 0 });
   });
 
   it("retains identity through titles, suite moves, archiving and project renames", async () => {
@@ -67,18 +67,18 @@ describe.skipIf(!isolated)("stable human-readable test case identities", () => {
     const next = await prisma.testCase.create({ data: { projectId, title: "Next", testType: "FUNCTIONAL" } });
     expect(next.caseNumber).toBe(first.caseNumber + 1);
     await prisma.testCase.createMany({ data: Array.from({ length: 80 }, (_, i) => ({ projectId, title: `Hundred ${i}`, testType: "FUNCTIONAL" as const })) });
-    const hundred = await owner.testCases.byDisplayId({ projectId, displayId: "ATWIST-100" });
-    expect(hundred.displayId).toBe("atwist-100");
+    const hundred = await owner.testCases.byDisplayId({ projectId, displayId: "ATW-100" });
+    expect(hundred.displayId).toBe("atw-100");
   });
 
   it("rejects supplied, rewritten and cross-project identities at the database layer", async () => {
     const tc = await prisma.testCase.findFirstOrThrow({ where: { projectId } });
     const counter = (await prisma.project.findUniqueOrThrow({ where: { id: projectId } })).nextCaseNumber;
-    await expect(prisma.testCase.create({ data: { projectId, title: "Forged", testType: "FUNCTIONAL", displayId: "atwist-999", caseNumber: 999 } })).rejects.toThrow("assigned by the database");
-    await expect(prisma.testCase.update({ where: { id: tc.id }, data: { displayId: "atwist-999" } })).rejects.toThrow("identity cannot be changed");
+    await expect(prisma.testCase.create({ data: { projectId, title: "Forged", testType: "FUNCTIONAL", displayId: "atw-999", caseNumber: 999 } })).rejects.toThrow("assigned by the database");
+    await expect(prisma.testCase.update({ where: { id: tc.id }, data: { displayId: "atw-999" } })).rejects.toThrow("identity cannot be changed");
     await expect(prisma.testCase.update({ where: { id: tc.id }, data: { projectId: otherProjectId } })).rejects.toThrow("identity cannot be changed");
     await expect(prisma.project.update({ where: { id: projectId }, data: { nextCaseNumber: 0 } })).rejects.toThrow("cannot be reused");
-    await expect(prisma.project.update({ where: { id: projectId }, data: { caseKey: "renamed" } })).rejects.toThrow("original reviewed key change");
+    await expect(prisma.project.update({ where: { id: projectId }, data: { caseKey: "rname" } })).rejects.toThrow("original reviewed key change");
     expect((await prisma.project.findUniqueOrThrow({ where: { id: projectId } })).nextCaseNumber).toBe(counter);
   });
 
@@ -88,7 +88,7 @@ describe.skipIf(!isolated)("stable human-readable test case identities", () => {
       INSERT INTO "TestCase" (id, "projectId", title, given, "when", "then", tags, "testType", "updatedAt")
       VALUES (${id}, ${projectId}, 'Legacy client', ARRAY['signed in'], ARRAY['delete comment'], ARRAY['removed'], ARRAY[]::text[], 'FUNCTIONAL', now())
       RETURNING "displayId", "caseNumber"`;
-    expect(rows[0]?.displayId).toBe(`atwist-${String(rows[0]?.caseNumber).padStart(2, "0")}`);
+    expect(rows[0]?.displayId).toBe(`atw-${String(rows[0]?.caseNumber).padStart(2, "0")}`);
   });
 
   it("retains human identity and source external identity on identical and changed imports", async () => {
@@ -106,14 +106,14 @@ describe.skipIf(!isolated)("stable human-readable test case identities", () => {
   });
 
   it("uses human IDs to find prerequisites without changing procedure steps", async () => {
-    const login = await owner.testCases.byDisplayId({ projectId, displayId: "atwist-01" });
+    const login = await owner.testCases.byDisplayId({ projectId, displayId: "atw-01" });
     const premium = await prisma.testCase.create({ data: { projectId, title: "Premium", testType: "FUNCTIONAL", given: ["member"], when: ["subscribe"], then: ["enabled"] } });
     const readRequestId = randomUUID(), access = await owner.testCaseStructure.prerequisiteAccess({ projectId, caseId: premium.id, readRequestId });
     expect(access).toMatchObject({ projectId, caseId: premium.id, readRequestId, canEdit: true, readScope: { projectId, organizationId, actorId, actorClerkUserId: ownerSubject } });
     const pins = { projectId, caseId: premium.id, originalOrganizationId: access.readScope.organizationId, expectedClerkActorId: access.readScope.actorClerkUserId, expectedActorId: access.readScope.actorId };
     const pageRequestId = randomUUID(), page = await owner.testCaseStructure.prerequisitePage({ ...pins, readRequestId: pageRequestId, search: login.displayId, sort: "case-id" });
     expect(page).toMatchObject({ projectId, caseId: premium.id, readRequestId: pageRequestId, readScope: access.readScope, prerequisiteIds: [] });
-    expect(page.items).toContainEqual(expect.objectContaining({ id: login.id, displayId: "atwist-01", unavailable: false }));
+    expect(page.items).toContainEqual(expect.objectContaining({ id: login.id, displayId: "atw-01", unavailable: false }));
     const input = { ...pins, requestId: randomUUID(), expectedGraphHash: page.graphHash, expectedPrerequisiteIds: page.prerequisiteIds, prerequisiteIds: [login.id], confirmed: true as const };
     const saved = await owner.testCaseStructure.reviewedSetPrerequisites(input);
     expect(saved).toEqual({ projectId, caseId: premium.id, organizationId, actorId, actorClerkUserId: ownerSubject, requestId: input.requestId, requestHash: prerequisiteRequestHash(input), prerequisiteIds: [login.id], replayed: false });
@@ -126,30 +126,30 @@ describe.skipIf(!isolated)("stable human-readable test case identities", () => {
 
   it("keeps lookup tenant scoped even when another workspace has the same human key", async () => {
     const external = await prisma.testCase.create({ data: { projectId: otherProjectId, title: "Private other tenant", testType: "FUNCTIONAL" } });
-    expect(external.displayId).toBe("atwist-01");
-    const ours = await owner.testCases.byDisplayId({ projectId, displayId: "atwist-01" });
+    expect(external.displayId).toBe("atw-01");
+    const ours = await owner.testCases.byDisplayId({ projectId, displayId: "atw-01" });
     expect(ours.id).not.toBe(external.id);
     await expect(owner.testCases.byDisplayId({ projectId: otherProjectId, displayId: external.displayId })).rejects.toMatchObject({ code: "FORBIDDEN" });
-    await expect(outsider.testCases.byDisplayId({ projectId, displayId: "atwist-01" })).rejects.toMatchObject({ code: "FORBIDDEN" });
-    await expect(owner.testCases.byDisplayId({ projectId, displayId: "atwist-999999" })).rejects.toMatchObject({ code: "NOT_FOUND" });
-    expect((await viewer.testCases.byDisplayId({ projectId, displayId: "atwist-01" })).id).toBe(ours.id);
+    await expect(outsider.testCases.byDisplayId({ projectId, displayId: "atw-01" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(owner.testCases.byDisplayId({ projectId, displayId: "atw-999999" })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect((await viewer.testCases.byDisplayId({ projectId, displayId: "atw-01" })).id).toBe(ours.id);
   });
 
   it("allows reviewed keys before and after allocation but prevents stale, duplicate or unauthorized changes", async () => {
     const empty = await owner.project.create({ organizationId, name: "New workspace flow" });
     const current = await owner.project.caseIdentity({ projectId: empty.id });
-    await expect(viewer.project.saveCaseKey(keyInput(await viewer.project.caseIdentity({ projectId: empty.id }), "custom", viewerSubject))).rejects.toMatchObject({ code: "FORBIDDEN" });
-    await expect(owner.project.saveCaseKey({ ...keyInput(current, "custom"), expectedCaseKey: "wrong" })).rejects.toMatchObject({ code: "CONFLICT" });
-    await expect(owner.project.saveCaseKey(keyInput(current, "atwist"))).rejects.toMatchObject({ code: "CONFLICT" });
-    expect(await owner.project.saveCaseKey(keyInput(current, "CUSTOM"))).toMatchObject({ caseKey: "custom", keyLocked: false, aliasesPreserved: true, revision: 1 });
+    await expect(viewer.project.saveCaseKey(keyInput(await viewer.project.caseIdentity({ projectId: empty.id }), "cust", viewerSubject))).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(owner.project.saveCaseKey({ ...keyInput(current, "cust"), expectedCaseKey: "wrong" })).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(owner.project.saveCaseKey(keyInput(current, "atw"))).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(await owner.project.saveCaseKey(keyInput(current, "CUST"))).toMatchObject({ caseKey: "cust", keyLocked: false, aliasesPreserved: true, revision: 1 });
     const tc = await prisma.testCase.create({ data: { projectId: empty.id, title: "First", testType: "FUNCTIONAL" } });
-    expect(tc.displayId).toBe("custom-01");
-    const request = keyInput(await owner.project.caseIdentity({ projectId: empty.id }), "newkey");
-    expect(await owner.project.saveCaseKey(request)).toMatchObject({ caseKey: "newkey", revision: 2, replayed: false });
-    expect(await owner.project.saveCaseKey(request)).toMatchObject({ caseKey: "newkey", revision: 2, replayed: true });
-    expect((await prisma.testCase.findUniqueOrThrow({ where: { id: tc.id } })).displayId).toBe("custom-01");
-    expect(await owner.testCases.byDisplayId({ projectId: empty.id, displayId: "custom-01" })).toMatchObject({ id: tc.id, displayId: "newkey-01" });
-    expect(await owner.testCases.byDisplayId({ projectId: empty.id, displayId: "newkey-01" })).toMatchObject({ id: tc.id, displayId: "newkey-01" });
+    expect(tc.displayId).toBe("cust-01");
+    const request = keyInput(await owner.project.caseIdentity({ projectId: empty.id }), "new");
+    expect(await owner.project.saveCaseKey(request)).toMatchObject({ caseKey: "new", revision: 2, replayed: false });
+    expect(await owner.project.saveCaseKey(request)).toMatchObject({ caseKey: "new", revision: 2, replayed: true });
+    expect((await prisma.testCase.findUniqueOrThrow({ where: { id: tc.id } })).displayId).toBe("cust-01");
+    expect(await owner.testCases.byDisplayId({ projectId: empty.id, displayId: "cust-01" })).toMatchObject({ id: tc.id, displayId: "new-01" });
+    expect(await owner.testCases.byDisplayId({ projectId: empty.id, displayId: "new-01" })).toMatchObject({ id: tc.id, displayId: "new-01" });
     expect(await prisma.auditLog.count({ where: { projectId: empty.id, entityType: "ProjectCaseKeyWrite" } })).toBe(2);
   });
 
@@ -172,7 +172,7 @@ describe.skipIf(!isolated)("stable human-readable test case identities", () => {
   it("generates collision-safe default keys for old project inserts", async () => {
     const first = await prisma.project.create({ data: { organizationId, name: "Game test", slug: "game-test" } });
     const second = await prisma.project.create({ data: { organizationId, name: "GameTest", slug: "gametest" } });
-    expect([first.caseKey, second.caseKey]).toEqual(["gametest", "gametest-2"]);
+    expect([first.caseKey, second.caseKey]).toEqual(["gamet", "aaaaa"]);
     await expect(prisma.project.create({ data: { organizationId, name: "Bad key", slug: "bad-key", caseKey: "not valid" } })).rejects.toThrow();
   });
 
@@ -209,7 +209,7 @@ describe.skipIf(!isolated)("stable human-readable test case identities", () => {
     const empty = await owner.project.create({ organizationId, name: "Authorization changed" });
     const current = await owner.project.caseIdentity({ projectId: empty.id });
     await prisma.membership.update({ where: { organizationId_userId: { organizationId, userId: editor.id } }, data: { role: "VIEWER" } });
-    await expect(caller.project.saveCaseKey({ ...keyInput(current, "revoked", editor.clerkUserId), expectedNativeActorId: editor.id })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(caller.project.saveCaseKey({ ...keyInput(current, "rvok", editor.clerkUserId), expectedNativeActorId: editor.id })).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect((await owner.project.caseIdentity({ projectId: empty.id })).caseKey).toBe(current.caseKey);
   });
 

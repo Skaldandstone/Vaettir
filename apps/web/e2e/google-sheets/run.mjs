@@ -1,3 +1,4 @@
+import { actionName } from "../action-name.mjs";
 // Actual components + actual pure CSV parser. Provider and transport are local
 // synthetic substitutes, not evidence of real Google OAuth or production writes.
 /* global document, innerWidth, window */
@@ -12,7 +13,7 @@ const web = path.resolve(fileURLToPath(new URL("../../", import.meta.url)));
 const require = createRequire(path.join(web, "package.json"));
 const viteRequire = createRequire(createRequire(require.resolve("vitest")).resolve("vite"));
 const { build } = viteRequire("esbuild"), { chromium } = require("@playwright/test");
-const output = process.argv[2] ? path.resolve(process.argv[2]) : path.join(web, "../../.local/google-sheets-picker-20261021/import-ui");
+const output = (process.env.VAETTIR_E2E_OUTPUT_DIR ?? (process.argv[2] ? path.resolve(process.argv[2]) : path.join(web, "../../.local/google-sheets-picker-20261021/import-ui")));
 await mkdir(output, { recursive: true });
 const inputs = ["components/GoogleSheetsPrivacyNotice.tsx", "app/google-sheets-privacy/page.tsx", "middleware.ts", "components/Sidebar.tsx", "app/layout.tsx", "lib/auth-return.test.mjs", "components/MigrationWizard.tsx", "components/GoogleSheetsImportSource.tsx", "lib/google-sheets-import.ts", "../api/src/services/csvFieldMapping.ts", "app/globals.css", "app/workbench.css", "e2e/google-sheets/fixture.jsx", "e2e/google-sheets/boundary.jsx", "e2e/google-sheets/run.mjs", "../../pnpm-lock.yaml"];
 const hashes = async () => Object.fromEntries(await Promise.all(inputs.map(async file => [file, createHash("sha256").update(await readFile(path.join(web, file))).digest("hex")])));
@@ -60,22 +61,22 @@ try {
   // A wizard-only fixture cannot detect duplicate keys in the parent page.
   for (const conflict of [false, true]) {
     await page.goto(`${origin}/page${conflict ? "?conflict" : ""}`);
-    await page.getByRole("button", { name: "Google Sheets Choose a spreadsheet", exact: false }).click();
+    await page.getByRole("button", { name: actionName("Google Sheets", false), exact: false }).click();
     await page.getByRole("checkbox", { name: /I approve reading/ }).check();
-    await page.getByRole("button", { name: "Load Google connection", exact: true }).click();
-    await page.getByRole("button", { name: "Authorize Google and choose a spreadsheet", exact: true }).click();
-    await page.getByRole("button", { name: "Read selected tabs and preview", exact: true }).click();
-    await page.getByRole("button", { name: "Review import scope", exact: true }).click();
-    await page.getByRole("button", { name: "Import selected worksheets", exact: true }).click();
-    await page.getByRole("heading", { name: conflict ? "Import finished with skipped rows" : "Import complete", exact: true }).waitFor();
+    await page.getByRole("button", { name: actionName("Load Google connection"), exact: true }).click();
+    await page.getByRole("button", { name: actionName("Authorize Google and choose a spreadsheet"), exact: true }).click();
+    await page.getByRole("button", { name: actionName("Read selected tabs and preview"), exact: true }).click();
+    await page.getByRole("button", { name: actionName("Review"), exact: true }).click();
+    await page.getByRole("button", { name: actionName("Import"), exact: true }).click();
+    await page.getByText(conflict ? "0 created · 0 updated · 2 queued" : "2 created · 0 updated · 0 queued", { exact: true }).waitFor();
+    await page.locator("summary").filter({hasText:/^Import history$/}).click();
     await page.getByRole("heading", { name: "Import history", exact: true }).waitFor();
     assert.equal(await page.getByRole("heading", { name: "Migration assistant", exact: true }).count(), 1, "History refresh must retain exactly one wizard");
     assert.equal(await page.evaluate(() => window.sheetFixture.commits.length), 1);
     if (conflict) {
-      const reason = "Row 2: Case changed since its last import; source updates were not applied. Review the human edits and source changes.";
-      await page.getByText("Needs review", { exact: true }).waitFor();
-      await page.getByText("Review 1 skipped row(s)", { exact: true }).click();
-      assert.equal(await page.getByText(reason, { exact: true }).count(), 2, "Completion and retained history both show the exact row reason");
+      const reason = "Case changed since its last import; source updates were not applied. Review the human edits and source changes.";
+      await page.getByRole("region",{name:"Mapping queue",exact:true}).getByRole("combobox").selectOption(await page.evaluate(()=>window.sheetFixture.prepares[0].requestId));
+      assert.equal(await page.getByText(reason,{exact:true}).count(),2,"Both conflicted rows remain in the private mapping queue");
       for (const width of [1280, 390]) {
         await page.setViewportSize({ width, height: 960 });
         for (const theme of ["dark", "light"]) {
@@ -85,95 +86,92 @@ try {
         }
       }
     }
-    await page.getByRole("button", { name: "Import another", exact: true }).click();
+    await page.getByRole("button", { name: actionName("Start over"), exact: true }).click();
     assert.equal(await page.getByRole("heading", { name: "Migration assistant", exact: true }).count(), 1);
-    assert.equal(await page.getByRole("button", { name: "Google Sheets Choose a spreadsheet", exact: false }).count(), 1);
+    assert.equal(await page.getByRole("button", { name: actionName("Google Sheets", false), exact: false }).count(), 1);
     assert.equal(await page.evaluate(() => window.sheetFixture.commits.length), 1, "Re-entry does not issue another write");
     assert.equal(await page.evaluate(() => window.sheetFixture.ai), 0);
   }
   await page.setViewportSize({ width: 1280, height: 960 });
   await page.goto(origin);
-  await page.getByRole("button", { name: "Google Sheets Choose a spreadsheet", exact: false }).click();
+  await page.getByRole("button", { name: actionName("Google Sheets", false), exact: false }).click();
   await page.getByRole("checkbox", { name: /I approve reading/ }).check();
-  await page.getByRole("button", { name: "Load Google connection", exact: true }).click();
-  await page.getByRole("button", { name: "Authorize Google and choose a spreadsheet", exact: true }).click();
-  await page.getByRole("button", { name: "Read selected tabs and preview", exact: true }).waitFor();
-  await page.getByRole("button", { name: "Deselect all", exact: true }).click();
-  assert.equal(await page.getByRole("button", { name: "Read selected tabs and preview", exact: true }).isEnabled(), false);
-  await page.getByRole("button", { name: "Select all", exact: true }).click();
+  await page.getByRole("button", { name: actionName("Load Google connection"), exact: true }).click();
+  await page.getByRole("button", { name: actionName("Authorize Google and choose a spreadsheet"), exact: true }).click();
+  await page.getByRole("button", { name: actionName("Read selected tabs and preview"), exact: true }).waitFor();
+  await page.getByRole("button", { name: actionName("Deselect all"), exact: true }).click();
+  assert.equal(await page.getByRole("button", { name: actionName("Read selected tabs and preview"), exact: true }).isEnabled(), false);
+  await page.getByRole("button", { name: actionName("Select all"), exact: true }).click();
   await page.screenshot({ path: path.join(output, "tabs-dark.png"), fullPage: true });
-  await page.getByRole("button", { name: "Read selected tabs and preview", exact: true }).click();
-  await page.getByRole("button", { name: "Review import scope", exact: true }).waitFor();
+  await page.getByRole("button", { name: actionName("Read selected tabs and preview"), exact: true }).click();
+  await page.getByRole("button", { name: actionName("Review"), exact: true }).waitFor();
   assert.equal(await page.evaluate(() => window.sheetFixture.commits.length), 0);
   assert.equal(await page.evaluate(() => window.sheetFixture.ai), 0);
   assert.equal(await page.locator(".xlsx-sheet-card").count(), 2);
   await page.screenshot({ path: path.join(output, "mapping-dark.png"), fullPage: true });
-  await page.getByRole("button", { name: "Switch theme", exact: true }).click();
+  await page.getByRole("button", { name: actionName("Switch theme"), exact: true }).click();
   await page.screenshot({ path: path.join(output, "mapping-light.png"), fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: path.join(output, "mapping-narrow.png"), fullPage: true });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), "No horizontal page overflow");
-  await page.getByRole("button", { name: "Review import scope", exact: true }).click();
-  await page.getByRole("button", { name: "Back to mapping", exact: true }).click();
+  await page.getByRole("button", { name: actionName("Review"), exact: true }).click();
+  await page.getByRole("button", { name: actionName("Back"), exact: true }).click();
   assert.equal(await page.locator(".xlsx-sheet-card").count(), 2);
-  await page.getByRole("button", { name: "Review import scope", exact: true }).click();
+  await page.getByRole("button", { name: actionName("Review"), exact: true }).click();
   await page.screenshot({ path: path.join(output, "review-narrow.png"), fullPage: true });
-  await page.getByRole("button", { name: "Import selected worksheets", exact: true }).click();
-  await page.getByRole("heading", { name: "Import complete", exact: true }).waitFor();
+  await page.getByRole("button", { name: actionName("Import"), exact: true }).click();
+  await page.getByText(/created · 0 updated · [0-9]+ queued/).waitFor();
   const commits = await page.evaluate(() => window.sheetFixture.commits);
-  assert.equal(commits.length, 1); assert.equal(commits[0].sheets.length, 2);
+  assert.equal(commits.length, 1); assert.equal(await page.evaluate(()=>window.sheetFixture.prepares[0].source.sheets.length), 2);
   assert.equal(JSON.stringify(commits).includes("synthetic-browser-only-token"), false);
+  assert.equal(await page.evaluate(()=>JSON.stringify(window.sheetFixture.prepares).includes("synthetic-browser-only-token")),false,"Temporary Google token is never staged with source rows");
   assert.equal(await page.evaluate(() => window.sheetFixture.ai), 0);
   await page.goto(origin);
-  await page.getByRole("button", { name: "Google Sheets Choose a spreadsheet", exact: false }).click();
+  await page.getByRole("button", { name: actionName("Google Sheets", false), exact: false }).click();
   await page.evaluate(() => { window.sheetFixture.cancel = true; });
   await page.getByRole("checkbox", { name: /I approve reading/ }).check();
-  await page.getByRole("button", { name: "Load Google connection", exact: true }).click();
-  await page.getByRole("button", { name: "Authorize Google and choose a spreadsheet", exact: true }).click();
+  await page.getByRole("button", { name: actionName("Load Google connection"), exact: true }).click();
+  await page.getByRole("button", { name: actionName("Authorize Google and choose a spreadsheet"), exact: true }).click();
   await page.getByRole("alert").getByText(/could not complete the selection/).waitFor();
   assert.equal(await page.evaluate(() => window.sheetFixture.commits.length), 0);
   // Cancellation must invalidate the parent's queued per-tab preview work.
   await page.goto(origin);
-  await page.getByRole("button", { name: "Google Sheets Choose a spreadsheet", exact: false }).click();
+  await page.getByRole("button", { name: actionName("Google Sheets", false), exact: false }).click();
   await page.getByRole("checkbox", { name: /I approve reading/ }).check();
-  await page.getByRole("button", { name: "Load Google connection", exact: true }).click();
-  await page.getByRole("button", { name: "Authorize Google and choose a spreadsheet", exact: true }).click();
+  await page.getByRole("button", { name: actionName("Load Google connection"), exact: true }).click();
+  await page.getByRole("button", { name: actionName("Authorize Google and choose a spreadsheet"), exact: true }).click();
   await page.evaluate(() => { window.sheetFixture.delayPreview = true; });
-  await page.getByRole("button", { name: "Read selected tabs and preview", exact: true }).click();
+  await page.getByRole("button", { name: actionName("Read selected tabs and preview"), exact: true }).click();
   await page.waitForFunction(() => typeof window.sheetFixture.resolvePreview === "function");
-  await page.getByRole("button", { name: "Cancel Google selection", exact: true }).click();
+  await page.getByRole("button", { name: actionName("Cancel Google selection"), exact: true }).click();
   await page.evaluate(async () => { window.sheetFixture.resolvePreview(); await new Promise(resolve => window.requestAnimationFrame(resolve)); await new Promise(resolve => window.requestAnimationFrame(resolve)); });
   assert.equal(await page.evaluate(() => window.sheetFixture.previews.length), 1, "No later tab requests after cancel");
   assert.equal(await page.locator(".xlsx-sheet-card").count(), 0, "No late mapping after cancel");
   assert.equal(await page.evaluate(() => window.sheetFixture.commits.length), 0);
-  // A selected tab without title mapping blocks review until mapped or explicitly deselected.
+  // Selected tabs with unclear titles remain in the durable mapping queue.
   for (const flag of ["mixedTitles", "unmappedTitles"]) {
     await page.goto(`${origin}/?${flag}`);
-    await page.getByRole("button", { name: "Google Sheets Choose a spreadsheet", exact: false }).click();
+    await page.getByRole("button", { name: actionName("Google Sheets",false) }).click();
     await page.getByRole("checkbox", { name: /I approve reading/ }).check();
-    await page.getByRole("button", { name: "Load Google connection", exact: true }).click();
-    await page.getByRole("button", { name: "Authorize Google and choose a spreadsheet", exact: true }).click();
-    await page.getByRole("button", { name: "Read selected tabs and preview", exact: true }).click();
-    await page.getByText("Selected tabs are never silently left out.", { exact: false }).waitFor();
-    const review = page.getByRole("button", { name: "Review import scope", exact: true });
-    assert.equal(await review.isEnabled(), false);
-    const cards = page.locator(".xlsx-sheet-card");
-    assert.equal(await cards.nth(1).locator('input[type="checkbox"]').isEnabled(), true);
-    if (flag === "unmappedTitles") {
-      await cards.nth(0).getByRole("combobox").first().selectOption("Mystery heading");
-      await page.getByText("Selected tabs are never silently left out.", { exact: false }).waitFor();
-      assert.equal(await review.isEnabled(), false, "Second unmapped selected tab still blocks review");
-    }
-    await cards.nth(1).locator('input[type="checkbox"]').uncheck();
-    await review.click();
-    await page.getByRole("button", { name: "Import selected worksheets", exact: true }).click();
-    await page.getByRole("heading", { name: "Import complete", exact: true }).waitFor();
-    assert.equal(await page.evaluate(() => window.sheetFixture.commits[0].sheets.length), 1, "Only explicitly deselected tab is excluded");
+    await page.getByRole("button", { name: actionName("Load Google connection"), exact: true }).click();
+    await page.getByRole("button", { name: actionName("Authorize Google and choose a spreadsheet"), exact: true }).click();
+    await page.getByRole("button", { name: actionName("Read selected tabs and preview"), exact: true }).click();
+    await page.getByText("Rows without titles stay in the mapping queue; selected tabs are retained.",{exact:true}).waitFor();
+    const cards=page.locator(".xlsx-sheet-card");
+    assert.equal(await cards.count(),2,"Both selected tabs stay visible");
+    assert.equal(await cards.nth(1).locator('input[type="checkbox"]').isEnabled(),true);
+    if(flag==="unmappedTitles")await cards.nth(0).getByRole("combobox").first().selectOption("Mystery heading");
+    await page.getByRole("button",{name:actionName("Review"),exact:true}).click();
+    await page.getByText("1 ready · 1 need mapping · 0 context rows",{exact:true}).waitFor();
+    await page.getByRole("button",{name:actionName("Import"),exact:true}).click();
+    await page.getByText("1 created · 0 updated · 1 queued",{exact:true}).waitFor();
+    assert.equal(await page.evaluate(()=>window.sheetFixture.prepares[0].source.sheets.length),2,"Unclear selected tabs are queued, never silently excluded");
+    assert.equal(await page.evaluate(()=>window.sheetFixture.commits.length),1);
   }
   await page.goto(`${origin}/?unconfigured`);
-  await page.getByRole("button", { name: "Google Sheets Choose a spreadsheet", exact: false }).click();
+  await page.getByRole("button", { name: actionName("Google Sheets", false), exact: false }).click();
   await page.getByText(/awaiting administrator setup/).waitFor();
-  assert.equal(await page.getByRole("button", { name: "Load Google connection", exact: true }).count(), 0);
+  assert.equal(await page.getByRole("button", { name: actionName("Load Google connection"), exact: true }).count(), 0);
   await page.goto(`${origin}/google-sheets-privacy`);
   await page.getByRole("heading", { name: "Google Sheets import privacy", exact: true }).waitFor();
   assert.equal(await page.getByRole("link", { name: "Contact us about Google data" }).getAttribute("href"), "mailto:james@skaldandstone.com?subject=Vaettir%20Google%20data%20question");
@@ -191,26 +189,26 @@ try {
   const historyFile = page.getByLabel("Historical results file", { exact: true });
   await historyFile.setInputFiles({ name: "old-plan.csv", mimeType: "text/csv", buffer: Buffer.from("ID,Result\nold-1,pass\nold-2,custom\nold-3,") });
   assert.equal(await page.getByLabel("Original historical run date", { exact: true }).inputValue(), "");
-  const historyReview = page.getByRole("button", { name: "Review historical results", exact: true });
+  const historyReview = page.getByRole("button", { name: actionName("Review historical results"), exact: true });
   assert.equal(await historyReview.isEnabled(), false, "No guessed current date");
   await page.getByLabel("Original historical run date", { exact: true }).fill("2025-01-02");
   await historyReview.click();
   await page.getByRole("heading", { name: "3. Review matches before saving", exact: true }).waitFor();
-  const historyCommit = page.getByRole("button", { name: "Import reviewed historical results", exact: true });
+  const historyCommit = page.getByRole("button", { name: actionName("Import reviewed historical results"), exact: true });
   assert.equal(await historyCommit.isEnabled(), false, "Unknown status cannot be committed");
   await page.getByLabel("Meaning of custom", { exact: true }).selectOption("FAIL");
-  await page.getByRole("button", { name: "Refresh result review", exact: true }).click();
+  await page.getByRole("button", { name: actionName("Refresh result review"), exact: true }).click();
   await page.getByText("2 ready · 1 without execution · 0 need attention · 1 run date(s)", { exact: true }).waitFor();
   const historicalApproval = page.getByRole("checkbox", { name: /I confirm these dates/ });
   await historicalApproval.check();
   await page.getByLabel("Historical run label", { exact: true }).fill("January results");
   assert.equal(await historicalApproval.isChecked(), false, "Mapping changes clear approval");
   assert.equal(await historyCommit.isEnabled(), false, "Stale review cannot commit");
-  await page.getByRole("button", { name: "Refresh result review", exact: true }).click();
+  await page.getByRole("button", { name: actionName("Refresh result review"), exact: true }).click();
   await historicalApproval.check();
   assert.equal(await page.evaluate(() => window.sheetFixture.commits.length), 0);
   await page.screenshot({ path: path.join(output, "history-dark.png"), fullPage: true });
-  await page.getByRole("button", { name: "Switch theme", exact: true }).click();
+  await page.getByRole("button", { name: actionName("Switch theme"), exact: true }).click();
   await page.screenshot({ path: path.join(output, "history-light.png"), fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true);
@@ -229,36 +227,36 @@ try {
   assert.equal(await page.getByLabel("Original historical run date", { exact: true }).inputValue(), "");
   assert.equal(await page.evaluate(() => window.sheetFixture.commits.length), 0);
   await page.getByLabel("Original historical run date", { exact: true }).fill("2025-01-02");
-  await page.getByRole("button", { name: "Review historical results", exact: true }).click();
+  await page.getByRole("button", { name: actionName("Review historical results"), exact: true }).click();
   await page.getByText("Worksheet row 9", { exact: true }).waitFor();
   await page.getByRole("checkbox", { name: /I confirm these dates/ }).check();
-  await page.getByRole("button", { name: "Import reviewed historical results", exact: true }).click();
+  await page.getByRole("button", { name: actionName("Import reviewed historical results"), exact: true }).click();
   await page.getByRole("heading", { name: "Historical results recorded", exact: true }).waitFor();
   assert.deepEqual(await page.evaluate(() => window.sheetFixture.commits[0].sourceRowNumbers), [5, 9]);
   await page.goto(`${origin}/historical`);
   await page.getByRole("radio", { name: "Google Sheets", exact: true }).check();
   await page.getByRole("checkbox", { name: /I approve reading/ }).check();
-  await page.getByRole("button", { name: "Load Google connection", exact: true }).click();
-  await page.getByRole("button", { name: "Authorize Google and choose a spreadsheet", exact: true }).click();
-  await page.getByRole("button", { name: "Select first 1", exact: true }).click();
+  await page.getByRole("button", { name: actionName("Load Google connection"), exact: true }).click();
+  await page.getByRole("button", { name: actionName("Authorize Google and choose a spreadsheet"), exact: true }).click();
+  await page.getByRole("button", { name: actionName("Select first 1"), exact: true }).click();
   assert.equal(await page.getByRole("group", { name: "Worksheets · 1 selected", exact: true }).getByRole("checkbox").nth(1).isEnabled(), false, "Historical import reads one selected results tab");
-  await page.getByRole("button", { name: "Read selected tabs and preview", exact: true }).click();
+  await page.getByRole("button", { name: actionName("Read selected tabs and preview"), exact: true }).click();
   await page.getByText("Source: google-sheets:synthetic_book:0", { exact: true }).waitFor();
   assert.equal(await page.evaluate(() => window.sheetFixture.commits.length), 0);
-  await page.getByRole("button", { name: "Switch synthetic project", exact: true }).click();
+  await page.getByRole("button", { name: actionName("Switch synthetic project"), exact: true }).click();
   assert.equal(await page.getByText("Source: google-sheets:synthetic_book:0", { exact: true }).count(), 0, "Project change clears the prior source");
   assert.equal(await page.getByLabel("Original historical run date", { exact: true }).count(), 0);
   await page.getByLabel("Historical results file", { exact: true }).setInputFiles({ name: "actor-private.csv", mimeType: "text/csv", buffer: Buffer.from("ID,Result\nold-1,pass") });
   await page.getByLabel("Original historical run date", { exact: true }).fill("2025-01-02");
-  await page.getByRole("button", { name: "Review historical results", exact: true }).click();
+  await page.getByRole("button", { name: actionName("Review historical results"), exact: true }).click();
   await page.getByRole("heading", { name: "3. Review matches before saving", exact: true }).waitFor();
-  await page.getByRole("button", { name: "Switch synthetic actor", exact: true }).click();
+  await page.getByRole("button", { name: actionName("Switch synthetic actor"), exact: true }).click();
   assert.equal(await page.getByRole("heading", { name: "3. Review matches before saving", exact: true }).count(), 0, "Actor change clears review/approval");
   assert.equal(await page.getByText("Source: file:actor-private.csv", { exact: true }).count(), 0);
   assert.equal(await page.evaluate(() => window.sheetFixture.commits.length), 0);
   assert.deepEqual(errors, []);
   assert.deepEqual(await hashes(), sourceHashes, "Source inputs stayed unchanged during fixture verification");
-  const evidence = { at: new Date().toISOString(), sourceHashes, bundleSha256: createHash("sha256").update(result.outputFiles[0].text).digest("hex"), actualComponents: true, realGoogleAuthorization: false, hostedAcceptance: false, checks: ["actual import route retains one completed wizard after history invalidation", "protected rows show exact reasons in completion and retained history", "explicit re-entry adds no writes or AI calls", "completion and row reasons render in both themes at1280 and390px", "two-tab picker, select/deselect", "actual parser auto-mapping and row preview", "zero writes before explicit import", "one multi-tab commit payload without provider credential", "zero AI analysis calls", "back navigation retains mapping", "light, dark and 390px layout", "OAuth cancel fails closed without writes", "cancel during delayed API preview prevents further tabs and late mappings", "missing title blocks both mixed and all-unmapped selections until explicit repair or deselection", "unconfigured provider fails closed", "approved Google data notice renders in both themes and at390px", "historical file columns/date/status review with blank date, stale approval reset and explicit commit", "historical Excel tab selection and run deep link", "historical review renders in both themes at desktop and390px"], errors, network };
+  const evidence = { at: new Date().toISOString(), sourceHashes, bundleSha256: createHash("sha256").update(result.outputFiles[0].text).digest("hex"), actualComponents: true, realGoogleAuthorization: false, hostedAcceptance: false, checks: ["actual import route retains one completed wizard after history invalidation", "protected rows show exact reasons in completion and retained history", "explicit re-entry adds no writes or AI calls", "completion and row reasons render in both themes at1280 and390px", "two-tab picker, select/deselect", "actual parser auto-mapping and row preview", "zero writes before explicit import", "one multi-tab commit payload without provider credential", "zero AI analysis calls", "back navigation retains mapping", "light, dark and 390px layout", "OAuth cancel fails closed without writes", "cancel during delayed API preview prevents further tabs and late mappings", "unclear title rows stay queued while mapped rows import once", "unconfigured provider fails closed", "approved Google data notice renders in both themes and at390px", "historical file columns/date/status review with blank date, stale approval reset and explicit commit", "historical Excel tab selection and run deep link", "historical review renders in both themes at desktop and390px"], errors, network };
   await writeFile(path.join(output, "evidence.json"), JSON.stringify(evidence, null, 2)); console.log(JSON.stringify(evidence));
 } catch (error) { await page.screenshot({ path: path.join(output, "failure.png"), fullPage: true }); console.error(await page.locator("body").innerText()); throw error; }
 finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }

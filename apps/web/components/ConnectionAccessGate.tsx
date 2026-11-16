@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton } from "@/components/ui/ActionButton";
+
 import type { ConnectionAccessState } from "@/lib/connection-access";
 
 export function ConnectionAccessGate({ state, busy, onRetry, onClose }: {
@@ -18,7 +20,7 @@ export function ConnectionAccessGate({ state, busy, onRetry, onClose }: {
       "A full editor seat is required to connect sources. Ask a workspace owner or admin for access."
     }</p>
     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-      {!checking && state !== "denied" && <button type="button" disabled={busy} onClick={onRetry}>Retry connection check</button>}
+      {!checking && state !== "denied" && <ActionButton type="button" disabled={busy} onClick={onRetry} tooltip={<> Retry connection check </>}> Retry </ActionButton>}
       <button type="button" className="btn-secondary" disabled={busy} onClick={onClose}>Cancel</button>
     </div>
   </div>;

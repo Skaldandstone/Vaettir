@@ -1,4 +1,7 @@
 "use client";
+
+import { ActionHelp } from "@/components/ui/ActionHelp";
+import { ActionButton } from "@/components/ui/ActionButton";
 import { roleLabel } from "@/lib/membership";
 
 import { useState } from "react";
@@ -256,9 +259,7 @@ export default function AdminOrganizationDetailPage() {
               </li>
             ))}
         </ul>
-        <a className="btn-secondary" href="/admin">
-          &larr; Back to search
-        </a>
+        <ActionHelp tooltip={<>&larr; Back to search</>}><a className="btn-secondary" href="/admin">← Search</a></ActionHelp>
       </div>
     );
   }
@@ -304,7 +305,7 @@ export default function AdminOrganizationDetailPage() {
           </button>
           <span>currently {org.planTierName}</span>
         </div>
-        {planTiers.find(t=>t.id===org.planTierId)?.key==="private-beta"&&<details style={{marginTop:12}}><summary>Private workspace seat exception</summary><p>Only a current staff owner can remove this workspace’s full and read-only seat caps. Pricing, features, included credits and balances stay unchanged; no invitations are sent.</p><button type="button" onClick={()=>void enableUnlimitedSeats()} disabled={busy||!auth.isLoaded||!auth.isSignedIn||orgQuery.isFetching||orgQuery.isPaused}>Enable unlimited seats for this workspace</button></details>}
+        {planTiers.find(t=>t.id===org.planTierId)?.key==="private-beta"&&<details style={{marginTop:12}}><summary>Private workspace seat exception</summary><p>Only a current staff owner can remove this workspace’s full and read-only seat caps. Pricing, features, included credits and balances stay unchanged; no invitations are sent.</p><ActionButton type="button" onClick={()=>void enableUnlimitedSeats()} disabled={busy||!auth.isLoaded||!auth.isSignedIn||orgQuery.isFetching||orgQuery.isPaused} tooltip={<> Enable unlimited seats for this workspace </>}> Enable seats </ActionButton></details>}
       </section>
 
       <section style={{ margin: "20px 0" }}>
@@ -423,9 +424,11 @@ export default function AdminOrganizationDetailPage() {
           itself.
         </p>
         {!deletePreview ? (
-          <button onClick={previewDelete} disabled={previewingDelete} style={{ color: "var(--ember)" }}>
+          <ActionButton onClick={previewDelete} disabled={previewingDelete} style={{ color: "var(--ember)" }} tooltip={<>
             {previewingDelete ? "Loading…" : "Preview what would be deleted"}
-          </button>
+           </>}>
+            {previewingDelete ? "Loading…" : "Preview deletion"}
+          </ActionButton>
         ) : (
           <div style={{ display: "grid", gap: 8 }}>
             <p>

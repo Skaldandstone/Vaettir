@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@vaettir/core/dist/validation.js";
 import { protectedProcedure, requireProjectAccess, router } from "../trpc.js";
 import { commentAccessInput, commentAccessOutput, readCaseCommentAccess, commentCreateInput, commentListInput, commentOutput, createCaseComment, listCaseComments } from "../services/caseComments.js";
 import { caseFieldReadScopeSchema } from "../services/caseFieldReadScope.js";
