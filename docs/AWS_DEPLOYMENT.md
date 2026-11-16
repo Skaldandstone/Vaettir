@@ -12,6 +12,26 @@ Both Vaettir availability alarms use those current target-group and shared-ALB d
 
 The [portfolio operations guide](https://github.com/Skaldandstone/Studio/blob/main/docs/operations/aws-cost-controls.md) and its checked configuration define current ingress and recovery. Future releases must preserve those service target groups and alarm dimensions. Historical staging and rebuild details below do not authorize recreation of a dedicated production ALB.
 
+## Prepare the API's LLVM layer before a release
+
+Use the same persistent Docker builder for preparation and the release image.
+From Bash or Git Bash on Windows, pass the reviewed release commit and the
+builder name shown by `docker buildx ls`:
+
+```bash
+bash scripts/build-api-image.sh prepare-native "$release_commit" desktop-linux
+bash scripts/build-api-image.sh build-image "$release_commit" desktop-linux
+```
+
+`prepare-native` refreshes the toolchain and runs the production LLVM target,
+including both unit suites and package checks. Run it before the release window
+when native inputs change or when the toolchain needs a security refresh.
+`build-image` can reuse the LLVM layer across app changes and reruns the final
+runtime checks. A cache miss requires a fresh native build.
+
+The local image still needs its registry scan, source and digest checks, and
+protected ECS rollout.
+
 ## Historical account rebuild context
 
 **Rebuilt here 2026-09-02.** The original account (`094842496450`) was removed
