@@ -1,5 +1,7 @@
-import { withSentryConfig } from "@sentry/nextjs";
+import sentry from "@sentry/nextjs";
 import { fileURLToPath } from "node:url";
+
+const { withSentryConfig } = sentry;
 
 // NodeNext API sources correctly import emitted .js paths. Webpack also reads
 // their uncompiled TypeScript schemas in the browser, so permit that fallback
