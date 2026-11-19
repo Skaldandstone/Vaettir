@@ -110,7 +110,7 @@ git_ldflags=$(dpkg-buildflags --get LDFLAGS)
 set -- prefix=/usr gitexecdir=/usr/lib/git-core GIT_VERSION=2.55.1.vaettir1 \
   CURL_CONFIG="$curl_prefix/bin/curl-config" CURL_CFLAGS="-I$curl_prefix/include" CURL_LDFLAGS="-L$curl_prefix/lib $curl_libs" \
   CFLAGS="$git_cflags" CPPFLAGS="$git_cppflags" LDFLAGS="$git_ldflags" \
-  NO_TCLTK=YesPlease NO_GETTEXT=YesPlease NO_PYTHON=YesPlease NO_INSTALL_HARDLINKS=YesPlease USE_LIBPCRE2=YesPlease
+  NO_RUST=YesPlease NO_TCLTK=YesPlease NO_GETTEXT=YesPlease NO_PYTHON=YesPlease NO_INSTALL_HARDLINKS=YesPlease USE_LIBPCRE2=YesPlease
 stage=GIT_BUILD
 timeout 600 make -j2 "$@" all > "$checks/git-build.log" 2>&1
 # Selected local upstream suites only. All optional skips are retained and reported;
