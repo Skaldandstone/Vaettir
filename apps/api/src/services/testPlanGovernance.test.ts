@@ -197,6 +197,7 @@ function fixture() {
             {
               id: row.id,
               bytes: Buffer.byteLength(JSON.stringify(row.metadata)),
+              metadataText: JSON.stringify(row.metadata),
             },
           ]
         : [];
