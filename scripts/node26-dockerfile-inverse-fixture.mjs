@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 
 export const NODE26_API_DOCKERFILE_SHA256 =
-  "58b3366e0965d8552233ea1d2428cb0c2d59b0f356eafaeebe6ecd53702c1905";
+  "446281243ffd45424f39f33a1afaee0c6ebd6e4ca12ed518c9d1c9a05f77aa52";
 export const PRE_NODE26_API_DOCKERFILE_SHA256 =
   "d15d3ecbecc3ea49f1af7f30805ef56815bac98a73b47a75a71357ea4495d3c0";
 export const NODE26_WEB_DOCKERFILE_SHA256 =
@@ -36,6 +36,7 @@ export function restorePreNode26DockerfileFixture(raw) {
     .replace(/^COPY --from=glibc-security.*\n/gm, "")
     .replace(/^    && (?:test .*libc6.*2\.43-7\+vaettir1.*|rm \/tmp\/vaettir-vendor\/libc6_.*)\n/gm, "")
     .replaceAll("2.55.1-0+vaettir1", "2.47.3-0+deb13u1+vaettir1")
+    .replace("perl python3 liberror-perl git \\\n", "perl python3 liberror-perl \\\n")
     .replaceAll(node26, node22)
     .replace("    NODE_EXTRA_CA_CERTS=/app/certs/rds-global-bundle.pem \\\n", "")
     .replace(

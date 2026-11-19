@@ -97,7 +97,8 @@ writeFileSync(join(checks,'curl-config.json'),JSON.stringify({version:get('--ver
 CURL_METADATA
 cd "$build_root/git-source"
 test "$(dpkg-parsechangelog --show-field Version)" = '1:2.55.0-1'
-patch --batch --fuzz=0 -p1 < "$source_dir/git/git_2.55.1-security.diff"
+git apply --check --whitespace=nowarn "$source_dir/git/git_2.55.1-security.diff"
+git apply --whitespace=nowarn "$source_dir/git/git_2.55.1-security.diff"
 curl_libs=$("$curl_prefix/bin/curl-config" --static-libs)
 # Maintained Debian curl-config deliberately omits library directories. Supply
 # only our isolated static archive directory; retain every reported dependency.
