@@ -252,9 +252,14 @@ async function receipt(
   scope: Scope,
   requestHash: string,
 ) {
-  const [meta] = await tx.$queryRaw<Array<{ id: string; bytes: number }>>`
-    SELECT id,octet_length(metadata::text)::int AS bytes FROM "AuditLog"
-    WHERE id=${auditId} AND "organizationId"=${scope.organizationId} AND "projectId"=${scope.projectId} AND "actorId"=${scope.actorId} AND "entityType"=${ENTITY}`;
+  const [meta] = await tx.$queryRaw<Array<{ id: string; bytes: number; metadataText: string | null }>>`
+    WITH scoped AS (
+      SELECT id,metadata FROM "AuditLog"
+      WHERE id=${auditId} AND "organizationId"=${scope.organizationId} AND "projectId"=${scope.projectId} AND "actorId"=${scope.actorId} AND "entityType"=${ENTITY}
+    )
+    SELECT id,octet_length(metadata::text)::int AS bytes,
+      CASE WHEN octet_length(metadata::text)<=${MAX_GOVERNANCE_RECEIPT_BYTES}
+        THEN metadata::text END AS "metadataText" FROM scoped`;
   if (!meta) return null;
   if (meta.bytes > MAX_GOVERNANCE_RECEIPT_BYTES)
     throw new TRPCError({
@@ -262,11 +267,7 @@ async function receipt(
       message:
         "This governance receipt exceeds its bounded read. No partial acknowledgement was substituted.",
     });
-  const row = await tx.auditLog.findUniqueOrThrow({
-    where: { id: meta.id },
-    select: { metadata: true },
-  });
-  const saved = validatedGovernanceReceipt(row.metadata);
+  const saved = validatedGovernanceReceipt(JSON.parse(meta.metadataText!));
   if (
     saved.ack.requestHash !== requestHash ||
     saved.ack.scope.organizationId !== scope.organizationId ||
