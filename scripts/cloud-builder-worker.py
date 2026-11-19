@@ -18,7 +18,7 @@ def validate_job(job):
             raise ValueError("Invalid " + field)
     if job.get("account") != "051722405355" or job.get("region") != "us-east-2":
         raise ValueError("Wrong AWS destination")
-    if job.get("phase") not in ("prepare-native", "build-image"):
+    if job.get("phase") not in ("prepare-native", "prepare-glibc", "build-image"):
         raise ValueError("Invalid phase")
     return job
 
@@ -27,6 +27,8 @@ def build_commands(commit, phase):
     common = ["docker", "buildx", "build", "--builder", "vaettir-cloud",
               "--platform", "linux/amd64", "--progress", "plain",
               "--file", "Dockerfile.api", "--build-arg", "VAETTIR_RELEASE_COMMIT=" + commit]
+    if phase == "prepare-glibc":
+        return [common + ["--target", "glibc-security", "--output", "type=cacheonly", "-"]]
     commands = [
         common + ["--no-cache-filter", "llvm-build-inputs,llvm-build", "--target",
                   "llvm-build", "--output", "type=cacheonly", "-"],
@@ -80,7 +82,7 @@ def main():
             for command in build_commands(job["commit"], job["phase"]):
                 with archive.open("rb") as source:
                     run(command, log, stdin=source)
-            if job["phase"] == "prepare-native":
+            if job["phase"] != "build-image":
                 result.update(status="native-prepared", runtime_image_produced=False)
                 return
             image = "vaettir-api:" + job["commit"]

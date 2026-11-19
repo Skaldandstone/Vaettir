@@ -47,7 +47,7 @@ def main():
     commands = parser.add_subparsers(dest="command", required=True)
     submit = commands.add_parser("submit")
     submit.add_argument("commit", help="Full committed source SHA; never packages working-tree changes")
-    submit.add_argument("--phase", choices=["prepare-native", "build-image"], required=True)
+    submit.add_argument("--phase", choices=["prepare-native", "prepare-glibc", "build-image"], required=True)
     status = commands.add_parser("status")
     status.add_argument("run_id")
     logs = commands.add_parser("logs")

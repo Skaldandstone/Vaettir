@@ -44,6 +44,15 @@ class CloudBuilderTest(unittest.TestCase):
         self.assertIn("VAETTIR_RELEASE_COMMIT=" + "a" * 40, command)
         self.assertNotIn("--push", command)
 
+    def test_glibc_preparation_cannot_publish_or_deploy(self):
+        command, = worker.build_commands("a" * 40, "prepare-glibc")
+        self.assertEqual(command[command.index("--target") + 1], "glibc-security")
+        self.assertNotIn("--load", command)
+        result, clients, _ = self.run_worker("prepare-glibc")
+        self.assertEqual(result["status"], "native-prepared")
+        self.assertFalse(result["deployed"])
+        self.assertNotIn("ecr", clients)
+
     def run_worker(self, phase, fail_build=False, bad_hash=False, bad_identity=False):
         archive = b"synthetic source archive"
         job = {**self.job(), "phase": phase, "archive_sha256": hashlib.sha256(archive).hexdigest()}
