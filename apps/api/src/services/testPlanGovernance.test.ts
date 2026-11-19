@@ -41,9 +41,12 @@ import {
 function fixture() {
   // Model JSON-convertible Prisma inputs at the persistence boundary; functions
   // in an input wrapper are not functions in a stored/read JSON column.
-  const storedJson = (value: unknown) => value && typeof value === "object" &&
-    typeof (value as { toJSON?: unknown }).toJSON === "function"
-    ? JSON.parse(JSON.stringify(value)) : value;
+  const storedJson = (value: unknown) => {
+    if (!value || typeof value !== "object" ||
+      typeof (value as { toJSON?: unknown }).toJSON !== "function") return value;
+    const converted = JSON.parse(JSON.stringify(value));
+    return converted.$type === "Json" ? JSON.parse(converted.value) : converted;
+  };
   const storedFields = (data: Record<string, unknown>) => Object.fromEntries(
     Object.entries(data).map(([key, value]) => [key,
       ["customFields", "executionTemplate", "metadata"].includes(key) ? storedJson(value) : value]),
