@@ -174,7 +174,7 @@ export function customProjectionSql(columns: CaseCustomBinding[]) {
     columns.flatMap((binding) => {
       const value = jsonValue(binding.key);
       return [
-        Prisma.sql`${binding.key}`,
+        Prisma.sql`${binding.key}::text`,
         Prisma.sql`CASE
       WHEN jsonb_typeof("customFields") IS DISTINCT FROM 'object' THEN jsonb_build_object('state','INVALID')
       WHEN NOT ("customFields" ? ${binding.key}) THEN jsonb_build_object('state','ABSENT')

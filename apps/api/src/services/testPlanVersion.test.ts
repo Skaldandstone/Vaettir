@@ -60,11 +60,15 @@ describe("plan version JSON retention (mock capture, not native JSON-null accept
     });
     const data = c.create.mock.calls[0]![0].data;
     const expected = value === null ? Prisma.JsonNull : value;
+    const unwrap = (input: unknown) => {
+      const json = JSON.parse(JSON.stringify(input));
+      return json?.$type === "Json" ? JSON.parse(json.value) : json;
+    };
     if (value !== null) {
-      expect(JSON.parse(JSON.stringify(data.customFields))).toEqual(value);
-      expect(JSON.parse(JSON.stringify(data.executionTemplate))).toEqual(value);
-      expect(JSON.stringify(data.customFields)).toBe(original);
-      expect(JSON.stringify(data.executionTemplate)).toBe(original);
+      expect(unwrap(data.customFields)).toEqual(value);
+      expect(unwrap(data.executionTemplate)).toEqual(value);
+      expect(JSON.stringify(unwrap(data.customFields))).toBe(original);
+      expect(JSON.stringify(unwrap(data.executionTemplate))).toBe(original);
     } else {
       expect(data.customFields).toBe(expected);
       expect(data.executionTemplate).toBe(expected);
