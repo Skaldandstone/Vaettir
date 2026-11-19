@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 
 export const NODE26_API_DOCKERFILE_SHA256 =
-  "929d72689bb339ed79c4e1b22547d01e79a34617076bf9a0fcf2304f34a7902a";
+  "1eab26f3354d964bce21cdf590dab09f7f5d57fd767d3cf833b8f45eeb08beb2";
 export const PRE_NODE26_API_DOCKERFILE_SHA256 =
   "d15d3ecbecc3ea49f1af7f30805ef56815bac98a73b47a75a71357ea4495d3c0";
 export const NODE26_WEB_DOCKERFILE_SHA256 =
@@ -33,6 +33,7 @@ export function restorePreNode26DockerfileFixture(raw) {
   assert.ok(text.includes(node26));
   const restoredText = text
     .replaceAll(node26, node22)
+    .replace("    NODE_EXTRA_CA_CERTS=/app/certs/rds-global-bundle.pem \\\n", "")
     .replace(
       hash === NODE26_WEB_DOCKERFILE_SHA256
         ? "ENV NODE_OPTIONS=--max-old-space-size=4096\n"
