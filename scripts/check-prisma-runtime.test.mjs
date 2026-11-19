@@ -214,10 +214,11 @@ test("image stages retain digest-pinned Trixie bases and patched Perl/OpenSSL be
         ...checkpointParents.keys(),
         "zlib-build",
         "git-openssl-build",
+        "glibc-security",
         "runtime",
       ],
     ],
-    [web, ["sqlite-security", "node-brotli-security", "native-build", "builder", "runtime"]],
+    [web, ["sqlite-security", "node-brotli-security", "native-build", "builder", "glibc-security", "runtime"]],
   ]) {
     assertPatchedPinnedStages(source, names, baseForStage);
   }
@@ -261,6 +262,7 @@ test("derived LLVM stages reject unpinned, unrelated, forward and incompletely g
     ...checkpointParents.keys(),
     "zlib-build",
     "git-openssl-build",
+        "glibc-security",
     "runtime",
   ];
   assertPatchedPinnedStages(source, names, baseForStage);

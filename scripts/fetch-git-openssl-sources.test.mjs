@@ -14,7 +14,7 @@ test('maintained signed Debian curl8.22 identity rejects historical8.21 input',(
     ['curl_8.22.0.orig.tar.gz.asc','fcd906e7d7a370e5079206b365b229fffc54b8fe311f60179ff7412e2cf77d5c'],
     ['curl_8.22.0-1.debian.tar.xz','5c20c1b4eab8a991d1a4a543d36c96c56291bf36337452756796765506b8821c']]);
   const stale=structuredClone(sourcePins);stale.curl.version='8.21.0-2~bpo13+1';assert.throws(()=>validateSourcePins(stale));
-  assert.equal(sourcePins.git.version,'1:2.47.3-0+deb13u1');assert.equal(sourcePins.git.files[0].sha256,'41ee783af84774dfab31ff6af54a07f70513dd09914e2d622626f4dfecae0a86');
+  assert.equal(sourcePins.git.version,'1:2.55.0-1');assert.equal(sourcePins.git.files[0].sha256,'b9f796b7a09b324da0f2a8a47870be883c015f3708243d4a5cec1da932259c10');
 });
 test('unknown component and unsafe names never reach transport',async()=>{
   let calls=0;const fetchImpl=()=>{calls++;throw Error('private transport detail');};
@@ -25,5 +25,5 @@ test('transport, integrity and byte bounds reject without accepting source',asyn
   const name=sourcePins.git.files[0].name;
   await assert.rejects(fetchGitOpenSSLSource('git',name,{fetchImpl:async()=>{throw Error('secret URL');}}),/source transport failed/);
   await assert.rejects(fetchGitOpenSSLSource('git',name,{fetchImpl:async(url,options)=>{assert.equal(url,sourcePins.git.origin+name);assert.equal(options.redirect,'error');return {ok:true,body:[Buffer.from('wrong')]};}}),/hash mismatch/);
-  await assert.rejects(fetchGitOpenSSLSource('git',name,{fetchImpl:async()=>({ok:true,body:[Buffer.alloc(10001)]})}),/bound exceeded/);
+  await assert.rejects(fetchGitOpenSSLSource('git',name,{fetchImpl:async()=>({ok:true,body:[Buffer.alloc(sourcePins.git.files[0].maxBytes+1)]})}),/bound exceeded/);
 });

@@ -4,11 +4,11 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 
 export const NODE26_API_DOCKERFILE_SHA256 =
-  "1eab26f3354d964bce21cdf590dab09f7f5d57fd767d3cf833b8f45eeb08beb2";
+  "58b3366e0965d8552233ea1d2428cb0c2d59b0f356eafaeebe6ecd53702c1905";
 export const PRE_NODE26_API_DOCKERFILE_SHA256 =
   "d15d3ecbecc3ea49f1af7f30805ef56815bac98a73b47a75a71357ea4495d3c0";
 export const NODE26_WEB_DOCKERFILE_SHA256 =
-  "5ee5578bf841bdfa913d7153eaa7828e075acc7cf0aa7ec88ae889e47361c44a";
+  "060d06d9f92e4be26cc42fb0d28accfcdf5174a1172cac04251f6fe7214f042c";
 export const PRE_NODE26_WEB_DOCKERFILE_SHA256 =
   "3ef10df06706d0f45e4d0b1946a727b24faa38e27f861c99dc9541932dd9265b";
 
@@ -32,6 +32,10 @@ export function restorePreNode26DockerfileFixture(raw) {
   assert.ok(expected.has(hash), "Unknown complete Node 26 Dockerfile edit");
   assert.ok(text.includes(node26));
   const restoredText = text
+    .replace(/FROM [^\n]+ AS glibc-security\n[\s\S]*?(?=FROM [^\n]+ AS runtime\n)/, "")
+    .replace(/^COPY --from=glibc-security.*\n/gm, "")
+    .replace(/^    && (?:test .*libc6.*2\.43-7\+vaettir1.*|rm \/tmp\/vaettir-vendor\/libc6_.*)\n/gm, "")
+    .replaceAll("2.55.1-0+vaettir1", "2.47.3-0+deb13u1+vaettir1")
     .replaceAll(node26, node22)
     .replace("    NODE_EXTRA_CA_CERTS=/app/certs/rds-global-bundle.pem \\\n", "")
     .replace(
