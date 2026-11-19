@@ -1,4 +1,4 @@
-import sentry from "@sentry/nextjs";
+import sentry from "@sentry/nextjs/config";
 import { fileURLToPath } from "node:url";
 
 const { withSentryConfig } = sentry;

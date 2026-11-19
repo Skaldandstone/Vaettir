@@ -258,6 +258,7 @@ RUN --network=none node scripts/check-image-runtime.mjs
 RUN --network=none node scripts/check-mesa-runtime.mjs
 
 ENV NODE_ENV=production \
+    NODE_EXTRA_CA_CERTS=/app/certs/rds-global-bundle.pem \
     API_PORT=8000 \
     VAETTIR_RELEASE_COMMIT=$VAETTIR_RELEASE_COMMIT
 EXPOSE 8000

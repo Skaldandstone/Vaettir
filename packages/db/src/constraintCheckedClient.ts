@@ -1,4 +1,5 @@
-import { PrismaClient, type Prisma } from "@prisma/client";
+import { type Prisma } from "@prisma/client";
+import { PrismaClient } from "./databaseClient.js";
 
 type TransactionOptions = {
   maxWait?: number;

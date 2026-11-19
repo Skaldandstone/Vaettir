@@ -135,6 +135,8 @@ def main():
             # They are never printed, written to .env, or placed in command arguments.
             secret = json.loads(api("secretsmanager", "get-secret-value", "--secret-id", outputs["SecretArn"])["SecretString"])
             environment = child_environment(environment, secret)
+            environment["NODE_EXTRA_CA_CERTS"] = str(ROOT / "certs/rds-global-bundle.pem")
+            environment["VAETTIR_DATABASE_TLS_HOST"] = outputs["DatabaseHost"]
             print("Using the isolated cloud development database via localhost:" + str(PORT), flush=True)
             executable = shutil.which(command[0])
             if not executable:

@@ -218,8 +218,8 @@ describe.skipIf(process.platform !== "linux" || (process.env.CI !== "true" && pr
       for (const file of files.slice(0, 97)) { mkdirSync(join(staged, "migrations", file.name)); writeFileSync(join(staged, "migrations", file.name, "migration.sql"), file.sql); }
       const cliEnv = { ...process.env, DATABASE_URL: urls[0]!, PRISMA_GENERATE_SKIP_AUTOINSTALL: "1", NODE_PATH: join(ROOT, "packages/db/node_modules") };
       const dbRequire = createRequire(join(ROOT, "packages/db/package.json"));
-      const prismaCli = dbRequire.resolve("prisma");
-      const installedPackageJson = realpathSync(dbRequire.resolve("@prisma/client/package.json"));
+      const prismaCli = dbRequire.resolve("prisma-legacy");
+      const installedPackageJson = realpathSync(dbRequire.resolve("prisma-client-legacy/package.json"));
       const installedPackageDirectory = admitInstalledClient(realpathSync(join(ROOT, "node_modules/.pnpm")), dirname(installedPackageJson));
       const installedRequire = createRequire(installedPackageJson);
       const installedIndex = installedRequire.resolve(".prisma/client/index.js");
@@ -242,7 +242,7 @@ describe.skipIf(process.platform !== "linux" || (process.env.CI !== "true" && pr
       const oldIndex = readFileSync(join(oldOutput, "index.js"), "utf8");
       assert.ok(oldIndex.includes("./runtime/library.js")); assert.ok(!/caseKeyRevision|ProjectCaseKeyAlias|ProjectCaseKeyWrite/.test(oldIndex));
       const oldRuntime = readFileSync(join(oldOutput, "runtime/library.js"));
-      assert.equal(sha(oldRuntime), sha(readFileSync(dbRequire.resolve("@prisma/client/runtime/library.js"))));
+      assert.equal(sha(oldRuntime), sha(readFileSync(installedRequire.resolve("./runtime/library.js"))));
       run(process.execPath, [prismaCli, "migrate", "deploy", "--schema", join(staged, "schema.prisma")], cliEnv);
       const require = createRequire(import.meta.url);
       const oldModule = require(join(oldOutput, "index.js")) as { PrismaClient: typeof PrismaClient };
