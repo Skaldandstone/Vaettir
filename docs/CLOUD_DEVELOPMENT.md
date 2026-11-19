@@ -7,7 +7,7 @@ no production or old local data is copied. The old Docker volume remains intact.
 ## Connect and run
 
 Install AWS CLI v2 and the official AWS Session Manager plugin. Renew the existing
-`vaettir-toolkit` login when needed. From the Vaettir checkout, run:
+`skaldandstone-admin` login when needed. From the Vaettir checkout, run:
 
 ```powershell
 pnpm dev:cloud

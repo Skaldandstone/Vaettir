@@ -13,7 +13,7 @@ import urllib.parse
 import uuid
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-PROFILE = "vaettir-toolkit"
+PROFILE = "skaldandstone-admin"
 REGION = "us-east-2"
 ACCOUNT = "051722405355"
 STACK = "vaettir-dev-database"

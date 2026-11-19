@@ -18,7 +18,7 @@ STACK = "vaettir-cloud-builder"
 
 
 def aws(*args):
-    return subprocess.check_output(["aws", "--profile", "vaettir-toolkit", "--region", REGION,
+    return subprocess.check_output(["aws", "--profile", "skaldandstone-admin", "--region", REGION,
                                     "--no-cli-pager", *args], text=True)
 
 

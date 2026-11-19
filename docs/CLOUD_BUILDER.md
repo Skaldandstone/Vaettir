@@ -27,7 +27,7 @@ the metadata hop limit keeps instance credentials out of build containers.
 
 ## Provision
 
-Use the existing `vaettir-toolkit` profile and verify its STS account first. Review
+Use the existing `skaldandstone-admin` profile and verify its STS account first. Review
 current resources for an existing builder before creating this one. Supply a
 verified VPC and public subnet from that account. Create a CloudFormation change
 set for stack `vaettir-cloud-builder` using `infra/cloud-builder.json`, parameters
