@@ -235,16 +235,16 @@ describe("database pool continuity", () => {
 });
 
 describe("native Prisma lazy batch contract without a database", () => {
-  it("retains constraint-check guards and lazy model/raw requests with Prisma 5.22 middleware", async () => {
+  it("retains constraint-check guards and lazy model/raw requests with Prisma 7 query extensions", async () => {
     const requests: { action: string; model?: string; args: unknown }[] = [];
     const native = new ConstraintCheckedPrismaClient({ datasources: { db: { url: "postgresql://synthetic:synthetic@127.0.0.1:1/synthetic" } } });
     // Short-circuit every request before the engine: generated PrismaPromises
     // and the constraint-checking subclass are real; the database is not used.
-    native.$use(async params => {
-      requests.push({ action: params.action, model: params.model, args: params.args });
-      return params.action === "findMany" ? [{ id: "synthetic" }] : 1;
-    });
-    const manager = createRotatingClient({ initial: native, initialUrl: "synthetic", modelNames: ["organization"], create: () => { throw new Error("not used"); }, probe: async () => undefined });
+    const instrumented = native.$extends({ query: { $allOperations: async ({ operation, model, args }) => {
+      requests.push({ action: operation.replace(/^\$/, ""), model, args });
+      return operation === "findMany" ? [{ id: "synthetic" }] : 1;
+    } } });
+    const manager = createRotatingClient({ initial: instrumented, initialUrl: "synthetic", modelNames: ["organization"], create: () => { throw new Error("not used"); }, probe: async () => undefined });
     const model = manager.client.organization.findMany({ take: 1 });
     const raw = manager.client.$queryRaw`SELECT ${42}`;
     expect(requests).toEqual([]);

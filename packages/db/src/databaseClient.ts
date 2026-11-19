@@ -23,5 +23,19 @@ export class PrismaClient extends GeneratedPrismaClient {
       connectionTimeoutMillis: Number(connectTimeout) * 1000,
     }, { schema: url?.searchParams.get("schema") ?? "public" });
     super({ ...clientOptions, adapter });
+    // Preserve the SQLSTATE surface used by existing retry and constraint guards.
+    return this.$extends({ query: { $allOperations: async ({ args, query }) => {
+      try { return await query(args); }
+      catch (error) { retainSqlState(error); throw error; }
+    } } }) as unknown as this;
   }
+}
+
+function retainSqlState(error: unknown) {
+  if (!error || typeof error !== "object" || !("meta" in error)) return;
+  const meta = error.meta as Record<string, unknown> | undefined;
+  if (!meta || typeof meta !== "object") return;
+  const adapterError = meta.driverAdapterError as { cause?: { originalCode?: unknown } } | undefined;
+  const code = adapterError?.cause?.originalCode;
+  if (typeof code === "string" && /^[0-9A-Z]{5}$/.test(code)) meta.code = code;
 }
