@@ -34,7 +34,7 @@ mkdir "$build/compile" "$build/install"
 # ordinary user so privilege-dependent checks observe the shipped use case.
 useradd --system --create-home glibc-build
 chown -R glibc-build:glibc-build "$build"
-su -s /bin/sh glibc-build -c "cd '$build/compile' && '../source/configure' --prefix=/usr --libdir=/usr/lib/x86_64-linux-gnu --enable-kernel=3.2 --enable-stack-protector=strong --enable-fortify-source=2 --disable-werror > '../checks/configure.log' 2>&1"
+su -s /bin/sh glibc-build -c "cd '$build/compile' && MAKEINFO=: '../source/configure' --prefix=/usr --libdir=/usr/lib/x86_64-linux-gnu --enable-kernel=3.2 --enable-stack-protector=strong --enable-fortify-source=2 --disable-werror > '../checks/configure.log' 2>&1"
 su -s /bin/sh glibc-build -c "cd '$build/compile' && timeout 2400 make -j12 > '../checks/build.log' 2>&1"
 su -s /bin/sh glibc-build -c "cd '$build/compile' && timeout 2400 make -j12 check > '../checks/tests.log' 2>&1"
 su -s /bin/sh glibc-build -c "cd '$build/compile' && timeout 180 make install DESTDIR='$build/install' > '../checks/install.log' 2>&1"
