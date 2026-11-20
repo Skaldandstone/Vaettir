@@ -109,17 +109,8 @@ RUN node /build/scripts/fetch-glibc-runtime-sources.mjs /build/glibc-sources
 # CodeBuild shares CPU across native stages; retain every test with timeout headroom.
 RUN --network=none TIMEOUTFACTOR=4 sh /build/scripts/build-glibc-runtime.sh /build/glibc-sources /build/glibc-runtime \
     || { result=$?; grep '^FAIL:' /build/glibc-runtime/compile/tests.sum || true; exit "$result"; }
-# Retain runtime character-set modules alongside the tested shared libraries.
-RUN cp -a /build/glibc-runtime/install/usr/lib/x86_64-linux-gnu/gconv /build/glibc-runtime/libc6/usr/lib/x86_64-linux-gnu/ \
-    && mkdir -p /build/glibc-runtime/libc6/usr/lib64 \
-    && for library in /build/glibc-runtime/install/lib64/*.so*; do \
-         name=$(basename "$library"); \
-         cp -a "$library" "/build/glibc-runtime/libc6/usr/lib/x86_64-linux-gnu/$name"; \
-         ln -s "../lib/x86_64-linux-gnu/$name" "/build/glibc-runtime/libc6/usr/lib64/$name"; \
-       done \
-    && test ! -L /build/glibc-runtime/libc6/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2 \
-    && /build/glibc-runtime/libc6/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2 --library-path /build/glibc-runtime/libc6/usr/lib/x86_64-linux-gnu /bin/true \
-    && dpkg-deb --root-owner-group --build /build/glibc-runtime/libc6 /build/glibc-runtime/libc6_2.43-7+vaettir1_amd64.deb
+COPY scripts/package-glibc-runtime.sh /build/scripts/
+RUN --network=none sh /build/scripts/package-glibc-runtime.sh /build/glibc-runtime
 
 FROM public.ecr.aws/docker/library/node:26-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS runtime
 LABEL vaettir.next-static-cohorts="1"

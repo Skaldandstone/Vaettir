@@ -4,11 +4,11 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 
 export const NODE26_API_DOCKERFILE_SHA256 =
-  "9fea99850b4973035ad66fb18161ab2ff33dff73ab4e09d94e070886302a1926";
+  "5321de70e9d7691733f8b419bbfac80970047e169b9854a63bfacf951cd060b8";
 export const PRE_NODE26_API_DOCKERFILE_SHA256 =
   "d15d3ecbecc3ea49f1af7f30805ef56815bac98a73b47a75a71357ea4495d3c0";
 export const NODE26_WEB_DOCKERFILE_SHA256 =
-  "9e8812b982ff55c949a526d866f31349e12985132c6f946ac7fb1f8b3f78be00";
+  "86d50ba5e8866582dbb4bdab8dfe7d339d99aa6d128eba4313f8ea55b1966da8";
 export const PRE_NODE26_WEB_DOCKERFILE_SHA256 =
   "3ef10df06706d0f45e4d0b1946a727b24faa38e27f861c99dc9541932dd9265b";
 
