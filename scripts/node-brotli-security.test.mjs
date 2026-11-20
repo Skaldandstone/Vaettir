@@ -43,6 +43,7 @@ test("unapproved origins, path changes and credentials fail before a request", a
     url.replace("nodejs.org", "evil.example"),
     url.replace("nodejs.org", "secret@nodejs.org"),
     url.replace("/dist/", "/other/"),
+    "https://api.github.com/repos/google/brotli/commits/da9806362874b9bd4b552a3af360b5d6347beb12",
   ])
     await assert.rejects(
       fetchPinnedInput(u, pin, {
@@ -51,6 +52,37 @@ test("unapproved origins, path changes and credentials fail before a request", a
         },
       }),
     );
+});
+
+test("patch renderer outage uses only the exact GitHub API patch and retains its pin", async () => {
+  const patch = "https://github.com/google/brotli/commit/da9806362874b9bd4b552a3af360b5d6347beb12.patch";
+  const api = "https://api.github.com/repos/google/brotli/commits/da9806362874b9bd4b552a3af360b5d6347beb12";
+  for (const corrupt of [false, true]) {
+    const requests = [];
+    const result = fetchPinnedInput(patch, pin, {
+      fetchImpl: async (target, options) => {
+        requests.push(target);
+        assert.equal(options.redirect, "error");
+        assert.equal(options.headers["Accept-Encoding"], "identity");
+        if (target === patch) return new Response("unavailable", { status: 503 });
+        assert.equal(target, api);
+        assert.equal(options.headers.Accept, "application/vnd.github.patch");
+        return new Response(corrupt ? Buffer.alloc(body.length) : body);
+      },
+    });
+    if (corrupt) await assert.rejects(result);
+    else assert.deepEqual(await result, body);
+    assert.deepEqual(requests, [patch, patch, patch, api]);
+  }
+});
+
+test("missing patch does not trigger an alternate source", async () => {
+  let requests = 0;
+  await assert.rejects(fetchPinnedInput(
+    "https://github.com/google/brotli/commit/da9806362874b9bd4b552a3af360b5d6347beb12.patch", pin,
+    { fetchImpl: async () => { requests++; return new Response("missing", { status: 404 }); } },
+  ));
+  assert.equal(requests, 1);
 });
 test("Node signing key pin accepts Git archive CRLF conversion without changing key material", () => {
   const manifest = JSON.parse(readFileSync(new URL("./node-brotli-runtime-sources.json", import.meta.url), "utf8"));
