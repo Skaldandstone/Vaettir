@@ -45,7 +45,8 @@
       {
         "name": "curl_8.22.0.orig.tar.gz.asc",
         "sha256": "fcd906e7d7a370e5079206b365b229fffc54b8fe311f60179ff7412e2cf77d5c",
-        "maxBytes": 2000
+        "maxBytes": 2000,
+        "sourceUrl": "https://curl.se/download/curl-8.22.0.tar.gz.asc"
       },
       {
         "name": "curl_8.22.0-1.debian.tar.xz",

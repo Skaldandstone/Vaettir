@@ -4,7 +4,7 @@ import {sourcePins,validateSourcePins,fetchGitOpenSSLSource} from './fetch-git-o
 test('closed component identity and deeply immutable pins',()=>{
   assert.ok(Object.isFrozen(sourcePins)&&Object.isFrozen(sourcePins.git)&&Object.isFrozen(sourcePins.git.files)&&Object.isFrozen(sourcePins.git.files[0]));
   assert.throws(()=>{sourcePins.git.files[0].name='../escape';},TypeError);
-  for(const mutate of [x=>x.git.origin=x.curl.origin,x=>x.git.files[3].sourceUrl='https://example.invalid/patch',x=>x.git.files[0].name='../escape',x=>x.git.files[0].name='curl_wrong.dsc',x=>x.git.extra=true,x=>x.git.files[0].maxBytes++,x=>x.git.signer='0'.repeat(40),x=>x.git.files[0].sha256='x'.repeat(64)]){const copy=structuredClone(sourcePins);mutate(copy);assert.throws(()=>validateSourcePins(copy));}
+  for(const mutate of [x=>x.git.origin=x.curl.origin,x=>x.curl.files[2].sourceUrl='https://example.invalid/signature',x=>x.git.files[3].sourceUrl='https://example.invalid/patch',x=>x.git.files[0].name='../escape',x=>x.git.files[0].name='curl_wrong.dsc',x=>x.git.extra=true,x=>x.git.files[0].maxBytes++,x=>x.git.signer='0'.repeat(40),x=>x.git.files[0].sha256='x'.repeat(64)]){const copy=structuredClone(sourcePins);mutate(copy);assert.throws(()=>validateSourcePins(copy));}
 });
 test('maintained signed Debian curl8.22 identity rejects historical8.21 input',()=>{
   assert.equal(sourcePins.curl.version,'8.22.0-1');assert.equal(sourcePins.curl.signer,'05DB6A837E105F4B1D02C55FBBA9FAADCCFB4707');

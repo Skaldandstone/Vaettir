@@ -2,6 +2,7 @@ import {createHash} from "node:crypto";
 import {mkdir,open,readFile} from "node:fs/promises";
 import {join,resolve} from "node:path";
 import {pathToFileURL} from "node:url";
+const curlSignatureUrl="https://curl.se/download/curl-8.22.0.tar.gz.asc";
 const securityPatchUrl="https://github.com/git/git/compare/v2.55.0...v2.55.1.diff";
 const identities={"git":{"version":"1:2.55.0-1","signer":"521E58F17E96D712AA0FF102DFC671EEB333FA25","origin":"https://deb.debian.org/debian/pool/main/g/git/","files":[["git_2.55.0-1.dsc",15000],["git_2.55.0.orig.tar.xz",9000000],["git_2.55.0-1.debian.tar.xz",1000000],["git_2.55.1-security.diff",100000]]},"curl":{"version":"8.22.0-1","signer":"05DB6A837E105F4B1D02C55FBBA9FAADCCFB4707","origin":"https://deb.debian.org/debian/pool/main/c/curl/","files":[["curl_8.22.0-1.dsc",10000],["curl_8.22.0.orig.tar.gz",5000000],["curl_8.22.0.orig.tar.gz.asc",2000],["curl_8.22.0-1.debian.tar.xz",100000]]}};
 function keys(value,expected){if(!value||typeof value!=="object"||Array.isArray(value)||Object.keys(value).sort().join(",")!==[...expected].sort().join(","))throw Error("Invalid source metadata fields");}
@@ -9,7 +10,7 @@ export function validateSourcePins(value){
   keys(value,["git","curl"]);
   for(const component of ["git","curl"]){const recipe=value[component],expected=identities[component];keys(recipe,["version","signer","origin","files"]);
     if(recipe.version!==expected.version||recipe.signer!==expected.signer||recipe.origin!==expected.origin||!Array.isArray(recipe.files)||recipe.files.length!==expected.files.length)throw Error("Inconsistent source identity");
-    recipe.files.forEach((file,index)=>{const patch=component==="git"&&index===3;keys(file,patch?["name","sha256","maxBytes","sourceUrl"]:["name","sha256","maxBytes"]);if(patch&&file.sourceUrl!==securityPatchUrl)throw Error("Unreviewed security patch origin");if(typeof file.name!=="string"||!file.name.startsWith(component+"_")||!/^[-a-zA-Z0-9.+~_]+$/.test(file.name)||file.name.includes("..")||file.name!==expected.files[index][0]||file.maxBytes!==expected.files[index][1]||!/^[a-f0-9]{64}$/.test(file.sha256))throw Error("Invalid exact source file pin");});
+    recipe.files.forEach((file,index)=>{const sourceUrl=component==="git"&&index===3?securityPatchUrl:component==="curl"&&index===2?curlSignatureUrl:undefined;keys(file,sourceUrl?["name","sha256","maxBytes","sourceUrl"]:["name","sha256","maxBytes"]);if(sourceUrl&&file.sourceUrl!==sourceUrl)throw Error("Unreviewed source origin");if(typeof file.name!=="string"||!file.name.startsWith(component+"_")||!/^[-a-zA-Z0-9.+~_]+$/.test(file.name)||file.name.includes("..")||file.name!==expected.files[index][0]||file.maxBytes!==expected.files[index][1]||!/^[a-f0-9]{64}$/.test(file.sha256))throw Error("Invalid exact source file pin");});
   }
   return value;
 }
