@@ -106,7 +106,9 @@ RUN apt-get update --error-on=any \
     && rm -rf /var/lib/apt/lists/*
 COPY scripts/glibc-runtime-sources.json scripts/fetch-glibc-runtime-sources.mjs scripts/build-glibc-runtime.sh /build/scripts/
 RUN node /build/scripts/fetch-glibc-runtime-sources.mjs /build/glibc-sources
-RUN --network=none sh /build/scripts/build-glibc-runtime.sh /build/glibc-sources /build/glibc-runtime
+# CodeBuild shares CPU across native stages; retain every test with timeout headroom.
+RUN --network=none TIMEOUTFACTOR=4 sh /build/scripts/build-glibc-runtime.sh /build/glibc-sources /build/glibc-runtime \
+    || { result=$?; grep '^FAIL:' /build/glibc-runtime/compile/tests.sum || true; exit "$result"; }
 # Retain runtime character-set modules alongside the tested shared libraries.
 RUN cp -a /build/glibc-runtime/install/usr/lib/x86_64-linux-gnu/gconv /build/glibc-runtime/libc6/usr/lib/x86_64-linux-gnu/ \
     && dpkg-deb --root-owner-group --build /build/glibc-runtime/libc6 /build/glibc-runtime/libc6_2.43-7+vaettir1_amd64.deb
