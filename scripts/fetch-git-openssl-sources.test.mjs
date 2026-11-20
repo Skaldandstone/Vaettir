@@ -27,3 +27,9 @@ test('transport, integrity and byte bounds reject without accepting source',asyn
   await assert.rejects(fetchGitOpenSSLSource('git',name,{fetchImpl:async(url,options)=>{assert.equal(url,sourcePins.git.origin+name);assert.equal(options.redirect,'error');return {ok:true,body:[Buffer.from('wrong')]};}}),/hash mismatch/);
   await assert.rejects(fetchGitOpenSSLSource('git',name,{fetchImpl:async()=>({ok:true,body:[Buffer.alloc(sourcePins.git.files[0].maxBytes+1)]})}),/bound exceeded/);
 });
+
+test('transient source responses retry a bounded three times and remain failures',async()=>{
+  let calls=0,cancelled=0;
+  await assert.rejects(fetchGitOpenSSLSource('git',sourcePins.git.files[0].name,{fetchImpl:async()=>{calls++;return {ok:false,status:503,body:{cancel:async()=>{cancelled++;}}};}}),/source download failed \(503\)/);
+  assert.equal(calls,3);assert.equal(cancelled,2);
+});

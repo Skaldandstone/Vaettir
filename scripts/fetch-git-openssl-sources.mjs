@@ -19,8 +19,15 @@ export async function fetchGitOpenSSLSource(component,name,{fetchImpl=fetch,sign
   if(!["git","curl"].includes(component))throw Error("Unknown Git/OpenSSL source component");
   const recipe=sourcePins[component],pin=recipe.files.find(file=>file.name===name);
   if(typeof name!=="string"||!name.startsWith(component+"_")||!/^[-a-zA-Z0-9.+~_]+$/.test(name)||name.includes("..")||!pin||recipe.origin!==identities[component].origin)throw Error("Invalid Git/OpenSSL source pin");
-  let response;try{response=await fetchImpl(pin.sourceUrl??recipe.origin+pin.name,{redirect:"error",signal:AbortSignal.any([AbortSignal.timeout(60000),...(signal?[signal]:[])])});}catch{if(signal?.aborted)throw new DOMException("Git/OpenSSL source cancelled","AbortError");throw Error("Git/OpenSSL source transport failed");}
-  if(!response.ok||!response.body)throw Error("Git/OpenSSL source download failed");
+  let response;
+  for(let attempt=0;attempt<3;attempt++){
+    try{response=await fetchImpl(pin.sourceUrl??recipe.origin+pin.name,{redirect:"error",signal:AbortSignal.any([AbortSignal.timeout(60000),...(signal?[signal]:[])])});}
+    catch{if(signal?.aborted)throw new DOMException("Git/OpenSSL source cancelled","AbortError");throw Error("Git/OpenSSL source transport failed");}
+    if(response.ok||(response.status!==429&&!(response.status>=500))||attempt===2)break;
+    await response.body?.cancel?.();
+    await new Promise(done=>setTimeout(done,(attempt+1)*1000));
+  }
+  if(!response.ok||!response.body)throw Error("Git/OpenSSL source download failed ("+response.status+"): "+(pin.sourceUrl??recipe.origin+pin.name));
   const chunks=[];let size=0;
   try{for await(const chunk of response.body){size+=chunk.length;if(size>pin.maxBytes)throw Error("Git/OpenSSL source bound exceeded");chunks.push(chunk);}}catch(error){if(error.message==="Git/OpenSSL source bound exceeded")throw error;if(signal?.aborted)throw new DOMException("Git/OpenSSL source cancelled","AbortError");throw Error("Git/OpenSSL source body transport failed");}
   const data=Buffer.concat(chunks);
