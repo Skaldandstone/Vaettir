@@ -98,19 +98,8 @@ RUN pnpm install --frozen-lockfile \
     && node scripts/retain-sharp-version-receipt.mjs \
     && node scripts/retain-next-static-assets.mjs --current-dir apps/web/.next/static --previous-dir .release-assets/previous/static --cohort "$VAETTIR_RELEASE_COMMIT" --previous-cohort "$VAETTIR_PREVIOUS_WEB_COMMIT"
 
-FROM public.ecr.aws/docker/library/node:26-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS glibc-security
-RUN apt-get update --error-on=any \
-    && apt-get install -y --no-install-recommends openssl ca-certificates perl-base libpcre2-8-0 build-essential bison gawk gettext texinfo python3 gpgv debian-keyring dpkg-dev \
-    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' perl-base)" ge '5.40.1-6+deb13u1' \
-    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libpcre2-8-0)" ge '10.46-1~deb13u3' \
-    && rm -rf /var/lib/apt/lists/*
-COPY scripts/glibc-runtime-sources.json scripts/fetch-glibc-runtime-sources.mjs scripts/build-glibc-runtime.sh /build/scripts/
-RUN node /build/scripts/fetch-glibc-runtime-sources.mjs /build/glibc-sources
-# CodeBuild shares CPU across native stages; retain every test with timeout headroom.
-RUN --network=none TIMEOUTFACTOR=4 sh /build/scripts/build-glibc-runtime.sh /build/glibc-sources /build/glibc-runtime \
-    || { result=$?; grep '^FAIL:' /build/glibc-runtime/compile/tests.sum || true; exit "$result"; }
-COPY scripts/package-glibc-runtime.sh /build/scripts/
-RUN --network=none sh /build/scripts/package-glibc-runtime.sh /build/glibc-runtime
+# Full-suite-tested native packages from the dedicated cloud builder.
+FROM 051722405355.dkr.ecr.us-east-2.amazonaws.com/vaettir-api@sha256:25619e6ee148b0fee633fd8588e81f6a05f27df7fbbb76f0a2367b77038ea62e AS glibc-security
 
 FROM public.ecr.aws/docker/library/node:26-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS runtime
 LABEL vaettir.next-static-cohorts="1"

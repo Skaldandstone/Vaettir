@@ -1,0 +1,12 @@
+{
+  "image": "051722405355.dkr.ecr.us-east-2.amazonaws.com/vaettir-api@sha256:25619e6ee148b0fee633fd8588e81f6a05f27df7fbbb76f0a2367b77038ea62e",
+  "purpose": "glibc-native-packages",
+  "runtimeEligible": false,
+  "sourceCommit": "a5614ff0287b832bbd2ef74683907ecbdba82398",
+  "sourceManifestSha256": "775559f57f9baf01a2559b8852ad41929408e6a0f15b6657894d60f9a91ddd2a",
+  "nativeBuildRun": "682c49dc10544321b53061dc586fd06d",
+  "packages": {
+    "libc6": "2.43-7+vaettir1",
+    "libc-bin": "2.43-7+vaettir1"
+  }
+}

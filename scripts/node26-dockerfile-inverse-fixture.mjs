@@ -8,7 +8,7 @@ export const NODE26_API_DOCKERFILE_SHA256 =
 export const PRE_NODE26_API_DOCKERFILE_SHA256 =
   "d15d3ecbecc3ea49f1af7f30805ef56815bac98a73b47a75a71357ea4495d3c0";
 export const NODE26_WEB_DOCKERFILE_SHA256 =
-  "86d50ba5e8866582dbb4bdab8dfe7d339d99aa6d128eba4313f8ea55b1966da8";
+  "d5b3ac926a4432b526140fc318e31a7105a6812b43d8d67e7c0379eeb3299fc2";
 export const PRE_NODE26_WEB_DOCKERFILE_SHA256 =
   "3ef10df06706d0f45e4d0b1946a727b24faa38e27f861c99dc9541932dd9265b";
 
@@ -31,7 +31,7 @@ export function restorePreNode26DockerfileFixture(raw) {
   ]);
   assert.ok(expected.has(hash), "Unknown complete Node 26 Dockerfile edit");
   assert.ok(text.includes(node26));
-  const restoredText = text
+  const restoredText = text.replace("# Full-suite-tested native packages from the dedicated cloud builder.\n", "")
     .replace(/FROM [^\n]+ AS glibc-security\n[\s\S]*?(?=FROM [^\n]+ AS runtime\n)/, "")
     .replace(/^COPY --from=glibc-security.*\n/gm, "")
     .replace(/^    && (?:test .*libc6.*2\.43-7\+vaettir1.*|rm \/tmp\/vaettir-vendor\/libc6_.*)\n/gm, "")
