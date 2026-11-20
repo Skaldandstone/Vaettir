@@ -7,7 +7,7 @@ import {readFileSync,readdirSync,lstatSync,readlinkSync,realpathSync,mkdtempSync
 import {resolve,join,dirname,basename,relative,sep} from "node:path";
 import {tmpdir} from "node:os";
 import {pathToFileURL} from "node:url";
-export const PACKAGE_VERSION="1:2.47.3-0+deb13u1+vaettir1";
+export const PACKAGE_VERSION="1:2.55.1-0+vaettir1";
 export const CURL_PUBLIC_CERTIFICATE=Object.freeze({url:'https://keyring.debian.org/pks/lookup?op=get&search=0x05DB6A837E105F4B1D02C55FBBA9FAADCCFB4707',rawBytes:64218,rawSha256:'ee4d13782c2c91fd0594473aafa5b8b5afc946d48580936b18eb12b9b302a5a0',keyringBytes:47003,keyringSha256:'9f9ba693d50c91a3533c0fe415f8e1c8b8fa67b39d5632b6e3a1db99bfe5c747',primaryFingerprint:'BFAE9E331A867A7C80D8EB78F4E4ACDBB8D08BE0',signerFingerprint:'05DB6A837E105F4B1D02C55FBBA9FAADCCFB4707',primaryExpiry:1868115570,signerExpiry:1868115646});
 export function dearmorPublicCertificate(bytes){
   assert.ok(Buffer.isBuffer(bytes)&&bytes.length>0&&bytes.length<=65536);assert.ok(bytes.every(x=>x===10||(x>=32&&x<=126)),'Noncanonical ASCII armor');
@@ -27,10 +27,10 @@ export async function fetchPinnedCurlCertificate({fetchImpl=fetch}={}){
   try{for await(const bytes of response.body){size+=bytes.length;assert.ok(size<=65536,'Public certificate bound exceeded');chunks.push(bytes);}}catch{throw Error('Pinned public certificate body rejected');}const raw=Buffer.concat(chunks),keyring=decodePinnedCurlCertificate(raw),proof={schema:'vaettir-same-principal-public-certificate/v1',...CURL_PUBLIC_CERTIFICATE,newTrustedPrincipal:false,trustPolicyChanged:false};assertCurlCertificateArtifacts(raw,keyring,proof);return{raw,keyring,proof};
 }
 export function assertCurlCertificateArtifacts(raw,ring,proof,nowSeconds=Date.now()/1000){assert.ok(decodePinnedCurlCertificate(raw).equals(ring));assert.deepEqual(proof,{schema:'vaettir-same-principal-public-certificate/v1',...CURL_PUBLIC_CERTIFICATE,newTrustedPrincipal:false,trustPolicyChanged:false});assert.ok(Number.isFinite(nowSeconds)&&nowSeconds<CURL_PUBLIC_CERTIFICATE.primaryExpiry&&nowSeconds<CURL_PUBLIC_CERTIFICATE.signerExpiry,'Existing principal certificate expired');return proof;}
-export const SELECTED_GIT_SUITES=Object.freeze(['t0001-init.sh','t1000-read-tree-m-3way.sh','t5601-clone.sh']);
+export const SELECTED_GIT_SUITES=Object.freeze(['t0001-init.sh','t1000-read-tree-m-3way.sh','t1600-index.sh','t5601-clone.sh']);
 export function assertSelectedGitUpstream(rows){assert.deepEqual(rows.map(row=>row.name),SELECTED_GIT_SUITES);assert.ok(rows.every(row=>row.exitCode===0&&Number.isInteger(row.passed)&&row.passed>0&&Number.isInteger(row.skipped)&&row.skipped>=0&&/^[a-f0-9]{64}$/.test(row.logSha256)));}
 export const PUBLIC_BUILD_STAGES=Object.freeze(['SOURCE_SIGNATURES','SOURCE_EXTRACT','CURL_AUTORECONF','CURL_CONFIGURE','CURL_BUILD','CURL_UPSTREAM','CURL_INSTALL','CURL_METADATA','GIT_BUILD','GIT_UPSTREAM','GIT_INSTALL','PACKAGE_METADATA','PACKAGE_RUNTIME','PACKAGE_BUILD']);
-export const PUBLIC_BUILD_LOGS=Object.freeze(['curl-autoreconf.log','curl-configure.log','curl-build.log','curl-upstream.log','curl-install.log','git-build.log','t0001-init.sh.log','t1000-read-tree-m-3way.sh.log','t5601-clone.sh.log','git-install.log','git-runtime-stderr.log']);
+export const PUBLIC_BUILD_LOGS=Object.freeze(['curl-autoreconf.log','curl-configure.log','curl-build.log','curl-upstream.log','curl-install.log','git-build.log','t0001-init.sh.log','t1000-read-tree-m-3way.sh.log','t1600-index.sh.log','t5601-clone.sh.log','git-install.log','git-runtime-stderr.log']);
 export function publicBuildFailureDiagnostics(stage,exitCode,logs){
   assert.ok(PUBLIC_BUILD_STAGES.includes(stage));assert.ok(Number.isInteger(exitCode)&&exitCode>0&&exitCode<=255);assert.ok(logs.length<=PUBLIC_BUILD_LOGS.length);
   let budget=65536;const excerpts=[];
@@ -127,7 +127,7 @@ export async function inspectBuilt(root,sources,config,upstream){
   assert.ok(root.startsWith("/")&&root!=="/");assertSourceIdentity(sources);const features=assertCurlConfiguration(config);
   const certificatePath=join(root,'usr/share/vaettir/git-openssl-sources'),publicCertificate=assertCurlCertificateArtifacts(readFileSync(join(certificatePath,'curl-public-key.response.html')),readFileSync(join(certificatePath,'curl-public-key.gpg')),JSON.parse(readFileSync(join(certificatePath,'curl-public-key-proof.json'))));
   const files=packageFiles(root),elf=files.filter(row=>row.elf);assertPackageELF(elf);
-  const git=join(root,"usr/bin/git"),gitExec=join(root,"usr/lib/git-core");assert.equal(command(git,["--version"]).trim(),"git version 2.47.3.vaettir1");
+  const git=join(root,"usr/bin/git"),gitExec=join(root,"usr/lib/git-core");assert.equal(command(git,["--version"]).trim(),"git version 2.55.1.vaettir1");
   assertSelectedGitUpstream(upstream.git);assert.ok(upstream.curl.selected.length===5);assert.equal(upstream.curl.exitCode,0);assert.equal(upstream.curl.passed,5);assert.equal(upstream.curl.skipped,0);
   const tls=await checkGitTLS(git,gitExec);
   return{schema:"vaettir-git-openssl-runtime/v1",package:"vaettir-git-openssl",packageVersion:PACKAGE_VERSION,sources,publicCertificate,configuration:features,upstreamTests:upstream,files,tlsChecks:tls,networkScope:"disposable loopback only",wholeImageSecurityAcceptance:false};

@@ -1,6 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+const glibcArtifact = JSON.parse(readFileSync(new URL("./glibc-runtime-artifact.json", import.meta.url), "utf8"));
+assert.equal(glibcArtifact.purpose, "glibc-native-packages");
+assert.equal(glibcArtifact.runtimeEligible, false);
+assert.equal(glibcArtifact.sourceManifestSha256, createHash("sha256").update(readFileSync(new URL("./glibc-runtime-sources.json", import.meta.url), "utf8").replaceAll("\r\n", "\n")).digest("hex"));
 import {
   checkPrismaRuntime,
   prismaEngineTarget,
@@ -112,6 +117,16 @@ function assertPatchedPinnedStages(source, names, base) {
   );
   const verifiedBaseStages = new Set();
   for (const [, image, name, content] of stages) {
+    if (name === "glibc-security" && image === glibcArtifact.image) {
+      assert.match(image, /^051722405355\.dkr\.ecr\.us-east-2\.amazonaws\.com\/vaettir-api@sha256:[a-f0-9]{64}$/);
+      continue;
+    }
+    if (name === "glibc-runtime-artifact") {
+      assert.equal(image, "scratch");
+      assert.match(content, /vaettir.artifact-purpose="glibc-native-packages" vaettir.runtime-eligible="false"/);
+      assert.equal((content.match(/COPY --from=glibc-security/g) ?? []).length, 2);
+      continue;
+    }
     if (checkpointParents.has(name)) {
       assert.equal(
         image,
@@ -214,10 +229,12 @@ test("image stages retain digest-pinned Trixie bases and patched Perl/OpenSSL be
         ...checkpointParents.keys(),
         "zlib-build",
         "git-openssl-build",
+        "glibc-security",
+        "glibc-runtime-artifact",
         "runtime",
       ],
     ],
-    [web, ["sqlite-security", "node-brotli-security", "native-build", "builder", "runtime"]],
+    [web, ["sqlite-security", "node-brotli-security", "native-build", "builder", "glibc-security", "runtime"]],
   ]) {
     assertPatchedPinnedStages(source, names, baseForStage);
   }
@@ -261,6 +278,8 @@ test("derived LLVM stages reject unpinned, unrelated, forward and incompletely g
     ...checkpointParents.keys(),
     "zlib-build",
     "git-openssl-build",
+    "glibc-security",
+    "glibc-runtime-artifact",
     "runtime",
   ];
   assertPatchedPinnedStages(source, names, baseForStage);

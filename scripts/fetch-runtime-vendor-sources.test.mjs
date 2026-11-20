@@ -256,7 +256,7 @@ test("API vendor build verifies signature, preserves packaging and validates bot
   assert.match(bufferRegression, /XML_ERROR_INVALID_ARGUMENT/);
   assert.match(bufferRegression, /XML_ERROR_NO_BUFFER/);
   assert.match(bufferRegression, /XML_ParseBuffer\(parser, 7, XML_FALSE\)/);
-  assert.match(docker, /vaettir-git-openssl\)" = '1:2.47.3-0\+deb13u1\+vaettir1'/);
+  assert.match(docker, /vaettir-git-openssl\)" = '1:2.55.1-0\+vaettir1'/);
   assert.match(docker, /RUN --network=none node scripts\/check-git-runtime.mjs/);
   assert.match(docker, /RUN --network=none node scripts\/check-git-openssl-runtime.mjs --installed/);
   assert.doesNotMatch(docker.split(' AS runtime')[1], /libcurl[34].*gnutls|ca-certificates git perl-base/);

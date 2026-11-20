@@ -29,12 +29,17 @@ FAILURE_DIAGNOSTICS
 trap on_exit 0
 cd "$source_dir/git"
 sha256sum --check <<'GIT_PINS'
-41ee783af84774dfab31ff6af54a07f70513dd09914e2d622626f4dfecae0a86  git_2.47.3-0+deb13u1.dsc
-9c2eb1250781b3e5bfef098572d07fdf132d67e6c065e4307332ade9819a1501  git_2.47.3.orig.tar.xz
-db44b90ab928d41959f5945a49fcaa101385a4bd085b118b5fd40162a0a84066  git_2.47.3-0+deb13u1.debian.tar.xz
+b9f796b7a09b324da0f2a8a47870be883c015f3708243d4a5cec1da932259c10  git_2.55.0-1.dsc
+457fdb04dc8728e007d4688695e6912e6f680727920f2a40bf11eacc17505357  git_2.55.0.orig.tar.xz
+0cee41415105e92e8e359f636069ac49db2e7dba5f343cc01ed0f20b469f286e  git_2.55.0-1.debian.tar.xz
+e1a21e25c53335ec2798a6535141d3315f2da921548ad299911f5a3e3c46af5c  git_2.55.1-security.diff
 GIT_PINS
-gpgv --keyring /usr/share/keyrings/debian-keyring.gpg --keyring /usr/share/keyrings/debian-maintainers.gpg --status-fd 1 git_2.47.3-0+deb13u1.dsc > "$checks/git-source-signature.status"
-grep -q '^\[GNUPG:\] VALIDSIG 3AFA757FAC6EA11D2FF45DF088D24287A2D898B1 ' "$checks/git-source-signature.status"
+# This DSC is signed by the pinned primary key. Exclude unrelated subkeys
+# from its verification-only export; primary expiry and all signature gates remain.
+mkdir -m 700 "$checks/git-gnupg"
+gpg --batch --homedir "$checks/git-gnupg" --no-default-keyring --keyring /usr/share/keyrings/debian-keyring.gpg --keyring /usr/share/keyrings/debian-maintainers.gpg --export-filter 'drop-subkey=fpr <> 521E58F17E96D712AA0FF102DFC671EEB333FA25' --export 521E58F17E96D712AA0FF102DFC671EEB333FA25 > "$checks/git-public-key.gpg"
+gpgv --keyring "$checks/git-public-key.gpg" --status-fd 1 git_2.55.0-1.dsc > "$checks/git-source-signature.status"
+grep -q '^\[GNUPG:\] VALIDSIG 521E58F17E96D712AA0FF102DFC671EEB333FA25 ' "$checks/git-source-signature.status"
 cd "$source_dir/curl"
 sha256sum --check <<'CURL_PINS'
 b4872ef4875931c852f0a919db53481395fad36a9c39c0a20917b8abfae9f10a  curl_8.22.0-1.dsc
@@ -56,9 +61,9 @@ import {readFileSync} from 'node:fs';import {pathToFileURL} from 'node:url';cons
 CURL_EARLY_SIGNATURE
 stage=SOURCE_EXTRACT
 dpkg-source -x "$source_dir/curl/curl_8.22.0-1.dsc" "$build_root/curl-source"
-dpkg-source -x "$source_dir/git/git_2.47.3-0+deb13u1.dsc" "$build_root/git-source"
+dpkg-source -x "$source_dir/git/git_2.55.0-1.dsc" "$build_root/git-source"
 # Fail before any source compilation if a mandatory selected upstream suite is missing.
-for suite in t0001-init.sh t1000-read-tree-m-3way.sh t5601-clone.sh; do
+for suite in t0001-init.sh t1000-read-tree-m-3way.sh t1600-index.sh t5601-clone.sh; do
   test -f "$build_root/git-source/t/$suite"
 done
 cd "$build_root/curl-source"
@@ -95,7 +100,9 @@ const get=flag=>execFileSync(program,[flag],{encoding:'utf8',timeout:10000,maxBu
 writeFileSync(join(checks,'curl-config.json'),JSON.stringify({version:get('--version'),sslBackends:get('--ssl-backends'),protocols:get('--protocols'),features:get('--features'),staticLibs:get('--static-libs')},null,2)+'\n',{flag:'wx'});
 CURL_METADATA
 cd "$build_root/git-source"
-test "$(dpkg-parsechangelog --show-field Version)" = '1:2.47.3-0+deb13u1'
+test "$(dpkg-parsechangelog --show-field Version)" = '1:2.55.0-1'
+git apply --check --whitespace=nowarn "$source_dir/git/git_2.55.1-security.diff"
+git apply --whitespace=nowarn "$source_dir/git/git_2.55.1-security.diff"
 curl_libs=$("$curl_prefix/bin/curl-config" --static-libs)
 # Maintained Debian curl-config deliberately omits library directories. Supply
 # only our isolated static archive directory; retain every reported dependency.
@@ -104,16 +111,16 @@ git_cppflags=$(dpkg-buildflags --get CPPFLAGS)
 git_ldflags=$(dpkg-buildflags --get LDFLAGS)
 # EXTRA_CPPFLAGS carries Git's own target-specific path/version definitions.
 # Put Debian preprocessor hardening in conventional CPPFLAGS without overriding it.
-set -- prefix=/usr gitexecdir=/usr/lib/git-core GIT_VERSION=2.47.3.vaettir1 \
+set -- prefix=/usr gitexecdir=/usr/lib/git-core GIT_VERSION=2.55.1.vaettir1 \
   CURL_CONFIG="$curl_prefix/bin/curl-config" CURL_CFLAGS="-I$curl_prefix/include" CURL_LDFLAGS="-L$curl_prefix/lib $curl_libs" \
   CFLAGS="$git_cflags" CPPFLAGS="$git_cppflags" LDFLAGS="$git_ldflags" \
-  NO_TCLTK=YesPlease NO_GETTEXT=YesPlease NO_PYTHON=YesPlease NO_INSTALL_HARDLINKS=YesPlease USE_LIBPCRE2=YesPlease
+  NO_RUST=YesPlease NO_TCLTK=YesPlease NO_GETTEXT=YesPlease NO_PYTHON=YesPlease NO_INSTALL_HARDLINKS=YesPlease USE_LIBPCRE2=YesPlease
 stage=GIT_BUILD
 timeout 600 make -j2 "$@" all > "$checks/git-build.log" 2>&1
 # Selected local upstream suites only. All optional skips are retained and reported;
 # this is not the entire Git test suite or a provider/production test.
 stage=GIT_UPSTREAM
-for suite in t0001-init.sh t1000-read-tree-m-3way.sh t5601-clone.sh; do
+for suite in t0001-init.sh t1000-read-tree-m-3way.sh t1600-index.sh t5601-clone.sh; do
   (cd t; timeout 180 sh "$suite") > "$checks/$suite.log" 2>&1
 done
 package_root="$build_root/package"
@@ -131,6 +138,7 @@ mkdir -p "$source_bundle/git" "$source_bundle/curl"
 cp "$source_dir/git"/git_* "$source_bundle/git/"
 cp "$source_dir/curl"/curl_* "$source_bundle/curl/"
 cp "$source_dir/git/source-manifest.json" "$source_bundle/git/"
+cp "$checks/git-public-key.gpg" "$source_bundle/git/"
 cp "$source_dir/curl/source-manifest.json" "$source_bundle/curl/"
 cp "$build_root/git-source/COPYING" "$source_bundle/git/"
 cp "$build_root/git-source/debian/copyright" "$source_bundle/git/debian-copyright"
@@ -142,7 +150,7 @@ stage=PACKAGE_METADATA
 node --input-type=module - "$checks" <<'TEST_METADATA'
 import {readFileSync,writeFileSync} from 'node:fs';import {join} from 'node:path';import assert from 'node:assert/strict';import {createHash} from 'node:crypto';
 const hash=text=>createHash('sha256').update(text).digest('hex');
-const root=process.argv[2],git=['t0001-init.sh','t1000-read-tree-m-3way.sh','t5601-clone.sh'].map(name=>{const log=readFileSync(join(root,name+'.log'),'utf8'),lines=log.split(/\r?\n/);assert.ok(!lines.some(line=>/^not ok\b/.test(line)));const passed=lines.filter(line=>/^ok \d+\b/.test(line)&&!/# SKIP/i.test(line)).length,skipped=lines.filter(line=>/^ok \d+\b.*# SKIP/i.test(line)).length;assert.ok(passed>0);return{name,exitCode:0,passed,skipped,logSha256:hash(log)};});
+const root=process.argv[2],git=['t0001-init.sh','t1000-read-tree-m-3way.sh','t1600-index.sh','t5601-clone.sh'].map(name=>{const log=readFileSync(join(root,name+'.log'),'utf8'),lines=log.split(/\r?\n/);assert.ok(!lines.some(line=>/^not ok\b/.test(line)));const passed=lines.filter(line=>/^ok \d+\b/.test(line)&&!/# SKIP/i.test(line)).length,skipped=lines.filter(line=>/^ok \d+\b.*# SKIP/i.test(line)).length;assert.ok(passed>0);return{name,exitCode:0,passed,skipped,logSha256:hash(log)};});
 const curlLog=readFileSync(join(root,'curl-upstream.log'),'utf8');assert.match(curlLog,/TESTDONE: 5 tests out of 5 reported OK/);assert.doesNotMatch(curlLog,/TESTFAIL:|IGNORED:|[1-9]\d* tests were skipped/);
 writeFileSync(join(root,'upstream-tests.json'),JSON.stringify({git,curl:{selected:[1,2,3,4,5],exitCode:0,passed:5,skipped:0,logSha256:hash(curlLog)},scope:'Selected local upstream tests only; other protocol/features are not exercised.'},null,2)+'\n',{flag:'wx'});
 TEST_METADATA
@@ -159,22 +167,22 @@ cp "$checks/git-openssl-runtime-proof.json" "$package_root/usr/share/vaettir/git
 mkdir "$package_root/DEBIAN"
 cat > "$package_root/DEBIAN/control" <<'CONTROL'
 Package: vaettir-git-openssl
-Source: git (1:2.47.3-0+deb13u1)
-Version: 1:2.47.3-0+deb13u1+vaettir1
+Source: git (1:2.55.1-0+vaettir1)
+Version: 1:2.55.1-0+vaettir1
 Static-Built-Using: curl (= 8.22.0-1)
 Architecture: amd64
 Maintainer: Vaettir Runtime Build <runtime-build@skaldandstone.com>
-Provides: git (= 1:2.47.3-0+deb13u1+vaettir1)
+Provides: git (= 1:2.55.1-0+vaettir1)
 Conflicts: git
 Replaces: git
 Depends: libc6 (>= 2.38), libssl3t64 (>= 3.0.0), libnghttp2-14 (>= 1.50.0), libexpat1 (>= 2.0.1), libpcre2-8-0 (>= 10.34), zlib1g (>= 1:1.2.3.4), perl, liberror-perl
 Description: Vaettir Git with maintained Debian patches and isolated static OpenSSL curl
- Git 2.47.3 Debian security source with curl 8.22.0 maintained Debian patches.
+ Git 2.55.1 with pinned upstream security patch and Debian source with curl 8.22.0 maintained Debian patches.
  HTTP(S) only curl; system OpenSSL/nghttp2 remain dynamic. No global libcurl ABI.
 CONTROL
-artifact="$build_root/vaettir-git-openssl_2.47.3-0+deb13u1+vaettir1_amd64.deb"
+artifact="$build_root/vaettir-git-openssl_2.55.1-0+vaettir1_amd64.deb"
 stage=PACKAGE_BUILD
 dpkg-deb --root-owner-group --build "$package_root" "$artifact"
 test "$(dpkg-deb -f "$artifact" Package)" = vaettir-git-openssl
-test "$(dpkg-deb -f "$artifact" Version)" = '1:2.47.3-0+deb13u1+vaettir1'
+test "$(dpkg-deb -f "$artifact" Version)" = '1:2.55.1-0+vaettir1'
 printf '%s\n' 'Git/OpenSSL source build and loopback receipt complete; whole-image native/scan/release acceptance remains separate.'

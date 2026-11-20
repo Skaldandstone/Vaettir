@@ -140,7 +140,7 @@ RUN node /build/scripts/fetch-runtime-vendor-sources.mjs /build/zlib-sources zli
 # Existing certificate verification and all native checks remain mandatory.
 FROM public.ecr.aws/docker/library/node:26-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS git-openssl-build
 RUN apt-get update --error-on=any \
-    && apt-get install -y --no-install-recommends openssl ca-certificates perl-base libpcre2-8-0 build-essential pkg-config autoconf automake libtool binutils dpkg-dev gpgv debian-keyring libssl-dev libnghttp2-dev libexpat1-dev libpcre2-dev zlib1g-dev perl python3 liberror-perl \
+    && apt-get install -y --no-install-recommends openssl ca-certificates perl-base libpcre2-8-0 build-essential pkg-config autoconf automake libtool binutils dpkg-dev gpgv debian-keyring libssl-dev libnghttp2-dev libexpat1-dev libpcre2-dev zlib1g-dev perl python3 liberror-perl git gpg \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' perl-base)" ge '5.40.1-6+deb13u1' \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libpcre2-8-0)" ge '10.46-1~deb13u3' \
     && rm -rf /var/lib/apt/lists/*
@@ -149,6 +149,24 @@ COPY scripts/fetch-git-openssl-sources.mjs scripts/git-openssl-sources.json scri
 RUN node /build/scripts/fetch-git-openssl-sources.mjs /build/git-curl-sources/git git \
     && node /build/scripts/fetch-git-openssl-sources.mjs /build/git-curl-sources/curl curl \
     && sh /build/scripts/build-git-openssl-runtime.sh /build/git-curl-sources /build/git-openssl-build /build/scripts/check-git-openssl-runtime.mjs
+
+FROM public.ecr.aws/docker/library/node:26-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS glibc-security
+RUN apt-get update --error-on=any \
+    && apt-get install -y --no-install-recommends openssl ca-certificates perl-base libpcre2-8-0 build-essential bison gawk gettext texinfo python3 gpgv debian-keyring dpkg-dev \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' perl-base)" ge '5.40.1-6+deb13u1' \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libpcre2-8-0)" ge '10.46-1~deb13u3' \
+    && rm -rf /var/lib/apt/lists/*
+COPY scripts/glibc-runtime-sources.json scripts/fetch-glibc-runtime-sources.mjs scripts/build-glibc-runtime.sh /build/scripts/
+RUN node /build/scripts/fetch-glibc-runtime-sources.mjs /build/glibc-sources
+RUN --network=none sh /build/scripts/build-glibc-runtime.sh /build/glibc-sources /build/glibc-runtime
+COPY scripts/package-glibc-runtime.sh /build/scripts/
+RUN --network=none sh /build/scripts/package-glibc-runtime.sh /build/glibc-runtime
+
+FROM scratch AS glibc-runtime-artifact
+ARG VAETTIR_RELEASE_COMMIT
+LABEL vaettir.artifact-purpose="glibc-native-packages" vaettir.runtime-eligible="false" org.opencontainers.image.revision=$VAETTIR_RELEASE_COMMIT
+COPY --from=glibc-security /build/glibc-runtime/libc6_2.43-7+vaettir1_amd64.deb /build/glibc-runtime/libc6_2.43-7+vaettir1_amd64.deb
+COPY --from=glibc-security /build/glibc-runtime/libc-bin_2.43-7+vaettir1_amd64.deb /build/glibc-runtime/libc-bin_2.43-7+vaettir1_amd64.deb
 
 FROM public.ecr.aws/docker/library/node:26-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS runtime
 
@@ -165,7 +183,7 @@ RUN apt-get update --error-on=any \
     && rm -rf /var/lib/apt/lists/*
 COPY scripts/debian-backports.sources /etc/apt/sources.list.d/vaettir-backports.sources
 COPY --from=vendor-build /build/libexpat1_2.9.0-1_*.deb /tmp/vaettir-vendor/
-COPY --from=git-openssl-build /build/git-openssl-build/vaettir-git-openssl_2.47.3-0+deb13u1+vaettir1_amd64.deb /tmp/vaettir-vendor/
+COPY --from=git-openssl-build /build/git-openssl-build/vaettir-git-openssl_2.55.1-0+vaettir1_amd64.deb /tmp/vaettir-vendor/
 COPY --from=vendor-build /build/dash-build/dash_0.5.12-12+vaettir1_amd64.deb /tmp/vaettir-vendor/
 COPY --from=vendor-build /build/dash-build/dash-source-signature.status /usr/share/vaettir/dash-source-signature.status
 COPY --from=vendor-build /build/dash-build/dash-runtime-proof.txt /usr/share/vaettir/dash-builder-runtime-proof.txt
@@ -181,12 +199,14 @@ COPY --from=zlib-build /build/zlib-sources/source-manifest.json /usr/share/vaett
 COPY --from=vendor-build /build/runtime-sources/source-manifest.json /usr/share/vaettir/runtime-source-manifest.json
 # Validate dpkg-query semantic absence for libxml2, including not-installed stubs.
 COPY scripts/check-runtime-package-absence.mjs /usr/local/lib/vaettir/check-runtime-package-absence.mjs
+COPY --from=glibc-security /build/glibc-runtime/libc6_2.43-7+vaettir1_amd64.deb /tmp/vaettir-vendor/
+COPY --from=glibc-security /build/glibc-runtime/libc-bin_2.43-7+vaettir1_amd64.deb /tmp/vaettir-vendor/
 RUN apt-get update --error-on=any \
     && apt-get install -y --no-install-recommends openssl ca-certificates perl-base libpcre2-8-0 /tmp/vaettir-vendor/*.deb \
     && apt-get install -y --no-install-recommends libasound2t64 libatk-bridge2.0-0t64 libatk1.0-0t64 libatspi2.0-0t64 libdbus-1-3 libdrm2 libgbm1 libglib2.0-0t64 libnspr4 libnss3 libx11-6 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 libfontconfig1 libfreetype6 fonts-liberation fonts-noto-color-emoji fonts-dejavu-core \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' perl-base)" ge '5.40.1-6+deb13u1' \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libpcre2-8-0)" ge '10.46-1~deb13u3' \
-    && test "$(dpkg-query -W -f='${Version}' vaettir-git-openssl)" = '1:2.47.3-0+deb13u1+vaettir1' \
+    && test "$(dpkg-query -W -f='${Version}' vaettir-git-openssl)" = '1:2.55.1-0+vaettir1' \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libexpat1)" ge '2.9.0-1' \
     && test "$(dpkg-query -W -f='${Version}' libllvm19)" = '1:19.1.7-3+vaettir1' \
     && test "$(dpkg-query -W -f='${Version}' dash)" = '0.5.12-12+vaettir1' \
@@ -194,10 +214,13 @@ RUN apt-get update --error-on=any \
     && node /usr/local/lib/vaettir/check-runtime-package-absence.mjs --image-build \
     && git --version \
     && rm /tmp/vaettir-vendor/libexpat1_2.9.0-1_*.deb \
-    && rm /tmp/vaettir-vendor/vaettir-git-openssl_2.47.3-0+deb13u1+vaettir1_amd64.deb \
+    && rm /tmp/vaettir-vendor/vaettir-git-openssl_2.55.1-0+vaettir1_amd64.deb \
     && rm /tmp/vaettir-vendor/libllvm19_19.1.7-3+vaettir1_amd64.deb \
     && rm /tmp/vaettir-vendor/dash_0.5.12-12+vaettir1_amd64.deb \
     && rm /tmp/vaettir-vendor/zlib1g_1.3.dfsg+really1.3.2-3+vaettir1_amd64.deb \
+    && test "$(dpkg-query -W -f='${Version}' libc6)" = '2.43-7+vaettir1' \
+    && test "$(printf '\303\251' | iconv -f UTF-8 -t ISO-8859-1 | od -An -tx1 | tr -d ' \n')" = e9 \
+    && rm /tmp/vaettir-vendor/libc6_2.43-7+vaettir1_amd64.deb /tmp/vaettir-vendor/libc-bin_2.43-7+vaettir1_amd64.deb \
     && rm -rf /var/lib/apt/lists/*
 
 RUN npm install --global --no-audit --no-fund pnpm@11.23.0
