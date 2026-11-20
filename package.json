@@ -8,6 +8,8 @@
   },
   "scripts": {
     "dev": "turbo run dev",
+    "dev:cloud": "python scripts/cloud-dev-db.py run -- pnpm exec turbo run dev --env-mode=loose",
+    "db:migrate:cloud": "python scripts/cloud-dev-db.py run -- pnpm --filter @vaettir/db exec prisma migrate deploy",
     "build": "turbo run build",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
@@ -43,8 +45,8 @@
     "eslint": "^9.39.5",
     "eslint-config-next": "^16.4.5",
     "globals": "^17.14.0",
-    "prettier": "^3.9.10",
-    "turbo": "^2.11.7",
+    "prettier": "^3.10.1",
+    "turbo": "^2.11.11",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.72.1"
   }

@@ -1,0 +1,23 @@
+let instances = Resources.*[ Type == 'AWS::EC2::Instance' ]
+let groups = Resources.*[ Type == 'AWS::EC2::SecurityGroup' ]
+
+rule builder_instance when %instances !empty {
+    %instances {
+        DeletionPolicy == 'Retain'
+        UpdateReplacePolicy == 'Retain'
+        Properties {
+            MetadataOptions.HttpTokens == 'required'
+            MetadataOptions.HttpPutResponseHopLimit == 1
+            InstanceInitiatedShutdownBehavior == 'stop'
+            DisableApiTermination == true
+            BlockDeviceMappings.*.Ebs {
+                Encrypted == true
+                DeleteOnTermination == false
+            }
+        }
+    }
+}
+
+rule builder_no_inbound_ports when %groups !empty {
+    %groups.Properties.SecurityGroupIngress !exists
+}

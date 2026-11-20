@@ -1,4 +1,5 @@
-import { PrismaClient, TestPlanCategory } from "@prisma/client";
+import { TestPlanCategory } from "@prisma/client";
+import { PrismaClient } from "../src/databaseClient.js";
 
 const prisma = new PrismaClient();
 

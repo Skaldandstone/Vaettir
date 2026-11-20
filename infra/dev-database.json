@@ -1,0 +1,455 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Fresh isolated Vaettir PostgreSQL development database and private SSM access. No production resources.",
+  "Parameters": {
+    "VpcId": {
+      "Type": "AWS::EC2::VPC::Id"
+    },
+    "SubnetIds": {
+      "Type": "List<AWS::EC2::Subnet::Id>"
+    },
+    "AccessSubnetId": {
+      "Type": "AWS::EC2::Subnet::Id"
+    },
+    "AccessImageId": {
+      "Type": "AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>",
+      "Default": "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64"
+    }
+  },
+  "Resources": {
+    "DatabaseGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "Vaettir development database, tunnel access only",
+        "VpcId": {
+          "Ref": "VpcId"
+        },
+        "SecurityGroupEgress": [
+          {
+            "IpProtocol": "tcp",
+            "FromPort": 443,
+            "ToPort": 443,
+            "CidrIp": "127.0.0.1/32"
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Project",
+            "Value": "Vaettir"
+          },
+          {
+            "Key": "Environment",
+            "Value": "development"
+          },
+          {
+            "Key": "costTag-project",
+            "Value": "Vaettir"
+          },
+          {
+            "Key": "costTag-module",
+            "Value": "development"
+          },
+          {
+            "Key": "created_by",
+            "Value": "aurora-skill"
+          },
+          {
+            "Key": "generation_model",
+            "Value": "unknown"
+          }
+        ]
+      }
+    },
+    "AccessGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "Outbound SSM and development PostgreSQL only",
+        "VpcId": {
+          "Ref": "VpcId"
+        },
+        "SecurityGroupEgress": [
+          {
+            "IpProtocol": "tcp",
+            "FromPort": 443,
+            "ToPort": 443,
+            "CidrIp": "0.0.0.0/0"
+          },
+          {
+            "IpProtocol": "tcp",
+            "FromPort": 5432,
+            "ToPort": 5432,
+            "DestinationSecurityGroupId": {
+              "Ref": "DatabaseGroup"
+            }
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Project",
+            "Value": "Vaettir"
+          },
+          {
+            "Key": "Environment",
+            "Value": "development"
+          },
+          {
+            "Key": "costTag-project",
+            "Value": "Vaettir"
+          },
+          {
+            "Key": "costTag-module",
+            "Value": "development"
+          },
+          {
+            "Key": "created_by",
+            "Value": "aurora-skill"
+          },
+          {
+            "Key": "generation_model",
+            "Value": "unknown"
+          }
+        ]
+      }
+    },
+    "DatabaseIngress": {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "Properties": {
+        "GroupId": {
+          "Ref": "DatabaseGroup"
+        },
+        "IpProtocol": "tcp",
+        "FromPort": 5432,
+        "ToPort": 5432,
+        "SourceSecurityGroupId": {
+          "Ref": "AccessGroup"
+        }
+      }
+    },
+    "SubnetGroup": {
+      "Type": "AWS::RDS::DBSubnetGroup",
+      "Properties": {
+        "DBSubnetGroupDescription": "Vaettir development private database placement",
+        "SubnetIds": {
+          "Ref": "SubnetIds"
+        },
+        "Tags": [
+          {
+            "Key": "Project",
+            "Value": "Vaettir"
+          },
+          {
+            "Key": "Environment",
+            "Value": "development"
+          },
+          {
+            "Key": "costTag-project",
+            "Value": "Vaettir"
+          },
+          {
+            "Key": "costTag-module",
+            "Value": "development"
+          },
+          {
+            "Key": "created_by",
+            "Value": "aurora-skill"
+          },
+          {
+            "Key": "generation_model",
+            "Value": "unknown"
+          }
+        ]
+      }
+    },
+    "Database": {
+      "Type": "AWS::RDS::DBCluster",
+      "Metadata": {
+        "Comment": "Aurora PostgreSQL 16.15 and db.serverless availability verified with RDS APIs in us-east-2 on 2026-11-16; cfn-lint 1.55.1 has a stale version enum.",
+        "cfn-lint": {"config": {"ignore_checks": ["E3690"]}}
+      },
+      "DeletionPolicy": "Snapshot",
+      "UpdateReplacePolicy": "Snapshot",
+      "Properties": {
+        "Engine": "aurora-postgresql",
+        "EngineVersion": "16.15",
+        "EngineMode": "provisioned",
+        "DatabaseName": "vaettir_dev",
+        "MasterUsername": "vaettir_dev_admin",
+        "ManageMasterUserPassword": true,
+        "StorageEncrypted": true,
+        "StorageType": "aurora",
+        "BackupRetentionPeriod": 1,
+        "DeletionProtection": true,
+        "CopyTagsToSnapshot": true,
+        "DBSubnetGroupName": {
+          "Ref": "SubnetGroup"
+        },
+        "VpcSecurityGroupIds": [
+          {
+            "Ref": "DatabaseGroup"
+          }
+        ],
+        "ServerlessV2ScalingConfiguration": {
+          "MinCapacity": 0,
+          "MaxCapacity": 2,
+          "SecondsUntilAutoPause": 300
+        },
+        "Tags": [
+          {
+            "Key": "Project",
+            "Value": "Vaettir"
+          },
+          {
+            "Key": "Environment",
+            "Value": "development"
+          },
+          {
+            "Key": "costTag-project",
+            "Value": "Vaettir"
+          },
+          {
+            "Key": "costTag-module",
+            "Value": "development"
+          },
+          {
+            "Key": "created_by",
+            "Value": "aurora-skill"
+          },
+          {
+            "Key": "generation_model",
+            "Value": "unknown"
+          }
+        ]
+      }
+    },
+    "Writer": {
+      "Type": "AWS::RDS::DBInstance",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "DBClusterIdentifier": {
+          "Ref": "Database"
+        },
+        "DBInstanceClass": "db.serverless",
+        "Engine": "aurora-postgresql",
+        "PubliclyAccessible": false,
+        "AutoMinorVersionUpgrade": true,
+        "Tags": [
+          {
+            "Key": "Project",
+            "Value": "Vaettir"
+          },
+          {
+            "Key": "Environment",
+            "Value": "development"
+          },
+          {
+            "Key": "costTag-project",
+            "Value": "Vaettir"
+          },
+          {
+            "Key": "costTag-module",
+            "Value": "development"
+          },
+          {
+            "Key": "created_by",
+            "Value": "aurora-skill"
+          },
+          {
+            "Key": "generation_model",
+            "Value": "unknown"
+          }
+        ]
+      }
+    },
+    "AccessRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "ec2.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "SessionConnectivityOnly",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "ssm:UpdateInstanceInformation",
+                    "ssmmessages:CreateControlChannel",
+                    "ssmmessages:CreateDataChannel",
+                    "ssmmessages:OpenControlChannel",
+                    "ssmmessages:OpenDataChannel"
+                  ],
+                  "Resource": "*"
+                }
+              ]
+            }
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Project",
+            "Value": "Vaettir"
+          },
+          {
+            "Key": "Environment",
+            "Value": "development"
+          },
+          {
+            "Key": "costTag-project",
+            "Value": "Vaettir"
+          },
+          {
+            "Key": "costTag-module",
+            "Value": "development"
+          },
+          {
+            "Key": "created_by",
+            "Value": "aurora-skill"
+          },
+          {
+            "Key": "generation_model",
+            "Value": "unknown"
+          }
+        ]
+      }
+    },
+    "AccessProfile": {
+      "Type": "AWS::IAM::InstanceProfile",
+      "Properties": {
+        "Roles": [
+          {
+            "Ref": "AccessRole"
+          }
+        ]
+      }
+    },
+    "AccessHost": {
+      "Type": "AWS::EC2::Instance",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "ImageId": {
+          "Ref": "AccessImageId"
+        },
+        "InstanceType": "t4g.nano",
+        "IamInstanceProfile": {
+          "Ref": "AccessProfile"
+        },
+        "InstanceInitiatedShutdownBehavior": "stop",
+        "DisableApiTermination": true,
+        "MetadataOptions": {
+          "HttpTokens": "required",
+          "HttpPutResponseHopLimit": 1
+        },
+        "BlockDeviceMappings": [
+          {
+            "DeviceName": "/dev/xvda",
+            "Ebs": {
+              "VolumeSize": 8,
+              "VolumeType": "gp3",
+              "Encrypted": true,
+              "DeleteOnTermination": false
+            }
+          }
+        ],
+        "NetworkInterfaces": [
+          {
+            "DeviceIndex": "0",
+            "AssociatePublicIpAddress": true,
+            "SubnetId": {
+              "Ref": "AccessSubnetId"
+            },
+            "GroupSet": [
+              {
+                "Ref": "AccessGroup"
+              }
+            ]
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Project",
+            "Value": "Vaettir"
+          },
+          {
+            "Key": "Environment",
+            "Value": "development"
+          },
+          {
+            "Key": "costTag-project",
+            "Value": "Vaettir"
+          },
+          {
+            "Key": "costTag-module",
+            "Value": "development"
+          },
+          {
+            "Key": "created_by",
+            "Value": "aurora-skill"
+          },
+          {
+            "Key": "generation_model",
+            "Value": "unknown"
+          },
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${AWS::StackName}-access"
+            }
+          }
+        ],
+        "UserData": {
+          "Fn::Base64": "#!/bin/bash\nset -euo pipefail\ninstall -d -m 0700 /var/lib/vaettir-dev-access\ntouch /var/lib/vaettir-dev-access/last-activity\ncat > /usr/local/sbin/vaettir-dev-access-idle <<'SCRIPT'\n#!/bin/bash\nset -euo pipefail\nif pgrep -f '[s]sm-session-worker' >/dev/null; then\n  touch /var/lib/vaettir-dev-access/last-activity\n  exit 0\nfi\nuptime_seconds=$(cut -d. -f1 /proc/uptime)\n(( uptime_seconds > 1200 )) || exit 0\nlast=$(stat -c %Y /var/lib/vaettir-dev-access/last-activity)\n(( $(date +%s) - last > 900 )) || exit 0\nsystemctl poweroff\nSCRIPT\nchmod 0755 /usr/local/sbin/vaettir-dev-access-idle\ncat > /etc/systemd/system/vaettir-dev-access-idle.service <<'UNIT'\n[Unit]\nDescription=Stop unused Vaettir development tunnel host\n[Service]\nType=oneshot\nExecStart=/usr/local/sbin/vaettir-dev-access-idle\nUNIT\ncat > /etc/systemd/system/vaettir-dev-access-idle.timer <<'UNIT'\n[Unit]\nDescription=Check development tunnel activity\n[Timer]\nOnBootSec=5min\nOnUnitActiveSec=1min\n[Install]\nWantedBy=timers.target\nUNIT\nsystemctl daemon-reload\nsystemctl enable --now vaettir-dev-access-idle.timer\n"
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "ClusterId": {
+      "Value": {
+        "Ref": "Database"
+      }
+    },
+    "DatabaseHost": {
+      "Value": {
+        "Fn::GetAtt": [
+          "Database",
+          "Endpoint.Address"
+        ]
+      }
+    },
+    "DatabaseName": {
+      "Value": "vaettir_dev"
+    },
+    "SecretArn": {
+      "Value": {
+        "Fn::GetAtt": [
+          "Database",
+          "MasterUserSecret.SecretArn"
+        ]
+      }
+    },
+    "AccessInstanceId": {
+      "Value": {
+        "Ref": "AccessHost"
+      }
+    },
+    "WriterId": {
+      "Value": {
+        "Ref": "Writer"
+      }
+    }
+  }
+}

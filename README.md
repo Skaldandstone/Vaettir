@@ -136,6 +136,11 @@ for exact ticket status - the highlights:
 
 ## Getting started
 
+For Vaettir development without local Docker, use the
+[cloud development database](docs/CLOUD_DEVELOPMENT.md) with `pnpm dev:cloud`.
+Release image compilation runs on the [cloud builder](docs/CLOUD_BUILDER.md).
+These workflows use the existing `vaettir-toolkit` AWS profile.
+
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full local-dev walkthrough
 (including a `docker-compose up -d postgres` if you don't already have a
 Postgres instance) and the conventions worth knowing before you dig in.

@@ -46,12 +46,18 @@ export async function fetchPinnedInput(url, pin, { fetchImpl = fetch } = {}) {
       pin.bytes <= 60000000 &&
       (pin.bytes > 0 || u.href === CORPUS_BASE + "empty"),
   );
-  const r = await fetchImpl(u.href, {
-    redirect: "error",
-    headers: { "Accept-Encoding": "identity" },
-    signal: AbortSignal.timeout(90000),
-  });
-  assert.ok(r.ok && r.body, "Pinned source download failed");
+  let r;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    r = await fetchImpl(u.href, {
+      redirect: "error",
+      headers: { "Accept-Encoding": "identity" },
+      signal: AbortSignal.timeout(90000),
+    });
+    if ((r.status !== 429 && r.status < 500) || attempt === 2) break;
+    await r.body?.cancel();
+    await new Promise(done => setTimeout(done, (attempt + 1) * 1000));
+  }
+  assert.ok(r.ok && r.body, `Pinned source download failed (${r.status}): ${u.href}`);
   assert.ok(
     !r.headers.get("content-encoding") ||
       r.headers.get("content-encoding") === "identity",
