@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 
 export const NODE26_API_DOCKERFILE_SHA256 =
-  "5321de70e9d7691733f8b419bbfac80970047e169b9854a63bfacf951cd060b8";
+  "e7a86bad27799c6a5eef63e7dbed3f58f3934ad5be32ec1e9255b1d106cadd2c";
 export const PRE_NODE26_API_DOCKERFILE_SHA256 =
   "d15d3ecbecc3ea49f1af7f30805ef56815bac98a73b47a75a71357ea4495d3c0";
 export const NODE26_WEB_DOCKERFILE_SHA256 =

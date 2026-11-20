@@ -53,6 +53,17 @@ class CloudBuilderTest(unittest.TestCase):
         self.assertFalse(result["deployed"])
         self.assertNotIn("ecr", clients)
 
+    def test_native_artifact_is_not_a_runtime_release(self):
+        command, = worker.build_commands("a" * 40, "publish-glibc")
+        self.assertEqual(command[command.index("--target") + 1], "glibc-runtime-artifact")
+        result, _, _ = self.run_worker("publish-glibc")
+        self.assertEqual(result["status"], "native-artifact-built")
+        self.assertFalse(result["runtime_image_produced"])
+        self.assertFalse(result["deployed"])
+        self.assertIn("/vaettir-api:native-glibc-", result["image"])
+        result, clients, _ = self.run_worker("publish-glibc", bad_identity=True)
+        self.assertNotIn("ecr", clients)
+
     def run_worker(self, phase, fail_build=False, bad_hash=False, bad_identity=False):
         archive = b"synthetic source archive"
         job = {**self.job(), "phase": phase, "archive_sha256": hashlib.sha256(archive).hexdigest()}
@@ -96,7 +107,9 @@ class CloudBuilderTest(unittest.TestCase):
                 return types.SimpleNamespace(returncode=0)
 
             boto = types.SimpleNamespace(Session=lambda **kwargs: types.SimpleNamespace(client=client))
-            image = [{"Config": {"Env": ["VAETTIR_RELEASE_COMMIT=" + ("0" * 40 if bad_identity else job["commit"])]}}]
+            image = [{"Config": {"Env": ["VAETTIR_RELEASE_COMMIT=" + ("0" * 40 if bad_identity else job["commit"])],
+                       "Labels": {"vaettir.artifact-purpose": "glibc-native-packages", "vaettir.runtime-eligible": "false",
+                                  "org.opencontainers.image.revision": "0" * 40 if bad_identity else job["commit"]}}}]
             with patch.dict(sys.modules, boto3=boto), patch.object(sys, "argv", ["worker", "vaettir-build-source-051722405355", job["run_id"]]), \
                     patch.object(worker.pathlib, "Path", mapped_path), patch.object(worker.subprocess, "run", run), \
                     patch.object(worker.subprocess, "check_output", return_value=json.dumps(image).encode()):

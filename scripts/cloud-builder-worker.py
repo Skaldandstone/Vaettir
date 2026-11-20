@@ -18,7 +18,7 @@ def validate_job(job):
             raise ValueError("Invalid " + field)
     if job.get("account") != "051722405355" or job.get("region") != "us-east-2":
         raise ValueError("Wrong AWS destination")
-    if job.get("phase") not in ("prepare-native", "prepare-glibc", "build-image"):
+    if job.get("phase") not in ("prepare-native", "prepare-glibc", "publish-glibc", "build-image"):
         raise ValueError("Invalid phase")
     return job
 
@@ -27,6 +27,8 @@ def build_commands(commit, phase):
     common = ["docker", "buildx", "build", "--builder", "vaettir-cloud",
               "--platform", "linux/amd64", "--progress", "plain",
               "--file", "Dockerfile.api", "--build-arg", "VAETTIR_RELEASE_COMMIT=" + commit]
+    if phase == "publish-glibc":
+        return [common + ["--target", "glibc-runtime-artifact", "--load", "--tag", "vaettir-glibc:" + commit, "-"]]
     if phase == "prepare-glibc":
         return [common + ["--target", "glibc-security", "--output", "type=cacheonly", "-"]]
     commands = [
@@ -82,12 +84,19 @@ def main():
             for command in build_commands(job["commit"], job["phase"]):
                 with archive.open("rb") as source:
                     run(command, log, stdin=source)
-            if job["phase"] != "build-image":
+            if job["phase"] in ("prepare-native", "prepare-glibc"):
                 result.update(status="native-prepared", runtime_image_produced=False)
                 return
-            image = "vaettir-api:" + job["commit"]
+            artifact = job["phase"] == "publish-glibc"
+            image = ("vaettir-glibc:" if artifact else "vaettir-api:") + job["commit"]
             metadata = json.loads(subprocess.check_output(["docker", "image", "inspect", image], timeout=60))[0]
-            if "VAETTIR_RELEASE_COMMIT=" + job["commit"] not in metadata["Config"]["Env"]:
+            if artifact:
+                labels = metadata["Config"].get("Labels", {})
+                if (labels.get("vaettir.artifact-purpose") != "glibc-native-packages" or
+                        labels.get("vaettir.runtime-eligible") != "false" or
+                        labels.get("org.opencontainers.image.revision") != job["commit"]):
+                    raise RuntimeError("Native artifact identity mismatch")
+            elif "VAETTIR_RELEASE_COMMIT=" + job["commit"] not in metadata["Config"]["Env"]:
                 raise RuntimeError("Built image identity mismatch")
             ecr = session.client("ecr")
             auth = ecr.get_authorization_token(registryIds=[job["account"]])["authorizationData"][0]
@@ -97,13 +106,14 @@ def main():
             run(["docker", "login", "--username", user, "--password-stdin", registry], log,
                 input=password.encode())
             try:
-                tag = "cloud-" + job["commit"] + "-" + args.run_id
+                tag = ("native-glibc-" if artifact else "cloud-") + job["commit"] + "-" + args.run_id
                 remote = registry + "/vaettir-api:" + tag
                 run(["docker", "tag", image, remote], log)
                 run(["docker", "push", remote], log)
                 detail = ecr.describe_images(repositoryName="vaettir-api", imageIds=[{"imageTag": tag}])["imageDetails"][0]
-                result.update(status="built", image=remote, digest=detail["imageDigest"],
-                              scan_and_release_acceptance="pending")
+                result.update(status="native-artifact-built" if artifact else "built", image=remote,
+                              digest=detail["imageDigest"], runtime_image_produced=not artifact,
+                              scan_and_release_acceptance="native-component-only" if artifact else "pending")
             finally:
                 subprocess.run(["docker", "logout", registry], stdout=log, stderr=subprocess.STDOUT, timeout=60)
     except Exception as error:

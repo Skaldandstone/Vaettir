@@ -112,6 +112,12 @@ function assertPatchedPinnedStages(source, names, base) {
   );
   const verifiedBaseStages = new Set();
   for (const [, image, name, content] of stages) {
+    if (name === "glibc-runtime-artifact") {
+      assert.equal(image, "scratch");
+      assert.match(content, /vaettir.artifact-purpose="glibc-native-packages" vaettir.runtime-eligible="false"/);
+      assert.equal((content.match(/COPY --from=glibc-security/g) ?? []).length, 2);
+      continue;
+    }
     if (checkpointParents.has(name)) {
       assert.equal(
         image,
@@ -215,6 +221,7 @@ test("image stages retain digest-pinned Trixie bases and patched Perl/OpenSSL be
         "zlib-build",
         "git-openssl-build",
         "glibc-security",
+        "glibc-runtime-artifact",
         "runtime",
       ],
     ],
@@ -262,7 +269,8 @@ test("derived LLVM stages reject unpinned, unrelated, forward and incompletely g
     ...checkpointParents.keys(),
     "zlib-build",
     "git-openssl-build",
-        "glibc-security",
+    "glibc-security",
+    "glibc-runtime-artifact",
     "runtime",
   ];
   assertPatchedPinnedStages(source, names, baseForStage);

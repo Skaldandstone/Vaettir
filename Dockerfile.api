@@ -162,6 +162,12 @@ RUN --network=none sh /build/scripts/build-glibc-runtime.sh /build/glibc-sources
 COPY scripts/package-glibc-runtime.sh /build/scripts/
 RUN --network=none sh /build/scripts/package-glibc-runtime.sh /build/glibc-runtime
 
+FROM scratch AS glibc-runtime-artifact
+ARG VAETTIR_RELEASE_COMMIT
+LABEL vaettir.artifact-purpose="glibc-native-packages" vaettir.runtime-eligible="false" org.opencontainers.image.revision=$VAETTIR_RELEASE_COMMIT
+COPY --from=glibc-security /build/glibc-runtime/libc6_2.43-7+vaettir1_amd64.deb /build/glibc-runtime/libc6_2.43-7+vaettir1_amd64.deb
+COPY --from=glibc-security /build/glibc-runtime/libc-bin_2.43-7+vaettir1_amd64.deb /build/glibc-runtime/libc-bin_2.43-7+vaettir1_amd64.deb
+
 FROM public.ecr.aws/docker/library/node:26-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS runtime
 
 ARG VAETTIR_RELEASE_COMMIT
