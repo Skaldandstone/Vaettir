@@ -34,7 +34,11 @@ b9f796b7a09b324da0f2a8a47870be883c015f3708243d4a5cec1da932259c10  git_2.55.0-1.d
 0cee41415105e92e8e359f636069ac49db2e7dba5f343cc01ed0f20b469f286e  git_2.55.0-1.debian.tar.xz
 e1a21e25c53335ec2798a6535141d3315f2da921548ad299911f5a3e3c46af5c  git_2.55.1-security.diff
 GIT_PINS
-gpgv --keyring /usr/share/keyrings/debian-keyring.gpg --keyring /usr/share/keyrings/debian-maintainers.gpg --status-fd 1 git_2.55.0-1.dsc > "$checks/git-source-signature.status"
+# This DSC is signed by the pinned primary key. Exclude unrelated subkeys
+# from its verification-only export; primary expiry and all signature gates remain.
+mkdir -m 700 "$checks/git-gnupg"
+gpg --batch --homedir "$checks/git-gnupg" --no-default-keyring --keyring /usr/share/keyrings/debian-keyring.gpg --keyring /usr/share/keyrings/debian-maintainers.gpg --export-filter 'drop-subkey=fpr <> 521E58F17E96D712AA0FF102DFC671EEB333FA25' --export 521E58F17E96D712AA0FF102DFC671EEB333FA25 > "$checks/git-public-key.gpg"
+gpgv --keyring "$checks/git-public-key.gpg" --status-fd 1 git_2.55.0-1.dsc > "$checks/git-source-signature.status"
 grep -q '^\[GNUPG:\] VALIDSIG 521E58F17E96D712AA0FF102DFC671EEB333FA25 ' "$checks/git-source-signature.status"
 cd "$source_dir/curl"
 sha256sum --check <<'CURL_PINS'
@@ -134,6 +138,7 @@ mkdir -p "$source_bundle/git" "$source_bundle/curl"
 cp "$source_dir/git"/git_* "$source_bundle/git/"
 cp "$source_dir/curl"/curl_* "$source_bundle/curl/"
 cp "$source_dir/git/source-manifest.json" "$source_bundle/git/"
+cp "$checks/git-public-key.gpg" "$source_bundle/git/"
 cp "$source_dir/curl/source-manifest.json" "$source_bundle/curl/"
 cp "$build_root/git-source/COPYING" "$source_bundle/git/"
 cp "$build_root/git-source/debian/copyright" "$source_bundle/git/debian-copyright"
