@@ -27,6 +27,7 @@ export function AtlassianQualitySettings({
   const [bindingText, setBindingText] = useState(""),
     [snapshots, setSnapshots] = useState<string[]>([]),
     [tickets, setTickets] = useState(false),
+    [discovery, setDiscovery] = useState(false),
     [projectQuality, setProjectQuality] = useState(false),
     [releaseLinks, setReleaseLinks] = useState<Publish["releaseLinks"]>([]),
     [closureIds, setClosureIds] = useState<string[]>([]),
@@ -76,6 +77,7 @@ export function AtlassianQualitySettings({
       requestId: crypto.randomUUID(),
       snapshotIds: snapshots,
       shareTicketTests: tickets && binding.product === "jira",
+      discoverTicketTests: tickets && discovery && binding.product === "jira",
       shareApprovedProjectQuality: projectQuality,
       releaseLinks: binding.product === "jira" ? releaseLinks : [],
       closureSnapshotIds: closureIds,
@@ -227,6 +229,7 @@ export function AtlassianQualitySettings({
                               );
                               setSnapshots(c.snapshotIds);
                               setTickets(c.shareTicketTests);
+                              setDiscovery(c.discoverTicketTests);
                               setProjectQuality(c.shareApprovedProjectQuality);
                               setReleaseLinks(c.releaseLinks);
                               setClosureIds(c.closureSnapshotIds);
@@ -552,12 +555,15 @@ export function AtlassianQualitySettings({
                       setApproved(false);
                     }}
                   />
-                  Share names, references, review status, recorded outcomes and
-                  run links for tests explicitly linked to tickets in this Jira
-                  project. This updates as Vaettir records change; it does not
-                  expose procedure text or attachments.
+                  Show linked tests and recorded results in Jira.
                 </label>
               )}
+              {binding?.product === "jira" && tickets && <label style={{ display: "flex", gap: 10, marginBlock: 16 }}>
+                <input type="checkbox" checked={discovery} onChange={e => { setDiscovery(e.target.checked); setApproved(false); }}/>
+                <span>Find relevant tests automatically <small className="muted">Free</small><br/>
+                  <small>Compare Jira ticket descriptions with this project's test procedures using AI. Share proposed matches and supporting excerpts with this Jira project's viewers. Creating accepted new tests uses credits; searching does not.</small>
+                </span>
+              </label>}
               <label style={{ display: "flex", gap: 10, marginBlock: 16 }}>
                 <input
                   type="checkbox"

@@ -161,6 +161,7 @@ export const atlassianQualityRouter = router({
             .max(50)
             .refine((ids) => new Set(ids).size === ids.length),
           shareTicketTests: z.boolean(),
+          discoverTicketTests: z.boolean().default(false),
           shareApprovedProjectQuality: z.boolean().optional(),
           releaseLinks: z
             .array(forgeReleaseLink)
@@ -181,7 +182,7 @@ export const atlassianQualityRouter = router({
             v.snapshotIds.length > 0 ||
             v.shareApprovedProjectQuality === true ||
             v.closureSnapshotIds.length > 0 ||
-            ((v.shareTicketTests || v.releaseLinks.length > 0) &&
+            ((v.shareTicketTests || v.discoverTicketTests || v.releaseLinks.length > 0) &&
               v.binding.product === "jira"),
           "Choose snapshots or explicitly approve ticket verification sharing.",
         ),
@@ -364,6 +365,7 @@ export const atlassianQualityRouter = router({
               closureSnapshotIds: input.closureSnapshotIds,
               shareTicketTests:
                 input.shareTicketTests && input.binding.product === "jira",
+              discoverTicketTests: input.discoverTicketTests && input.shareTicketTests && input.binding.product === "jira",
               shareApprovedProjectQuality: input.shareApprovedProjectQuality ?? false,
               payloadHash,
             },

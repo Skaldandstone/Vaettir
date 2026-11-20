@@ -46,6 +46,7 @@ export const forgeSharingRecord = z.object({
   binding: forgeQualityBinding,
   snapshotIds: z.array(z.string().length(64)).max(50),
   shareTicketTests: z.boolean().default(false),
+  discoverTicketTests: z.boolean().default(false),
   shareApprovedProjectQuality: z.boolean().default(false),
   releaseLinks: z.array(forgeReleaseLink).max(50).default([]),
   closureSnapshotIds: z.array(z.string().length(64)).max(50).default([]),
