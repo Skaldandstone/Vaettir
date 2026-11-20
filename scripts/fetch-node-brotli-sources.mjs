@@ -57,6 +57,17 @@ export async function fetchPinnedInput(url, pin, { fetchImpl = fetch } = {}) {
     await r.body?.cancel();
     await new Promise(done => setTimeout(done, (attempt + 1) * 1000));
   }
+  // GitHub's patch renderer can fail while its API serves the identical patch.
+  // Admit only this exact commit, with the same byte count and hash below.
+  if ((r.status === 429 || r.status >= 500) &&
+      u.href === "https://github.com/google/brotli/commit/da9806362874b9bd4b552a3af360b5d6347beb12.patch") {
+    await r.body?.cancel();
+    r = await fetchImpl("https://api.github.com/repos/google/brotli/commits/da9806362874b9bd4b552a3af360b5d6347beb12", {
+      redirect: "error",
+      headers: { "Accept-Encoding": "identity", Accept: "application/vnd.github.patch" },
+      signal: AbortSignal.timeout(90000),
+    });
+  }
   assert.ok(r.ok && r.body, `Pinned source download failed (${r.status}): ${u.href}`);
   assert.ok(
     !r.headers.get("content-encoding") ||
