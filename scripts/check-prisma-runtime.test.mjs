@@ -117,6 +117,10 @@ function assertPatchedPinnedStages(source, names, base) {
   );
   const verifiedBaseStages = new Set();
   for (const [, image, name, content] of stages) {
+    if (name === "openssl-security") {
+      assert.equal(image, "051722405355.dkr.ecr.us-east-2.amazonaws.com/vaettir-api@sha256:07dd763e49df4e754c8000878af8f9bd6cf1aa1d2836cb4b06893bf479d96a90");
+      continue;
+    }
     if (name === "glibc-security" && image === glibcArtifact.image) {
       assert.match(image, /^051722405355\.dkr\.ecr\.us-east-2\.amazonaws\.com\/vaettir-api@sha256:[a-f0-9]{64}$/);
       continue;
@@ -231,10 +235,11 @@ test("image stages retain digest-pinned Trixie bases and patched Perl/OpenSSL be
         "git-openssl-build",
         "glibc-security",
         "glibc-runtime-artifact",
+        "openssl-security",
         "runtime",
       ],
     ],
-    [web, ["sqlite-security", "node-brotli-security", "native-build", "builder", "glibc-security", "runtime"]],
+    [web, ["sqlite-security", "node-brotli-security", "native-build", "builder", "glibc-security", "openssl-security", "runtime"]],
   ]) {
     assertPatchedPinnedStages(source, names, baseForStage);
   }
@@ -280,6 +285,7 @@ test("derived LLVM stages reject unpinned, unrelated, forward and incompletely g
     "git-openssl-build",
     "glibc-security",
     "glibc-runtime-artifact",
+    "openssl-security",
     "runtime",
   ];
   assertPatchedPinnedStages(source, names, baseForStage);

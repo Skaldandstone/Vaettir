@@ -103,6 +103,8 @@ RUN pnpm install --frozen-lockfile \
 # Full-suite-tested native packages from the dedicated cloud builder.
 FROM 051722405355.dkr.ecr.us-east-2.amazonaws.com/vaettir-api@sha256:25619e6ee148b0fee633fd8588e81f6a05f27df7fbbb76f0a2367b77038ea62e AS glibc-security
 
+FROM 051722405355.dkr.ecr.us-east-2.amazonaws.com/vaettir-api@sha256:07dd763e49df4e754c8000878af8f9bd6cf1aa1d2836cb4b06893bf479d96a90 AS openssl-security
+
 FROM public.ecr.aws/docker/library/node:26-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS runtime
 LABEL vaettir.next-static-cohorts="1"
 WORKDIR /app
@@ -124,8 +126,12 @@ COPY --from=native-build /build/zlib-sources/source-manifest.json /usr/share/vae
 COPY scripts/check-dash-runtime.mjs scripts/check-zlib-runtime.mjs scripts/check-image-runtime.mjs /app/scripts/
 COPY --from=glibc-security /build/glibc-runtime/libc6_2.43-7+vaettir1_amd64.deb /tmp/vaettir-vendor/
 COPY --from=glibc-security /build/glibc-runtime/libc-bin_2.43-7+vaettir1_amd64.deb /tmp/vaettir-vendor/
+COPY --from=openssl-security /packages/ /tmp/vaettir-openssl/
+COPY --from=openssl-security /proof/artifact-sha256.txt /proof/source-signature.status /proof/openssl-runtime-sources.json /usr/share/vaettir/openssl/
+COPY scripts/check-openssl-runtime.sh /app/scripts/
+RUN --network=none sh /app/scripts/check-openssl-runtime.sh packages
 RUN apt-get update --error-on=any \
-    && apt-get install -y --no-install-recommends openssl ca-certificates perl-base libpcre2-8-0 /tmp/vaettir-vendor/*.deb \
+    && apt-get install -y --no-install-recommends openssl ca-certificates perl-base libpcre2-8-0 /tmp/vaettir-vendor/*.deb /tmp/vaettir-openssl/*.deb \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' perl-base)" ge '5.40.1-6+deb13u1' \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libpcre2-8-0)" ge '10.46-1~deb13u3' \
     && test "$(dpkg-query -W -f='${Version}' dash)" = '0.5.12-12+vaettir1' \
@@ -135,6 +141,7 @@ RUN apt-get update --error-on=any \
     && test "$(dpkg-query -W -f='${Version}' libc6)" = '2.43-7+vaettir1' \
     && test "$(printf '\303\251' | iconv -f UTF-8 -t ISO-8859-1 | od -An -tx1 | tr -d ' \n')" = e9 \
     && rm /tmp/vaettir-vendor/libc6_2.43-7+vaettir1_amd64.deb /tmp/vaettir-vendor/libc-bin_2.43-7+vaettir1_amd64.deb \
+    && rm /tmp/vaettir-openssl/*.deb \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system --gid 1001 nodejs \
     && useradd --system --uid 1001 --gid nodejs nextjs
@@ -167,6 +174,7 @@ RUN --network=none timeout 60 dpkg --install /tmp/vaettir-sqlite.deb \
     && rm /tmp/vaettir-sqlite.deb \
     && node /app/scripts/check-sqlite-runtime.mjs --installed /usr/share/vaettir/sqlite-security
 
+RUN --network=none sh /app/scripts/check-openssl-runtime.sh installed
 USER nextjs
 RUN --network=none node /app/scripts/check-sqlite-runtime.mjs --installed /usr/share/vaettir/sqlite-security
 RUN --network=none node scripts/check-dash-runtime.mjs

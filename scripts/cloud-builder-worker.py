@@ -62,6 +62,7 @@ def main():
     log_path = work / "build.log"
     result = {"run_id": args.run_id, "commit": job["commit"], "status": "failed", "deployed": False}
     started = time.monotonic()
+    registry = None
 
     def run(argv, log, **kwargs):
         # One total seven-hour budget, including both native preparation and image assembly.
@@ -81,6 +82,13 @@ def main():
                 run(["docker", "buildx", "create", "--name", "vaettir-cloud",
                      "--driver", "docker-container"], log)
             run(["docker", "buildx", "inspect", "vaettir-cloud", "--bootstrap"], log)
+            # Authenticate before resolving digest-pinned private native inputs.
+            ecr = session.client("ecr")
+            auth = ecr.get_authorization_token(registryIds=[job["account"]])["authorizationData"][0]
+            user, password = base64.b64decode(auth["authorizationToken"]).decode().split(":", 1)
+            registry = job["account"] + ".dkr.ecr.us-east-2.amazonaws.com"
+            run(["docker", "login", "--username", user, "--password-stdin", registry], log,
+                input=password.encode())
             for command in build_commands(job["commit"], job["phase"]):
                 with archive.open("rb") as source:
                     run(command, log, stdin=source)
@@ -98,28 +106,21 @@ def main():
                     raise RuntimeError("Native artifact identity mismatch")
             elif "VAETTIR_RELEASE_COMMIT=" + job["commit"] not in metadata["Config"]["Env"]:
                 raise RuntimeError("Built image identity mismatch")
-            ecr = session.client("ecr")
-            auth = ecr.get_authorization_token(registryIds=[job["account"]])["authorizationData"][0]
-            user, password = base64.b64decode(auth["authorizationToken"]).decode().split(":", 1)
-            registry = job["account"] + ".dkr.ecr.us-east-2.amazonaws.com"
-            # Keep credentials out of log output and give each run its own image tag.
-            run(["docker", "login", "--username", user, "--password-stdin", registry], log,
-                input=password.encode())
-            try:
-                tag = ("native-glibc-" if artifact else "cloud-") + job["commit"] + "-" + args.run_id
-                remote = registry + "/vaettir-api:" + tag
-                run(["docker", "tag", image, remote], log)
-                run(["docker", "push", remote], log)
-                detail = ecr.describe_images(repositoryName="vaettir-api", imageIds=[{"imageTag": tag}])["imageDetails"][0]
-                result.update(status="native-artifact-built" if artifact else "built", image=remote,
-                              digest=detail["imageDigest"], runtime_image_produced=not artifact,
-                              scan_and_release_acceptance="native-component-only" if artifact else "pending")
-            finally:
-                subprocess.run(["docker", "logout", registry], stdout=log, stderr=subprocess.STDOUT, timeout=60)
+            tag = ("native-glibc-" if artifact else "cloud-") + job["commit"] + "-" + args.run_id
+            remote = registry + "/vaettir-api:" + tag
+            run(["docker", "tag", image, remote], log)
+            run(["docker", "push", remote], log)
+            detail = ecr.describe_images(repositoryName="vaettir-api", imageIds=[{"imageTag": tag}])["imageDetails"][0]
+            result.update(status="native-artifact-built" if artifact else "built", image=remote,
+                          digest=detail["imageDigest"], runtime_image_produced=not artifact,
+                          scan_and_release_acceptance="native-component-only" if artifact else "pending")
     except Exception as error:
         result["error"] = str(error)
         raise
     finally:
+        if registry and log_path.exists():
+            with log_path.open("ab", buffering=0) as log:
+                subprocess.run(["docker", "logout", registry], stdout=log, stderr=subprocess.STDOUT, timeout=60)
         result["elapsed_seconds"] = round(time.monotonic() - started)
         (work / "result.json").write_text(json.dumps(result, indent=2) + "\n")
         if log_path.exists():
