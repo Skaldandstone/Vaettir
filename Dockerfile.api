@@ -229,6 +229,7 @@ RUN apt-get update --error-on=any \
     && test "$(dpkg-query -W -f='${Version}' libc6)" = '2.43-7+vaettir1' \
     && test "$(printf '\303\251' | iconv -f UTF-8 -t ISO-8859-1 | od -An -tx1 | tr -d ' \n')" = e9 \
     && rm /tmp/vaettir-vendor/libc6_2.43-7+vaettir1_amd64.deb /tmp/vaettir-vendor/libc-bin_2.43-7+vaettir1_amd64.deb \
+    && dpkg --path-include='/usr/share/doc/*' --path-include='/usr/share/man/*' --path-include='/usr/share/lintian/*' --install /tmp/vaettir-openssl/*.deb \
     && rm /tmp/vaettir-openssl/*.deb \
     && rm -rf /var/lib/apt/lists/*
 

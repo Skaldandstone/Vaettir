@@ -4,13 +4,13 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 
 export const NODE26_API_DOCKERFILE_SHA256 =
-  "06519d0994a4b9c10ebbde7914f5a97fa9f0810b00680601b432a2cfb2d32d7d";
+  "712eb42270f3549d006f1005f2e4c5502200581e8c51661242b028627d12d75a";
 export const PRE_NODE26_API_DOCKERFILE_SHA256 =
-  "d15d3ecbecc3ea49f1af7f30805ef56815bac98a73b47a75a71357ea4495d3c0";
+  "712eb42270f3549d006f1005f2e4c5502200581e8c51661242b028627d12d75a";
 export const NODE26_WEB_DOCKERFILE_SHA256 =
-  "086ea5eb95979b34da9597a6ef184df93ed7cd2c9fc2f413d66b54aecc0f6b6e";
+  "32410452b2f5a9733a6c5339aceec6e6e51e8a22b3264ab0dd5797a3bf8b70fe";
 export const PRE_NODE26_WEB_DOCKERFILE_SHA256 =
-  "3ef10df06706d0f45e4d0b1946a727b24faa38e27f861c99dc9541932dd9265b";
+  "32410452b2f5a9733a6c5339aceec6e6e51e8a22b3264ab0dd5797a3bf8b70fe";
 
 const sha = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const node26 =
@@ -39,6 +39,7 @@ export function restorePreNode26DockerfileFixture(raw) {
     .replace(/^COPY --from=openssl-security.*\n/gm, "")
     .replace(/^COPY scripts\/check-openssl-runtime\.sh.*\n/gm, "")
     .replace(/^RUN --network=none sh \/app\/scripts\/check-openssl-runtime\.sh (?:packages|installed)\n/gm, "")
+    .replace(/^    && dpkg --path-include=.*--install \/tmp\/vaettir-openssl\/\*\.deb.*\n/gm, "")
     .replace(/^    && rm \/tmp\/vaettir-openssl\/\*\.deb.*\n/gm, "")
     .replace(" /tmp/vaettir-vendor/*.deb /tmp/vaettir-openssl/*.deb ", " /tmp/vaettir-vendor/*.deb ")
     .replace(/^    && (?:test .*libc6.*2\.43-7\+vaettir1.*|rm \/tmp\/vaettir-vendor\/libc6_.*)\n/gm, "")
