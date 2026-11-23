@@ -6,11 +6,11 @@ import { createHash } from "node:crypto";
 export const NODE26_API_DOCKERFILE_SHA256 =
   "712eb42270f3549d006f1005f2e4c5502200581e8c51661242b028627d12d75a";
 export const PRE_NODE26_API_DOCKERFILE_SHA256 =
-  "712eb42270f3549d006f1005f2e4c5502200581e8c51661242b028627d12d75a";
+  "d15d3ecbecc3ea49f1af7f30805ef56815bac98a73b47a75a71357ea4495d3c0";
 export const NODE26_WEB_DOCKERFILE_SHA256 =
   "32410452b2f5a9733a6c5339aceec6e6e51e8a22b3264ab0dd5797a3bf8b70fe";
 export const PRE_NODE26_WEB_DOCKERFILE_SHA256 =
-  "32410452b2f5a9733a6c5339aceec6e6e51e8a22b3264ab0dd5797a3bf8b70fe";
+  "3ef10df06706d0f45e4d0b1946a727b24faa38e27f861c99dc9541932dd9265b";
 
 const sha = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const node26 =
