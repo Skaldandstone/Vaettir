@@ -1,0 +1,143 @@
+{
+  "version": "openssl-security-backport/v1",
+  "sourceVersion": "3.5.9-1~deb13u1",
+  "packageVersion": "3.5.9-1~deb13u1+vaettir1",
+  "signer": "57892E705233051337F6FDD105641F175712FA5B",
+  "files": [
+    {
+      "name": "openssl_3.5.9-1~deb13u1.dsc",
+      "bytes": 2707,
+      "sha256": "b038dfab5ee111242b7439e07c820d228519273e7fd1f514014b039e929aad9f"
+    },
+    {
+      "name": "openssl_3.5.9.orig.tar.gz",
+      "bytes": 53279637,
+      "sha256": "603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a"
+    },
+    {
+      "name": "openssl_3.5.9.orig.tar.gz.asc",
+      "bytes": 931,
+      "sha256": "bdccf2057a7c4ae377b40e832cb8c632ae8b532d4fb64cc7b843066eee748f89"
+    },
+    {
+      "name": "openssl_3.5.9-1~deb13u1.debian.tar.xz",
+      "bytes": 54612,
+      "sha256": "7d5158a87cd24641316b050de419be4ebddb1f180afd7ebaa3bc990036c38ec6"
+    }
+  ],
+  "patches": [
+    {
+      "cve": "CVE-2026-95692",
+      "commit": "257a3427aa0ef8d9dd2ef5b3e2d1c021a221b116",
+      "name": "257a3427aa0ef8d9dd2ef5b3e2d1c021a221b116.patch",
+      "bytes": 2100,
+      "sha256": "0e328604c0038de6629a29322ae5f02d2f5f5128c2625b57ca64262efab99e05"
+    },
+    {
+      "cve": "CVE-2026-88823",
+      "commit": "159e1de0c448d7b9f09ad768c8e141def4aa1eb4",
+      "name": "159e1de0c448d7b9f09ad768c8e141def4aa1eb4.patch",
+      "bytes": 3483,
+      "sha256": "a945077c0a978dbfe5af5e4f7174a2151466547f8fb94562f395baa7b6b7c147"
+    },
+    {
+      "cve": "CVE-2026-107496",
+      "commit": "a0051cfe699bf5a047bc1c4faef65f80f7987366",
+      "name": "a0051cfe699bf5a047bc1c4faef65f80f7987366.patch",
+      "bytes": 3375,
+      "sha256": "77d3759d279c71af59629c4a0fa82d8272a099762f2fa9e3f66d7ca5ed544157"
+    },
+    {
+      "cve": "CVE-2026-95691",
+      "commit": "f6244675833e097c2429a40d1b206d95385bd42f",
+      "name": "f6244675833e097c2429a40d1b206d95385bd42f.patch",
+      "bytes": 7377,
+      "sha256": "93d8e82fdc995172a6d5cc6952491658106191bd5ac221d34596adbddfcd1afe"
+    },
+    {
+      "cve": "CVE-2026-88822",
+      "commit": "1a73dc590cbad62d6f0329ea4779eadaa8d8fd75",
+      "name": "1a73dc590cbad62d6f0329ea4779eadaa8d8fd75.patch",
+      "bytes": 2321,
+      "sha256": "50f7cc52fb146703379ca043d17e204c4fda99c684efe3db6d6f3ae1d175bd2a"
+    },
+    {
+      "cve": "CVE-2026-35190",
+      "commit": "9491b0d9cc7950af1f3dc89499bd5433b9cd4f43",
+      "name": "9491b0d9cc7950af1f3dc89499bd5433b9cd4f43.patch",
+      "bytes": 4845,
+      "sha256": "e1b45282a8876fdda6b930273e28bad1cdb1c6915ccd25fe0b61789281489ed1"
+    },
+    {
+      "cve": "CVE-2026-107493",
+      "commit": "c8f6d04f8e6d40b1bf83334e4a2ec9daf5943a3d",
+      "name": "c8f6d04f8e6d40b1bf83334e4a2ec9daf5943a3d.patch",
+      "bytes": 7204,
+      "sha256": "6176d694ac38251bfa4e11198d002d8720f9efb05deffb35703adb93be6173e1"
+    },
+    {
+      "cve": "CVE-2026-124709",
+      "commit": "f3acb0a3328046741479482c51cec815839e1b05",
+      "name": "f3acb0a3328046741479482c51cec815839e1b05.patch",
+      "bytes": 3280,
+      "sha256": "d52a6af23bc966daaa9eded816a392d429a67bb76faafd922f4c4cf35a9349f4"
+    },
+    {
+      "cve": "CVE-2026-121482",
+      "commit": "468c287cf451a834b370b69ab321b8ffdfac23aa",
+      "name": "468c287cf451a834b370b69ab321b8ffdfac23aa.patch",
+      "bytes": 15456,
+      "sha256": "6bdbb111a7ce640e42c558aaf912fe19b3770aa9afc7c8c5a0d36d20dcb2d5e9"
+    },
+    {
+      "cve": "CVE-2026-121482",
+      "commit": "1c65edebefa0dd11aa41cb1a31078ecd9c79d472",
+      "name": "1c65edebefa0dd11aa41cb1a31078ecd9c79d472.patch",
+      "bytes": 30019,
+      "sha256": "a9897de897e3cf34206ba9a4ccb461927bd04c310e9354682ceca317c1537502"
+    },
+    {
+      "cve": "CVE-2026-121482",
+      "commit": "81162ed421d98f527f55bfff205994f53831223b",
+      "name": "81162ed421d98f527f55bfff205994f53831223b.patch",
+      "bytes": 1865,
+      "sha256": "e472d163d110d44393c23cb187cc86ddc6025a61690f4e15911f888a0116f535"
+    },
+    {
+      "cve": "CVE-2026-107494",
+      "commit": "734c6cd7444bdbf589bfec917e47598c1b21ddd3",
+      "name": "734c6cd7444bdbf589bfec917e47598c1b21ddd3.patch",
+      "bytes": 3597,
+      "sha256": "c1726a50d589b2dc289727865c184382c2bd846733ddb139427062713ebeb5bd"
+    },
+    {
+      "cve": "CVE-2026-107494",
+      "commit": "42919a7f4e00aa217fce1532fbeb49f21be2ee7b",
+      "name": "42919a7f4e00aa217fce1532fbeb49f21be2ee7b.patch",
+      "bytes": 5931,
+      "sha256": "ca74f8bd3f7d6337fae3fe5038604f013c76590b89d6f44593adcb5661f9a0ba"
+    },
+    {
+      "cve": "CVE-2026-84786",
+      "commit": "da8187ff0a61e878fb412817a9bf9fe90a2e2d5b",
+      "name": "da8187ff0a61e878fb412817a9bf9fe90a2e2d5b.patch",
+      "bytes": 5149,
+      "sha256": "d69aa6d67e48df86b7ec853812edc145dece65582f6c75ab928e95c9c86357a7",
+      "contextSha256": "cccd714096814659c98a64dca773d86a370ae90bba23ff87f6c7fa3aff1d43c6"
+    },
+    {
+      "cve": "CVE-2026-84786",
+      "commit": "ea3a0647446e34d142e844e3026cdf53391a63f8",
+      "name": "ea3a0647446e34d142e844e3026cdf53391a63f8.patch",
+      "bytes": 4689,
+      "sha256": "0267bf8ee53a8bb0b5f3c88af286307748921f36c74740acb69d4429ba1d2d8a"
+    },
+    {
+      "cve": "CVE-2026-84786",
+      "commit": "d54155a80a4fa8d2ebc2a5a850e7ea8270818217",
+      "name": "d54155a80a4fa8d2ebc2a5a850e7ea8270818217.patch",
+      "bytes": 2340,
+      "sha256": "69e82e374ef534262fa4f6b556a1201f1643f2307a7e8235472540db6a4288f1"
+    }
+  ]
+}

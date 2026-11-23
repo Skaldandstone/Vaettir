@@ -48,10 +48,11 @@ class CloudBuilderTest(unittest.TestCase):
         command, = worker.build_commands("a" * 40, "prepare-glibc")
         self.assertEqual(command[command.index("--target") + 1], "glibc-security")
         self.assertNotIn("--load", command)
-        result, clients, _ = self.run_worker("prepare-glibc")
+        result, clients, commands = self.run_worker("prepare-glibc")
         self.assertEqual(result["status"], "native-prepared")
         self.assertFalse(result["deployed"])
-        self.assertNotIn("ecr", clients)
+        self.assertFalse(any(c[:2] == ["docker", "push"] for c in commands))
+        self.assertTrue(any(c[:2] == ["docker", "logout"] for c in commands))
 
     def test_native_artifact_is_not_a_runtime_release(self):
         command, = worker.build_commands("a" * 40, "publish-glibc")
@@ -61,8 +62,9 @@ class CloudBuilderTest(unittest.TestCase):
         self.assertFalse(result["runtime_image_produced"])
         self.assertFalse(result["deployed"])
         self.assertIn("/vaettir-api:native-glibc-", result["image"])
-        result, clients, _ = self.run_worker("publish-glibc", bad_identity=True)
-        self.assertNotIn("ecr", clients)
+        result, clients, commands = self.run_worker("publish-glibc", bad_identity=True)
+        self.assertFalse(any(c[:2] == ["docker", "push"] for c in commands))
+        self.assertTrue(any(c[:2] == ["docker", "logout"] for c in commands))
 
     def run_worker(self, phase, fail_build=False, bad_hash=False, bad_identity=False):
         archive = b"synthetic source archive"
@@ -121,10 +123,11 @@ class CloudBuilderTest(unittest.TestCase):
         return json.loads(uploads["result.json"]), clients, commands
 
     def test_failed_native_build_uploads_failure_and_cannot_publish(self):
-        result, clients, _ = self.run_worker("build-image", fail_build=True)
+        result, clients, commands = self.run_worker("build-image", fail_build=True)
         self.assertEqual(result["status"], "failed")
         self.assertFalse(result["deployed"])
-        self.assertNotIn("ecr", clients)
+        self.assertFalse(any(c[:2] == ["docker", "push"] for c in commands))
+        self.assertTrue(any(c[:2] == ["docker", "logout"] for c in commands))
 
     def test_archive_mismatch_stops_before_docker(self):
         result, _, commands = self.run_worker("build-image", bad_hash=True)
@@ -132,20 +135,25 @@ class CloudBuilderTest(unittest.TestCase):
         self.assertIn("hash mismatch", result["error"])
 
     def test_preparation_success_is_not_an_image_or_release(self):
-        result, clients, _ = self.run_worker("prepare-native")
+        result, clients, commands = self.run_worker("prepare-native")
         self.assertEqual(result["status"], "native-prepared")
         self.assertFalse(result["runtime_image_produced"])
         self.assertFalse(result["deployed"])
-        self.assertNotIn("ecr", clients)
+        self.assertFalse(any(c[:2] == ["docker", "push"] for c in commands))
+        self.assertTrue(any(c[:2] == ["docker", "logout"] for c in commands))
 
     def test_wrong_image_identity_cannot_publish(self):
-        result, clients, _ = self.run_worker("build-image", bad_identity=True)
+        result, clients, commands = self.run_worker("build-image", bad_identity=True)
         self.assertEqual(result["status"], "failed")
-        self.assertNotIn("ecr", clients)
+        self.assertFalse(any(c[:2] == ["docker", "push"] for c in commands))
+        self.assertTrue(any(c[:2] == ["docker", "logout"] for c in commands))
 
     def test_success_publishes_unique_tag_without_deploying(self):
         result, _, commands = self.run_worker("build-image")
         self.assertEqual(result["status"], "built")
+        login = next(i for i, c in enumerate(commands) if c[:2] == ["docker", "login"])
+        build = next(i for i, c in enumerate(commands) if c[:3] == ["docker", "buildx", "build"])
+        self.assertLess(login, build)
         self.assertFalse(result["deployed"])
         self.assertEqual(result["scan_and_release_acceptance"], "pending")
         pushed = next(c[2] for c in commands if c[:2] == ["docker", "push"])

@@ -4,11 +4,11 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 
 export const NODE26_API_DOCKERFILE_SHA256 =
-  "21a38f8739b219972a15ba8a1d136c52d2ba9adae4dc47e3a07f83452f030baf";
+  "712eb42270f3549d006f1005f2e4c5502200581e8c51661242b028627d12d75a";
 export const PRE_NODE26_API_DOCKERFILE_SHA256 =
   "d15d3ecbecc3ea49f1af7f30805ef56815bac98a73b47a75a71357ea4495d3c0";
 export const NODE26_WEB_DOCKERFILE_SHA256 =
-  "6922b156a3ee9f5c42cbcec92df381e2f2da2fae55caf2fc4b2599b019ec3609";
+  "32410452b2f5a9733a6c5339aceec6e6e51e8a22b3264ab0dd5797a3bf8b70fe";
 export const PRE_NODE26_WEB_DOCKERFILE_SHA256 =
   "3ef10df06706d0f45e4d0b1946a727b24faa38e27f861c99dc9541932dd9265b";
 
@@ -36,6 +36,12 @@ export function restorePreNode26DockerfileFixture(raw) {
     .replace("debian-keyring /tmp/vaettir-brotli-baseline.deb ", "debian-keyring libbrotli1=1.1.0-2+b7 ")
     .replace(/FROM [^\n]+ AS glibc-security\n[\s\S]*?(?=FROM [^\n]+ AS runtime\n)/, "")
     .replace(/^COPY --from=glibc-security.*\n/gm, "")
+    .replace(/^COPY --from=openssl-security.*\n/gm, "")
+    .replace(/^COPY scripts\/check-openssl-runtime\.sh.*\n/gm, "")
+    .replace(/^RUN --network=none sh \/app\/scripts\/check-openssl-runtime\.sh (?:packages|installed)\n/gm, "")
+    .replace(/^    && dpkg --path-include=.*--install \/tmp\/vaettir-openssl\/\*\.deb.*\n/gm, "")
+    .replace(/^    && rm \/tmp\/vaettir-openssl\/\*\.deb.*\n/gm, "")
+    .replace(" /tmp/vaettir-vendor/*.deb /tmp/vaettir-openssl/*.deb ", " /tmp/vaettir-vendor/*.deb ")
     .replace(/^    && (?:test .*libc6.*2\.43-7\+vaettir1.*|rm \/tmp\/vaettir-vendor\/libc6_.*)\n/gm, "")
     .replaceAll("2.55.1-0+vaettir1", "2.47.3-0+deb13u1+vaettir1")
     .replace("perl python3 liberror-perl git gpg \\\n", "perl python3 liberror-perl \\\n")
