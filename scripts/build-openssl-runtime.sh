@@ -22,14 +22,14 @@ const m=JSON.parse(readFileSync(join(process.argv[2],'openssl-runtime-sources.js
 PATCHES
 while read -r cve filename; do
   patch --batch --fuzz=0 -p1 --dry-run < "$input/$filename"
-  cp "$input/$filename" "debian/patches/vaettir-$cve.patch"
-  printf '%s\n' "vaettir-$cve.patch" >> debian/patches/series
+  cp "$input/$filename" "debian/patches/vaettir-$cve-$filename"
+  printf '%s\n' "vaettir-$cve-$filename" >> debian/patches/series
   dpkg-source --before-build .
 done < "$build/patch-list"
 node --input-type=module - <<'CHANGELOG'
 import{readFileSync,writeFileSync}from'node:fs';const p='debian/changelog',old=readFileSync(p,'utf8');if(!old.startsWith('openssl (3.5.9-1~deb13u1)'))throw Error('Unexpected OpenSSL packaging');writeFileSync(p,`openssl (3.5.9-1~deb13u1+vaettir1) trixie; urgency=high
 
-  * Backport the eight published OpenSSL 3.5 security fixes using pinned
+  * Backport the published OpenSSL 3.5 security fixes using pinned
     upstream commits. Retain Debian configuration and the complete test suite.
 
  -- Vaettir Runtime Build <runtime-build@skaldandstone.com>  Mon, 23 Nov 2026 00:00:00 +0000

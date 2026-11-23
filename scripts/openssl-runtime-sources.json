@@ -81,6 +81,62 @@
       "name": "f3acb0a3328046741479482c51cec815839e1b05.patch",
       "bytes": 3280,
       "sha256": "d52a6af23bc966daaa9eded816a392d429a67bb76faafd922f4c4cf35a9349f4"
+    },
+    {
+      "cve": "CVE-2026-121482",
+      "commit": "468c287cf451a834b370b69ab321b8ffdfac23aa",
+      "name": "468c287cf451a834b370b69ab321b8ffdfac23aa.patch",
+      "bytes": 15456,
+      "sha256": "6bdbb111a7ce640e42c558aaf912fe19b3770aa9afc7c8c5a0d36d20dcb2d5e9"
+    },
+    {
+      "cve": "CVE-2026-121482",
+      "commit": "1c65edebefa0dd11aa41cb1a31078ecd9c79d472",
+      "name": "1c65edebefa0dd11aa41cb1a31078ecd9c79d472.patch",
+      "bytes": 30019,
+      "sha256": "a9897de897e3cf34206ba9a4ccb461927bd04c310e9354682ceca317c1537502"
+    },
+    {
+      "cve": "CVE-2026-121482",
+      "commit": "81162ed421d98f527f55bfff205994f53831223b",
+      "name": "81162ed421d98f527f55bfff205994f53831223b.patch",
+      "bytes": 1865,
+      "sha256": "e472d163d110d44393c23cb187cc86ddc6025a61690f4e15911f888a0116f535"
+    },
+    {
+      "cve": "CVE-2026-107494",
+      "commit": "734c6cd7444bdbf589bfec917e47598c1b21ddd3",
+      "name": "734c6cd7444bdbf589bfec917e47598c1b21ddd3.patch",
+      "bytes": 3597,
+      "sha256": "c1726a50d589b2dc289727865c184382c2bd846733ddb139427062713ebeb5bd"
+    },
+    {
+      "cve": "CVE-2026-107494",
+      "commit": "42919a7f4e00aa217fce1532fbeb49f21be2ee7b",
+      "name": "42919a7f4e00aa217fce1532fbeb49f21be2ee7b.patch",
+      "bytes": 5931,
+      "sha256": "ca74f8bd3f7d6337fae3fe5038604f013c76590b89d6f44593adcb5661f9a0ba"
+    },
+    {
+      "cve": "CVE-2026-84786",
+      "commit": "da8187ff0a61e878fb412817a9bf9fe90a2e2d5b",
+      "name": "da8187ff0a61e878fb412817a9bf9fe90a2e2d5b.patch",
+      "bytes": 5149,
+      "sha256": "d69aa6d67e48df86b7ec853812edc145dece65582f6c75ab928e95c9c86357a7"
+    },
+    {
+      "cve": "CVE-2026-84786",
+      "commit": "ea3a0647446e34d142e844e3026cdf53391a63f8",
+      "name": "ea3a0647446e34d142e844e3026cdf53391a63f8.patch",
+      "bytes": 4689,
+      "sha256": "0267bf8ee53a8bb0b5f3c88af286307748921f36c74740acb69d4429ba1d2d8a"
+    },
+    {
+      "cve": "CVE-2026-84786",
+      "commit": "d54155a80a4fa8d2ebc2a5a850e7ea8270818217",
+      "name": "d54155a80a4fa8d2ebc2a5a850e7ea8270818217.patch",
+      "bytes": 2340,
+      "sha256": "69e82e374ef534262fa4f6b556a1201f1643f2307a7e8235472540db6a4288f1"
     }
   ]
 }

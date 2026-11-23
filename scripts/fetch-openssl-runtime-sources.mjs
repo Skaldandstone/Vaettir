@@ -4,7 +4,7 @@ import {resolve,join} from "node:path";
 import {pathToFileURL} from "node:url";
 
 export const pins=JSON.parse(await readFile(new URL("./openssl-runtime-sources.json",import.meta.url),"utf8"));
-if(pins.version!=="openssl-security-backport/v1"||pins.sourceVersion!=="3.5.9-1~deb13u1"||pins.packageVersion!=="3.5.9-1~deb13u1+vaettir1"||pins.signer!=="57892E705233051337F6FDD105641F175712FA5B"||pins.files.length!==4||pins.patches.length!==8)throw Error("Unexpected OpenSSL source identity");
+if(pins.version!=="openssl-security-backport/v1"||pins.sourceVersion!=="3.5.9-1~deb13u1"||pins.packageVersion!=="3.5.9-1~deb13u1+vaettir1"||pins.signer!=="57892E705233051337F6FDD105641F175712FA5B"||pins.files.length!==4||pins.patches.length!==16)throw Error("Unexpected OpenSSL source identity");
 const files=["openssl_3.5.9-1~deb13u1.dsc","openssl_3.5.9.orig.tar.gz","openssl_3.5.9.orig.tar.gz.asc","openssl_3.5.9-1~deb13u1.debian.tar.xz"];
 const patches=new Set();
 for(const [i,f] of pins.files.entries())if(f.name!==files[i])throw Error("Unexpected OpenSSL source file");
