@@ -10,6 +10,7 @@ const patches=new Set();
 for(const [i,f] of pins.files.entries())if(f.name!==files[i])throw Error("Unexpected OpenSSL source file");
 for(const p of pins.patches){if(!/^[a-f0-9]{40}$/.test(p.commit)||p.name!==p.commit+".patch"||!/^CVE-2026-\d{5,6}$/.test(p.cve)||patches.has(p.commit))throw Error("Invalid OpenSSL patch identity");patches.add(p.commit);}
 for(const p of [...pins.files,...pins.patches])if(!/^[a-f0-9]{64}$/.test(p.sha256)||!Number.isSafeInteger(p.bytes)||p.bytes<1||p.bytes>60000000)throw Error("Invalid OpenSSL byte pin");
+for(const p of pins.patches)if(p.contextSha256!==undefined&&(p.commit!=="da8187ff0a61e878fb412817a9bf9fe90a2e2d5b"||!/^[a-f0-9]{64}$/.test(p.contextSha256)))throw Error("Unapproved patch context adaptation");
 function freeze(value){if(value&&typeof value==="object"){for(const child of Object.values(value))freeze(child);Object.freeze(value);}return value;}
 freeze(pins);
 

@@ -5,7 +5,7 @@ build=${2:?Fresh absolute build directory required}
 scripts=${3:?Absolute scripts directory required}
 for p in "$input" "$build" "$scripts"; do case "$p" in /|*'/../'*|*'/./'*) exit 2 ;; /*) : ;; *) exit 2 ;; esac; done
 test ! -e "$build"
-mkdir -p "$build/proof" "$build/packages"
+mkdir -p "$build/proof" "$build/packages" "$build/patches"
 node --input-type=module - "$input" "$scripts" <<'VERIFY'
 import{readFileSync}from'node:fs';import{createHash}from'node:crypto';import{join}from'node:path';
 const[input,scripts]=process.argv.slice(2),m=JSON.parse(readFileSync(join(scripts,'openssl-runtime-sources.json')));
@@ -16,13 +16,20 @@ grep -q '^\[GNUPG:\] VALIDSIG 57892E705233051337F6FDD105641F175712FA5B ' "$build
 dpkg-source -x "$input/openssl_3.5.9-1~deb13u1.dsc" "$build/source"
 cd "$build/source"
 dpkg-source --before-build .
-node --input-type=module - "$scripts" <<'PATCHES' > "$build/patch-list"
-import{readFileSync}from'node:fs';import{join}from'node:path';
-const m=JSON.parse(readFileSync(join(process.argv[2],'openssl-runtime-sources.json')));for(const p of m.patches)console.log(p.cve+' '+p.name);
+node --input-type=module - "$scripts" "$input" "$build" <<'PATCHES' > "$build/patch-list"
+import{readFileSync,writeFileSync}from'node:fs';import{join}from'node:path';import{createHash}from'node:crypto';import assert from'node:assert/strict';
+const[scripts,input,build]=process.argv.slice(2),m=JSON.parse(readFileSync(join(scripts,'openssl-runtime-sources.json')));
+for(const p of m.patches){let b=readFileSync(join(input,p.name));if(p.contextSha256){
+  // Only a context line differs in 3.5's formatting. Upstream +/- lines stay exact.
+  const old='         if (t->usage != DANETLS_USAGE_DANE_TA\n',replacement='         if (t->usage != DANETLS_USAGE_DANE_TA || t->selector != DANETLS_SELECTOR_SPKI || t->mtype != DANETLS_MATCHING_FULL || X509_verify(cert, t->spki) <= 0)\n',text=b.toString('utf8');
+  assert.equal(text.split(old).length,2);const adapted=Buffer.from(text.replace(old,replacement));
+  assert.deepEqual(adapted.toString('utf8').split('\n').filter(l=>/^[+-]/.test(l)),text.split('\n').filter(l=>/^[+-]/.test(l)));
+  assert.equal(createHash('sha256').update(adapted).digest('hex'),p.contextSha256);b=adapted;
+}writeFileSync(join(build,'patches',p.name),b,{flag:'wx'});console.log(p.cve+' '+p.name);}
 PATCHES
 while read -r cve filename; do
-  patch --batch --fuzz=0 -p1 --dry-run < "$input/$filename"
-  cp "$input/$filename" "debian/patches/vaettir-$cve-$filename"
+  patch --batch --fuzz=0 -p1 --dry-run < "$build/patches/$filename"
+  cp "$build/patches/$filename" "debian/patches/vaettir-$cve-$filename"
   printf '%s\n' "vaettir-$cve-$filename" >> debian/patches/series
   dpkg-source --before-build .
 done < "$build/patch-list"

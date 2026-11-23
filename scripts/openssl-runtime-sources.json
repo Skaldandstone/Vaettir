@@ -122,7 +122,8 @@
       "commit": "da8187ff0a61e878fb412817a9bf9fe90a2e2d5b",
       "name": "da8187ff0a61e878fb412817a9bf9fe90a2e2d5b.patch",
       "bytes": 5149,
-      "sha256": "d69aa6d67e48df86b7ec853812edc145dece65582f6c75ab928e95c9c86357a7"
+      "sha256": "d69aa6d67e48df86b7ec853812edc145dece65582f6c75ab928e95c9c86357a7",
+      "contextSha256": "cccd714096814659c98a64dca773d86a370ae90bba23ff87f6c7fa3aff1d43c6"
     },
     {
       "cve": "CVE-2026-84786",
