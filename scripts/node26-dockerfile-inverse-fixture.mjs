@@ -4,11 +4,11 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 
 export const NODE26_API_DOCKERFILE_SHA256 =
-  "e7a86bad27799c6a5eef63e7dbed3f58f3934ad5be32ec1e9255b1d106cadd2c";
+  "21a38f8739b219972a15ba8a1d136c52d2ba9adae4dc47e3a07f83452f030baf";
 export const PRE_NODE26_API_DOCKERFILE_SHA256 =
   "d15d3ecbecc3ea49f1af7f30805ef56815bac98a73b47a75a71357ea4495d3c0";
 export const NODE26_WEB_DOCKERFILE_SHA256 =
-  "d5b3ac926a4432b526140fc318e31a7105a6812b43d8d67e7c0379eeb3299fc2";
+  "6922b156a3ee9f5c42cbcec92df381e2f2da2fae55caf2fc4b2599b019ec3609";
 export const PRE_NODE26_WEB_DOCKERFILE_SHA256 =
   "3ef10df06706d0f45e4d0b1946a727b24faa38e27f861c99dc9541932dd9265b";
 
@@ -32,6 +32,8 @@ export function restorePreNode26DockerfileFixture(raw) {
   assert.ok(expected.has(hash), "Unknown complete Node 26 Dockerfile edit");
   assert.ok(text.includes(node26));
   const restoredText = text.replace("# Full-suite-tested native packages from the dedicated cloud builder.\n", "")
+    .replace("# Exact ABI-test baseline remains available outside the rolling APT index.\nADD --checksum=sha256:0fb79f88db210afbd69282ab9649e525f393ec6950ca34da1a6b359250b8d7db https://deb.debian.org/debian/pool/main/b/brotli/libbrotli1_1.1.0-2+b7_amd64.deb /tmp/vaettir-brotli-baseline.deb\n", "")
+    .replace("debian-keyring /tmp/vaettir-brotli-baseline.deb ", "debian-keyring libbrotli1=1.1.0-2+b7 ")
     .replace(/FROM [^\n]+ AS glibc-security\n[\s\S]*?(?=FROM [^\n]+ AS runtime\n)/, "")
     .replace(/^COPY --from=glibc-security.*\n/gm, "")
     .replace(/^    && (?:test .*libc6.*2\.43-7\+vaettir1.*|rm \/tmp\/vaettir-vendor\/libc6_.*)\n/gm, "")
