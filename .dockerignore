@@ -6,6 +6,9 @@ node_modules
 **/.turbo
 dist
 **/dist
+# Previous Next assets include framework chunks under chunks/next/dist.
+!.release-assets/previous/static/**
+!.release-assets/extra/static/**
 .git
 .local
 .env

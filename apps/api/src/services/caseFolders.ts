@@ -63,11 +63,11 @@ export async function readTree(tx: Tx, projectId: string) {
     ...explicit.map((f) => f.path),
     ...locations.map((r) => r.path),
   ]) {
-    if (!folderPathSchema.safeParse(path).success)
-      return bad(
-        "A legacy suite path is outside the supported eight-level / 240-character folder format. No paths were normalized or removed.",
-      );
-    for (const parent of folderAncestors(path)) paths.add(parent);
+    // Imported source labels are opaque, not folder-edit instructions. Keep
+    // them in the complete snapshot without inventing normalized ancestors.
+    if (folderPathSchema.safeParse(path).success)
+      for (const parent of folderAncestors(path)) paths.add(parent);
+    else paths.add(path);
   }
   if (paths.size > MAX_CASE_FOLDERS)
     return bad(
@@ -213,7 +213,8 @@ export async function listCaseFolders(
       }
       return {
         ...scope,
-        paths: tree.paths,
+        paths: tree.paths.filter(path => folderPathSchema.safeParse(path).success),
+        unsupportedPaths: tree.paths.filter(path => !folderPathSchema.safeParse(path).success),
         folders: tree.explicit,
         revision: tree.revision,
         canEdit,

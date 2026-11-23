@@ -513,6 +513,22 @@ describe("independent and reviewed populated folder lifecycle (owned synthetic D
       }),
     ).toBe(0);
   });
+  it("keeps imported labels opaque while listing and editing supported folders", async () => {
+    const imported = await owner.testCases.create({projectId,title:"Imported synthetic case",testType:"FUNCTIONAL",given:["Synthetic test data"],when:["Open the synthetic page"],then:["The page is shown"]});
+    const rawPath="Spreadsheet / Original label";
+    await prisma.testCase.update({where:{id:imported.id},data:{suitePath:rawPath}});
+    const before=await prisma.testCase.findUniqueOrThrow({where:{id:imported.id},include:{versions:true}});
+    const input=await request("CREATE","SupportedEmpty");
+    await owner.caseFolders.write(input);
+    const tree=await owner.caseFolders.list({projectId});
+    expect(tree.paths).toContain("SupportedEmpty");
+    expect(tree.unsupportedPaths).toContain(rawPath);
+    expect(tree.paths).not.toContain(rawPath);
+    expect(tree.paths).not.toContain("Spreadsheet");
+    await expect(owner.caseFolders.preview({projectId,action:"RENAME",fromPath:rawPath,toPath:"Changed"})).rejects.toThrow();
+    await expect(outsider.caseFolders.list({projectId})).rejects.toThrow();
+    expect(await prisma.testCase.findUniqueOrThrow({where:{id:imported.id},include:{versions:true}})).toEqual(before);
+  });
   it("retains immutable placement receipts and erases only their explicit synthetic organization scope", async () => {
     const row = await prisma.caseFolderWrite.findFirstOrThrow({
       where: { projectId },

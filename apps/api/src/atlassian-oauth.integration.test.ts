@@ -132,6 +132,34 @@ describe("Atlassian OAuth durable authorization boundaries",()=>{
   it("unknown exchange outcomes are retained and never automatically replayed",async()=>{
     const a=await begin();vi.mocked(provider.exchangeAtlassianCode).mockRejectedValue(Error("transport timeout"));await expect(caller.finish({state:a.state,code:"code"})).rejects.toThrow();await expect(caller.finish({state:a.state,code:"code"})).rejects.toThrow();expect(provider.exchangeAtlassianCode).toHaveBeenCalledTimes(1);expect((await caller.status({id:a.id})).status).toBe("RECOVERY_REQUIRED");
   });
+  it("renews expired browser grants without losing Jira catalog identity or approved scope",async()=>{
+    const a=await selected(),page=await caller.catalog({id:a.id,after:null});
+    await caller.approve({id:a.id,version:page.version,resourceIds:[resource.id],requestId:randomUUID(),approved:true});
+    await prisma.atlassianOAuthConnection.update({where:{id:a.id},data:{tokenExpiresAt:new Date(1)}});
+    await prisma.ticketSourceConnection.updateMany({where:{oauthConnectionId:a.id},data:{tokenExpiresAt:new Date(1)}});
+    const connections=await jiraConnectionsRouter.createCaller(ctx).mine({projectId});
+    expect(connections.find(row=>row.oauthConnectionId===a.id)?.status).toBe("VERIFIED");
+    expect(provider.refreshAtlassianToken).toHaveBeenCalledTimes(1);
+    const linked=await prisma.ticketSourceConnection.findUniqueOrThrow({where:{oauthConnectionId:a.id}});
+    expect(linked.approvedProjects).toEqual([resource]);
+    expect(linked.catalog).toMatchObject({workspace:{id:site.url},account:{id:providerAccountId},cursors:[]});
+    expect(linked.catalogAt).toBeNull();
+    expect((await caller.status({id:a.id})).approvedResources).toEqual([resource]);
+    expect(provider.refreshAtlassianToken).toHaveBeenCalledTimes(1);
+  });
+  it("renews Confluence before listing spaces and never retries uncertain refreshes",async()=>{
+    const a=await caller.begin({...input(),product:"confluence"}),state=new URL(a.url).searchParams.get("state")!;
+    await caller.finish({state,code:"synthetic-code"});
+    await prisma.atlassianOAuthConnection.update({where:{id:a.id},data:{tokenExpiresAt:new Date(1)}});
+    expect((await caller.mine({projectId,product:"confluence"}))[0]?.status).toBe("VERIFIED");
+    expect((await caller.catalog({id:a.id,after:null})).resources).toEqual([resource]);
+    expect(provider.refreshAtlassianToken).toHaveBeenCalledTimes(1);
+    await prisma.atlassianOAuthConnection.update({where:{id:a.id},data:{tokenExpiresAt:new Date(1)}});
+    vi.mocked(provider.refreshAtlassianToken).mockRejectedValue(Error("uncertain rotation"));
+    expect((await caller.status({id:a.id})).status).toBe("RECOVERY_REQUIRED");
+    expect((await caller.status({id:a.id})).status).toBe("RECOVERY_REQUIRED");
+    expect(provider.refreshAtlassianToken).toHaveBeenCalledTimes(2);
+  });
   it("refresh rotation is single-use and preserves selected scope on failure",async()=>{
     const a=await selected();vi.mocked(provider.refreshAtlassianToken).mockRejectedValue(Error("unknown refresh"));await expect(caller.refresh({id:a.id})).rejects.toThrow();await expect(caller.refresh({id:a.id})).rejects.toThrow();expect(provider.refreshAtlassianToken).toHaveBeenCalledTimes(1);const row=await prisma.atlassianOAuthConnection.findUniqueOrThrow({where:{id:a.id}});expect(row.status).toBe("RECOVERY_REQUIRED");expect(row.selectedSite).toMatchObject({id:site.id});expect(row.encryptedToken).toBeTruthy();
   });
@@ -176,12 +204,12 @@ describe("Atlassian OAuth durable authorization boundaries",()=>{
     const row=await prisma.atlassianOAuthConnection.findUniqueOrThrow({where:{id:a.id}});
     expect(provider.reportAtlassianPrivacy).toHaveBeenCalledTimes(1);expect(row.status).toBe("VERIFIED");expect(row.operationId).toBeNull();expect(row.version).toBeGreaterThan(before.version);expect(row.privacyDueAt!.getTime()).toBeGreaterThan(Date.now());
   });
-  it("refreshes changed profile data and invalidates the linked cached account",async()=>{
+  it("refreshes changed profile data while retaining approved Jira identities",async()=>{
     const a=await selected(),page=await caller.catalog({id:a.id,after:null});await caller.approve({id:a.id,version:page.version,resourceIds:[resource.id],requestId:randomUUID(),approved:true});
     await duePrivacy(a.id);vi.mocked(provider.reportAtlassianPrivacy).mockResolvedValueOnce({decision:"updated",cycleDays:7}).mockResolvedValue({decision:"clear",cycleDays:7});
     await runDueAtlassianPrivacy(privacyDb());
     const row=await prisma.atlassianOAuthConnection.findUniqueOrThrow({where:{id:a.id}}),linked=await prisma.ticketSourceConnection.findUniqueOrThrow({where:{oauthConnectionId:a.id}});
-    expect(row.accountName).toBe("Updated synthetic user");expect(linked.catalog).toBeNull();expect(row.status).toBe("VERIFIED");expect(row.approvedResources).toEqual([resource]);
+    expect(row.accountName).toBe("Updated synthetic user");expect(linked.catalog).toMatchObject({account:{id:providerAccountId,name:"Updated synthetic user"},projects:[resource],cursors:[]});expect(JSON.stringify(linked.catalog)).not.toContain("Synthetic tester");expect(linked.catalogAt).toBeNull();expect(row.status).toBe("VERIFIED");expect(row.approvedResources).toEqual([resource]);
   });
   it("erases closed-account identity, credentials and linked profile copies",async()=>{
     const a=await selected(),page=await caller.catalog({id:a.id,after:null});await caller.approve({id:a.id,version:page.version,resourceIds:[resource.id],requestId:randomUUID(),approved:true});
@@ -201,7 +229,7 @@ describe("Atlassian OAuth durable authorization boundaries",()=>{
   });
   it("blocks and erases when successful checks are too old and the provider is unavailable",async()=>{
     const a=await verified();await prisma.atlassianOAuthConnection.update({where:{id:a.id},data:{privacyCheckedAt:new Date(Date.now()-8*86400000),privacyDueAt:new Date(0)}});
-    await expect(caller.catalog({id:a.id,after:null})).rejects.toThrow();vi.mocked(provider.reportAtlassianPrivacy).mockRejectedValue(new ProviderStatusError(503));await runDueAtlassianPrivacy(privacyDb());
+    vi.mocked(provider.reportAtlassianPrivacy).mockRejectedValue(new ProviderStatusError(503));await expect(caller.catalog({id:a.id,after:null})).rejects.toThrow();await runDueAtlassianPrivacy(privacyDb());
     expect(await prisma.atlassianOAuthConnection.findUniqueOrThrow({where:{id:a.id}})).toMatchObject({status:"DISCONNECTED",encryptedToken:null,accountId:null});
   });
   it("does not replay an uncertain rotating refresh during maintenance",async()=>{

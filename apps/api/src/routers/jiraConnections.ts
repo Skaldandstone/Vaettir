@@ -5,7 +5,7 @@ import {router,protectedProcedure,requireProjectAccess,type Context} from "../tr
 import {encryptToken,decryptToken} from "../services/tokenEncryption.js";
 import {hashOAuthState} from "../services/gitlabRepositoryOAuth.js";
 import {jiraCatalogSchema,jiraProjectSchema,listJiraProjects,listJiraReleases} from "../services/jiraSourceConnection.js";
-import {jiraOAuthCredentials,atlassianStorageReady,disconnectAtlassian} from "../services/atlassianOAuthConnection.js";
+import {jiraOAuthCredentials,atlassianStorageReady,disconnectAtlassian,maintainAtlassian} from "../services/atlassianOAuthConnection.js";
 import {atlassianApplication} from "../services/atlassianOAuth.js";
 import {listJiraIssuePage} from "../services/jiraIssueIntake.js";
 import {jiraPlanningTags,suggestJiraReleaseChecks} from "../services/jiraReleasePlanning.js";
@@ -30,10 +30,14 @@ export async function liveEditor(tx:Prisma.TransactionClient,orgId:string,actorI
   if(!orgs[0]||orgs[0].suspendedAt||!member||member.seatType!=="FULL"||!["OWNER","ADMIN","EDITOR"].includes(member.role))throw new TRPCError({code:"FORBIDDEN",message:"Workspace access changed. Refresh before connecting."});
 }
 export async function own(ctx:Context,id:string){
-  const row=await ctx.prisma.ticketSourceConnection.findFirst({where:{id,provider:"jira",actorId:ctx.user!.id}});
+  let row=await ctx.prisma.ticketSourceConnection.findFirst({where:{id,provider:"jira",actorId:ctx.user!.id}});
   if(!row)throw new TRPCError({code:"NOT_FOUND"});
   const {project}=await editor(ctx,row.projectId);
   if(project.organizationId!==row.organizationId)throw new TRPCError({code:"NOT_FOUND"});
+  if(row.oauthConnectionId){
+    await maintainAtlassian(ctx,row.oauthConnectionId);
+    row=await ctx.prisma.ticketSourceConnection.findFirstOrThrow({where:{id,provider:"jira",actorId:ctx.user!.id}});
+  }
   return row;
 }
 export function verified(row:{status:string;tokenExpiresAt:Date|null;encryptedToken:unknown}){
@@ -49,7 +53,9 @@ export const jiraConnectionsRouter=router({
   }),
   mine:protectedProcedure.input(projectInput).query(async({ctx,input})=>{
     await editor(ctx,input.projectId);
-    const rows=await ctx.prisma.ticketSourceConnection.findMany({where:{projectId:input.projectId,actorId:ctx.user.id,provider:"jira"},orderBy:{createdAt:"desc"},take:20});
+    let rows=await ctx.prisma.ticketSourceConnection.findMany({where:{projectId:input.projectId,actorId:ctx.user.id,provider:"jira"},orderBy:{createdAt:"desc"},take:20});
+    for(const row of rows)if(row.oauthConnectionId)await maintainAtlassian(ctx,row.oauthConnectionId);
+    if(rows.some(row=>row.oauthConnectionId))rows=await ctx.prisma.ticketSourceConnection.findMany({where:{projectId:input.projectId,actorId:ctx.user.id,provider:"jira"},orderBy:{createdAt:"desc"},take:20});
     return rows.map(row=>({id:row.id,oauthConnectionId:row.oauthConnectionId,status:row.status==="VERIFIED"&&(!row.tokenExpiresAt||row.tokenExpiresAt.getTime()<=Date.now()+30000)||row.status==="VERIFYING"&&row.authorizationExpiresAt.getTime()<=Date.now()?"EXPIRED":row.status,workspace:catalogSchema.safeParse(row.catalog).data?.workspace??null,approvedProjects:z.array(jiraProjectSchema).parse(row.approvedProjects),approvedAt:row.approvedAt,siteUrl:row.providerOrigin}));
   }),
   releases:protectedProcedure.input(projectInput.extend({

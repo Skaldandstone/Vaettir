@@ -30,6 +30,9 @@ function AtlassianOAuthSession({projectId,product,onApproved,onWorkingChange}:Pr
   const access=capabilities.isSuccess&&!capabilities.isFetching&&capabilities.data.clerkActorId===userId?capabilities.data:null;
   const readable=!!access?.canConnect&&mine.isSuccess&&!mine.isFetching&&!mine.isPaused;
   const row=readable&&current.isSuccess&&!current.isFetching&&!current.isPaused?current.data:null;
+  useEffect(()=>{
+    if(!id&&readable){const saved=mine.data?.find(connection=>connection.status==="VERIFIED"||connection.canRefresh);if(saved)setId(saved.id);}
+  },[id,readable,mine.data]);
   async function load(after:number|string|null=null){
     if(!id||busy)return;setLoading(true);setMessage("");
     try{const result=await utils.atlassianConnections.catalog.fetch({id,after});if(!alive.current)return;setListing(result);if(result.reset)setSelected({});pending.current=null;setPendingHeld(false);setMetadataConsent(false);setScopeConsent(false);await current.refetch();}
@@ -57,8 +60,9 @@ function AtlassianOAuthSession({projectId,product,onApproved,onWorkingChange}:Pr
       <button type="button" className="btn-secondary" disabled={busy} onClick={()=>{setId(saved.id);setListing(null);setSelected({});pending.current=null;setPendingHeld(false);setMetadataConsent(false);setScopeConsent(false);}}>Open</button>
     </div>)}</div>}
     {row&&<>
-      {["PENDING","EXCHANGING","REFRESHING"].includes(row.status)&&<p role="status">Finish sign-in in the connection window.</p>}
-      {["EXPIRED","RECOVERY_REQUIRED"].includes(row.status)&&<p role="alert">Reconnect to verify access. This attempt will not replay.</p>}
+      {["PENDING","EXCHANGING"].includes(row.status)&&<p role="status">Finish sign-in in the connection window.</p>}
+      {row.status==="REFRESHING"&&<p role="status">Refreshing connection…</p>}
+      {["EXPIRED","RECOVERY_REQUIRED"].includes(row.status)&&<p role="alert">Reconnect to continue.</p>}
       {row.status==="VERIFIED"&&!row.selectedSite&&<fieldset disabled={busy}><legend>Choose site</legend>{row.sites.filter(site=>site.products.includes(product)).map(site=><button key={site.id} type="button" className="btn-secondary" onClick={async()=>{try{await selectSite.mutateAsync({id,siteId:site.id,version:row.version});setListing(null);setSelected({});pending.current=null;setPendingHeld(false);setMetadataConsent(false);setScopeConsent(false);await current.refetch();await mine.refetch();}catch{setMessage("Site selection changed. Refresh and retry.");}}}>{site.name}</button>)}</fieldset>}
       {row.status==="VERIFIED"&&row.selectedSite&&<>
         <p>{row.selectedSite.name} · {row.approvedResources.length} approved</p>

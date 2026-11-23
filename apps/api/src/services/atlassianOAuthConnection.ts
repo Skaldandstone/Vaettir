@@ -52,6 +52,12 @@ async function locked(tx:Prisma.TransactionClient,ctx:Context,row:Scope&{id:stri
 export function atlassianPrivacyFresh(row:Pick<AtlassianOAuthConnection,"privacyCheckedAt"|"privacyCycleDays">){
   return !!row.privacyCheckedAt&&!!row.privacyCycleDays&&row.privacyCheckedAt.getTime()+row.privacyCycleDays*ATLASSIAN_PRIVACY_DAY_MS>Date.now();
 }
+/** Retain only approved resource identities and the freshly checked account. */
+export function renewedJiraCatalog(selectedSite:unknown,approved:unknown,token:Pick<AtlassianToken,"accountId"|"accountName">){
+  if(!selectedSite)return Prisma.DbNull;
+  const site=atlassianSiteSchema.parse(selectedSite);
+  return {workspace:{id:site.url,name:site.url},account:{id:token.accountId,name:token.accountName},projects:resources.parse(approved),cursors:[]};
+}
 export function requireAtlassianVerified(row:Pick<AtlassianOAuthConnection,"status"|"tokenExpiresAt"|"encryptedToken"|"privacyCheckedAt"|"privacyCycleDays">) {
   if(row.status!=="VERIFIED" || !row.tokenExpiresAt || row.tokenExpiresAt.getTime()<=Date.now()+60000 || !row.encryptedToken || !atlassianPrivacyFresh(row))throw stale();
 }
@@ -116,7 +122,8 @@ async function issueAndVerify(ctx:Context,row:AtlassianOAuthConnection,operation
       const current=await locked(tx,ctx,row);
       if(current.operationId!==operationId||!["EXCHANGING","REFRESHING"].includes(current.status))throw stale();
       await tx.atlassianOAuthConnection.update({where:{id:row.id},data:{status:"VERIFIED",operationId:null,encryptedToken:encrypted(token),tokenExpiresAt:new Date(token.expiresAt),accountId:token.accountId,accountName:token.accountName,sites:available,selectedSite:current.selectedSite??(productSites.length===1?productSites[0]:Prisma.DbNull),verifiedAt:observedAt,privacyCheckedAt:privacy.checkedAt,privacyCycleDays:privacy.cycleDays,privacyDueAt:privacy.dueAt,catalog:Prisma.DbNull,version:{increment:1}}});
-      await tx.ticketSourceConnection.updateMany({where:{oauthConnectionId:row.id,status:"VERIFIED"},data:{tokenExpiresAt:new Date(token.expiresAt),catalog:Prisma.DbNull,catalogAt:null}});
+      const selected=current.selectedSite?atlassianSiteSchema.parse(current.selectedSite):productSites.length===1?productSites[0]:null;
+      await tx.ticketSourceConnection.updateMany({where:{oauthConnectionId:row.id,status:"VERIFIED"},data:{tokenExpiresAt:new Date(token.expiresAt),catalog:renewedJiraCatalog(selected,current.approvedResources,token),catalogAt:null}});
     });
     return {connected:true};
   }catch{
@@ -136,8 +143,20 @@ export async function renewAtlassian(ctx:Context,id:string) {
   });
   return issueAndVerify(ctx,row,operationId,()=>refreshAtlassianToken(claimed.app,claimed.token));
 }
+/** Renew an existing human grant, never retry an uncertain token rotation. */
+export async function maintainAtlassian(ctx:Context,id:string) {
+  let row=await ownAtlassian(ctx,id);
+  if(row.status==="VERIFIED"&&row.encryptedToken&&(!row.tokenExpiresAt||row.tokenExpiresAt.getTime()<=Date.now()+60000||!atlassianPrivacyFresh(row))){
+    try{await renewAtlassian(ctx,id);}catch{
+      // Another request may own the rotation, or it may require reconnection.
+      // Return only freshly authorized state; neither case reuses the old token.
+    }
+    row=await ownAtlassian(ctx,id);
+  }
+  return row;
+}
 export async function selectAtlassianSite(ctx:Context,input:{id:string;siteId:string;version:number}) {
-  const row=await ownAtlassian(ctx,input.id);requireAtlassianVerified(row);
+  const row=await maintainAtlassian(ctx,input.id);requireAtlassianVerified(row);
   const token=atlassianTokenSchema.parse(decrypted(row.encryptedToken));
   const available=await listAtlassianSites(token.accessToken);
   const site=available.find(x=>x.id===input.siteId&&x.products.includes(row.product as AtlassianProduct));
@@ -149,7 +168,7 @@ export async function selectAtlassianSite(ctx:Context,input:{id:string;siteId:st
   });
 }
 export async function atlassianCatalog(ctx:Context,input:{id:string;after:number|string|null}) {
-  const row=await ownAtlassian(ctx,input.id);requireAtlassianVerified(row);
+  const row=await maintainAtlassian(ctx,input.id);requireAtlassianVerified(row);
   const selected=atlassianSiteSchema.parse(row.selectedSite),prior=catalog.safeParse(row.catalog).data;
   const fresh=prior&&prior.siteId===selected.id&&prior.at>Date.now()-600000;
   if(input.after!==null&&(!fresh||!prior.cursors.includes(input.after)))throw stale();

@@ -4,7 +4,7 @@ import {Prisma,prisma,type PrismaClient,type AtlassianOAuthConnection} from "@va
 import {z} from "@vaettir/core/dist/validation.js";
 import {encryptToken,decryptToken} from "../services/tokenEncryption.js";
 import {atlassianApplicationSchema,atlassianTokenSchema,refreshAtlassianToken,verifyAtlassianToken,ATLASSIAN_PRIVACY_DAY_MS,type AtlassianToken} from "../services/atlassianOAuth.js";
-import {eraseAtlassianPersonalData,lockStoredAtlassianScope,checkStoredAtlassianPrivacy,AtlassianPrivacyBusyError} from "../services/atlassianOAuthConnection.js";
+import {eraseAtlassianPersonalData,lockStoredAtlassianScope,checkStoredAtlassianPrivacy,AtlassianPrivacyBusyError,renewedJiraCatalog} from "../services/atlassianOAuthConnection.js";
 import {ProviderStatusError} from "../services/repositoryProviderHttp.js";
 import {createSafeSchedulerRunner} from "./safeSchedulerRunner.js";
 import {recordHeartbeat} from "../services/heartbeat.js";
@@ -68,9 +68,9 @@ export async function runDueAtlassianPrivacy(db:PrismaClient=prisma,now=new Date
       if(!current||current.operationId!==operationId)return;
       if(erase||current.status!==held||!token){await eraseAtlassianPersonalData(tx,row.id);return;}
       await tx.atlassianOAuthConnection.update({where:{id:row.id},data:{status:"VERIFIED",operationId:null,privacyClaimId:null,encryptedToken:encode(token),tokenExpiresAt:new Date(token.expiresAt),accountId:token.accountId,accountName:token.accountName,verifiedAt:observedAt,privacyCheckedAt:receipt?.checkedAt??current.privacyCheckedAt,privacyCycleDays:receipt?.cycleDays??current.privacyCycleDays,privacyDueAt:receipt?.dueAt??new Date(Date.now()+retryMs),version:{increment:1}}});
-      // A linked Jira catalogue contains a copy of the authorizing user's name.
-      // Invalidate it rather than leave an outdated profile in another table.
-      await tx.ticketSourceConnection.updateMany({where:{oauthConnectionId:row.id},data:{catalog:Prisma.DbNull,catalogAt:null,tokenExpiresAt:new Date(token.expiresAt),version:{increment:1}}});
+      // Replace the profile copy and invalidate pagination, while retaining
+      // the approved resource identities needed to reopen the Jira picker.
+      await tx.ticketSourceConnection.updateMany({where:{oauthConnectionId:row.id},data:{catalog:renewedJiraCatalog(current.selectedSite,current.approvedResources,token),catalogAt:null,tokenExpiresAt:new Date(token.expiresAt),version:{increment:1}}});
     });
     try{
       token=atlassianTokenSchema.parse(decode(row.encryptedToken));

@@ -16,9 +16,11 @@ RUN --network=none sh /build/scripts/build-sqlite-runtime.sh /build/sqlite-input
 # Isolated C/C++ and signed Node proof. This image never receives customer data
 # or provider credentials. The final target contains only reviewed artifacts.
 FROM public.ecr.aws/docker/library/node:26-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS node-brotli-security
+# Exact ABI-test baseline remains available outside the rolling APT index.
+ADD --checksum=sha256:0fb79f88db210afbd69282ab9649e525f393ec6950ca34da1a6b359250b8d7db https://deb.debian.org/debian/pool/main/b/brotli/libbrotli1_1.1.0-2+b7_amd64.deb /tmp/vaettir-brotli-baseline.deb
 RUN test "$(dpkg --print-architecture)" = amd64 \
     && apt-get update --error-on=any \
-    && apt-get install -y --no-install-recommends openssl ca-certificates perl-base libpcre2-8-0 build-essential binutils cmake debhelper pkg-config gpg gpgv debian-keyring libbrotli1=1.1.0-2+b7 \
+    && apt-get install -y --no-install-recommends openssl ca-certificates perl-base libpcre2-8-0 build-essential binutils cmake debhelper pkg-config gpg gpgv debian-keyring /tmp/vaettir-brotli-baseline.deb \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' perl-base)" ge '5.40.1-6+deb13u1' \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libpcre2-8-0)" ge '10.46-1~deb13u3' \
     && test "$(dpkg-query -W -f='${Version}' libbrotli1)" = 1.1.0-2+b7 \
