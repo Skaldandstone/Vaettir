@@ -1,7 +1,7 @@
 import { z } from "@vaettir/core/dist/validation.js";
 import { router, protectedProcedure, requireProjectAccess } from "../trpc.js";
 import { atlassianApplication, atlassianProduct } from "../services/atlassianOAuth.js";
-import { atlassianStorageReady, ownAtlassian, publicAtlassian, beginAtlassian, finishAtlassian, renewAtlassian, selectAtlassianSite, atlassianCatalog, approveAtlassian, disconnectAtlassian } from "../services/atlassianOAuthConnection.js";
+import { atlassianStorageReady, maintainAtlassian, publicAtlassian, beginAtlassian, finishAtlassian, renewAtlassian, selectAtlassianSite, atlassianCatalog, approveAtlassian, disconnectAtlassian } from "../services/atlassianOAuthConnection.js";
 
 const id=z.string().min(1).max(200),project=z.object({projectId:id}),connection=z.object({id});
 export const atlassianConnectionsRouter=router({
@@ -13,9 +13,9 @@ export const atlassianConnectionsRouter=router({
   mine:protectedProcedure.input(project.extend({product:atlassianProduct})).query(async({ctx,input})=>{
     await requireProjectAccess(ctx,input.projectId,"EDITOR");
     const rows=await ctx.prisma.atlassianOAuthConnection.findMany({where:{projectId:input.projectId,actorId:ctx.user.id,clerkActorId:ctx.authenticatedClerkSubject??"",product:input.product},orderBy:{createdAt:"desc"},take:20});
-    const result=[];for(const row of rows)result.push(publicAtlassian(await ownAtlassian(ctx,row.id)));return result;
+    const result=[];for(const row of rows)result.push(publicAtlassian(await maintainAtlassian(ctx,row.id)));return result;
   }),
-  status:protectedProcedure.input(connection).query(async({ctx,input})=>publicAtlassian(await ownAtlassian(ctx,input.id))),
+  status:protectedProcedure.input(connection).query(async({ctx,input})=>publicAtlassian(await maintainAtlassian(ctx,input.id))),
   begin:protectedProcedure.input(project.extend({originalOrganizationId:id,expectedClerkActorId:id,product:atlassianProduct,requestId:z.string().uuid(),approveMetadataAccess:z.literal(true)})).mutation(({ctx,input})=>beginAtlassian(ctx,input)),
   finish:protectedProcedure.input(z.object({state:z.string().regex(/^[A-Za-z0-9_-]{43}$/),code:z.string().min(1).max(10000).regex(/^[!-~]+$/).optional(),denied:z.literal(true).optional()}).strict().refine(v=>!!v.code!==!!v.denied)).mutation(({ctx,input})=>finishAtlassian(ctx,input)),
   refresh:protectedProcedure.input(connection).mutation(({ctx,input})=>renewAtlassian(ctx,input.id)),

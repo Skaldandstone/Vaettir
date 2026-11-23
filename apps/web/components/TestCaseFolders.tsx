@@ -366,6 +366,7 @@ export function TestCaseFolders({
     <div className="case-folder-tools" role="group" aria-label="Folder tools">
       <span className="text-muted" style={{fontSize: 12, marginRight: 4}}>Suite tools</span>
       <IconButton label="Folders" icon="folder" onClick={begin}/>
+      {ready && !!list.data?.unsupportedPaths?.length && <IconButton label="Imported suites" icon="help" tooltip="Some imported suite names stay as originally supplied. Folder edits use supported paths; no imported names are changed automatically."/>}
       {scopeReady && message && <p role="status">{message}</p>}
       <TestCaseFolderCopy
         key={`${projectId}:copy`}

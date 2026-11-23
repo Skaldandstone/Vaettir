@@ -1,6 +1,6 @@
 # Atlassian browser connections
 
-Vaettir starts Jira and Confluence connections from project Integrations. The normal path signs in with Atlassian, selects an observed Cloud site and reviews projects or spaces. New Jira token registration is rejected. Previously saved encrypted access and imported evidence remain available for the migration; expired access reconnects through browser sign-in.
+Vaettir starts Jira and Confluence connections from project Integrations. The normal path signs in with Atlassian, selects an observed Cloud site and reviews projects or spaces. New Jira token registration is rejected. Previously saved encrypted access and imported evidence remain available for the migration; existing grants renew automatically when opened or used. Revoked or uncertain authorizations require browser sign-in.
 
 ## Provider setup awaiting owner review
 
