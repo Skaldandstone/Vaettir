@@ -14,14 +14,14 @@
     "lint": "eslint ."
   },
   "dependencies": {
-    "@clerk/nextjs": "^7.9.25",
-    "@sentry/nextjs": "^11.12.0",
-    "@tanstack/react-query": "^5.107.1",
-    "@trpc/client": "^11.28.3",
-    "@trpc/react-query": "^11.28.3",
-    "@trpc/server": "^11.28.3",
+    "@clerk/nextjs": "^7.10.7",
+    "@sentry/nextjs": "^11.16.0",
+    "@tanstack/react-query": "^5.108.3",
+    "@trpc/client": "^11.29.7",
+    "@trpc/react-query": "^11.28.5",
+    "@trpc/server": "^11.29.7",
     "@vaettir/core": "workspace:*",
-    "docx": "9.15.4",
+    "docx": "9.16.0",
     "exceljs": "4.4.0",
     "next": "^16.4.6",
     "pptxgenjs": "4.0.1",
@@ -36,6 +36,6 @@
     "@vaettir/api": "workspace:*",
     "@vaettir/db": "workspace:*",
     "typescript": "^6.0.3",
-    "vitest": "^5.1.0"
+    "vitest": "^5.1.1"
   }
 }
