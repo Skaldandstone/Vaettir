@@ -18,7 +18,7 @@ test("isolated ABI proof selects its reviewed baseline despite newer APT candida
   for (const name of ["../Dockerfile.api", "../Dockerfile.web", "./Dockerfile.node-brotli-security"]) {
     const source = readFileSync(new URL(name, import.meta.url), "utf8");
     assert.equal(source.match(/apt-get install[^\n]* \/tmp\/vaettir-brotli-baseline\.deb /g)?.length, 1);
-    assert.ok(source.includes("ADD --checksum=sha256:0fb79f88db210afbd69282ab9649e525f393ec6950ca34da1a6b359250b8d7db https://deb.debian.org/debian/pool/main/b/brotli/libbrotli1_1.1.0-2+b7_amd64.deb /tmp/vaettir-brotli-baseline.deb"));
+    assert.ok(source.includes("ADD --checksum=sha256:0fb79f88db210afbd69282ab9649e525f393ec6950ca34da1a6b359250b8d7db https://snapshot.debian.org/file/e5e9327d88edff7e03a5d9f9ab0c46c1d8c06536 /tmp/vaettir-brotli-baseline.deb"));
     assert.ok(source.includes('test "$(dpkg-query -W -f=\'${Version}\' libbrotli1)" = 1.1.0-2+b7'));
     assert.ok(source.includes('test "$(dpkg-query -W -f=\'${source:Version}\' libbrotli1)" = 1.1.0-2'));
   }
