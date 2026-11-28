@@ -4,7 +4,7 @@
 # exhausted its public data quota. No mutable tag or image identity change.
 FROM docker.io/library/node@sha256:b26b04c123d9ff8ab646ceb18b9d75a1173acf64b9a401094b906d27b29338d4 AS build
 # Exact ABI-test baseline remains available outside the rolling APT index.
-ADD --checksum=sha256:0fb79f88db210afbd69282ab9649e525f393ec6950ca34da1a6b359250b8d7db https://deb.debian.org/debian/pool/main/b/brotli/libbrotli1_1.1.0-2+b7_amd64.deb /tmp/vaettir-brotli-baseline.deb
+ADD --checksum=sha256:0fb79f88db210afbd69282ab9649e525f393ec6950ca34da1a6b359250b8d7db https://snapshot.debian.org/file/e5e9327d88edff7e03a5d9f9ab0c46c1d8c06536 /tmp/vaettir-brotli-baseline.deb
 RUN test "$(dpkg --print-architecture)" = amd64 \
     && apt-get update --error-on=any \
     && apt-get install -y --no-install-recommends openssl ca-certificates perl-base libpcre2-8-0 build-essential binutils cmake debhelper pkg-config gpg gpgv debian-keyring /tmp/vaettir-brotli-baseline.deb \

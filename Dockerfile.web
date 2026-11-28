@@ -17,7 +17,7 @@ RUN --network=none sh /build/scripts/build-sqlite-runtime.sh /build/sqlite-input
 # or provider credentials. The final target contains only reviewed artifacts.
 FROM public.ecr.aws/docker/library/node:26-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS node-brotli-security
 # Exact ABI-test baseline remains available outside the rolling APT index.
-ADD --checksum=sha256:0fb79f88db210afbd69282ab9649e525f393ec6950ca34da1a6b359250b8d7db https://deb.debian.org/debian/pool/main/b/brotli/libbrotli1_1.1.0-2+b7_amd64.deb /tmp/vaettir-brotli-baseline.deb
+ADD --checksum=sha256:0fb79f88db210afbd69282ab9649e525f393ec6950ca34da1a6b359250b8d7db https://snapshot.debian.org/file/e5e9327d88edff7e03a5d9f9ab0c46c1d8c06536 /tmp/vaettir-brotli-baseline.deb
 RUN test "$(dpkg --print-architecture)" = amd64 \
     && apt-get update --error-on=any \
     && apt-get install -y --no-install-recommends openssl ca-certificates perl-base libpcre2-8-0 build-essential binutils cmake debhelper pkg-config gpg gpgv debian-keyring /tmp/vaettir-brotli-baseline.deb \
